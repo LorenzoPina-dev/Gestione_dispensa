@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { validateEventEnvelope } from "../src/index.ts";
+import { validateEventEnvelope, validateJobEnvelope, validateJsonSchema } from "../src/index.ts";
 
 const eventDirectory = new URL("../events/", import.meta.url);
+const jobDirectory = new URL("../jobs/", import.meta.url);
 const openApiDocument = new URL("../../../docs/openapi.yaml", import.meta.url);
 
 test("all event schema files are valid JSON documents", async () => {
@@ -33,7 +34,58 @@ test("event envelope validator requires household scope and payload", () => {
     schemaRef: "events/inventory.stock.received.v1.json",
     payload: { stockItemId: "stock-1" },
   });
+
   assert.deepEqual(valid, { valid: true, issues: [] });
+});
+
+test("registered event schemas are present and reject unknown or missing payload fields", async () => {
+  const registry = JSON.parse(await readFile(new URL("registry.v1.json", eventDirectory), "utf8"));
+  const files = new Set(await readdir(eventDirectory));
+
+  for (const reference of registry.items.enum) {
+    const file = `${reference}.json`;
+    assert.ok(files.has(file), `missing registered event schema: ${file}`);
+    const schema = JSON.parse(await readFile(new URL(file, eventDirectory), "utf8"));
+    assert.ok(Array.isArray(schema.required) && schema.required.length > 0);
+    assert.equal(schema.additionalProperties, false);
+  }
+
+  const schema = JSON.parse(
+    await readFile(new URL("inventory.stock.received.v1.json", eventDirectory), "utf8"),
+  );
+  const valid = validateJsonSchema(
+    {
+      stockItemId: "00000000-0000-4000-8000-000000000001",
+      productId: "00000000-0000-4000-8000-000000000002",
+      quantity: "1",
+      unit: "piece",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+    },
+    schema,
+  );
+  assert.equal(valid.valid, true);
+  const invalid = validateJsonSchema({ stockItemId: "stock-1", unexpected: true }, schema);
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.issues.some((issue) => issue.message.includes("Unknown field")));
+});
+
+test("job validator supports lifecycle fixtures and rejects malformed consumers", async () => {
+  const schema = JSON.parse(await readFile(new URL("job.v1.json", jobDirectory), "utf8"));
+  const validJob = {
+    jobId: "00000000-0000-4000-8000-000000000001",
+    capability: "privacy.export",
+    status: "PENDING",
+    attempt: 0,
+    traceId: "0123456789abcdef",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  assert.equal(validateJobEnvelope(validJob).valid, true);
+  assert.equal(validateJsonSchema(validJob, schema).valid, true);
+  assert.equal(validateJobEnvelope({ ...validJob, status: "BROKEN" }).valid, false);
+  assert.equal(validateJobEnvelope({ ...validJob, unexpected: true }).valid, true);
+  assert.equal(validateJsonSchema({ ...validJob, unexpected: true }, schema).valid, false);
 });
 
 test("privacy operations use operation-specific request and response contracts", async () => {

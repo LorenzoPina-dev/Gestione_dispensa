@@ -53,6 +53,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `SCL-REL-001` | complete as readiness record, production not approved | final prerequisite matrix, operator handoff and explicit owner/date blockers |
 | `FND-CON-001` hardening slice | complete for privacy operations | operation-specific export, erasure and consent request/response schemas with regression coverage |
 | `CON-HARD-002` | complete | remaining public OpenAPI paths no longer reference generic request/success contracts; operation-specific schemas, responses and regression tests added |
+| `CON-HARD-003` | complete | event/job registry coverage, schema validator, lifecycle validator and unknown/missing/replay compatibility fixtures |
 
 ## Validation snapshot
 
@@ -218,9 +219,9 @@ contracts. Remaining generic OpenAPI operations are still tracked as contract-ha
 ## Atomic remaining backlog
 
 The remaining executable work is decomposed in
-[IMPLEMENTATION-BACKLOG.md](IMPLEMENTATION-BACKLOG.md). The next task is `CON-HARD-003`.
-It must add producer/consumer validators and compatibility fixtures for every registered event/job
-before new runtime routes are wired. Tasks are intentionally split between contract,
+[IMPLEMENTATION-BACKLOG.md](IMPLEMENTATION-BACKLOG.md). The next task is `DAT-RUN-001`.
+It must register bounded-context migrations and synthetic seeds against PostgreSQL before new
+runtime routes are wired. Tasks are intentionally split between contract,
 PostgreSQL/Redis runtime integration, user interface runtime, privacy, operational evidence and
 optional capability wiring.
 
@@ -230,6 +231,12 @@ All public OpenAPI path operations now use named request bodies and response com
 `GenericRequest` or `GenericSuccess`. The operation-specific schemas encode required fields,
 enums, identifiers, confirmation, consent, pagination payloads and domain response shapes. YAML
 parsing, contract tests, typecheck, formatting and diff validation pass.
+
+### CON-HARD-003 completed
+
+Added a dependency-free JSON Schema subset validator for producer/consumer payload checks, a
+strict job lifecycle validator, registry coverage checks, and compatibility fixtures for valid,
+missing-required and unknown-field payloads. Contract tests and typecheck pass.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
