@@ -38,6 +38,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `WEB-FAM-001` | complete at journey boundary | safe invite entry/review/accept state model, family welcome redirect, 3 tests |
 | `WEB-INV-001` | complete at journey boundary | receipt/consume/waste action states, optimistic version propagation, conflict/offline/retry recovery, 3 tests |
 | `WEB-SHP-001` | complete at journey boundary | shopping accept/reject/snooze/complete/edit states, list version propagation, conflict/offline/retry recovery, 3 tests |
+| `JOB-NOT-001` | complete at notification boundary | opt-in preferences, quiet hours, idempotent delivery, provider boundary, transient failure and redaction tests |
 
 ## Validation snapshot
 
@@ -65,6 +66,7 @@ JOB-CORE-001 focused validation:
 - WEB-FAM-001 journey tests: 3 passing;
 - WEB-INV-001 journey tests: 3 passing;
 - WEB-SHP-001 journey tests: 3 passing;
+- JOB-NOT-001 notification tests: 3 passing;
 - repository-wide Prettier still reports the pre-existing baseline of 93 files.
 
 Docker image build and container startup have not been evidenced in this snapshot because the
@@ -102,7 +104,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `JOB-NOT-001`: notification worker and preferences.
+1. `OPS-REL-001`: backup and restore automation.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
