@@ -16,6 +16,8 @@ parzialmente validata. La distinzione attuale è:
 	drill reale, scansioni, SLO misurati e approvazioni privacy/security.
 
 Il dettaglio aggiornato dei task e delle evidenze è in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md).
+La matrice requisito-prova aggiornata è in [TRACEABILITY.md](TRACEABILITY.md), mentre la decisione
+di release è registrata in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md).
 Il progetto non deve essere presentato come production-ready finché i gate sotto non hanno
 evidenze ripetibili.
 
@@ -132,6 +134,12 @@ evidenze ripetibili.
 - database e Kubernetes aggiunti prima di conoscere il workload;
 - progetto presentato come enterprise senza prove di isolamento, carico e recovery.
 
-## 7. Criterio finale
+## 7. REL-GOV-001 decisione
+
+La governance gate è completata come registro, non come approvazione: ogni requisito `MUST` è
+tracciato e ogni gap ha owner e follow-up. Il release checklist resta `NOT APPROVED` finché le
+prove beta e privacy/security elencate non sono disponibili.
+
+## 8. Criterio finale
 
 La documentazione e sufficiente per iniziare una fase di design review e planning, non per dichiarare il prodotto pronto. Il primo obiettivo professionale non e aggiungere altri servizi: e trasformare contratti e decisioni in artefatti versionati, testabili e riproducibili.

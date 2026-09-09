@@ -42,6 +42,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `OPS-REL-001` | complete at backup boundary | encrypted backup manifest, PostgreSQL/MinIO artifact references, isolated restore target, verification and redacted-log tests |
 | `REL-SEC-001` | complete at security-gate boundary | dependency audit, deterministic authorization/secret/redaction checks, threat-model evidence and explicit follow-up exceptions |
 | `REL-OPS-001` | complete with family-local drill waivers | deterministic retry/DLQ/ack assertions, synthetic p95, runbook coverage and explicit Docker-dependent drill waivers |
+| `REL-GOV-001` | complete as governance gate, release not approved | complete MUST traceability, lifecycle review, known-risk register and explicit release blockers |
 
 ## Validation snapshot
 
@@ -136,6 +137,12 @@ artifact provenance surfaces are recorded as owned follow-up exceptions rather t
 Added deterministic resilience evidence for worker retry/DLQ/ack ordering and synthetic p95
 measurement, plus explicit runbook coverage and Docker-dependent drill waivers. No high-availability
 claim is made for the single-host family-local profile.
+
+### REL-GOV-001 completed
+
+Added requirement-to-evidence traceability for every `MUST`, retention/lifecycle review updates,
+and a release checklist with named owners, approval states and explicit blockers. The governance
+gate is complete, while beta/production approval remains intentionally denied.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

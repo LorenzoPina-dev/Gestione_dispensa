@@ -64,3 +64,11 @@ Backup non vengono modificati live se la tecnologia non lo consente: la cancella
 - retention job produce metriche e alert se fallisce;
 - ogni purge e idempotente e rieseguibile;
 - data classification accompagna schema, evento e projection.
+
+## 6. REL-GOV-001 review
+
+La retention iniziale è una policy di design e richiede approvazione privacy/legal prima della
+beta. Export, erasure, audit e backup hanno owner e propagazione documentati; nessun dato viene
+considerato cancellato solo perché è stato rimosso dalla tabella autorevole. Le richieste non
+implementate sono tracciate in [TRACEABILITY.md](TRACEABILITY.md) e bloccano l'approvazione di
+release.

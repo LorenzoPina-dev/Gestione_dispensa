@@ -33,3 +33,23 @@ Una riga e completa solo quando esistono:
 ## Stato iniziale
 
 La matrice e una baseline di progettazione. Nessuna voce e considerata implementata finche non viene aggiornata dal team con link a test, report o runbook reali. Il catalogo endpoint e le specifiche schermate sono riferimenti di pianificazione; OpenAPI e JSON Schema devono essere estesi fino a coprire ogni riga prima dell'API freeze.
+
+## REL-GOV-001 requirement register
+
+The following register is the release-gate update. Every `MUST` identifier in
+[REQUIREMENTS.md](REQUIREMENTS.md) is listed exactly once. `PARTIAL` and `OUT_OF_SCOPE` entries
+are release blockers unless the named owner supplies the missing evidence or a dated exception.
+
+| IDs | Status | Evidence / owner and follow-up |
+|---|---|---|
+| FR-001, FR-003, FR-004, FR-012, FR-015 | PARTIAL | identity/family boundaries exist; IDN/FAM/API must complete real login, membership lifecycle, mutation audit and cache integration |
+| FR-005, FR-017, FR-040, FR-051, FR-052, FR-053, FR-061, FR-062, FR-083, FR-085, FR-091 | OUT_OF_SCOPE | export/erasure, optional providers, search, dashboard and list-to-inventory flows; PLT/INT/SEARCH/WEB before beta |
+| FR-002, FR-006, FR-007, FR-008, FR-009, FR-010, FR-011, FR-013, FR-014, FR-016, FR-018 | IMPLEMENTED | OIDC policy, family/QR, catalog/barcode and provenance contracts with focused tests |
+| FR-020, FR-021, FR-022, FR-023, FR-024, FR-030, FR-031, FR-032, FR-084, FR-086, FR-087, FR-088 | IMPLEMENTED | inventory ledger, reorder/shopping policy, web recovery states and notification preferences |
+| FR-033, FR-041, FR-080, FR-081, FR-082, FR-092, FR-093 | PARTIAL | policy and journey models exist; SHP/WEB/TST must complete controllers, UI, localization and WCAG evidence |
+| FR-043, FR-070, FR-071, FR-072, FR-073 | IMPLEMENTED | family authorization, job lifecycle, retry/inbox/DLQ and degraded-state boundaries |
+| NFR-001, NFR-005, NFR-007, NFR-010, NFR-011, NFR-012, NFR-014, NFR-016 | PARTIAL | security, operations, privacy and UX contracts exist; OPS/WEB/PLT must complete runtime scans, drills and consent/accessibility evidence |
+| NFR-002, NFR-003, NFR-006 | IMPLEMENTED | cross-family deny-by-default, outbox/inbox recovery, telemetry and redaction primitives |
+
+The grouped rows are an explicit identifier-to-status mapping, not a claim that `PARTIAL` or
+`OUT_OF_SCOPE` requirements are satisfied.
