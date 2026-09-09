@@ -66,6 +66,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `SHP-RUN-001` | complete at PostgreSQL repository boundary | parameterized shopping list/item persistence, family-scoped locking, semantic dedupe, source provenance and optimistic versions |
 | `JOB-RUN-002` | complete at worker process boundary | runnable worker loop with capability dispatch, signal-driven graceful shutdown, permanent unsupported-capability DLQ handling and restart-safe consumer orchestration |
 | `OBS-RUN-001` | complete at runtime instrumentation boundary | shared redacted JSON logging, service-scoped metrics/readiness facade, and lifecycle instrumentation for API, worker-core and scheduler |
+| `ADMIN-RUN-001` | complete at authorized administration boundary | operator-only job inspection, approval-gated DLQ replay, replay metadata persistence, publisher boundary and security audit outcomes |
 
 ## Validation snapshot
 
@@ -74,13 +75,22 @@ The following checks pass in the repository:
 - workspace build;
 - workspace typecheck;
 - workspace tests;
-- Prettier on changed files;
+- repository-wide Prettier;
 - ESLint with warnings only for intentional bootstrap `console` output;
 - Compose profile rendering;
 - MinIO bootstrap shell syntax;
 - OpenAPI parsing/linting without structural errors;
 - migration runner tests;
 - `git diff --check`.
+
+ADMIN-RUN-001 focused validation:
+
+- API build and tests: passing;
+- workspace build and typecheck: passing;
+- repository-wide Prettier: passing;
+- Compose profile rendering: passing;
+- ESLint: 0 errors, 4 pre-existing bootstrap warnings;
+- `git diff --check`: passing.
 
 JOB-CORE-001 focused validation:
 
