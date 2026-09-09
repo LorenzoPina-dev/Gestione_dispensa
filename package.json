@@ -1,0 +1,33 @@
+{
+  "name": "gestione-dispensa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Family-first local pantry platform",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:api": "npm --workspace @gestione-dispensa/api run build",
+    "start:api": "npm --workspace @gestione-dispensa/api run start",
+    "dev:api": "node --watch --experimental-strip-types apps/api/src/server.ts",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "validate:structure": "node tools/validate-structure.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.0"
+  }
+}

@@ -1,0 +1,263 @@
+openapi: 3.1.0
+info:
+  title: Dispensa API
+  version: 1.0.0
+  description: Versioned public contract for family, inventory and shopping flows.
+servers:
+  - url: https://api.example.invalid/api/v1
+security:
+  - oidc: []
+tags:
+  - name: Families
+  - name: Invites
+  - name: Inventory
+  - name: Shopping
+  - name: Jobs
+paths:
+  /families:
+    post:
+      tags: [Families]
+      operationId: createFamily
+      security: [{oidc: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateFamilyRequest'}
+      responses:
+        '201':
+          description: Family created
+          content: {application/json: {schema: {$ref: '#/components/schemas/FamilyResponse'}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /families/{familyId}/invites:
+    post:
+      tags: [Invites]
+      operationId: createFamilyInvite
+      parameters:
+        - {$ref: '#/components/parameters/FamilyId'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/CreateInviteRequest'}}}
+      responses:
+        '201':
+          description: One-time invite created. Raw QR payload is returned only here.
+          content: {application/json: {schema: {$ref: '#/components/schemas/InviteCreatedResponse'}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /family-invites/resolve:
+    post:
+      tags: [Invites]
+      operationId: resolveFamilyInvite
+      security: []
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ResolveInviteRequest'}}}
+      responses:
+        '200':
+          description: Generic result; invalid tokens must not reveal details.
+          content: {application/json: {schema: {$ref: '#/components/schemas/JoinAttemptResponse'}}}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /family-invites/{joinAttemptId}/review:
+    get:
+      tags: [Invites]
+      operationId: reviewFamilyInvite
+      parameters: [{$ref: '#/components/parameters/JoinAttemptId'}]
+      responses:
+        '200':
+          description: Limited preview after authorization/context validation.
+          content: {application/json: {schema: {$ref: '#/components/schemas/InviteReviewResponse'}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /family-invites/{joinAttemptId}/accept:
+    post:
+      tags: [Invites]
+      operationId: acceptFamilyInvite
+      parameters:
+        - {$ref: '#/components/parameters/JoinAttemptId'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/AcceptInviteRequest'}}}
+      responses:
+        '200':
+          description: Idempotent membership result.
+          content: {application/json: {schema: {$ref: '#/components/schemas/MembershipResponse'}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /families/{familyId}/activate:
+    post:
+      tags: [Families]
+      operationId: activateFamily
+      parameters: [{$ref: '#/components/parameters/FamilyId'}]
+      responses:
+        '200':
+          description: Active family changed.
+          content: {application/json: {schema: {$ref: '#/components/schemas/ActiveFamilyResponse'}}}
+  /inventory/items:
+    post:
+      tags: [Inventory]
+      operationId: createStockItem
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/CreateStockItemRequest'}}}
+      responses:
+        '201':
+          description: Stock item created.
+          content: {application/json: {schema: {$ref: '#/components/schemas/StockItemResponse'}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /inventory/items/{stockItemId}/movements:
+    post:
+      tags: [Inventory]
+      operationId: recordStockMovement
+      parameters:
+        - {$ref: '#/components/parameters/StockItemId'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/MovementRequest'}}}
+      responses:
+        '201':
+          description: Immutable movement applied.
+          content: {application/json: {schema: {$ref: '#/components/schemas/StockItemResponse'}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /shopping-lists/active:
+    get:
+      tags: [Shopping]
+      operationId: getActiveShoppingList
+      responses:
+        '200':
+          description: Active list for active family.
+          content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingListResponse'}}}
+  /jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      operationId: getJob
+      parameters: [{$ref: '#/components/parameters/JobId'}]
+      responses:
+        '200':
+          description: Authorized job status.
+          content: {application/json: {schema: {$ref: '#/components/schemas/JobResponse'}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://id.example.invalid/.well-known/openid-configuration
+  parameters:
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 128}}
+    FamilyId: {name: familyId, in: path, required: true, schema: {type: string, format: uuid}}
+    JoinAttemptId: {name: joinAttemptId, in: path, required: true, schema: {type: string, format: uuid}}
+    StockItemId: {name: stockItemId, in: path, required: true, schema: {type: string, format: uuid}}
+    JobId: {name: jobId, in: path, required: true, schema: {type: string, format: uuid}}
+  responses:
+    Forbidden:
+      description: Forbidden
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    NotFound:
+      description: Not found or not visible to caller
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    Conflict:
+      description: Conflict or idempotency mismatch
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    ValidationError:
+      description: Validation error
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    RateLimited:
+      description: Rate limit exceeded
+      headers: {Retry-After: {schema: {type: integer}}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+  schemas:
+    Meta:
+      type: object
+      required: [requestId, traceId, schemaVersion]
+      properties:
+        requestId: {type: string, format: uuid}
+        traceId: {type: string}
+        schemaVersion: {type: string}
+    CreateFamilyRequest:
+      type: object
+      required: [displayName, locale, timezone, unitSystem]
+      properties:
+        displayName: {type: string, minLength: 1, maxLength: 120}
+        locale: {type: string, example: it-IT}
+        timezone: {type: string, example: Europe/Rome}
+        unitSystem: {type: string, enum: [METRIC, IMPERIAL]}
+    FamilyResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {type: object, required: [familyId, membershipId, role, redirect], properties: {familyId: {type: string, format: uuid}, membershipId: {type: string, format: uuid}, role: {type: string, enum: [CREATOR]}, redirect: {type: string}}}
+        meta: {$ref: '#/components/schemas/Meta'}
+    CreateInviteRequest:
+      type: object
+      required: [role, expiresInSeconds]
+      properties:
+        role: {type: string, enum: [ADMIN, MEMBER, VIEWER]}
+        expiresInSeconds: {type: integer, minimum: 60, maximum: 86400}
+        replaceActiveInvite: {type: boolean, default: false}
+    InviteCreatedResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {type: object, required: [inviteId, role, status, expiresAt, qrPayload, fallbackCode], properties: {inviteId: {type: string, format: uuid}, role: {type: string}, status: {type: string, enum: [CREATED]}, expiresAt: {type: string, format: date-time}, qrPayload: {type: string, writeOnly: true}, fallbackCode: {type: string, writeOnly: true}}}
+        meta: {$ref: '#/components/schemas/Meta'}
+    ResolveInviteRequest:
+      type: object
+      required: [token, clientNonce]
+      properties: {token: {type: string, minLength: 32}, clientNonce: {type: string, format: uuid}}
+    JoinAttemptResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {type: object, required: [joinAttemptId, status, expiresAt], properties: {joinAttemptId: {type: string, format: uuid}, status: {type: string, enum: [PENDING_AUTHENTICATION, PENDING_REVIEW, UNAVAILABLE]}, expiresAt: {type: string, format: date-time}}}
+        meta: {$ref: '#/components/schemas/Meta'}
+    InviteReviewResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {type: object, required: [familyPreview, proposedRole, expiresAt], properties: {familyPreview: {type: object, properties: {displayName: {type: string}}}, proposedRole: {type: string}, expiresAt: {type: string, format: date-time}, requiresConsent: {type: boolean}}}
+        meta: {$ref: '#/components/schemas/Meta'}
+    AcceptInviteRequest:
+      type: object
+      required: [accepted, consentVersion]
+      properties: {accepted: {type: boolean, const: true}, consentVersion: {type: string}}
+    MembershipResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {type: object, required: [familyId, membershipId, role, status, redirect], properties: {familyId: {type: string, format: uuid}, membershipId: {type: string, format: uuid}, role: {type: string}, status: {type: string, enum: [ACTIVE]}, redirect: {type: string}}}
+        meta: {$ref: '#/components/schemas/Meta'}
+    ActiveFamilyResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {type: object, required: [familyId], properties: {familyId: {type: string, format: uuid}}}
+        meta: {$ref: '#/components/schemas/Meta'}
+    CreateStockItemRequest:
+      type: object
+      required: [productId, quantity, unit]
+      properties: {productId: {type: string, format: uuid}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string, enum: [g, kg, ml, l, piece, pack]}, expiresAt: {type: string, format: date-time, nullable: true}, reorderPoint: {type: number, minimum: 0, nullable: true}, locationId: {type: string, format: uuid, nullable: true}}
+    MovementRequest:
+      type: object
+      required: [kind, quantity, unit, clientOperationId]
+      properties: {kind: {type: string, enum: [RECEIPT, CONSUMPTION, WASTE, ADJUSTMENT, TRANSFER]}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string}, reason: {type: string, maxLength: 500, nullable: true}, occurredAt: {type: string, format: date-time}, clientOperationId: {type: string, format: uuid}}
+    StockItemResponse:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: object, properties: {stockItemId: {type: string, format: uuid}, familyId: {type: string, format: uuid}, productId: {type: string, format: uuid}, quantity: {type: number}, unit: {type: string}, version: {type: integer}, updatedAt: {type: string, format: date-time}}}, meta: {$ref: '#/components/schemas/Meta'}}
+    ShoppingListResponse:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: object, properties: {listId: {type: string, format: uuid}, familyId: {type: string, format: uuid}, items: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
+    JobResponse:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: object, required: [jobId, status], properties: {jobId: {type: string, format: uuid}, status: {type: string, enum: [PENDING, PROCESSING, PENDING_REVIEW, COMPLETED, FAILED, CANCELLED, DEGRADED]}, retryable: {type: boolean}, traceId: {type: string}, error: {type: object, nullable: true}}}, meta: {$ref: '#/components/schemas/Meta'}}
+    ErrorResponse:
+      type: object
+      required: [error, meta]
+      properties:
+        error: {type: object, required: [code, message, retryable], properties: {code: {type: string}, message: {type: string}, retryable: {type: boolean}, details: {type: array, items: {type: object}}}}
+        meta: {$ref: '#/components/schemas/Meta'}

@@ -1,0 +1,5 @@
+* @gestione-dispensa/maintainers
+
+/infra/ @gestione-dispensa/platform
+/docs/ @gestione-dispensa/architecture
+/packages/contracts/ @gestione-dispensa/architecture
