@@ -61,6 +61,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `IDN-RUN-001` | complete at local OIDC flow boundary | Authorization Code + PKCE S256 flow with discovery validation, one-time state, TTL cleanup, token exchange and deterministic callback tests |
 | `JOB-RUN-003` | complete at scheduler process boundary | executable polling loop with single-flight ticks, database-backed scheduler lock contract, missed-run recovery, audit outcomes and graceful stop |
 | `FAM-RUN-001` | complete at PostgreSQL repository boundary | parameterized family/invite repositories with atomic transactions, audit/outbox writes, hash-only invite persistence and invite acceptance transaction tests |
+| `CAT-RUN-001` | complete at PostgreSQL repository boundary | parameterized catalog repositories for manual products, barcode lookup, imported candidates, provenance and transactional outbox tests |
 
 ## Validation snapshot
 
@@ -299,6 +300,14 @@ invite tokens remain hash-only, invite lookup and join attempts use parameterize
 updates membership, attempt and invite state atomically. The adapters depend only on a small SQL
 client/transaction boundary, so no PostgreSQL driver leaks into domain services. Live execution
 against PostgreSQL remains environment-waived while Docker is unavailable.
+
+### CAT-RUN-001 completed at PostgreSQL repository boundary
+
+Added concrete catalog adapters for atomic manual product persistence, manual provenance and
+transactional outbox writes, normalized identifier lookup with verified-first ordering, and imported
+candidate persistence with provider provenance. The adapters use only the shared SQL transaction
+boundary and keep provider/database details outside the catalog services. Live PostgreSQL execution
+remains environment-waived while Docker is unavailable.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
