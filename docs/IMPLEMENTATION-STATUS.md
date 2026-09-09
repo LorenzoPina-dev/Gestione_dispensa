@@ -31,6 +31,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `DOM-INV-002` | complete at controller boundary | inventory mutation handlers, family authorization, If-Match/version conflict, stable errors, 3 tests |
 | `DOM-SHP-001` | complete at persistence/application boundary | shopping lists/items/sources migration, semantic dedupe boundary, validation service, 2 tests |
 | `DOM-SHP-002` | complete at policy/application boundary | threshold boundary policy, version-based dedupe, ignored/snoozed protection, reorder event, 3 tests |
+| `JOB-CORE-001` | complete at queue/job boundary | provider-neutral queue, lifecycle, bounded retry, inbox dedupe, attempts, DLQ, cancellation, graceful stop, metrics, 3 tests |
 
 ## Validation snapshot
 
@@ -39,13 +40,20 @@ The following checks pass in the repository:
 - workspace build;
 - workspace typecheck;
 - workspace tests;
-- Prettier;
+- Prettier on changed files;
 - ESLint with warnings only for intentional bootstrap `console` output;
 - Compose profile rendering;
 - MinIO bootstrap shell syntax;
 - OpenAPI parsing/linting without structural errors;
 - migration runner tests;
 - `git diff --check`.
+
+JOB-CORE-001 focused validation:
+
+- worker-core tests: 3 passing;
+- API tests: no tests discovered;
+- worker-core files pass targeted Prettier check;
+- repository-wide Prettier still reports the pre-existing baseline of 93 files.
 
 Docker image build and container startup have not been evidenced in this snapshot because the
 Docker Desktop Linux engine was not available during runtime checks. Compose configuration is
@@ -59,7 +67,7 @@ validated, but this is not equivalent to a successful `up` and health/readiness 
 - catalog API integration with real persistence and external provider adapter;
 - real PostgreSQL inventory lock/rebuild integration;
 - shopping conflict/controller integration;
-- outbox/inbox persistence and worker-core handlers;
+- worker-core handlers;
 - scheduler process and reconciliation jobs;
 - notifications and privacy export/erasure workflows;
 - Next.js web/PWA and core user journeys.
@@ -82,7 +90,8 @@ finished domain contract.
 
 ## Next execution order
 
-1. `JOB-CORE-001`: queues, jobs, retries, inbox and DLQ.
+1. `JOB-CORE-002`: worker-core handlers, reconciliation and projections.
+2. `JOB-CORE-003`: scheduler and maintenance jobs.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
