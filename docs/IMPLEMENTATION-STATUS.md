@@ -60,6 +60,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `JOB-RUN-001` | complete at Redis adapter boundary | provider-neutral Redis list adapter with processing acknowledgements, nack/requeue, FIFO, backlog/oldest-age metrics and deterministic fake-client tests |
 | `IDN-RUN-001` | complete at local OIDC flow boundary | Authorization Code + PKCE S256 flow with discovery validation, one-time state, TTL cleanup, token exchange and deterministic callback tests |
 | `JOB-RUN-003` | complete at scheduler process boundary | executable polling loop with single-flight ticks, database-backed scheduler lock contract, missed-run recovery, audit outcomes and graceful stop |
+| `FAM-RUN-001` | complete at PostgreSQL repository boundary | parameterized family/invite repositories with atomic transactions, audit/outbox writes, hash-only invite persistence and invite acceptance transaction tests |
 
 ## Validation snapshot
 
@@ -289,6 +290,15 @@ ticks, delegates locking and audit persistence to the scheduler repository, pres
 recovery, exposes completed run observations, and stops by cancelling future polls and awaiting any
 active tick. Poll interval, lease and owner identity can be supplied by environment without
 introducing provider-specific persistence into the scheduler package.
+
+### FAM-RUN-001 completed at PostgreSQL repository boundary
+
+Added concrete PostgreSQL repository adapters for family creation and invite lifecycle. Family
+creation writes the family, owner membership, audit record and outbox event in one transaction;
+invite tokens remain hash-only, invite lookup and join attempts use parameterized SQL, and accept
+updates membership, attempt and invite state atomically. The adapters depend only on a small SQL
+client/transaction boundary, so no PostgreSQL driver leaks into domain services. Live execution
+against PostgreSQL remains environment-waived while Docker is unavailable.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
