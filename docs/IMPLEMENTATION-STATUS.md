@@ -43,6 +43,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `REL-SEC-001` | complete at security-gate boundary | dependency audit, deterministic authorization/secret/redaction checks, threat-model evidence and explicit follow-up exceptions |
 | `REL-OPS-001` | complete with family-local drill waivers | deterministic retry/DLQ/ack assertions, synthetic p95, runbook coverage and explicit Docker-dependent drill waivers |
 | `REL-GOV-001` | complete as governance gate, release not approved | complete MUST traceability, lifecycle review, known-risk register and explicit release blockers |
+| `OPT-INT-001` | complete at barcode adapter boundary | provider-neutral barcode adapter, normalization, timeout/rate-limit degradation, provenance and reviewable candidates |
 
 ## Validation snapshot
 
@@ -112,7 +113,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `REL-OPS-001`: resilience and SLO evidence.
+1. `OPT-INT-002`: OCR/photo recognition pipeline.
 
 ### REL-TST-001 completed
 
@@ -143,6 +144,13 @@ claim is made for the single-host family-local profile.
 Added requirement-to-evidence traceability for every `MUST`, retention/lifecycle review updates,
 and a release checklist with named owners, approval states and explicit blockers. The governance
 gate is complete, while beta/production approval remains intentionally denied.
+
+### OPT-INT-001 completed
+
+Added a provider-neutral barcode/catalog adapter with strict identifier normalization, response
+validation, timeout and rate-limit degradation, provenance metadata, and mandatory reviewable
+candidate output. Manual catalog entry remains available when the provider is unavailable or has no
+match.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
