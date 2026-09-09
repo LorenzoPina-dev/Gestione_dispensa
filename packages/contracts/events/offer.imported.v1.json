@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/offer.imported.v1.json",
+  "title": "Offer imported v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "offerId",
+    "productId",
+    "retailerId",
+    "validFrom",
+    "validTo",
+    "area",
+    "sourceQuality"
+  ],
+  "properties": {
+    "offerId": { "type": "string", "format": "uuid" },
+    "productId": { "type": ["string", "null"], "format": "uuid" },
+    "retailerId": { "type": "string", "format": "uuid" },
+    "validFrom": { "type": "string", "format": "date-time" },
+    "validTo": { "type": "string", "format": "date-time" },
+    "area": { "type": "string", "minLength": 1 },
+    "sourceQuality": { "type": "string", "enum": ["VERIFIED", "IMPORTED", "ESTIMATED", "UNKNOWN"] }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/family.invite.created.v1.json",
+  "title": "Family invite created v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["inviteId", "familyId", "role", "expiresAt", "createdBy"],
+  "properties": {
+    "inviteId": { "type": "string", "format": "uuid" },
+    "familyId": { "type": "string", "format": "uuid" },
+    "role": { "type": "string", "enum": ["OWNER", "MANAGER", "MEMBER", "VIEWER"] },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "createdBy": { "type": "string", "format": "uuid" }
+  }
+}

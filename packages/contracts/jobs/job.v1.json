@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/jobs/job.v1.json",
+  "title": "Job v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["jobId", "capability", "status", "attempt", "traceId", "createdAt", "updatedAt"],
+  "properties": {
+    "jobId": { "type": "string", "format": "uuid" },
+    "familyId": { "type": ["string", "null"], "format": "uuid" },
+    "capability": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "PROCESSING",
+        "PENDING_REVIEW",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED",
+        "DEGRADED"
+      ]
+    },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "traceId": { "type": "string", "minLength": 16 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "errorCode": { "type": ["string", "null"] }
+  }
+}

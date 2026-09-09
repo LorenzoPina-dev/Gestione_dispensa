@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/envelope.v1.json",
+  "title": "Event envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "eventVersion",
+    "occurredAt",
+    "aggregateType",
+    "aggregateId",
+    "actorType",
+    "traceId",
+    "schemaRef",
+    "payload"
+  ],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+    "eventVersion": { "type": "integer", "minimum": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "publishedAt": { "type": ["string", "null"], "format": "date-time" },
+    "aggregateType": { "type": "string", "minLength": 1 },
+    "aggregateId": { "type": "string", "format": "uuid" },
+    "householdId": { "type": "string", "format": "uuid" },
+    "actorType": { "type": "string", "enum": ["USER", "SERVICE", "SYSTEM"] },
+    "actorId": { "type": ["string", "null"], "format": "uuid" },
+    "traceId": { "type": "string", "minLength": 16 },
+    "schemaRef": { "type": "string", "format": "uri-reference" },
+    "payload": { "type": "object" }
+  }
+}

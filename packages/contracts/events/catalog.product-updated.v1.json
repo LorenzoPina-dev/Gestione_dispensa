@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/catalog.product-updated.v1.json",
+  "title": "Catalog product updated v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["productId", "changedFields", "source", "provenanceVersion"],
+  "properties": {
+    "productId": { "type": "string", "format": "uuid" },
+    "changedFields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "source": { "type": "string", "minLength": 1 },
+    "provenanceVersion": { "type": "integer", "minimum": 1 }
+  }
+}

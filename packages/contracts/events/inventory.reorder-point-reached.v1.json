@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/inventory.reorder-point-reached.v1.json",
+  "title": "Inventory reorder point reached v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "productId",
+    "stockItemId",
+    "availableQuantity",
+    "reorderPoint",
+    "reason",
+    "dedupeKey"
+  ],
+  "properties": {
+    "productId": { "type": "string", "format": "uuid" },
+    "stockItemId": { "type": "string", "format": "uuid" },
+    "availableQuantity": { "type": "string" },
+    "reorderPoint": { "type": "string" },
+    "reason": { "type": "string", "minLength": 1 },
+    "dedupeKey": { "type": "string", "minLength": 1 }
+  }
+}

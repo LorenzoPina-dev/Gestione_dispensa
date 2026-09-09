@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/recognition.completed.v1.json",
+  "title": "Recognition completed v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["jobId", "assetId", "candidates", "confidenceSummary", "reviewRequired"],
+  "properties": {
+    "jobId": { "type": "string", "format": "uuid" },
+    "assetId": { "type": "string", "format": "uuid" },
+    "candidates": { "type": "array", "items": { "type": "object" } },
+    "confidenceSummary": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reviewRequired": { "type": "boolean" }
+  }
+}

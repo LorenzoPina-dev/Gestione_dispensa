@@ -2,30 +2,32 @@
 
 ## 1. Stato reale del repository
 
-Il repository contiene ora una baseline documentale P0 avanzata e ha congelato il primo target `family-local`, ma non contiene ancora applicazione, infrastruttura eseguibile o pipeline CI. La distinzione e importante:
+Il repository contiene una baseline documentale avanzata e una prima implementazione tecnica
+parzialmente validata. La distinzione attuale è:
 
-- **documentato**: decisioni, requisiti, flussi, contratti concettuali e criteri;
-- **materializzato come documentazione**: product brief, glossario, OpenAPI YAML, ERD, eventi, autorizzazioni, configurazione, retention, SLO e runbook; restano da validare e approvare;
-- **specificato ma non materializzato**: manifest, dashboard, alert rules, migration files, validator CI e runbook automatizzati;
-- **non ancora presente**: codice, test runtime, immagini, migrazioni, ambienti e prove operative.
+- **implementato e validato localmente**: workspace, testkit, contratti HTTP/event/job, config
+	tipizzata, primitive osservabilità, migration runner, policy Compose, realm Keycloak, bootstrap
+	MinIO, provisioning observabilità, OIDC verifier e authorization policy;
+- **materializzato ma non provato end-to-end**: profilo Docker Compose completo, health/readiness
+	dei container, login Keycloak, upload MinIO, trace cross-service, alert delivery e restore;
+- **non ancora implementato**: persistenza family/membership/QR, catalogo, inventario, shopping,
+	worker, scheduler, notifiche, web/PWA e journey utente;
+- **non ancora production-ready**: test security/load/resilience/accessibility, backup/restore
+	drill reale, scansioni, SLO misurati e approvazioni privacy/security.
 
-Il progetto non deve essere presentato come production-ready finche i gate sotto non hanno evidenze ripetibili.
+Il dettaglio aggiornato dei task e delle evidenze è in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md).
+Il progetto non deve essere presentato come production-ready finché i gate sotto non hanno
+evidenze ripetibili.
 
-## 2. Documentazione ancora necessaria
+## 2. Documentazione ed evidenze ancora necessarie
 
-### P0: prima di iniziare lo sviluppo
+### P0: prima dell'implementazione dei domini
 
-1. **Product brief e success metrics**: problema, personas, MVP, metriche activation/retention/stock accuracy e criteri di esclusione.
-2. **Glossario e ubiquitous language**: differenza formale tra user, family, household, tenant, store, product, stock item, lot, package, serving e movement.
-3. **ERD versionato**: disponibile in [ERD e ownership dati](DATA-MODEL-ERD.md), da approvare con migration owner.
-4. **OpenAPI versionata**: baseline disponibile in [openapi.yaml](openapi.yaml); il perimetro completo degli endpoint e in [API-ENDPOINT-CATALOG.md](API-ENDPOINT-CATALOG.md) e deve essere materializzato/validato prima dell'API freeze.
-5. **JSON Schema eventi/job**: policy e payload disponibili in [EVENT-SCHEMAS.md](EVENT-SCHEMAS.md), da materializzare nel registry/validator.
-6. **Matrice autorizzazioni**: disponibile in [AUTHORIZATION-MATRIX.md](AUTHORIZATION-MATRIX.md), da coprire con test automatici.
-7. **Configuration contract**: disponibile in [CONFIGURATION-CONTRACT.md](CONFIGURATION-CONTRACT.md), da validare all'avvio dei servizi.
-8. **Data retention schedule**: disponibile in [RETENTION-AND-DATA-LIFECYCLE.md](RETENTION-AND-DATA-LIFECYCLE.md), da approvare con privacy/legal.
-9. **SLO/error budget catalog**: disponibile in [SLO-ERROR-BUDGET.md](SLO-ERROR-BUDGET.md), da collegare a query Prometheus.
-10. **Runbook operativi**: disponibili in [RUNBOOKS.md](RUNBOOKS.md), da provare con tabletop e drill reali.
-11. **Threat model e DPIA approvati**: i documenti tecnici esistono, ma l'approvazione di security/privacy resta un gate umano.
+1. **ERD e ownership**: approvare le migration dei bounded context con il migration owner.
+2. **OpenAPI**: sostituire i body generici rimasti con schemi operation-specific e completare gli esempi 4xx prima dell'API freeze.
+3. **Eventi/job**: completare gli eventuali eventi canonici mancanti e generare validator producer/consumer.
+4. **Retention, threat model e DPIA**: ottenere approvazione privacy/security, ancora gate umano.
+5. **SLO e runbook**: collegare tutte le query/alert e provare i drill su container e database reali.
 
 ### P1: prima del primo rilascio beta
 
@@ -57,23 +59,16 @@ Il progetto non deve essere presentato come production-ready finche i gate sotto
 
 ## 3. Artefatti di progetto mancanti
 
-### P0: foundation eseguibile
+### P0: foundation eseguibile residua
 
-- codice web/API/worker;
-- monorepo e package boundaries;
-- Dockerfile e Docker Compose profili;
-- profilo Compose `family-local` con Grafana, DB, Redis e servizi locali;
-- migrazioni PostgreSQL e seed sintetici;
-- configurazione Redis/queue/outbox;
-- gateway e OIDC configuration;
-- object storage policy e upload quarantine;
-- health/readiness/startup endpoint;
-- OpenTelemetry Collector e instrumentation baseline;
-- Prometheus/Grafana/Alertmanager minimi;
-- CI con lint, typecheck, test, build e scan;
-- secret handling e `.env.example` senza segreti;
-- backup verificato e script/procedura restore;
-- schema registry materializzato o validatore di contratto.
+- avvio reale dei container e health/readiness drill;
+- configurazione Redis/queue/outbox applicativa;
+- gateway, worker-core e scheduler reali;
+- migrazioni dei bounded context e seed sintetici;
+- instrumentation collegata ai processi applicativi;
+- backup verificato e restore drill PostgreSQL/MinIO;
+- security/secret/container scan nella CI;
+- schema request/response operation-specific e validator producer/consumer.
 
 ### P1: prodotto beta
 

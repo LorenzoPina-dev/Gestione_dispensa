@@ -1,0 +1,58 @@
+{
+  "realm": "dispensa",
+  "enabled": true,
+  "displayName": "Gestione Dispensa Local",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "roles": {
+    "realm": [
+      { "name": "OWNER", "description": "Household owner" },
+      { "name": "MANAGER", "description": "Household manager" },
+      { "name": "MEMBER", "description": "Household member" },
+      { "name": "VIEWER", "description": "Read-only household member" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "dispensa-web",
+      "name": "Dispensa Web Local",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "dispensa-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "dispensa-api",
+      "name": "Dispensa API Local",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ]
+}

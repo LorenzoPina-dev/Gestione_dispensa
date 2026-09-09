@@ -33,3 +33,15 @@
 
 This layout defines boundaries and ownership. Empty source folders are intentional until the
 corresponding contract and implementation milestone is approved.
+
+## Current implementation markers
+
+- `apps/api/src/identity/`: OIDC verification and authorization policy are implemented and tested;
+- `packages/contracts/`: HTTP types, event/job schemas, registries, and envelope validation exist;
+- `packages/config/`: typed profile loader and secret-reference validation exist;
+- `packages/observability/`: redaction, context, metrics, trace parsing, and readiness primitives exist;
+- `infra/postgres/scripts/`: external migration runner with lock/checksum/status exists;
+- `infra/identity/keycloak/`: local realm export exists;
+- `infra/storage/minio/`: local private-bucket bootstrap exists;
+- `infra/observability/`: local telemetry backend provisioning exists;
+- domain source folders and non-implemented deployables remain intentionally empty.

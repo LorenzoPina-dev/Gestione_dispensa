@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/registry.v1.json",
+  "title": "Registered event references v1",
+  "type": "array",
+  "items": {
+    "type": "string",
+    "enum": [
+      "family.created.v1",
+      "family.invite.created.v1",
+      "inventory.stock.received.v1",
+      "inventory.stock.consumed.v1",
+      "inventory.reorder-point-reached.v1",
+      "catalog.product-updated.v1",
+      "recognition.completed.v1",
+      "offer.imported.v1",
+      "recipe.suggestion-generated.v1"
+    ]
+  },
+  "uniqueItems": true,
+  "minItems": 9
+}

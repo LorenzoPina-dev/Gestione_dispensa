@@ -1,0 +1,21 @@
+groups:
+  - name: dispensa-core
+    rules:
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: API service is unavailable
+          runbook: docs/RUNBOOKS.md#api-unavailable
+      - alert: ApiHighErrorRate
+        expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{job="api"}[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: API server error rate exceeds five percent
+          runbook: docs/RUNBOOKS.md#api-unavailable

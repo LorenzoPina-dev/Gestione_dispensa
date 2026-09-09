@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/family.created.v1.json",
+  "title": "Family created v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["familyId", "creatorMembershipId", "locale", "timezone"],
+  "properties": {
+    "familyId": { "type": "string", "format": "uuid" },
+    "creatorMembershipId": { "type": "string", "format": "uuid" },
+    "locale": { "type": "string", "minLength": 2 },
+    "timezone": { "type": "string", "minLength": 1 }
+  }
+}

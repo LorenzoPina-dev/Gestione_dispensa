@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/registry.json",
+  "title": "Event schema registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "events"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "events": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9.-]+/v[0-9]+$" },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}

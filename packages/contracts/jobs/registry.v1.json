@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/jobs/registry.v1.json",
+  "title": "Registered job capabilities v1",
+  "type": "array",
+  "items": {
+    "type": "string",
+    "enum": [
+      "catalog.import",
+      "recognition.process",
+      "recipe.suggest",
+      "offers.import",
+      "privacy.export",
+      "privacy.erasure",
+      "admin.replay"
+    ]
+  },
+  "uniqueItems": true,
+  "minItems": 7
+}

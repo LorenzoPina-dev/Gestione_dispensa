@@ -3,21 +3,39 @@ info:
   title: Dispensa API
   version: 1.0.0
   description: Versioned public contract for family, inventory and shopping flows.
+  license: {name: Internal engineering contract}
 servers:
   - url: https://api.example.invalid/api/v1
 security:
   - oidc: []
 tags:
-  - name: Families
-  - name: Invites
-  - name: Inventory
-  - name: Shopping
-  - name: Jobs
+  - {name: Identity, description: "Authenticated principal and identity context"}
+  - {name: Families, description: "Family membership and active-family context"}
+  - {name: Invites, description: "Secure family invitation lifecycle"}
+  - {name: Catalog, description: "Canonical products and provenance"}
+  - {name: Recognition, description: "Media and reviewable recognition jobs"}
+  - {name: Inventory, description: "Stock items, movements, expiry and consumption"}
+  - {name: Shopping, description: "Shared lists and reorder suggestions"}
+  - {name: Recipes, description: "Recipe suggestions and planning"}
+  - {name: Nutrition, description: "Source-qualified nutrition summaries"}
+  - {name: Offers, description: "Authorized retailer offer data"}
+  - {name: Notifications, description: "User notifications and preferences"}
+  - {name: Privacy, description: "Export, erasure and consent controls"}
+  - {name: Admin, description: "Restricted operations and audit access"}
+  - {name: Jobs, description: "Asynchronous job status"}
+  - {name: Platform, description: "Internal health and telemetry endpoints"}
 paths:
   /families:
+    get:
+      tags: [Families]
+      operationId: listFamilies
+      summary: List families
+      x-scope: authenticated
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
     post:
       tags: [Families]
       operationId: createFamily
+      summary: Create a family
       security: [{oidc: []}]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody:
@@ -32,9 +50,17 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
   /families/{familyId}/invites:
+    get:
+      tags: [Invites]
+      operationId: listFamilyInvites
+      summary: List family invites
+      x-scope: family.admin
+      parameters: [{$ref: '#/components/parameters/FamilyId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '403': {$ref: '#/components/responses/Forbidden'}}
     post:
       tags: [Invites]
       operationId: createFamilyInvite
+      summary: Create a family invite
       parameters:
         - {$ref: '#/components/parameters/FamilyId'}
         - {$ref: '#/components/parameters/IdempotencyKey'}
@@ -51,6 +77,7 @@ paths:
     post:
       tags: [Invites]
       operationId: resolveFamilyInvite
+      summary: Resolve a family invite
       security: []
       requestBody:
         required: true
@@ -64,6 +91,7 @@ paths:
     get:
       tags: [Invites]
       operationId: reviewFamilyInvite
+      summary: Review a family invite
       parameters: [{$ref: '#/components/parameters/JoinAttemptId'}]
       responses:
         '200':
@@ -74,6 +102,7 @@ paths:
     post:
       tags: [Invites]
       operationId: acceptFamilyInvite
+      summary: Accept a family invite
       parameters:
         - {$ref: '#/components/parameters/JoinAttemptId'}
         - {$ref: '#/components/parameters/IdempotencyKey'}
@@ -89,6 +118,7 @@ paths:
     post:
       tags: [Families]
       operationId: activateFamily
+      summary: Activate a family
       parameters: [{$ref: '#/components/parameters/FamilyId'}]
       responses:
         '200':
@@ -98,6 +128,7 @@ paths:
     post:
       tags: [Inventory]
       operationId: createStockItem
+      summary: Create a stock item
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody:
         required: true
@@ -108,9 +139,17 @@ paths:
           content: {application/json: {schema: {$ref: '#/components/schemas/StockItemResponse'}}}
         '409': {$ref: '#/components/responses/Conflict'}
   /inventory/items/{stockItemId}/movements:
+    get:
+      tags: [Inventory]
+      operationId: listStockMovements
+      summary: List stock movements
+      x-scope: inventory.read
+      parameters: [{$ref: '#/components/parameters/StockItemId'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
     post:
       tags: [Inventory]
       operationId: recordStockMovement
+      summary: Record a stock movement
       parameters:
         - {$ref: '#/components/parameters/StockItemId'}
         - {$ref: '#/components/parameters/IdempotencyKey'}
@@ -126,6 +165,7 @@ paths:
     get:
       tags: [Shopping]
       operationId: getActiveShoppingList
+      summary: Get the active shopping list
       responses:
         '200':
           description: Active list for active family.
@@ -134,12 +174,487 @@ paths:
     get:
       tags: [Jobs]
       operationId: getJob
+      summary: Get a job
       parameters: [{$ref: '#/components/parameters/JobId'}]
       responses:
         '200':
           description: Authorized job status.
           content: {application/json: {schema: {$ref: '#/components/schemas/JobResponse'}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /me:
+    get:
+      tags: [Identity]
+      operationId: getCurrentPrincipal
+      summary: Get the current principal
+      x-scope: authenticated
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /families/{familyId}:
+    get:
+      tags: [Families]
+      operationId: getFamily
+      summary: Get a family
+      x-scope: family.read
+      parameters: [{$ref: '#/components/parameters/FamilyId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /families/{familyId}/members:
+    get:
+      tags: [Families]
+      operationId: listFamilyMembers
+      summary: List family members
+      x-scope: family.read
+      parameters: [{$ref: '#/components/parameters/FamilyId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /families/{familyId}/members/{membershipId}:
+    patch:
+      tags: [Families]
+      operationId: updateFamilyMembership
+      summary: Update a family membership
+      x-scope: family.admin
+      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/MembershipId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {$ref: '#/components/responses/Conflict'}}
+    delete:
+      tags: [Families]
+      operationId: removeFamilyMembership
+      summary: Remove a family membership
+      x-scope: family.admin
+      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/MembershipId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'204': {description: Membership removed}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /families/{familyId}/invites/{inviteId}/revoke:
+    post:
+      tags: [Invites]
+      operationId: revokeFamilyInvite
+      summary: Revoke a family invite
+      x-scope: family.admin
+      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/InviteId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /family-invites/{joinAttemptId}/reject:
+    post:
+      tags: [Invites]
+      operationId: rejectFamilyInvite
+      summary: Reject a family invite
+      x-scope: join.owner
+      parameters: [{$ref: '#/components/parameters/JoinAttemptId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /products:
+    get:
+      tags: [Catalog]
+      operationId: searchProducts
+      summary: Search products
+      x-scope: family.read
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/SearchQuery'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+    post:
+      tags: [Catalog]
+      operationId: createProduct
+      summary: Create a product
+      x-scope: family.write
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'201': {$ref: '#/components/responses/GenericSuccess'}, '422': {$ref: '#/components/responses/ValidationError'}}
+  /products/{productId}:
+    get:
+      tags: [Catalog]
+      operationId: getProduct
+      summary: Get a product
+      x-scope: family.read
+      parameters: [{$ref: '#/components/parameters/ProductId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+    patch:
+      tags: [Catalog]
+      operationId: updateProduct
+      summary: Update a product
+      x-scope: family.write
+      parameters: [{$ref: '#/components/parameters/ProductId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /products/resolve-barcode:
+    post:
+      tags: [Catalog]
+      operationId: resolveProductBarcode
+      summary: Resolve a product barcode
+      x-scope: family.read
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '422': {$ref: '#/components/responses/ValidationError'}}
+  /catalog/import:
+    post:
+      tags: [Catalog]
+      operationId: createCatalogImport
+      summary: Create a catalog import
+      x-scope: operator
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /catalog/conflicts:
+    get:
+      tags: [Catalog]
+      operationId: listCatalogConflicts
+      summary: List catalog conflicts
+      x-scope: catalog
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /catalog/conflicts/{conflictId}/resolve:
+    post:
+      tags: [Catalog]
+      operationId: resolveCatalogConflict
+      summary: Resolve a catalog conflict
+      x-scope: catalog
+      parameters: [{$ref: '#/components/parameters/ConflictId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /media/upload-intent:
+    post:
+      tags: [Recognition]
+      operationId: createMediaUploadIntent
+      summary: Create a media upload intent
+      x-scope: family.write
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'201': {$ref: '#/components/responses/GenericSuccess'}, '413': {$ref: '#/components/responses/QuotaExceeded'}}
+  /recognition/jobs:
+    post:
+      tags: [Recognition]
+      operationId: createRecognitionJob
+      summary: Create a recognition job
+      x-scope: recognition.write
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '503': {$ref: '#/components/responses/CapabilityUnavailable'}}
+  /recognition/jobs/{jobId}:
+    get:
+      tags: [Recognition]
+      operationId: getRecognitionJob
+      summary: Get a recognition job
+      x-scope: family.job
+      parameters: [{$ref: '#/components/parameters/JobId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /recognition/jobs/{jobId}/confirm:
+    post:
+      tags: [Recognition]
+      operationId: confirmRecognitionJob
+      summary: Confirm a recognition job
+      x-scope: family.write
+      parameters: [{$ref: '#/components/parameters/JobId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /recognition/jobs/{jobId}/cancel:
+    post:
+      tags: [Recognition]
+      operationId: cancelRecognitionJob
+      summary: Cancel a recognition job
+      x-scope: job.owner
+      parameters: [{$ref: '#/components/parameters/JobId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /inventory:
+    get:
+      tags: [Inventory]
+      operationId: listInventory
+      summary: List inventory
+      x-scope: inventory.read
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/SearchQuery'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /inventory/items/{stockItemId}:
+    get:
+      tags: [Inventory]
+      operationId: getStockItem
+      summary: Get a stock item
+      x-scope: inventory.read
+      parameters: [{$ref: '#/components/parameters/StockItemId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+    patch:
+      tags: [Inventory]
+      operationId: updateStockItem
+      summary: Update a stock item
+      x-scope: inventory.write
+      parameters: [{$ref: '#/components/parameters/StockItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /expiry:
+    get:
+      tags: [Inventory]
+      operationId: listExpiringStock
+      summary: List expiring stock
+      x-scope: inventory.read
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /consumption/estimate:
+    post:
+      tags: [Inventory]
+      operationId: estimateConsumption
+      summary: Estimate consumption
+      x-scope: nutrition.consumption
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /consumption/{consumptionId}/correct:
+    post:
+      tags: [Inventory]
+      operationId: correctConsumption
+      summary: Correct consumption
+      x-scope: inventory.write
+      parameters: [{$ref: '#/components/parameters/ConsumptionId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /shopping-lists:
+    get:
+      tags: [Shopping]
+      operationId: listShoppingLists
+      summary: List shopping lists
+      x-scope: shopping.read
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+    post:
+      tags: [Shopping]
+      operationId: createShoppingList
+      summary: Create a shopping list
+      x-scope: shopping.write
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'201': {$ref: '#/components/responses/GenericSuccess'}}
+  /shopping-lists/{listId}:
+    get:
+      tags: [Shopping]
+      operationId: getShoppingList
+      summary: Get a shopping list
+      x-scope: shopping.read
+      parameters: [{$ref: '#/components/parameters/ListId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /shopping-lists/{listId}/items:
+    post:
+      tags: [Shopping]
+      operationId: addShoppingItem
+      summary: Add a shopping item
+      x-scope: shopping.write
+      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'201': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /shopping-lists/{listId}/items/{itemId}:
+    patch:
+      tags: [Shopping]
+      operationId: updateShoppingItem
+      summary: Update a shopping item
+      x-scope: shopping.write
+      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /shopping-lists/{listId}/items/{itemId}/complete:
+    post:
+      tags: [Shopping]
+      operationId: completeShoppingItem
+      summary: Complete a shopping item
+      x-scope: shopping.write
+      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /shopping-lists/{listId}/items/{itemId}/load-to-inventory:
+    post:
+      tags: [Shopping]
+      operationId: loadShoppingItemToInventory
+      summary: Load a shopping item into inventory
+      x-scope: inventory.write
+      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'201': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /shopping-lists/{listId}/batch-action:
+    post:
+      tags: [Shopping]
+      operationId: applyShoppingBatchAction
+      summary: Apply a shopping batch action
+      x-scope: shopping.write
+      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /shopping-lists/{listId}/archive:
+    post:
+      tags: [Shopping]
+      operationId: archiveShoppingList
+      summary: Archive a shopping list
+      x-scope: shopping.write
+      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /recipes/suggestions:
+    get:
+      tags: [Recipes]
+      operationId: getRecipeSuggestions
+      summary: Get recipe suggestions
+      x-scope: recipe.read
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '503': {$ref: '#/components/responses/CapabilityUnavailable'}}
+  /recipes/jobs:
+    post:
+      tags: [Recipes]
+      operationId: createRecipeJob
+      summary: Create a recipe job
+      x-scope: recipe.write
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '428': {$ref: '#/components/responses/ConsentRequired'}}
+  /recipes/{recipeId}:
+    get:
+      tags: [Recipes]
+      operationId: getRecipe
+      summary: Get a recipe
+      x-scope: recipe.read
+      parameters: [{$ref: '#/components/parameters/RecipeId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /recipes/{recipeId}/plan:
+    post:
+      tags: [Recipes]
+      operationId: planRecipe
+      summary: Plan a recipe
+      x-scope: recipe.write
+      parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /recipes/{recipeId}/add-missing:
+    post:
+      tags: [Recipes]
+      operationId: addMissingRecipeIngredients
+      summary: Add missing recipe ingredients
+      x-scope: shopping.write
+      parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'201': {$ref: '#/components/responses/GenericSuccess'}}
+  /recipes/{recipeId}/cook:
+    post:
+      tags: [Recipes]
+      operationId: confirmRecipeCooked
+      summary: Confirm a recipe was cooked
+      x-scope: inventory.write
+      parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /nutrition/summary:
+    get:
+      tags: [Nutrition]
+      operationId: getNutritionSummary
+      summary: Get a nutrition summary
+      x-scope: nutrition.read
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /nutrition/products/{productId}:
+    get:
+      tags: [Nutrition]
+      operationId: getProductNutrition
+      summary: Get product nutrition
+      x-scope: nutrition.read
+      parameters: [{$ref: '#/components/parameters/ProductId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /offers:
+    get:
+      tags: [Offers]
+      operationId: listOffers
+      summary: List offers
+      x-scope: offers.read
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '503': {$ref: '#/components/responses/CapabilityUnavailable'}}
+  /offers/import-jobs:
+    post:
+      tags: [Offers]
+      operationId: createOffersImportJob
+      summary: Create an offers import job
+      x-scope: operator
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /offers/{offerId}:
+    get:
+      tags: [Offers]
+      operationId: getOffer
+      summary: Get an offer
+      x-scope: offers.read
+      parameters: [{$ref: '#/components/parameters/OfferId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /notifications:
+    get:
+      tags: [Notifications]
+      operationId: listNotifications
+      summary: List notifications
+      x-scope: user
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /notification-preferences:
+    patch:
+      tags: [Notifications]
+      operationId: updateNotificationPreferences
+      summary: Update notification preferences
+      x-scope: user
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /privacy/export:
+    post:
+      tags: [Privacy]
+      operationId: createPrivacyExport
+      summary: Create a privacy export
+      x-scope: owner
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /privacy/erasure:
+    post:
+      tags: [Privacy]
+      operationId: createPrivacyErasure
+      summary: Create a privacy erasure request
+      x-scope: owner
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /privacy/consents:
+    get:
+      tags: [Privacy]
+      operationId: getPrivacyConsents
+      summary: Get privacy consents
+      x-scope: user
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /privacy/consents/{purpose}:
+    post:
+      tags: [Privacy]
+      operationId: updatePrivacyConsent
+      summary: Update a privacy consent
+      x-scope: user
+      parameters: [{$ref: '#/components/parameters/Purpose'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /admin/jobs/{jobId}:
+    get:
+      tags: [Admin]
+      operationId: inspectJob
+      summary: Inspect a job
+      x-scope: operator
+      parameters: [{$ref: '#/components/parameters/JobId'}]
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /admin/jobs/{jobId}/replay:
+    post:
+      tags: [Admin]
+      operationId: replayJob
+      summary: Replay a job
+      x-scope: operator
+      parameters: [{$ref: '#/components/parameters/JobId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /admin/audit:
+    get:
+      tags: [Admin]
+      operationId: searchAudit
+      summary: Search audit events
+      x-scope: operator
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /metrics:
+    get:
+      tags: [Platform]
+      operationId: getMetrics
+      summary: Get Prometheus metrics
+      security: []
+      x-scope: internal
+      responses: {'200': {description: Prometheus metrics, content: {text/plain: {schema: {type: string}}}}}
+  /health/live:
+    get:
+      tags: [Platform]
+      operationId: getLiveness
+      summary: Get liveness status
+      security: []
+      x-scope: internal
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+  /health/ready:
+    get:
+      tags: [Platform]
+      operationId: getReadiness
+      summary: Get readiness status
+      security: []
+      x-scope: internal
+      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}, '503': {$ref: '#/components/responses/DependencyUnavailable'}}
 components:
   securitySchemes:
     oidc:
@@ -151,6 +666,23 @@ components:
     JoinAttemptId: {name: joinAttemptId, in: path, required: true, schema: {type: string, format: uuid}}
     StockItemId: {name: stockItemId, in: path, required: true, schema: {type: string, format: uuid}}
     JobId: {name: jobId, in: path, required: true, schema: {type: string, format: uuid}}
+    MembershipId: {name: membershipId, in: path, required: true, schema: {type: string, format: uuid}}
+    InviteId: {name: inviteId, in: path, required: true, schema: {type: string, format: uuid}}
+    ProductId: {name: productId, in: path, required: true, schema: {type: string, format: uuid}}
+    ConflictId: {name: conflictId, in: path, required: true, schema: {type: string, format: uuid}}
+    ConsumptionId: {name: consumptionId, in: path, required: true, schema: {type: string, format: uuid}}
+    ListId: {name: listId, in: path, required: true, schema: {type: string, format: uuid}}
+    ItemId: {name: itemId, in: path, required: true, schema: {type: string, format: uuid}}
+    RecipeId: {name: recipeId, in: path, required: true, schema: {type: string, format: uuid}}
+    OfferId: {name: offerId, in: path, required: true, schema: {type: string, format: uuid}}
+    Purpose: {name: purpose, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 80}}
+    Cursor: {name: cursor, in: query, required: false, schema: {type: string, maxLength: 512}}
+    SearchQuery: {name: q, in: query, required: false, schema: {type: string, maxLength: 200}}
+    IfMatch: {name: If-Match, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 128}}
+  requestBodies:
+    GenericRequest:
+      required: true
+      content: {application/json: {schema: {$ref: '#/components/schemas/GenericRequest'}}}
   responses:
     Forbidden:
       description: Forbidden
@@ -167,6 +699,24 @@ components:
     RateLimited:
       description: Rate limit exceeded
       headers: {Retry-After: {schema: {type: integer}}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    GenericSuccess:
+      description: Successful operation
+      content: {application/json: {schema: {$ref: '#/components/schemas/GenericResponse'}}}
+    JobAccepted:
+      description: Job accepted for asynchronous processing
+      content: {application/json: {schema: {$ref: '#/components/schemas/JobResponse'}}}
+    CapabilityUnavailable:
+      description: Optional capability is unavailable
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    ConsentRequired:
+      description: Required consent is missing
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    QuotaExceeded:
+      description: Request exceeds configured quota
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    DependencyUnavailable:
+      description: Required dependency is unavailable
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
   schemas:
     Meta:
@@ -238,11 +788,11 @@ components:
     CreateStockItemRequest:
       type: object
       required: [productId, quantity, unit]
-      properties: {productId: {type: string, format: uuid}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string, enum: [g, kg, ml, l, piece, pack]}, expiresAt: {type: string, format: date-time, nullable: true}, reorderPoint: {type: number, minimum: 0, nullable: true}, locationId: {type: string, format: uuid, nullable: true}}
+      properties: {productId: {type: string, format: uuid}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string, enum: [g, kg, ml, l, piece, pack]}, expiresAt: {type: [string, 'null'], format: date-time}, reorderPoint: {type: [number, 'null'], minimum: 0}, locationId: {type: [string, 'null'], format: uuid}}
     MovementRequest:
       type: object
       required: [kind, quantity, unit, clientOperationId]
-      properties: {kind: {type: string, enum: [RECEIPT, CONSUMPTION, WASTE, ADJUSTMENT, TRANSFER]}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string}, reason: {type: string, maxLength: 500, nullable: true}, occurredAt: {type: string, format: date-time}, clientOperationId: {type: string, format: uuid}}
+      properties: {kind: {type: string, enum: [RECEIPT, CONSUMPTION, WASTE, ADJUSTMENT, TRANSFER]}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string}, reason: {type: [string, 'null'], maxLength: 500}, occurredAt: {type: string, format: date-time}, clientOperationId: {type: string, format: uuid}}
     StockItemResponse:
       type: object
       required: [data, meta]
@@ -254,10 +804,20 @@ components:
     JobResponse:
       type: object
       required: [data, meta]
-      properties: {data: {type: object, required: [jobId, status], properties: {jobId: {type: string, format: uuid}, status: {type: string, enum: [PENDING, PROCESSING, PENDING_REVIEW, COMPLETED, FAILED, CANCELLED, DEGRADED]}, retryable: {type: boolean}, traceId: {type: string}, error: {type: object, nullable: true}}}, meta: {$ref: '#/components/schemas/Meta'}}
+      properties: {data: {type: object, required: [jobId, status], properties: {jobId: {type: string, format: uuid}, status: {type: string, enum: [PENDING, PROCESSING, PENDING_REVIEW, COMPLETED, FAILED, CANCELLED, DEGRADED]}, retryable: {type: boolean}, traceId: {type: string}, error: {type: [object, 'null']}}}, meta: {$ref: '#/components/schemas/Meta'}}
     ErrorResponse:
       type: object
       required: [error, meta]
       properties:
         error: {type: object, required: [code, message, retryable], properties: {code: {type: string}, message: {type: string}, retryable: {type: boolean}, details: {type: array, items: {type: object}}}}
+        meta: {$ref: '#/components/schemas/Meta'}
+    GenericRequest:
+      type: object
+      additionalProperties: true
+      description: Operation-specific request body defined by the owning service contract.
+    GenericResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {type: object, additionalProperties: true}
         meta: {$ref: '#/components/schemas/Meta'}

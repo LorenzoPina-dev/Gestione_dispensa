@@ -4,7 +4,9 @@ Un gestionale intelligente per tracciare il cibo in dispensa e aiutare a fare la
 
 ## Stato del progetto
 
-La documentazione costituisce il pacchetto di handoff per il team di sviluppo. L'implementazione è iniziata con una fondazione eseguibile: API TypeScript, health check, profilo Docker Compose `family-local`, PostgreSQL con migration foundation e Redis.
+La documentazione costituisce il pacchetto di handoff per il team di sviluppo. L'implementazione ha
+completato la fondazione tecnica, i contratti, la configurazione, l'osservabilità, il migration
+runner e i confini identity/authorization. Lo stato puntuale è in [docs/IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md).
 
 ## Documentazione
 
@@ -38,6 +40,7 @@ La documentazione costituisce il pacchetto di handoff per il team di sviluppo. L
 - [Engineering handoff e prossimi passi](docs/ENGINEERING-HANDOFF-AND-NEXT-STEPS.md)
 - [Gap analysis e rischi residui](docs/GAP-ANALYSIS.md)
 - [Readiness audit: cosa manca](docs/READINESS-AUDIT.md)
+- [Implementation status: stato corrente](docs/IMPLEMENTATION-STATUS.md)
 - [Threat model e security architecture](docs/THREAT-MODEL.md)
 - [Matrice di tracciabilità](docs/TRACEABILITY.md)
 - [ADR-0001: architettura a servizi e deployment progressivo](docs/ADR-0001-deployment-architecture.md)
@@ -63,6 +66,7 @@ La documentazione costituisce il pacchetto di handoff per il team di sviluppo. L
 
 - Fondazione API disponibile in `apps/api` con `/health/live`, `/health/ready` e `/api/v1/meta`;
 - profilo Compose iniziale disponibile con API, PostgreSQL e Redis;
+- policy Compose iniziale disponibile con health check, rete dedicata, graceful shutdown e limiti di risorse;
 - migration foundation PostgreSQL disponibile in `infra/postgres/init`;
 - le funzionalità di famiglia, QR, catalogo, inventario, shopping e osservabilità completa restano i prossimi incrementi;
 - avvio locale: `npm.cmd install`, `npm.cmd run build`, `npm.cmd start` oppure `docker compose --profile family-local up --build`.

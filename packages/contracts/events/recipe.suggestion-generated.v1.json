@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/recipe.suggestion-generated.v1.json",
+  "title": "Recipe suggestion generated v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "suggestionId",
+    "recipeId",
+    "scoreBreakdown",
+    "availableIngredients",
+    "missingIngredients",
+    "quality"
+  ],
+  "properties": {
+    "suggestionId": { "type": "string", "format": "uuid" },
+    "recipeId": { "type": "string", "format": "uuid" },
+    "scoreBreakdown": { "type": "object", "additionalProperties": { "type": "number" } },
+    "availableIngredients": { "type": "array", "items": { "type": "string" } },
+    "missingIngredients": { "type": "array", "items": { "type": "string" } },
+    "quality": { "type": "string", "enum": ["VERIFIED", "IMPORTED", "ESTIMATED", "UNKNOWN"] }
+  }
+}
