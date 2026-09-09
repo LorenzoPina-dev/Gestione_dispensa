@@ -58,6 +58,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `DAT-RUN-002` | complete with runtime waiver | rollback-only PostgreSQL integrity fixture covering FK, uniqueness, inbox/outbox, audit and family isolation; live database execution waived because Docker PostgreSQL is unavailable |
 | `API-RUN-001` | complete at HTTP composition boundary | executable Node HTTP server with canonical health/meta envelopes, correlation headers, stable errors, route smoke tests and graceful shutdown |
 | `JOB-RUN-001` | complete at Redis adapter boundary | provider-neutral Redis list adapter with processing acknowledgements, nack/requeue, FIFO, backlog/oldest-age metrics and deterministic fake-client tests |
+| `IDN-RUN-001` | complete at local OIDC flow boundary | Authorization Code + PKCE S256 flow with discovery validation, one-time state, TTL cleanup, token exchange and deterministic callback tests |
 
 ## Validation snapshot
 
@@ -271,6 +272,14 @@ from pending to processing, acknowledgement removes only the matching delivery, 
 acknowledgement requeues it, and asynchronous backlog/oldest-age metrics avoid pretending Redis
 I/O is synchronous. The adapter accepts a small client interface, so no Redis provider leaks into
 worker-core; deterministic fake-client tests cover FIFO, ack, nack and age behavior.
+
+### IDN-RUN-001 completed at local OIDC flow boundary
+
+Added a provider-neutral local Authorization Code + PKCE flow. Discovery must expose issuer,
+authorization and token endpoints; authorization requests use S256 challenges and opaque state;
+callbacks consume state once, reject expired/unknown state, exchange the code through
+`application/x-www-form-urlencoded`, and validate the token response without logging credentials.
+Keycloak remains an infrastructure configuration concern and is not imported into the API domain.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
