@@ -1,6 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: []
-commonLabels:
-  app.kubernetes.io/part-of: gestione-dispensa
-  app.kubernetes.io/managed-by: kustomize
+resources:
+  - serviceaccounts.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - worker-core-deployment.yaml
+  - network-policy.yaml
+  - pod-disruption-budget.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: gestione-dispensa
+      app.kubernetes.io/managed-by: kustomize

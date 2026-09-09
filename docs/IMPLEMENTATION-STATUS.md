@@ -48,6 +48,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `OPT-INT-003` | complete at recipes/nutrition boundary | explainable allergen-safe ranking, source quality, serving scaling and unknown/estimated labels |
 | `OPT-INT-004` | complete at offers adapter boundary | provider boundary, area/freshness validation, stale suppression, provenance and degraded fallback |
 | `OPT-SEARCH-001` | complete at rebuildable projection boundary | deterministic family-isolated projection, source-version replay, measurable lag and PostgreSQL fallback boundary |
+| `SCL-OPS-001` | complete at Kubernetes manifest boundary | base/overlay workloads, probes, resource limits, non-root security, secret references, PDB and network policies |
 
 ## Validation snapshot
 
@@ -117,7 +118,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `SCL-OPS-001`: Kubernetes base and overlays.
+1. `SCL-OPS-002`: stateless scaling and queue autoscaling.
 
 ### REL-TST-001 completed
 
@@ -181,6 +182,13 @@ provider rate limits without blocking core shopping.
 Added a rebuildable family-isolated search projection with source-version idempotency, deterministic
 replay, measurable projection lag, and an explicit authoritative fallback when the projection is
 degraded. No optional search backend is introduced before benchmark evidence.
+
+### SCL-OPS-001 completed
+
+Added renderable Kubernetes base and family-local overlay for the core API and worker, with
+non-root/read-only security contexts, resource budgets, health probes, secret references,
+PodDisruptionBudgets and deny-by-default network policies. The manifests do not claim HA on a
+single node and contain no plaintext secrets.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

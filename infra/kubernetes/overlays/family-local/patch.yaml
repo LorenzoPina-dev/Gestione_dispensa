@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispensa-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          env:
+            - name: APP_ENV
+              value: family-local
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispensa-worker-core
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-core
+          env:
+            - name: APP_ENV
+              value: family-local
