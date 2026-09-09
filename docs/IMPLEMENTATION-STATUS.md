@@ -106,13 +106,18 @@ finished domain contract.
 
 ## Next execution order
 
-1. `REL-TST-002`: integration resilience and failure-path suite.
+1. `REL-SEC-001`: security gates.
 
 ### REL-TST-001 completed
 
 The testkit now provides deterministic contract-case execution, authorization matrix assertions,
 and an explicit in-memory inbox for idempotency tests. Focused testkit tests cover successful and
 validation responses plus deny-by-default authorization and duplicate event claims.
+
+### REL-TST-002 completed
+
+Added a family-local synthetic E2E fixture covering invite authentication, safe redirect handling,
+invite review, and encoded family welcome navigation.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
