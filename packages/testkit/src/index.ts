@@ -137,3 +137,67 @@ export interface QueueTestAdapter<T> {
   acknowledge(messageId: string): Promise<void>;
   reject(messageId: string, retryable: boolean): Promise<void>;
 }
+
+export interface ContractCase<TResponse = unknown> {
+  name: string;
+  request: TestHttpRequest;
+  expectedStatus: number;
+  assertBody?: (body: TResponse | undefined) => void;
+}
+
+export async function runContractCases<TResponse = unknown>(
+  handler: TestHttpHandler,
+  cases: readonly ContractCase<TResponse>[],
+): Promise<void> {
+  for (const testCase of cases) {
+    const response = await handler(testCase.request);
+    if (response.status !== testCase.expectedStatus) {
+      throw new Error(
+        `${testCase.name}: expected status ${testCase.expectedStatus}, received ${response.status}.`,
+      );
+    }
+
+    testCase.assertBody?.(response.body as TResponse | undefined);
+  }
+}
+
+export interface AuthorizationCase {
+  name: string;
+  roles: readonly string[];
+  expectedAllowed: boolean;
+}
+
+export function assertAuthorizationMatrix(
+  cases: readonly AuthorizationCase[],
+  isAllowed: (roles: readonly string[]) => boolean,
+): void {
+  for (const testCase of cases) {
+    const actual = isAllowed(testCase.roles);
+    if (actual !== testCase.expectedAllowed) {
+      throw new Error(
+        `${testCase.name}: expected authorization ${testCase.expectedAllowed}, received ${actual}.`,
+      );
+    }
+  }
+}
+
+export class InMemoryInbox {
+  private readonly processed = new Set<string>();
+
+  public claim(messageId: string): boolean {
+    if (this.processed.has(messageId)) {
+      return false;
+    }
+
+    this.processed.add(messageId);
+    return true;
+  }
+
+  public hasProcessed(messageId: string): boolean {
+    return this.processed.has(messageId);
+  }
+
+  public reset(): void {
+    this.processed.clear();
+  }
+}

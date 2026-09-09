@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   FixedClock,
+  InMemoryInbox,
   InMemoryHttpClient,
   SequenceIdGenerator,
+  assertAuthorizationMatrix,
   createFixtureFactory,
   createTestContext,
+  runContractCases,
 } from "../src/index.ts";
 
 test("FixedClock returns copies and advances deterministically", () => {
@@ -56,4 +59,38 @@ test("in-memory HTTP client preserves request and response boundaries", async ()
 
   assert.equal(response.status, 200);
   assert.equal(response.headers["x-test"], "true");
+});
+
+test("contract runner covers success and validation responses", async () => {
+  await runContractCases(
+    (request) => ({
+      status: request.method === "GET" ? 200 : 400,
+      headers: {},
+      body: { accepted: request.method === "GET" },
+    }),
+    [
+      { name: "success", request: { method: "GET", path: "/items" }, expectedStatus: 200 },
+      {
+        name: "validation",
+        request: { method: "POST", path: "/items" },
+        expectedStatus: 400,
+        assertBody: (body) => assert.deepEqual(body, { accepted: false }),
+      },
+    ],
+  );
+});
+
+test("authorization matrix and inbox are deterministic", () => {
+  assertAuthorizationMatrix(
+    [
+      { name: "owner", roles: ["owner"], expectedAllowed: true },
+      { name: "anonymous", roles: [], expectedAllowed: false },
+    ],
+    (roles) => roles.includes("owner"),
+  );
+
+  const inbox = new InMemoryInbox();
+  assert.equal(inbox.claim("event-1"), true);
+  assert.equal(inbox.claim("event-1"), false);
+  assert.equal(inbox.hasProcessed("event-1"), true);
 });
