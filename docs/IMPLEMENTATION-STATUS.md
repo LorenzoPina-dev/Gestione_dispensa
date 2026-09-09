@@ -312,9 +312,8 @@ contracts. Remaining generic OpenAPI operations are still tracked as contract-ha
 ## Atomic remaining backlog
 
 The remaining executable work is decomposed in
-[IMPLEMENTATION-BACKLOG.md](IMPLEMENTATION-BACKLOG.md). The next task is `DAT-RUN-002`.
-It must add PostgreSQL integration fixtures for constraints and family isolation before new
-runtime routes are wired. Tasks are intentionally split between contract,
+[IMPLEMENTATION-BACKLOG.md](IMPLEMENTATION-BACKLOG.md). Runtime implementation tasks through
+`OPS-RUN-001` are complete at their verified boundaries. Tasks are intentionally split between contract,
 PostgreSQL/Redis runtime integration, user interface runtime, privacy, operational evidence and
 optional capability wiring.
 
@@ -344,6 +343,15 @@ Added a disposable PostgreSQL fixture that inserts two isolated families and val
 active membership uniqueness, movement idempotency, inbox/outbox deduplication, audit visibility and
 family-filtered reads. The entire fixture is rollback-only. Static fixture coverage passes; live
 execution is waived because Docker Desktop/PostgreSQL is unavailable in this environment.
+
+### OPS-RUN-001 completed with runtime waiver
+
+The maintained `family-local` Compose profile includes the API, PostgreSQL, Redis, identity,
+object storage and observability dependencies with health-gated startup, restart policies,
+resource limits and graceful stop periods. `docker compose --profile family-local config --quiet`
+passes. A live `docker compose up` boot and health verification could not be executed because the
+Docker engine is unavailable in this environment; no placeholder worker or gateway containers were
+added.
 
 ### API-RUN-001 completed at HTTP composition boundary
 
