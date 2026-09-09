@@ -76,6 +76,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `INT-RUN-004` | complete at retailer offer runtime boundary | authorized-area import windows, source-version provenance, freshness/validity suppression, idempotent persistence and degraded provider handling |
 | `INT-RUN-005` | complete at search projection runtime boundary | durable event consumption, deterministic rebuild, measurable projection lag, family isolation and authoritative fallback |
 | `WEB-RUN-001` | complete at runnable shell boundary | browser runtime model, safe OIDC callback handling, family-scoped navigation, explicit offline/error states and accessible PWA document rendering |
+| `WEB-RUN-002` | complete at onboarding journey boundary | family creation, QR invite entry/review/accept/reject routes, encoded safe redirects and family switching state transitions |
 
 ## Validation snapshot
 
@@ -168,6 +169,13 @@ INT-RUN-002 focused validation:
 
 - worker-integrations tests: 23 passing;
 - worker-integrations typecheck: passing;
+- targeted Prettier check: passing;
+- `git diff --check`: passing.
+
+WEB-RUN-002 focused validation:
+
+- web tests: 17 passing;
+- web typecheck: passing;
 - targeted Prettier check: passing;
 - `git diff --check`: passing.
 
