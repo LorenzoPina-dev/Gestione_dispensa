@@ -71,6 +71,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `PRV-RUN-002` | complete at privacy erasure boundary | owner-confirmed idempotent erasure requests, consent persistence, legal-retention preservation, anonymization worker and audit outcomes |
 | `NOT-RUN-001` | complete at notification delivery boundary | persisted preferences, quiet-hour deferral, opt-in in-app delivery, deduplication, unsubscribe and transient provider failure handling |
 | `INT-RUN-001` | complete at barcode runtime boundary | provider-backed barcode job processing, reviewable provenance, idempotent result persistence, manual fallback and degraded rate/timeout handling |
+| `INT-RUN-002` | complete at recognition runtime boundary | quarantine object-store boundary, malware-safe review pipeline, idempotent result persistence, explicit candidate confirmation and provider degradation |
 | `INT-RUN-003` | complete at recipe/nutrition runtime boundary | consent-gated idempotent suggestions, allergen-safe ranking reuse, source-qualified nutrition calculation and explicit consumption operations |
 | `INT-RUN-004` | complete at retailer offer runtime boundary | authorized-area import windows, source-version provenance, freshness/validity suppression, idempotent persistence and degraded provider handling |
 | `INT-RUN-005` | complete at search projection runtime boundary | durable event consumption, deterministic rebuild, measurable projection lag, family isolation and authoritative fallback |
@@ -161,6 +162,13 @@ WEB-RUN-001 focused validation:
 - web tests: 14 passing;
 - workspace build and typecheck: passing;
 - repository-wide Prettier: passing;
+- `git diff --check`: passing.
+
+INT-RUN-002 focused validation:
+
+- worker-integrations tests: 23 passing;
+- worker-integrations typecheck: passing;
+- targeted Prettier check: passing;
 - `git diff --check`: passing.
 
 JOB-CORE-001 focused validation:
