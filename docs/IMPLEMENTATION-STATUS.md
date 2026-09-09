@@ -54,6 +54,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `FND-CON-001` hardening slice | complete for privacy operations | operation-specific export, erasure and consent request/response schemas with regression coverage |
 | `CON-HARD-002` | complete | remaining public OpenAPI paths no longer reference generic request/success contracts; operation-specific schemas, responses and regression tests added |
 | `CON-HARD-003` | complete | event/job registry coverage, schema validator, lifecycle validator and unknown/missing/replay compatibility fixtures |
+| `DAT-RUN-001` | complete | ordered migration inventory, external-runner regression coverage, deterministic family-local synthetic seed and explicit seed runbook |
 
 ## Validation snapshot
 
@@ -219,8 +220,8 @@ contracts. Remaining generic OpenAPI operations are still tracked as contract-ha
 ## Atomic remaining backlog
 
 The remaining executable work is decomposed in
-[IMPLEMENTATION-BACKLOG.md](IMPLEMENTATION-BACKLOG.md). The next task is `DAT-RUN-001`.
-It must register bounded-context migrations and synthetic seeds against PostgreSQL before new
+[IMPLEMENTATION-BACKLOG.md](IMPLEMENTATION-BACKLOG.md). The next task is `DAT-RUN-002`.
+It must add PostgreSQL integration fixtures for constraints and family isolation before new
 runtime routes are wired. Tasks are intentionally split between contract,
 PostgreSQL/Redis runtime integration, user interface runtime, privacy, operational evidence and
 optional capability wiring.
@@ -237,6 +238,13 @@ parsing, contract tests, typecheck, formatting and diff validation pass.
 Added a dependency-free JSON Schema subset validator for producer/consumer payload checks, a
 strict job lifecycle validator, registry coverage checks, and compatibility fixtures for valid,
 missing-required and unknown-field payloads. Contract tests and typecheck pass.
+
+### DAT-RUN-001 completed
+
+The six bounded-context migrations are covered by an ordered repository inventory test. A
+deterministic, idempotent family-local seed creates only synthetic user, family, membership,
+catalog and location records and remains separate from migration history. PostgreSQL application
+is still external to service startup; the seed runbook requires an explicit `psql` invocation.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

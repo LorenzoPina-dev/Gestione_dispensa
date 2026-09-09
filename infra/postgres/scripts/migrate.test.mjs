@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
   checksum,
@@ -108,4 +109,18 @@ test("status reports applied and pending migrations", async () => {
       ["applied", "pending"],
     );
   });
+});
+
+test("repository migrations are ordered and synthetic seed is separate", async () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const migrations = await discoverMigrations(join(root, "migrations"));
+  assert.deepEqual(
+    migrations.map((migration) => migration.version),
+    ["0001", "0002", "0003", "0004", "0005", "0006"],
+  );
+
+  const seed = await readFile(new URL("../seeds/001_family-local.sql", import.meta.url), "utf8");
+  assert.match(seed, /BEGIN;/);
+  assert.match(seed, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.doesNotMatch(seed, /DATABASE_URL|PASSWORD|SECRET/i);
 });
