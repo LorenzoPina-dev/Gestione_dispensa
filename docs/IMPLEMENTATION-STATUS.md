@@ -77,6 +77,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `INT-RUN-005` | complete at search projection runtime boundary | durable event consumption, deterministic rebuild, measurable projection lag, family isolation and authoritative fallback |
 | `WEB-RUN-001` | complete at runnable shell boundary | browser runtime model, safe OIDC callback handling, family-scoped navigation, explicit offline/error states and accessible PWA document rendering |
 | `WEB-RUN-002` | complete at onboarding journey boundary | family creation, QR invite entry/review/accept/reject routes, encoded safe redirects and family switching state transitions |
+| `WEB-RUN-003` | complete at inventory journey boundary | manual/barcode/photo/import product input, review and manual fallback states, offline/conflict recovery and expiry visibility |
 
 ## Validation snapshot
 
@@ -175,6 +176,13 @@ INT-RUN-002 focused validation:
 WEB-RUN-002 focused validation:
 
 - web tests: 17 passing;
+- web typecheck: passing;
+- targeted Prettier check: passing;
+- `git diff --check`: passing.
+
+WEB-RUN-003 focused validation:
+
+- web tests: 20 passing;
 - web typecheck: passing;
 - targeted Prettier check: passing;
 - `git diff --check`: passing.
