@@ -10,8 +10,8 @@ export interface QueueAdapter<T> {
   receive(): Promise<QueueMessage<T> | undefined>;
   ack(messageId: string): Promise<void>;
   nack(messageId: string): Promise<void>;
-  size(): number;
-  oldestEnqueuedAt(): number | undefined;
+  size(): Promise<number>;
+  oldestEnqueuedAt(): Promise<number | undefined>;
 }
 
 export class FakeQueue<T> implements QueueAdapter<T> {
@@ -42,11 +42,11 @@ export class FakeQueue<T> implements QueueAdapter<T> {
     this.messages.unshift(message);
   }
 
-  public size(): number {
+  public async size(): Promise<number> {
     return this.messages.length;
   }
 
-  public oldestEnqueuedAt(): number | undefined {
+  public async oldestEnqueuedAt(): Promise<number | undefined> {
     return this.messages[0]?.enqueuedAt;
   }
 

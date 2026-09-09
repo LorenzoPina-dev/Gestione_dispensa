@@ -156,9 +156,12 @@ export class JobWorker {
 
   private async emitMetrics(): Promise<void> {
     const deadLetters = await this.options.repository.listDeadLetters();
-    const oldestEnqueuedAt = this.options.queue.oldestEnqueuedAt();
+    const [backlog, oldestEnqueuedAt] = await Promise.all([
+      this.options.queue.size(),
+      this.options.queue.oldestEnqueuedAt(),
+    ]);
     this.options.metrics.observe({
-      backlog: this.options.queue.size(),
+      backlog,
       retryTotal: this.retries,
       dlqSize: deadLetters.length,
       oldestAgeMs:

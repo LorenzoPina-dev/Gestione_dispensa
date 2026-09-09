@@ -57,6 +57,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `DAT-RUN-001` | complete | ordered migration inventory, external-runner regression coverage, deterministic family-local synthetic seed and explicit seed runbook |
 | `DAT-RUN-002` | complete with runtime waiver | rollback-only PostgreSQL integrity fixture covering FK, uniqueness, inbox/outbox, audit and family isolation; live database execution waived because Docker PostgreSQL is unavailable |
 | `API-RUN-001` | complete at HTTP composition boundary | executable Node HTTP server with canonical health/meta envelopes, correlation headers, stable errors, route smoke tests and graceful shutdown |
+| `JOB-RUN-001` | complete at Redis adapter boundary | provider-neutral Redis list adapter with processing acknowledgements, nack/requeue, FIFO, backlog/oldest-age metrics and deterministic fake-client tests |
 
 ## Validation snapshot
 
@@ -262,6 +263,14 @@ readiness and metadata endpoints return canonical `data`/`meta` envelopes, reque
 correlation is propagated, unsupported methods and unknown paths map to stable error codes, and
 shutdown reports close failures without masking them. Domain route wiring remains owned by the
 subsequent runtime tasks.
+
+### JOB-RUN-001 completed at Redis adapter boundary
+
+Added a Redis list adapter behind the existing `QueueAdapter` contract. Messages move atomically
+from pending to processing, acknowledgement removes only the matching delivery, negative
+acknowledgement requeues it, and asynchronous backlog/oldest-age metrics avoid pretending Redis
+I/O is synchronous. The adapter accepts a small client interface, so no Redis provider leaks into
+worker-core; deterministic fake-client tests cover FIFO, ack, nack and age behavior.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
