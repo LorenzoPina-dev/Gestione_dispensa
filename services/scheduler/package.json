@@ -6,6 +6,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/scheduler.test.js"
+    "test": "npm run build && node --test dist/scheduler.test.js dist/process.test.js"
   }
 }

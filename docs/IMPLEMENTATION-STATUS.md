@@ -59,6 +59,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `API-RUN-001` | complete at HTTP composition boundary | executable Node HTTP server with canonical health/meta envelopes, correlation headers, stable errors, route smoke tests and graceful shutdown |
 | `JOB-RUN-001` | complete at Redis adapter boundary | provider-neutral Redis list adapter with processing acknowledgements, nack/requeue, FIFO, backlog/oldest-age metrics and deterministic fake-client tests |
 | `IDN-RUN-001` | complete at local OIDC flow boundary | Authorization Code + PKCE S256 flow with discovery validation, one-time state, TTL cleanup, token exchange and deterministic callback tests |
+| `JOB-RUN-003` | complete at scheduler process boundary | executable polling loop with single-flight ticks, database-backed scheduler lock contract, missed-run recovery, audit outcomes and graceful stop |
 
 ## Validation snapshot
 
@@ -280,6 +281,14 @@ authorization and token endpoints; authorization requests use S256 challenges an
 callbacks consume state once, reject expired/unknown state, exchange the code through
 `application/x-www-form-urlencoded`, and validate the token response without logging credentials.
 Keycloak remains an infrastructure configuration concern and is not imported into the API domain.
+
+### JOB-RUN-003 completed at scheduler process boundary
+
+Added an executable scheduler process around the existing schedule contract. It prevents overlapping
+ticks, delegates locking and audit persistence to the scheduler repository, preserves missed-run
+recovery, exposes completed run observations, and stops by cancelling future polls and awaiting any
+active tick. Poll interval, lease and owner identity can be supplied by environment without
+introducing provider-specific persistence into the scheduler package.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
