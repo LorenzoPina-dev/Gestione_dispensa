@@ -14,6 +14,8 @@ and `OUT_OF_SCOPE` requirements, and family-local Docker-dependent drills remain
 - [RETENTION-AND-DATA-LIFECYCLE.md](RETENTION-AND-DATA-LIFECYCLE.md): retention and erasure policy;
 - [REL-SEC-001 report](../security/REL-SEC-001-REPORT.md): security gate and exceptions;
 - [REL-OPS-001 report](../ops/REL-OPS-001-REPORT.md): SLO evidence and operational waivers;
+- [PRODUCTION-READINESS-SCL-REL-001](PRODUCTION-READINESS-SCL-REL-001.md): final production
+  prerequisite matrix and operator handoff;
 - [RUNBOOKS.md](RUNBOOKS.md): incident and recovery procedures.
 
 ## Blocking follow-up

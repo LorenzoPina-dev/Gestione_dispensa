@@ -50,6 +50,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `OPT-SEARCH-001` | complete at rebuildable projection boundary | deterministic family-isolated projection, source-version replay, measurable lag and PostgreSQL fallback boundary |
 | `SCL-OPS-001` | complete at Kubernetes manifest boundary | base/overlay workloads, probes, resource limits, non-root security, secret references, PDB and network policies |
 | `SCL-OPS-002` | complete with load-test waiver | bounded API/worker HPA, production two-replica overlay, backlog metric contract and explicit capacity evidence waiver |
+| `SCL-REL-001` | complete as readiness record, production not approved | final prerequisite matrix, operator handoff and explicit owner/date blockers |
 
 ## Validation snapshot
 
@@ -119,7 +120,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `SCL-REL-001`: production readiness gate.
+1. No further mandatory pipeline tasks; production approval remains blocked by recorded evidence gaps.
 
 ### REL-TST-001 completed
 
@@ -197,6 +198,13 @@ Added bounded CPU/backlog autoscaling for API and `worker-core`, a production ov
 stateless replicas, and capacity evidence requirements. Kubernetes rendering and secret scans pass;
 the load-test calibration remains an explicit OPS waiver because no Kubernetes metrics adapter is
 available in this environment.
+
+### SCL-REL-001 completed
+
+Added the final production-readiness record and operator handoff. Every prerequisite is marked
+`PASS`, `PARTIAL`, `WAIVED` or `BLOCKED` with an accountable owner and exit evidence; the
+repository explicitly remains `NOT APPROVED` for production until real deployment, DR, alert,
+artifact, privacy and load evidence is supplied.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
