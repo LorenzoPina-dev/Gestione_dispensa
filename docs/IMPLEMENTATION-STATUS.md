@@ -49,6 +49,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `OPT-INT-004` | complete at offers adapter boundary | provider boundary, area/freshness validation, stale suppression, provenance and degraded fallback |
 | `OPT-SEARCH-001` | complete at rebuildable projection boundary | deterministic family-isolated projection, source-version replay, measurable lag and PostgreSQL fallback boundary |
 | `SCL-OPS-001` | complete at Kubernetes manifest boundary | base/overlay workloads, probes, resource limits, non-root security, secret references, PDB and network policies |
+| `SCL-OPS-002` | complete with load-test waiver | bounded API/worker HPA, production two-replica overlay, backlog metric contract and explicit capacity evidence waiver |
 
 ## Validation snapshot
 
@@ -118,7 +119,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `SCL-OPS-002`: stateless scaling and queue autoscaling.
+1. `SCL-REL-001`: production readiness gate.
 
 ### REL-TST-001 completed
 
@@ -189,6 +190,13 @@ Added renderable Kubernetes base and family-local overlay for the core API and w
 non-root/read-only security contexts, resource budgets, health probes, secret references,
 PodDisruptionBudgets and deny-by-default network policies. The manifests do not claim HA on a
 single node and contain no plaintext secrets.
+
+### SCL-OPS-002 completed
+
+Added bounded CPU/backlog autoscaling for API and `worker-core`, a production overlay with two
+stateless replicas, and capacity evidence requirements. Kubernetes rendering and secret scans pass;
+the load-test calibration remains an explicit OPS waiver because no Kubernetes metrics adapter is
+available in this environment.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

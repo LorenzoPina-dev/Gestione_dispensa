@@ -7,6 +7,7 @@ resources:
   - worker-core-deployment.yaml
   - network-policy.yaml
   - pod-disruption-budget.yaml
+  - autoscaling.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: gestione-dispensa
