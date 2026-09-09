@@ -51,6 +51,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `SCL-OPS-001` | complete at Kubernetes manifest boundary | base/overlay workloads, probes, resource limits, non-root security, secret references, PDB and network policies |
 | `SCL-OPS-002` | complete with load-test waiver | bounded API/worker HPA, production two-replica overlay, backlog metric contract and explicit capacity evidence waiver |
 | `SCL-REL-001` | complete as readiness record, production not approved | final prerequisite matrix, operator handoff and explicit owner/date blockers |
+| `FND-CON-001` hardening slice | complete for privacy operations | operation-specific export, erasure and consent request/response schemas with regression coverage |
 
 ## Validation snapshot
 
@@ -205,6 +206,13 @@ Added the final production-readiness record and operator handoff. Every prerequi
 `PASS`, `PARTIAL`, `WAIVED` or `BLOCKED` with an accountable owner and exit evidence; the
 repository explicitly remains `NOT APPROVED` for production until real deployment, DR, alert,
 artifact, privacy and load evidence is supplied.
+
+### FND-CON-001 privacy hardening slice completed
+
+Privacy export, erasure and consent operations no longer rely on the generic request/response
+shapes. The contract now requires explicit consent fields, confirmation for erasure, and stable
+consent response structures; a regression test prevents those operations from regressing to generic
+contracts. Remaining generic OpenAPI operations are still tracked as contract-hardening work.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

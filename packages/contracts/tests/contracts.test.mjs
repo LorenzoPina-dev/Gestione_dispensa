@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { validateEventEnvelope } from "../src/index.ts";
 
 const eventDirectory = new URL("../events/", import.meta.url);
+const openApiDocument = new URL("../../../docs/openapi.yaml", import.meta.url);
 
 test("all event schema files are valid JSON documents", async () => {
   const files = (await readdir(eventDirectory)).filter((file) => file.endsWith(".json"));
@@ -34,3 +35,24 @@ test("event envelope validator requires household scope and payload", () => {
   });
   assert.deepEqual(valid, { valid: true, issues: [] });
 });
+
+test("privacy operations use operation-specific request and response contracts", async () => {
+  const openApi = await readFile(openApiDocument, "utf8");
+  const privacyExport = sectionForPath(openApi, "/privacy/export");
+  const privacyErasure = sectionForPath(openApi, "/privacy/erasure");
+  const privacyConsents = sectionForPath(openApi, "/privacy/consents");
+  const privacyConsent = sectionForPath(openApi, "/privacy/consents/{purpose}");
+
+  assert.match(privacyExport, /PrivacyExportRequest/);
+  assert.match(privacyErasure, /PrivacyErasureRequest/);
+  assert.match(privacyConsents, /PrivacyConsents/);
+  assert.match(privacyConsent, /PrivacyConsentRequest/);
+  assert.doesNotMatch(privacyConsent, /GenericRequest/);
+});
+
+function sectionForPath(document, path) {
+  const start = document.indexOf(`  ${path}:`);
+  assert.notEqual(start, -1, `OpenAPI path is missing: ${path}`);
+  const next = document.indexOf("\n  /", start + 1);
+  return document.slice(start, next === -1 ? document.length : next);
+}

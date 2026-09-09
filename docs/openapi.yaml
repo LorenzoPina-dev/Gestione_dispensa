@@ -582,6 +582,7 @@ paths:
       summary: Create a privacy export
       x-scope: owner
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {$ref: '#/components/requestBodies/PrivacyExportRequest'}
       responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
   /privacy/erasure:
     post:
@@ -590,7 +591,7 @@ paths:
       summary: Create a privacy erasure request
       x-scope: owner
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
+      requestBody: {$ref: '#/components/requestBodies/PrivacyErasureRequest'}
       responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
   /privacy/consents:
     get:
@@ -598,7 +599,7 @@ paths:
       operationId: getPrivacyConsents
       summary: Get privacy consents
       x-scope: user
-      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+      responses: {'200': {$ref: '#/components/responses/PrivacyConsents'}}
   /privacy/consents/{purpose}:
     post:
       tags: [Privacy]
@@ -606,8 +607,8 @@ paths:
       summary: Update a privacy consent
       x-scope: user
       parameters: [{$ref: '#/components/parameters/Purpose'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/GenericRequest'}
-      responses: {'200': {$ref: '#/components/responses/GenericSuccess'}}
+      requestBody: {$ref: '#/components/requestBodies/PrivacyConsentRequest'}
+      responses: {'200': {$ref: '#/components/responses/PrivacyConsent'}}
   /admin/jobs/{jobId}:
     get:
       tags: [Admin]
@@ -683,6 +684,15 @@ components:
     GenericRequest:
       required: true
       content: {application/json: {schema: {$ref: '#/components/schemas/GenericRequest'}}}
+    PrivacyExportRequest:
+      required: true
+      content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyExportRequest'}}}
+    PrivacyErasureRequest:
+      required: true
+      content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyErasureRequest'}}}
+    PrivacyConsentRequest:
+      required: true
+      content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyConsentRequest'}}}
   responses:
     Forbidden:
       description: Forbidden
@@ -820,4 +830,45 @@ components:
       required: [data, meta]
       properties:
         data: {type: object, additionalProperties: true}
+        meta: {$ref: '#/components/schemas/Meta'}
+    PrivacyExportRequest:
+      type: object
+      additionalProperties: false
+      description: Empty command body; the authenticated owner selects the export scope from the active family context.
+    PrivacyErasureRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmed]
+      properties:
+        confirmed: {type: boolean, const: true}
+    PrivacyConsentRequest:
+      type: object
+      additionalProperties: false
+      required: [granted, consentVersion]
+      properties:
+        granted: {type: boolean}
+        consentVersion: {type: string, minLength: 1, maxLength: 64}
+    PrivacyConsent:
+      type: object
+      required: [purpose, granted, consentVersion, updatedAt]
+      properties:
+        purpose: {type: string, minLength: 1, maxLength: 100}
+        granted: {type: boolean}
+        consentVersion: {type: string, minLength: 1, maxLength: 64}
+        updatedAt: {type: string, format: date-time}
+    PrivacyConsentResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {$ref: '#/components/schemas/PrivacyConsent'}
+        meta: {$ref: '#/components/schemas/Meta'}
+    PrivacyConsentsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [consents]
+          properties:
+            consents: {type: array, items: {$ref: '#/components/schemas/PrivacyConsent'}}
         meta: {$ref: '#/components/schemas/Meta'}
