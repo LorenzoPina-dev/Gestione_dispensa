@@ -45,6 +45,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `REL-GOV-001` | complete as governance gate, release not approved | complete MUST traceability, lifecycle review, known-risk register and explicit release blockers |
 | `OPT-INT-001` | complete at barcode adapter boundary | provider-neutral barcode adapter, normalization, timeout/rate-limit degradation, provenance and reviewable candidates |
 | `OPT-INT-002` | complete at recognition boundary | upload validation, quarantine scanner boundary, malware/size/type handling, timeout degradation and review-only candidates |
+| `OPT-INT-003` | complete at recipes/nutrition boundary | explainable allergen-safe ranking, source quality, serving scaling and unknown/estimated labels |
 
 ## Validation snapshot
 
@@ -114,7 +115,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `OPT-INT-003`: recipes and nutrition.
+1. `OPT-INT-004`: offers and retailer adapters.
 
 ### REL-TST-001 completed
 
@@ -159,6 +160,13 @@ Added a provider-neutral recognition pipeline with MIME/size/path validation, qu
 boundary, malware and scanner-unavailable handling, provider timeout degradation, and mandatory
 review for every candidate including low-confidence results. No automatic catalog mutation is
 performed.
+
+### OPT-INT-003 completed
+
+Added deterministic recipe ranking that hard-excludes allergen violations and exposes reason
+codes, plus nutrition serving calculations that preserve source quality and distinguish confirmed,
+estimated and unknown values. No generated or provider output is treated as medical advice or
+verified without provenance.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
