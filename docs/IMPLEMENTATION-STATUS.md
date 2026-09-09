@@ -74,6 +74,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `INT-RUN-003` | complete at recipe/nutrition runtime boundary | consent-gated idempotent suggestions, allergen-safe ranking reuse, source-qualified nutrition calculation and explicit consumption operations |
 | `INT-RUN-004` | complete at retailer offer runtime boundary | authorized-area import windows, source-version provenance, freshness/validity suppression, idempotent persistence and degraded provider handling |
 | `INT-RUN-005` | complete at search projection runtime boundary | durable event consumption, deterministic rebuild, measurable projection lag, family isolation and authoritative fallback |
+| `WEB-RUN-001` | complete at runnable shell boundary | browser runtime model, safe OIDC callback handling, family-scoped navigation, explicit offline/error states and accessible PWA document rendering |
 
 ## Validation snapshot
 
@@ -155,6 +156,13 @@ INT-RUN-005 focused validation:
 - repository-wide Prettier: passing;
 - `git diff --check`: passing.
 
+WEB-RUN-001 focused validation:
+
+- web tests: 14 passing;
+- workspace build and typecheck: passing;
+- repository-wide Prettier: passing;
+- `git diff --check`: passing.
+
 JOB-CORE-001 focused validation:
 
 - worker-core tests: 3 passing;
@@ -187,7 +195,7 @@ validated, but this is not equivalent to a successful `up` and health/readiness 
 - shopping conflict/controller integration;
 - scheduler process and reconciliation jobs;
 - scheduler process and reconciliation jobs;
-- family-local Compose boot and runnable PWA shell;
+- family-local Compose boot;
 - Next.js web/PWA and core user journeys.
 
 ### Operational proof
