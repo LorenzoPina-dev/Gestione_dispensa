@@ -1,0 +1,12 @@
+{
+  "task": "REL-SEC-001",
+  "checks": [
+    "production-dependency-audit",
+    "plaintext-secret-scan",
+    "authorization-deny-by-default",
+    "observability-redaction",
+    "threat-model-control-coverage"
+  ],
+  "secretScanRoots": ["infra", "apps", "services", "packages"],
+  "excludedPaths": ["node_modules", "dist"]
+}

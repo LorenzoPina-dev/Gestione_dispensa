@@ -40,6 +40,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `WEB-SHP-001` | complete at journey boundary | shopping accept/reject/snooze/complete/edit states, list version propagation, conflict/offline/retry recovery, 3 tests |
 | `JOB-NOT-001` | complete at notification boundary | opt-in preferences, quiet hours, idempotent delivery, provider boundary, transient failure and redaction tests |
 | `OPS-REL-001` | complete at backup boundary | encrypted backup manifest, PostgreSQL/MinIO artifact references, isolated restore target, verification and redacted-log tests |
+| `REL-SEC-001` | complete at security-gate boundary | dependency audit, deterministic authorization/secret/redaction checks, threat-model evidence and explicit follow-up exceptions |
 
 ## Validation snapshot
 
@@ -69,6 +70,8 @@ JOB-CORE-001 focused validation:
 - WEB-SHP-001 journey tests: 3 passing;
 - JOB-NOT-001 notification tests: 3 passing;
 - OPS-REL-001 backup tests: 3 passing;
+- REL-SEC-001 security gate tests: 4 passing;
+- production dependency audit: 0 vulnerabilities at all severities;
 - repository-wide Prettier still reports the pre-existing baseline of 93 files.
 
 Docker image build and container startup have not been evidenced in this snapshot because the
@@ -106,7 +109,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `REL-SEC-001`: security gates.
+1. `REL-OPS-001`: resilience and SLO evidence.
 
 ### REL-TST-001 completed
 
@@ -118,6 +121,13 @@ validation responses plus deny-by-default authorization and duplicate event clai
 
 Added a family-local synthetic E2E fixture covering invite authentication, safe redirect handling,
 invite review, and encoded family welcome navigation.
+
+### REL-SEC-001 completed
+
+Added a repeatable security gate covering production dependency audit evidence, deny-by-default
+authorization and cross-family isolation checks, observability redaction, runtime secret hygiene,
+and threat-model control coverage. Unimplemented upload/SSRF, browser DAST, container scan, and
+artifact provenance surfaces are recorded as owned follow-up exceptions rather than marked passed.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

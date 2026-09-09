@@ -125,3 +125,18 @@ Prima della produzione devono essere completati:
 - restore e incident tabletop;
 - scansione manifest Kubernetes e policy admission;
 - firma/provenance degli artifact.
+
+## 8. REL-SEC-001 evidence
+
+The first repeatable security gate passed on 2026-09-09:
+
+- production dependency audit reported zero vulnerabilities at every severity;
+- authorization checks verified unauthenticated, inactive-membership, and cross-family denial;
+- observability checks verified sensitive attribute redaction;
+- runtime configuration scan found no concrete secret assignments in scanned files;
+- the required SSRF, CSRF, XSS, rate-limit, secret, and authorization controls remain explicitly
+  represented in this threat model.
+
+The gate does not claim upload/SSRF runtime coverage, browser DAST, container/image scanning, or
+signed-artifact provenance where those surfaces are not implemented. The detailed exceptions and
+owners are recorded in `security/REL-SEC-001-REPORT.md`.
