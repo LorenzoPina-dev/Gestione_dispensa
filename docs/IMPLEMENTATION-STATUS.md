@@ -34,6 +34,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `JOB-CORE-001` | complete at queue/job boundary | provider-neutral queue, lifecycle, bounded retry, inbox dedupe, attempts, DLQ, cancellation, graceful stop, metrics, 3 tests |
 | `JOB-CORE-002` | complete at handler boundary | movement/reorder consumers, non-destructive reconciliation, projection rebuild boundary, 3 tests |
 | `JOB-CORE-003` | complete at scheduler boundary | expiry/reconciliation/retention/backup schedule contracts, single-active lock, missed-run recovery, auditable statuses, 3 tests |
+| `WEB-UI-001` | complete at shell boundary | accessible shell model, family navigation, explicit loading/offline/error states, safe redirects, 3 tests |
 
 ## Validation snapshot
 
@@ -57,6 +58,7 @@ JOB-CORE-001 focused validation:
 - worker-core files pass targeted Prettier check;
 - JOB-CORE-002 handler tests: 3 passing;
 - JOB-CORE-003 scheduler tests: 3 passing;
+- WEB-UI-001 shell tests: 3 passing;
 - repository-wide Prettier still reports the pre-existing baseline of 93 files.
 
 Docker image build and container startup have not been evidenced in this snapshot because the
@@ -94,7 +96,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. Continue with the next approved pipeline task after JOB-CORE-003.
+1. `WEB-FAM-001`: onboarding and QR journeys.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
