@@ -68,6 +68,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `OBS-RUN-001` | complete at runtime instrumentation boundary | shared redacted JSON logging, service-scoped metrics/readiness facade, and lifecycle instrumentation for API, worker-core and scheduler |
 | `ADMIN-RUN-001` | complete at authorized administration boundary | operator-only job inspection, approval-gated DLQ replay, replay metadata persistence, publisher boundary and security audit outcomes |
 | `PRV-RUN-001` | complete at privacy export boundary | owner-authorized idempotent export jobs, family-scoped artifact generation, expiry enforcement, download authorization and audit outcomes |
+| `PRV-RUN-002` | complete at privacy erasure boundary | owner-confirmed idempotent erasure requests, consent persistence, legal-retention preservation, anonymization worker and audit outcomes |
 
 ## Validation snapshot
 
@@ -96,6 +97,15 @@ ADMIN-RUN-001 focused validation:
 PRV-RUN-001 focused validation:
 
 - API tests: 54 passing;
+- workspace build and typecheck: passing;
+- repository-wide Prettier: passing;
+- Compose profile rendering: passing;
+- ESLint: 0 errors, 4 pre-existing bootstrap warnings;
+- `git diff --check`: passing.
+
+PRV-RUN-002 focused validation:
+
+- API tests: 58 passing;
 - workspace build and typecheck: passing;
 - repository-wide Prettier: passing;
 - Compose profile rendering: passing;
@@ -134,7 +144,7 @@ validated, but this is not equivalent to a successful `up` and health/readiness 
 - shopping conflict/controller integration;
 - scheduler process and reconciliation jobs;
 - scheduler process and reconciliation jobs;
-- notifications and privacy erasure workflow;
+- notifications workflow;
 - Next.js web/PWA and core user journeys.
 
 ### Operational proof
