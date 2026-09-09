@@ -39,6 +39,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `WEB-INV-001` | complete at journey boundary | receipt/consume/waste action states, optimistic version propagation, conflict/offline/retry recovery, 3 tests |
 | `WEB-SHP-001` | complete at journey boundary | shopping accept/reject/snooze/complete/edit states, list version propagation, conflict/offline/retry recovery, 3 tests |
 | `JOB-NOT-001` | complete at notification boundary | opt-in preferences, quiet hours, idempotent delivery, provider boundary, transient failure and redaction tests |
+| `OPS-REL-001` | complete at backup boundary | encrypted backup manifest, PostgreSQL/MinIO artifact references, isolated restore target, verification and redacted-log tests |
 
 ## Validation snapshot
 
@@ -67,6 +68,7 @@ JOB-CORE-001 focused validation:
 - WEB-INV-001 journey tests: 3 passing;
 - WEB-SHP-001 journey tests: 3 passing;
 - JOB-NOT-001 notification tests: 3 passing;
+- OPS-REL-001 backup tests: 3 passing;
 - repository-wide Prettier still reports the pre-existing baseline of 93 files.
 
 Docker image build and container startup have not been evidenced in this snapshot because the
@@ -104,7 +106,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `OPS-REL-001`: backup and restore automation.
+1. `REL-TST-001`: contract and integration suite.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

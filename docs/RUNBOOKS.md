@@ -162,3 +162,9 @@ Mai svuotare una DLQ senza esportare metadati e approvazione.
 - dati e proiezioni riconciliati;
 - owner remediation e scadenza;
 - comunicazione finale e postmortem.
+## Backup and restore automation
+
+Backup artifacts are referenced by an encrypted manifest and never include connection strings,
+tokens, or personal data in logs. Verification updates the manifest only after both PostgreSQL and
+MinIO artifact references are present. Restore drills must use an isolated `restore-<backupId>`
+target; production paths are rejected by the backup helper.
