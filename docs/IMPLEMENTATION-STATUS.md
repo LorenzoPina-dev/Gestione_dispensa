@@ -41,6 +41,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `JOB-NOT-001` | complete at notification boundary | opt-in preferences, quiet hours, idempotent delivery, provider boundary, transient failure and redaction tests |
 | `OPS-REL-001` | complete at backup boundary | encrypted backup manifest, PostgreSQL/MinIO artifact references, isolated restore target, verification and redacted-log tests |
 | `REL-SEC-001` | complete at security-gate boundary | dependency audit, deterministic authorization/secret/redaction checks, threat-model evidence and explicit follow-up exceptions |
+| `REL-OPS-001` | complete with family-local drill waivers | deterministic retry/DLQ/ack assertions, synthetic p95, runbook coverage and explicit Docker-dependent drill waivers |
 
 ## Validation snapshot
 
@@ -72,6 +73,7 @@ JOB-CORE-001 focused validation:
 - OPS-REL-001 backup tests: 3 passing;
 - REL-SEC-001 security gate tests: 4 passing;
 - production dependency audit: 0 vulnerabilities at all severities;
+- REL-OPS-001 resilience tests: 3 passing;
 - repository-wide Prettier still reports the pre-existing baseline of 93 files.
 
 Docker image build and container startup have not been evidenced in this snapshot because the
@@ -128,6 +130,12 @@ Added a repeatable security gate covering production dependency audit evidence, 
 authorization and cross-family isolation checks, observability redaction, runtime secret hygiene,
 and threat-model control coverage. Unimplemented upload/SSRF, browser DAST, container scan, and
 artifact provenance surfaces are recorded as owned follow-up exceptions rather than marked passed.
+
+### REL-OPS-001 completed
+
+Added deterministic resilience evidence for worker retry/DLQ/ack ordering and synthetic p95
+measurement, plus explicit runbook coverage and Docker-dependent drill waivers. No high-availability
+claim is made for the single-host family-local profile.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
