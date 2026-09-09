@@ -56,6 +56,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `CON-HARD-003` | complete | event/job registry coverage, schema validator, lifecycle validator and unknown/missing/replay compatibility fixtures |
 | `DAT-RUN-001` | complete | ordered migration inventory, external-runner regression coverage, deterministic family-local synthetic seed and explicit seed runbook |
 | `DAT-RUN-002` | complete with runtime waiver | rollback-only PostgreSQL integrity fixture covering FK, uniqueness, inbox/outbox, audit and family isolation; live database execution waived because Docker PostgreSQL is unavailable |
+| `API-RUN-001` | complete at HTTP composition boundary | executable Node HTTP server with canonical health/meta envelopes, correlation headers, stable errors, route smoke tests and graceful shutdown |
 
 ## Validation snapshot
 
@@ -253,6 +254,14 @@ Added a disposable PostgreSQL fixture that inserts two isolated families and val
 active membership uniqueness, movement idempotency, inbox/outbox deduplication, audit visibility and
 family-filtered reads. The entire fixture is rollback-only. Static fixture coverage passes; live
 execution is waived because Docker Desktop/PostgreSQL is unavailable in this environment.
+
+### API-RUN-001 completed at HTTP composition boundary
+
+The API bootstrap now delegates routing to an exported HTTP composition module. Liveness,
+readiness and metadata endpoints return canonical `data`/`meta` envelopes, request and trace
+correlation is propagated, unsupported methods and unknown paths map to stable error codes, and
+shutdown reports close failures without masking them. Domain route wiring remains owned by the
+subsequent runtime tasks.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
