@@ -65,6 +65,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `INV-RUN-001` | complete at PostgreSQL repository boundary | parameterized stock creation and locked movement transactions with family isolation, idempotent client operations, quantity invariants and version updates |
 | `SHP-RUN-001` | complete at PostgreSQL repository boundary | parameterized shopping list/item persistence, family-scoped locking, semantic dedupe, source provenance and optimistic versions |
 | `JOB-RUN-002` | complete at worker process boundary | runnable worker loop with capability dispatch, signal-driven graceful shutdown, permanent unsupported-capability DLQ handling and restart-safe consumer orchestration |
+| `OBS-RUN-001` | complete at runtime instrumentation boundary | shared redacted JSON logging, service-scoped metrics/readiness facade, and lifecycle instrumentation for API, worker-core and scheduler |
 
 ## Validation snapshot
 
@@ -334,6 +335,13 @@ resolved after the job is claimed, unsupported capabilities become permanent fai
 acknowledged only after DLQ persistence, and SIGINT/SIGTERM trigger a graceful stop that waits for
 the active delivery. The process remains provider-neutral and accepts explicit queue/repository
 boundaries from composition code.
+
+### OBS-RUN-001 completed at runtime instrumentation boundary
+
+Added a provider-neutral `RuntimeObservability` facade over the existing redaction, metrics,
+trace-context and readiness primitives, plus a JSON line sink for process output. API startup and
+shutdown, worker lifecycle and scheduler lifecycle now emit service-scoped redacted records; metric
+and readiness hooks remain injectable for tests and deployment composition.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

@@ -1,5 +1,6 @@
 import { JobError, type JobHandler } from "./job.js";
 import { JobWorker } from "./worker.js";
+import type { RuntimeObservability } from "@gestione-dispensa/observability";
 
 export interface WorkerSignalSource {
   on(signal: "SIGINT" | "SIGTERM", listener: () => void): void;
@@ -12,6 +13,7 @@ export interface WorkerProcessOptions {
   readonly pollIntervalMs: number;
   readonly sleep?: (delayMs: number) => Promise<void>;
   readonly signals?: WorkerSignalSource;
+  readonly observability?: RuntimeObservability;
 }
 
 export class WorkerProcess {
@@ -20,6 +22,7 @@ export class WorkerProcess {
   private readonly pollIntervalMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly signals: WorkerSignalSource | undefined;
+  private readonly observability: RuntimeObservability | undefined;
   private stopping = false;
   private running: Promise<void> | undefined;
   private readonly stopListener = (): void => {
@@ -34,6 +37,7 @@ export class WorkerProcess {
     this.pollIntervalMs = options.pollIntervalMs;
     this.sleep = options.sleep ?? delay;
     this.signals = options.signals;
+    this.observability = options.observability;
   }
 
   public async run(): Promise<void> {
@@ -41,9 +45,15 @@ export class WorkerProcess {
     this.stopping = false;
     this.signals?.on("SIGINT", this.stopListener);
     this.signals?.on("SIGTERM", this.stopListener);
+    this.observability
+      ?.logger({ requestId: "system", traceId: "worker-start" })
+      .info("worker_started");
     this.running = this.loop().finally(() => {
       this.signals?.off("SIGINT", this.stopListener);
       this.signals?.off("SIGTERM", this.stopListener);
+      this.observability
+        ?.logger({ requestId: "system", traceId: "worker-stop" })
+        .info("worker_stopped");
       this.running = undefined;
     });
     return this.running;

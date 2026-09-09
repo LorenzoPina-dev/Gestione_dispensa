@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "jose": "^6.1.0"
+    "jose": "^6.1.0",
+    "@gestione-dispensa/observability": "0.1.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

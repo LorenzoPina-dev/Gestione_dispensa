@@ -7,12 +7,14 @@ import {
   type SchedulerRepository,
   type TaskType,
 } from "./scheduler.js";
+import type { RuntimeObservability } from "@gestione-dispensa/observability";
 
 export interface SchedulerProcessOptions extends SchedulerOptions {
   readonly schedules: ScheduleDefinition[];
   readonly tasks: Readonly<Partial<Record<TaskType, SchedulerTask>>>;
   readonly pollIntervalMs: number;
   readonly onRuns?: (runs: readonly ScheduleRun[]) => void;
+  readonly observability?: RuntimeObservability;
 }
 
 export interface SchedulerProcess {
@@ -49,11 +51,17 @@ export function createSchedulerProcess(options: SchedulerProcessOptions): Schedu
     start(): void {
       if (running) return;
       running = true;
+      options.observability
+        ?.logger({ requestId: "system", traceId: "scheduler-start" })
+        .info("scheduler_started");
       scheduleNext();
     },
     async stop(): Promise<void> {
       running = false;
       scheduler.stop();
+      options.observability
+        ?.logger({ requestId: "system", traceId: "scheduler-stop" })
+        .info("scheduler_stopped");
       if (timer !== undefined) {
         clearTimeout(timer);
         timer = undefined;

@@ -121,6 +121,57 @@ export class InMemoryMetrics {
   }
 }
 
+export interface LineWriter {
+  write(line: string): void;
+}
+
+export class JsonLogSink implements LogSink {
+  private readonly writer: LineWriter;
+
+  public constructor(writer: LineWriter) {
+    this.writer = writer;
+  }
+
+  public write(record: LogRecord): void {
+    this.writer.write(`${JSON.stringify(record)}\n`);
+  }
+}
+
+export class RuntimeObservability {
+  private readonly serviceName: string;
+  private readonly sink: LogSink;
+  private readonly metrics: InMemoryMetrics;
+
+  public constructor(serviceName: string, sink: LogSink, metrics = new InMemoryMetrics()) {
+    if (!serviceName.trim()) throw new Error("Observability service name is required.");
+    this.serviceName = serviceName;
+    this.sink = sink;
+    this.metrics = metrics;
+  }
+
+  public logger(context: Omit<RequestContext, "serviceName">): RedactingLogger {
+    return new RedactingLogger({ ...context, serviceName: this.serviceName }, this.sink);
+  }
+
+  public increment(name: string, labels: Record<string, string> = {}): void {
+    this.metrics.increment(name, { service: this.serviceName, ...labels });
+  }
+
+  public observe(name: string, value: number, labels: Record<string, string> = {}): void {
+    this.metrics.observe(name, value, { service: this.serviceName, ...labels });
+  }
+
+  public snapshotMetrics(): readonly MetricSample[] {
+    return this.metrics.snapshot();
+  }
+
+  public async readiness(
+    checks: readonly HealthCheck[],
+  ): Promise<{ status: "ready" | "not_ready"; checks: Record<string, "up" | "down"> }> {
+    return readiness(checks);
+  }
+}
+
 export interface TraceHeaders {
   traceparent?: string;
 }
