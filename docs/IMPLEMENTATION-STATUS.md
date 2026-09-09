@@ -64,6 +64,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `CAT-RUN-001` | complete at PostgreSQL repository boundary | parameterized catalog repositories for manual products, barcode lookup, imported candidates, provenance and transactional outbox tests |
 | `INV-RUN-001` | complete at PostgreSQL repository boundary | parameterized stock creation and locked movement transactions with family isolation, idempotent client operations, quantity invariants and version updates |
 | `SHP-RUN-001` | complete at PostgreSQL repository boundary | parameterized shopping list/item persistence, family-scoped locking, semantic dedupe, source provenance and optimistic versions |
+| `JOB-RUN-002` | complete at worker process boundary | runnable worker loop with capability dispatch, signal-driven graceful shutdown, permanent unsupported-capability DLQ handling and restart-safe consumer orchestration |
 
 ## Validation snapshot
 
@@ -325,6 +326,14 @@ Added a concrete shopping repository for family-scoped list creation and item in
 semantic duplicates are locked and merged with version advancement rather than duplicated; source
 provenance is appended in the same transaction. Live PostgreSQL execution remains environment-waived
 while Docker is unavailable.
+
+### JOB-RUN-002 completed at worker process boundary
+
+Added the executable worker orchestration around the durable `JobWorker`. Capability handlers are
+resolved after the job is claimed, unsupported capabilities become permanent failures and are
+acknowledged only after DLQ persistence, and SIGINT/SIGTERM trigger a graceful stop that waits for
+the active delivery. The process remains provider-neutral and accepts explicit queue/repository
+boundaries from composition code.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

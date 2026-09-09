@@ -29,10 +29,25 @@ export interface WorkerOptions {
 export class JobWorker {
   private stopping = false;
   private retries = 0;
+  private readonly options: WorkerOptions;
 
-  public constructor(private readonly options: WorkerOptions) {}
+  public constructor(options: WorkerOptions) {
+    this.options = options;
+  }
 
   public async processNext(handler: JobHandler): Promise<boolean> {
+    return this.processNextInternal(async () => handler);
+  }
+
+  public async processNextWithResolver(
+    resolve: (job: Readonly<JobRecord>) => JobHandler | Promise<JobHandler>,
+  ): Promise<boolean> {
+    return this.processNextInternal(resolve);
+  }
+
+  private async processNextInternal(
+    resolve: (job: Readonly<JobRecord>) => JobHandler | Promise<JobHandler>,
+  ): Promise<boolean> {
     if (this.stopping) return false;
     const message = await this.options.queue.receive();
     if (!message) {
@@ -70,6 +85,7 @@ export class JobWorker {
     });
 
     try {
+      const handler = await resolve(job);
       const result = await handler({
         job,
         attempt: {

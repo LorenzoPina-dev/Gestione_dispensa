@@ -5,3 +5,4 @@ export * from "./queue.js";
 export * from "./redis-queue.js";
 export * from "./repository.js";
 export * from "./worker.js";
+export * from "./process.js";
