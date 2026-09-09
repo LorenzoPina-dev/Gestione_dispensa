@@ -63,6 +63,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `FAM-RUN-001` | complete at PostgreSQL repository boundary | parameterized family/invite repositories with atomic transactions, audit/outbox writes, hash-only invite persistence and invite acceptance transaction tests |
 | `CAT-RUN-001` | complete at PostgreSQL repository boundary | parameterized catalog repositories for manual products, barcode lookup, imported candidates, provenance and transactional outbox tests |
 | `INV-RUN-001` | complete at PostgreSQL repository boundary | parameterized stock creation and locked movement transactions with family isolation, idempotent client operations, quantity invariants and version updates |
+| `SHP-RUN-001` | complete at PostgreSQL repository boundary | parameterized shopping list/item persistence, family-scoped locking, semantic dedupe, source provenance and optimistic versions |
 
 ## Validation snapshot
 
@@ -317,6 +318,13 @@ under row locks. Client operation identifiers are deduplicated before side effec
 quantities are rejected, movement rows remain append-only, and successful updates advance the stock
 version in the same transaction. Live PostgreSQL execution remains environment-waived while Docker
 is unavailable.
+
+### SHP-RUN-001 completed at PostgreSQL repository boundary
+
+Added a concrete shopping repository for family-scoped list creation and item insertion. Active
+semantic duplicates are locked and merged with version advancement rather than duplicated; source
+provenance is appended in the same transaction. Live PostgreSQL execution remains environment-waived
+while Docker is unavailable.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
