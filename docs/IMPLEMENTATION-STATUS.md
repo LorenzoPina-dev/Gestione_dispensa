@@ -47,6 +47,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `OPT-INT-002` | complete at recognition boundary | upload validation, quarantine scanner boundary, malware/size/type handling, timeout degradation and review-only candidates |
 | `OPT-INT-003` | complete at recipes/nutrition boundary | explainable allergen-safe ranking, source quality, serving scaling and unknown/estimated labels |
 | `OPT-INT-004` | complete at offers adapter boundary | provider boundary, area/freshness validation, stale suppression, provenance and degraded fallback |
+| `OPT-SEARCH-001` | complete at rebuildable projection boundary | deterministic family-isolated projection, source-version replay, measurable lag and PostgreSQL fallback boundary |
 
 ## Validation snapshot
 
@@ -116,7 +117,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `OPT-SEARCH-001`: search projection.
+1. `SCL-OPS-001`: Kubernetes base and overlays.
 
 ### REL-TST-001 completed
 
@@ -174,6 +175,12 @@ verified without provenance.
 Added an isolated offers adapter that validates area, price, currency and validity windows,
 suppresses stale or malformed offers, preserves provider/source provenance, and degrades on
 provider rate limits without blocking core shopping.
+
+### OPT-SEARCH-001 completed
+
+Added a rebuildable family-isolated search projection with source-version idempotency, deterministic
+replay, measurable projection lag, and an explicit authoritative fallback when the projection is
+degraded. No optional search backend is introduced before benchmark evidence.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
