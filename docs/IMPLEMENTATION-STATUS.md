@@ -44,6 +44,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `REL-OPS-001` | complete with family-local drill waivers | deterministic retry/DLQ/ack assertions, synthetic p95, runbook coverage and explicit Docker-dependent drill waivers |
 | `REL-GOV-001` | complete as governance gate, release not approved | complete MUST traceability, lifecycle review, known-risk register and explicit release blockers |
 | `OPT-INT-001` | complete at barcode adapter boundary | provider-neutral barcode adapter, normalization, timeout/rate-limit degradation, provenance and reviewable candidates |
+| `OPT-INT-002` | complete at recognition boundary | upload validation, quarantine scanner boundary, malware/size/type handling, timeout degradation and review-only candidates |
 
 ## Validation snapshot
 
@@ -113,7 +114,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `OPT-INT-002`: OCR/photo recognition pipeline.
+1. `OPT-INT-003`: recipes and nutrition.
 
 ### REL-TST-001 completed
 
@@ -151,6 +152,13 @@ Added a provider-neutral barcode/catalog adapter with strict identifier normaliz
 validation, timeout and rate-limit degradation, provenance metadata, and mandatory reviewable
 candidate output. Manual catalog entry remains available when the provider is unavailable or has no
 match.
+
+### OPT-INT-002 completed
+
+Added a provider-neutral recognition pipeline with MIME/size/path validation, quarantine scanner
+boundary, malware and scanner-unavailable handling, provider timeout degradation, and mandatory
+review for every candidate including low-confidence results. No automatic catalog mutation is
+performed.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
