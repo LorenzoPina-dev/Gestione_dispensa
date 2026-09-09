@@ -67,6 +67,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `JOB-RUN-002` | complete at worker process boundary | runnable worker loop with capability dispatch, signal-driven graceful shutdown, permanent unsupported-capability DLQ handling and restart-safe consumer orchestration |
 | `OBS-RUN-001` | complete at runtime instrumentation boundary | shared redacted JSON logging, service-scoped metrics/readiness facade, and lifecycle instrumentation for API, worker-core and scheduler |
 | `ADMIN-RUN-001` | complete at authorized administration boundary | operator-only job inspection, approval-gated DLQ replay, replay metadata persistence, publisher boundary and security audit outcomes |
+| `PRV-RUN-001` | complete at privacy export boundary | owner-authorized idempotent export jobs, family-scoped artifact generation, expiry enforcement, download authorization and audit outcomes |
 
 ## Validation snapshot
 
@@ -86,6 +87,15 @@ The following checks pass in the repository:
 ADMIN-RUN-001 focused validation:
 
 - API build and tests: passing;
+- workspace build and typecheck: passing;
+- repository-wide Prettier: passing;
+- Compose profile rendering: passing;
+- ESLint: 0 errors, 4 pre-existing bootstrap warnings;
+- `git diff --check`: passing.
+
+PRV-RUN-001 focused validation:
+
+- API tests: 54 passing;
 - workspace build and typecheck: passing;
 - repository-wide Prettier: passing;
 - Compose profile rendering: passing;
@@ -124,7 +134,7 @@ validated, but this is not equivalent to a successful `up` and health/readiness 
 - shopping conflict/controller integration;
 - scheduler process and reconciliation jobs;
 - scheduler process and reconciliation jobs;
-- notifications and privacy export/erasure workflows;
+- notifications and privacy erasure workflow;
 - Next.js web/PWA and core user journeys.
 
 ### Operational proof
