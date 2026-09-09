@@ -52,6 +52,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `SCL-OPS-002` | complete with load-test waiver | bounded API/worker HPA, production two-replica overlay, backlog metric contract and explicit capacity evidence waiver |
 | `SCL-REL-001` | complete as readiness record, production not approved | final prerequisite matrix, operator handoff and explicit owner/date blockers |
 | `FND-CON-001` hardening slice | complete for privacy operations | operation-specific export, erasure and consent request/response schemas with regression coverage |
+| `CON-HARD-002` | complete | remaining public OpenAPI paths no longer reference generic request/success contracts; operation-specific schemas, responses and regression tests added |
 
 ## Validation snapshot
 
@@ -213,6 +214,22 @@ Privacy export, erasure and consent operations no longer rely on the generic req
 shapes. The contract now requires explicit consent fields, confirmation for erasure, and stable
 consent response structures; a regression test prevents those operations from regressing to generic
 contracts. Remaining generic OpenAPI operations are still tracked as contract-hardening work.
+
+## Atomic remaining backlog
+
+The remaining executable work is decomposed in
+[IMPLEMENTATION-BACKLOG.md](IMPLEMENTATION-BACKLOG.md). The next task is `CON-HARD-003`.
+It must add producer/consumer validators and compatibility fixtures for every registered event/job
+before new runtime routes are wired. Tasks are intentionally split between contract,
+PostgreSQL/Redis runtime integration, user interface runtime, privacy, operational evidence and
+optional capability wiring.
+
+### CON-HARD-002 completed
+
+All public OpenAPI path operations now use named request bodies and response components rather than
+`GenericRequest` or `GenericSuccess`. The operation-specific schemas encode required fields,
+enums, identifiers, confirmation, consent, pagination payloads and domain response shapes. YAML
+parsing, contract tests, typecheck, formatting and diff validation pass.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

@@ -50,6 +50,13 @@ test("privacy operations use operation-specific request and response contracts",
   assert.doesNotMatch(privacyConsent, /GenericRequest/);
 });
 
+test("public OpenAPI paths do not reference generic request or success contracts", async () => {
+  const openApi = await readFile(openApiDocument, "utf8");
+  const pathsSection = openApi.slice(openApi.indexOf("paths:"), openApi.indexOf("components:"));
+
+  assert.doesNotMatch(pathsSection, /GenericRequest|GenericSuccess/);
+});
+
 function sectionForPath(document, path) {
   const start = document.indexOf(`  ${path}:`);
   assert.notEqual(start, -1, `OpenAPI path is missing: ${path}`);
