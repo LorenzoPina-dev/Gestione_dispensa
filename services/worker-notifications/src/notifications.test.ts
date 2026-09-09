@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isQuietHours, notificationHandler, NotificationJobError } from "./notifications.js";
+import {
+  InMemoryNotificationRepository,
+  isQuietHours,
+  NotificationApplicationService,
+  notificationHandler,
+  NotificationJobError,
+  NotificationValidationError,
+} from "./notifications.js";
 
 function job(payload: Readonly<Record<string, unknown>>) {
   return { payload };
@@ -14,7 +21,7 @@ const event = {
   title: "Restock",
   body: "A product needs attention token=secret-value",
   traceId: "trace-1",
-};
+} as const;
 
 test("notification delivery is opt-in, idempotent and redacts sensitive text", async () => {
   let sends = 0;
@@ -120,4 +127,35 @@ test("disabled notifications do not invoke providers", async () => {
   });
   assert.deepEqual(result, { status: "DISABLED", eventId: "event-1" });
   assert.equal(sent, false);
+});
+
+test("preferences, unsubscribe and in-app notification persistence are durable boundaries", async () => {
+  const repository = new InMemoryNotificationRepository();
+  const service = new NotificationApplicationService(repository);
+  await service.updatePreference("user-1", "REORDER", "IN_APP", {
+    enabled: true,
+  });
+  await assert.rejects(
+    () =>
+      service.updatePreference("user-1", "REORDER", "IN_APP", {
+        enabled: true,
+        quietHours: { startHourUtc: 24, endHourUtc: 7 },
+      }),
+    (error: unknown) => error instanceof NotificationValidationError,
+  );
+  const handler = notificationHandler(
+    repository,
+    {
+      async send(input) {
+        await repository.storeInApp({ ...event, title: input.title, body: input.body }, 100);
+      },
+    },
+    { now: () => new Date("2026-01-01T12:00:00Z") },
+  );
+  await handler({ job: job(event) });
+  assert.equal((await service.listNotifications("user-1")).length, 1);
+  await service.unsubscribe("user-1", "IN_APP");
+  assert.deepEqual(await repository.getPreference("user-1", "REORDER", "IN_APP"), {
+    enabled: false,
+  });
 });
