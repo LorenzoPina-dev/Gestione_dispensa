@@ -55,6 +55,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `CON-HARD-002` | complete | remaining public OpenAPI paths no longer reference generic request/success contracts; operation-specific schemas, responses and regression tests added |
 | `CON-HARD-003` | complete | event/job registry coverage, schema validator, lifecycle validator and unknown/missing/replay compatibility fixtures |
 | `DAT-RUN-001` | complete | ordered migration inventory, external-runner regression coverage, deterministic family-local synthetic seed and explicit seed runbook |
+| `DAT-RUN-002` | complete with runtime waiver | rollback-only PostgreSQL integrity fixture covering FK, uniqueness, inbox/outbox, audit and family isolation; live database execution waived because Docker PostgreSQL is unavailable |
 
 ## Validation snapshot
 
@@ -245,6 +246,13 @@ The six bounded-context migrations are covered by an ordered repository inventor
 deterministic, idempotent family-local seed creates only synthetic user, family, membership,
 catalog and location records and remains separate from migration history. PostgreSQL application
 is still external to service startup; the seed runbook requires an explicit `psql` invocation.
+
+### DAT-RUN-002 completed with runtime waiver
+
+Added a disposable PostgreSQL fixture that inserts two isolated families and validates foreign keys,
+active membership uniqueness, movement idempotency, inbox/outbox deduplication, audit visibility and
+family-filtered reads. The entire fixture is rollback-only. Static fixture coverage passes; live
+execution is waived because Docker Desktop/PostgreSQL is unavailable in this environment.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

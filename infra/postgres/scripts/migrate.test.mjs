@@ -116,11 +116,30 @@ test("repository migrations are ordered and synthetic seed is separate", async (
   const migrations = await discoverMigrations(join(root, "migrations"));
   assert.deepEqual(
     migrations.map((migration) => migration.version),
-    ["0001", "0002", "0003", "0004", "0005", "0006"],
+    ["0001", "0002", "0003", "0004", "0005", "0006", "0007"],
   );
 
   const seed = await readFile(new URL("../seeds/001_family-local.sql", import.meta.url), "utf8");
   assert.match(seed, /BEGIN;/);
   assert.match(seed, /ON CONFLICT \(id\) DO NOTHING/);
   assert.doesNotMatch(seed, /DATABASE_URL|PASSWORD|SECRET/i);
+});
+
+test("integration fixture is rollback-only and covers required persistence boundaries", async () => {
+  const fixture = await readFile(new URL("../fixtures/002-integrity.sql", import.meta.url), "utf8");
+
+  assert.match(fixture, /^BEGIN;/m);
+  assert.match(fixture, /^ROLLBACK;$/m);
+  for (const table of [
+    "family_memberships",
+    "stock_movements",
+    "inbox_events",
+    "outbox_events",
+    "audit_events",
+  ]) {
+    assert.match(fixture, new RegExp(`\\b${table}\\b`));
+  }
+  assert.match(fixture, /family B can see family A stock fixture/);
+  assert.match(fixture, /unique_violation/);
+  assert.match(fixture, /foreign_key_violation/);
 });
