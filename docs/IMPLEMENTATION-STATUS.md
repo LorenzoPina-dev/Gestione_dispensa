@@ -71,6 +71,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `PRV-RUN-002` | complete at privacy erasure boundary | owner-confirmed idempotent erasure requests, consent persistence, legal-retention preservation, anonymization worker and audit outcomes |
 | `NOT-RUN-001` | complete at notification delivery boundary | persisted preferences, quiet-hour deferral, opt-in in-app delivery, deduplication, unsubscribe and transient provider failure handling |
 | `INT-RUN-001` | complete at barcode runtime boundary | provider-backed barcode job processing, reviewable provenance, idempotent result persistence, manual fallback and degraded rate/timeout handling |
+| `INT-RUN-003` | complete at recipe/nutrition runtime boundary | consent-gated idempotent suggestions, allergen-safe ranking reuse, source-qualified nutrition calculation and explicit consumption operations |
 
 ## Validation snapshot
 
@@ -131,6 +132,13 @@ INT-RUN-001 focused validation:
 - Compose profile rendering: passing;
 - `git diff --check`: passing.
 
+INT-RUN-003 focused validation:
+
+- worker-integrations tests: 19 passing;
+- workspace build and typecheck: passing;
+- repository-wide Prettier: passing;
+- `git diff --check`: passing.
+
 JOB-CORE-001 focused validation:
 
 - worker-core tests: 3 passing;
@@ -163,7 +171,7 @@ validated, but this is not equivalent to a successful `up` and health/readiness 
 - shopping conflict/controller integration;
 - scheduler process and reconciliation jobs;
 - scheduler process and reconciliation jobs;
-- recipe/nutrition, retailer offers and search runtime integrations;
+- retailer offers and search runtime integrations;
 - Next.js web/PWA and core user journeys.
 
 ### Operational proof
