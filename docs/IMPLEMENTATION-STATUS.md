@@ -46,6 +46,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `OPT-INT-001` | complete at barcode adapter boundary | provider-neutral barcode adapter, normalization, timeout/rate-limit degradation, provenance and reviewable candidates |
 | `OPT-INT-002` | complete at recognition boundary | upload validation, quarantine scanner boundary, malware/size/type handling, timeout degradation and review-only candidates |
 | `OPT-INT-003` | complete at recipes/nutrition boundary | explainable allergen-safe ranking, source quality, serving scaling and unknown/estimated labels |
+| `OPT-INT-004` | complete at offers adapter boundary | provider boundary, area/freshness validation, stale suppression, provenance and degraded fallback |
 
 ## Validation snapshot
 
@@ -115,7 +116,7 @@ finished domain contract.
 
 ## Next execution order
 
-1. `OPT-INT-004`: offers and retailer adapters.
+1. `OPT-SEARCH-001`: search projection.
 
 ### REL-TST-001 completed
 
@@ -167,6 +168,12 @@ Added deterministic recipe ranking that hard-excludes allergen violations and ex
 codes, plus nutrition serving calculations that preserve source quality and distinguish confirmed,
 estimated and unknown values. No generated or provider output is treated as medical advice or
 verified without provenance.
+
+### OPT-INT-004 completed
+
+Added an isolated offers adapter that validates area, price, currency and validity windows,
+suppresses stale or malformed offers, preserves provider/source provenance, and degrades on
+provider rate limits without blocking core shopping.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.
