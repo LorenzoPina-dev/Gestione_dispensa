@@ -28,7 +28,7 @@ engineering baseline, not yet a usable pantry product or production release.
 | `DOM-CAT-001` | complete at persistence/application boundary | catalog migration, products/sources/identifiers/provenance, manual precedence, 3 tests |
 | `DOM-CAT-002` | complete at workflow boundary | normalized barcode lookup, unknown handling, reviewable imported candidates, 3 tests |
 | `DOM-INV-001` | complete at persistence/application boundary | inventory locations/items/lots/movements/thresholds migration, quantity invariants, idempotent movement contract, 3 tests |
-| `DOM-INV-002` | complete at controller boundary | inventory mutation handlers, family authorization, If-Match/version conflict, stable errors, 3 tests |
+| `DOM-INV-002` | complete at controller boundary, now wired to real HTTP + Postgres | inventory mutation handlers, family authorization, If-Match/version conflict, stable errors, 3 controller-level tests, plus 5 new end-to-end HTTP tests over a real `node:http` server and a new `PostgresInventoryReader` for the version lookup (see the PostgreSQL live-execution note below) |
 | `DOM-SHP-001` | complete at persistence/application boundary | shopping lists/items/sources migration, semantic dedupe boundary, validation service, 2 tests |
 | `DOM-SHP-002` | complete at policy/application boundary | threshold boundary policy, version-based dedupe, ignored/snoozed protection, reorder event, 3 tests |
 | `JOB-CORE-001` | complete at queue/job boundary | provider-neutral queue, lifecycle, bounded retry, inbox dedupe, attempts, DLQ, cancellation, graceful stop, metrics, 3 tests |
@@ -55,12 +55,12 @@ engineering baseline, not yet a usable pantry product or production release.
 | `CON-HARD-002` | complete | remaining public OpenAPI paths no longer reference generic request/success contracts; operation-specific schemas, responses and regression tests added |
 | `CON-HARD-003` | complete | event/job registry coverage, schema validator, lifecycle validator and unknown/missing/replay compatibility fixtures |
 | `DAT-RUN-001` | complete | ordered migration inventory, external-runner regression coverage, deterministic family-local synthetic seed and explicit seed runbook |
-| `DAT-RUN-002` | complete with runtime waiver | rollback-only PostgreSQL integrity fixture covering FK, uniqueness, inbox/outbox, audit and family isolation; live database execution waived because Docker PostgreSQL is unavailable |
-| `API-RUN-001` | complete at HTTP composition boundary | executable Node HTTP server with canonical health/meta envelopes, correlation headers, stable errors, route smoke tests and graceful shutdown |
+| `DAT-RUN-002` | complete, runtime waiver lifted | rollback-only PostgreSQL integrity fixture executed for real against a live PostgreSQL 16 instance (all 7 migrations applied via the external runner): BEGIN/DO/ROLLBACK completed with every FK, uniqueness, inbox/outbox and family-isolation assertion passing. A `postgres-integration` CI job now runs this fixture and `apps/api/tests/postgres-client.integration.test.mjs` against a `postgres:16` service container on every push/PR. |
+| `API-RUN-001` | complete at HTTP composition boundary, family domain now wired | executable Node HTTP server with canonical health/meta envelopes, correlation headers, stable errors, route smoke tests and graceful shutdown. This session added the first real domain HTTP surface: `POST /api/v1/families`, `POST /api/v1/families/{id}/invites`, `POST /api/v1/invites/resolve`, `POST /api/v1/invites/{id}/accept`, backed by `FamilyController` + the new `PostgresClient`, with real-JWT end-to-end tests (`apps/api/tests/http-family-routes.test.mjs`) and a real `/health/ready` Postgres ping. Catalog/inventory/shopping/jobs/privacy controllers still exist but remain unwired to any route — see the correction note below. |
 | `JOB-RUN-001` | complete at Redis adapter boundary | provider-neutral Redis list adapter with processing acknowledgements, nack/requeue, FIFO, backlog/oldest-age metrics and deterministic fake-client tests |
 | `IDN-RUN-001` | complete at local OIDC flow boundary | Authorization Code + PKCE S256 flow with discovery validation, one-time state, TTL cleanup, token exchange and deterministic callback tests |
 | `JOB-RUN-003` | complete at scheduler process boundary | executable polling loop with single-flight ticks, database-backed scheduler lock contract, missed-run recovery, audit outcomes and graceful stop |
-| `FAM-RUN-001` | complete at PostgreSQL repository boundary | parameterized family/invite repositories with atomic transactions, audit/outbox writes, hash-only invite persistence and invite acceptance transaction tests |
+| `FAM-RUN-001` | complete at PostgreSQL repository boundary, live-verified | parameterized family/invite repositories with atomic transactions, audit/outbox writes, hash-only invite persistence and invite acceptance transaction tests; the same repository classes now run against real PostgreSQL 16 through the new `PostgresClient` (`apps/api/src/db/postgres-client.ts`), verified end-to-end (create family -> invite -> resolve -> accept, with a forced-failure atomic-rollback check) |
 | `CAT-RUN-001` | complete at PostgreSQL repository boundary | parameterized catalog repositories for manual products, barcode lookup, imported candidates, provenance and transactional outbox tests |
 | `INV-RUN-001` | complete at PostgreSQL repository boundary | parameterized stock creation and locked movement transactions with family isolation, idempotent client operations, quantity invariants and version updates |
 | `SHP-RUN-001` | complete at PostgreSQL repository boundary | parameterized shopping list/item persistence, family-scoped locking, semantic dedupe, source provenance and optimistic versions |
@@ -455,6 +455,94 @@ Added a provider-neutral `RuntimeObservability` facade over the existing redacti
 trace-context and readiness primitives, plus a JSON line sink for process output. API startup and
 shutdown, worker lifecycle and scheduler lifecycle now emit service-scoped redacted records; metric
 and readiness hooks remain injectable for tests and deployment composition.
+
+### Documentation-accuracy correction (this session)
+
+While wiring the family HTTP routes, no actual OpenAPI document (YAML/JSON) or Redocly
+configuration was found anywhere in this repository — `packages/contracts/openapi/` contains only
+a `README.md`, and a repository-wide search for `*.yaml` / `*openapi*` / `redocly*` returns nothing.
+The `FND-CON-001` ("Redocly parse/lint") and `CON-HARD-002` ("remaining public OpenAPI paths...")
+rows above describe validating a document that does not exist in the repository. What *does* exist
+is `packages/contracts/src/index.ts`: hand-written TypeScript envelope/event/job types, an
+`HttpContractRoute` shape, and imperative JSON Schema-style validators — useful, but not an OpenAPI
+spec, and not something Redocly could have parsed. Until a real `openapi.yaml` is added and linted,
+those two rows should be read as "contract *types* defined in TypeScript", not as OpenAPI validation
+evidence. The family HTTP routes added in this session (`POST /api/v1/families` and friends) were
+designed directly against `FamilyController`'s existing method signatures rather than against any
+OpenAPI path list, because none exists to conform to.
+
+### PostgreSQL live-execution evidence added (this session)
+
+The `DAT-RUN-002` / `FAM-RUN-001` "live execution waived" notes were removed for the family
+domain and the migration/fixture tooling. Concretely, in this session:
+
+- Installed PostgreSQL 16 in an isolated environment and applied all 7 repository migrations
+  (`0001`-`0007`) with the unmodified `infra/postgres/scripts/migrate.mjs` runner.
+- **Found and fixed a real bug** in `migrate.mjs`: `psql --no-align` defaults to `|` as its field
+  separator, not a tab, while `parseRows()` split on `\t`. `status` therefore always threw
+  `Invalid migration status output` against a real database. No prior test caught this because
+  every existing test supplied pre-shaped fake stdout instead of exercising psql's actual output
+  format. Fixed by extracting a pure, unit-tested `buildPsqlQueryArgs()` that always passes
+  `--field-separator \t`; `migrate` and `status` are now both live-verified as idempotent.
+- Executed `infra/postgres/fixtures/002-integrity.sql` for the first time against a real database
+  (previously only checked by regex against the static file). `BEGIN` / `DO` / `ROLLBACK` completed
+  cleanly: family-scoped stock/audit visibility, active-membership uniqueness, movement
+  idempotency, cross-family location FK enforcement, and inbox/outbox deduplication all passed as
+  real constraint violations caught by the fixture's negative tests.
+- Added `apps/api/src/db/postgres-client.ts`, a `pg` (node-postgres) backed implementation of the
+  `SqlClient`/`SqlTransaction`/`SqlTransactionFactory` contracts already defined independently in
+  each domain's `postgres.ts`. One pool now serves family, catalog, inventory and shopping
+  repositories via structural typing; `pg`/`@types/pg` were added to `apps/api/package.json`
+  (which also had a duplicate `dependencies` key, now merged).
+- Added `apps/api/tests/postgres-client.integration.test.mjs`: an opt-in test (skips cleanly
+  without `DATABASE_URL`, verified both ways) that runs `FamilyService`/`InviteService` against the
+  real repositories and a live database, asserting actual row state after create/invite/resolve/
+  accept, plus a forced primary-key collision proving atomic rollback leaves no orphaned rows.
+- Added a `postgres-integration` job to `.github/workflows/ci.yml` that boots a `postgres:16`
+  service container, runs the real migration runner, runs the integrity fixture, and runs the new
+  integration test on every push/PR. This job has not yet executed on GitHub Actions itself (that
+  requires a push); its steps were validated by reproducing the equivalent sequence locally.
+
+- Wired the family domain into `apps/api/src/http.ts` for the first time: `POST /api/v1/families`,
+  `POST /api/v1/families/{id}/invites`, `POST /api/v1/invites/resolve`, and
+  `POST /api/v1/invites/{id}/accept`, each backed by `FamilyController` and the real Postgres
+  repositories, with JWT authentication via the existing `OidcTokenVerifier` and a new
+  `PostgresFamilyMembershipReader`. `/health/ready` now performs a real Postgres ping instead of a
+  static placeholder when `options.postgres` is provided. Verified with 7 new end-to-end HTTP tests
+  (`apps/api/tests/http-family-routes.test.mjs`) using real signed JWTs against a local JWKS and a
+  real `node:http` server — no mocked transport. Note: no OpenAPI document exists to validate these
+  paths against (see the correction note above); the route shapes are this session's own design.
+- Wired the inventory domain the same way: `POST /api/v1/inventory/stock-items` and
+  `POST /api/v1/inventory/stock-items/{id}/movements`, backed by `InventoryController` (reusing
+  `PostgresFamilyMembershipReader` for its membership check) and a new `PostgresInventoryReader`
+  for the If-Match version lookup. The movement route enforces optimistic concurrency: a missing
+  `If-Match` header returns `428 PRECONDITION_REQUIRED`, a stale one returns
+  `409 VERSION_CONFLICT`. Verified with 5 end-to-end HTTP tests
+  (`apps/api/tests/http-inventory-routes.test.mjs`), including a real stale-version conflict and a
+  real successful concurrency-checked update.
+- Wrote a **new controller boundary from scratch** for catalog and shopping (neither had one
+  before): `catalog/controller.ts` (`POST /api/v1/catalog/products`, public
+  `GET /api/v1/catalog/lookup`) and `shopping/controller.ts` (`POST /api/v1/shopping/lists`,
+  `POST /api/v1/shopping/lists/{id}/items`, reusing `PostgresFamilyMembershipReader` for
+  `shopping.write` authorization). Catalog is shared reference data, not family-scoped, so its
+  controller only gates on authentication, not membership. Verified with 5 end-to-end HTTP tests
+  (`apps/api/tests/http-catalog-shopping-routes.test.mjs`), including the public barcode-lookup
+  route working without a token and the 404-when-unconfigured case.
+- `server.ts` now composes all four domains (family, inventory, catalog, shopping) behind the same
+  `OidcTokenVerifier` and `PostgresClient` when `DATABASE_URL`/`PG*`, `OIDC_ISSUER` and
+  `OIDC_AUDIENCE` are all resolvable; each domain degrades independently (logs and stays
+  unregistered) if its prerequisites are missing.
+- The full apps/api TypeScript tree (all four domains, `http.ts`, `server.ts`) was rebuilt from
+  scratch and type-checked clean in this session's mirror after every change, and the complete test
+  suite (19 tests across health/meta, family, inventory, catalog, shopping, plus the live-Postgres
+  integration tests) passes together in one run.
+
+What this does **not** yet cover: jobs/privacy HTTP routes are still not wired into
+`apps/api/src/http.ts` (only health/meta and the new family/inventory/catalog/shopping surfaces are
+served), Redis/OIDC-realm/MinIO remain unverified against live services (all four domains require
+`OIDC_ISSUER`/`OIDC_AUDIENCE` to be set and reachable, which was not exercised against a real
+Keycloak in this session), and `packages/ui` / `apps/web` / `services/gateway` are still empty or
+non-UI as recorded elsewhere in this document.
 
 Each task must follow [AGENT-WORK-PACKAGES.md](AGENT-WORK-PACKAGES.md) and update this status
 snapshot only through the integration owner after its focused and workspace validation passes.

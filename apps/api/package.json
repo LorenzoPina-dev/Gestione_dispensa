@@ -5,16 +5,18 @@
   "type": "module",
   "dependencies": {
     "jose": "^6.1.0",
+    "pg": "^8.23.0",
     "@gestione-dispensa/observability": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/src/server.js",
     "dev": "node --watch --experimental-strip-types src/server.ts",
-    "test": "npm run build && node --experimental-strip-types --test tests/*.mjs"
-  },
-  "dependencies": {
-    "jose": "^6.1.0"
+    "test": "npm run build && node --experimental-strip-types --test tests/*.mjs",
+    "test:integration": "node --experimental-strip-types --test tests/postgres-client.integration.test.mjs"
   }
 }

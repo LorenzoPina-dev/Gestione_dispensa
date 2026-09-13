@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { test } from "node:test";
-import { createApiServer } from "../src/http.ts";
+import { createApiServer } from "../dist/http.js";
 
 async function withServer(callback) {
   const server = createApiServer({

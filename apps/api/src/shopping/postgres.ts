@@ -1,4 +1,5 @@
 import type {
+  ActiveShoppingList,
   AddShoppingItemCommand,
   CreateShoppingListCommand,
   ShoppingItem,
@@ -37,6 +38,15 @@ interface ItemRow {
   state: ShoppingItem["state"];
   source_type: ShoppingItem["sourceType"];
   source_ref: string | null;
+  version: number;
+}
+
+interface ListRow {
+  id: string;
+  family_id: string;
+  owner_user_id: string;
+  name: string;
+  status: "ACTIVE";
   version: number;
 }
 
@@ -146,6 +156,55 @@ export class PostgresShoppingRepository implements ShoppingRepository {
       throw error;
     }
   }
+
+  /**
+   * Backs `GET /api/v1/shopping/lists/active?familyId=...`. Returns the most recently created
+   * ACTIVE list for the family (a family can technically have more than one; the UI works
+   * against a single "active" list, matching `Spesa.tsx`'s expectations) with all of its items,
+   * or `undefined` when the family has never created a list.
+   */
+  public async getActiveListByFamily(familyId: string): Promise<ActiveShoppingList | undefined> {
+    const transaction = await this.database.transaction();
+    try {
+      const listResult = await transaction.query<ListRow>(
+        `SELECT id, family_id, owner_user_id, name, status, version
+         FROM shopping_lists
+         WHERE family_id = $1 AND status = 'ACTIVE'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [familyId],
+      );
+      const listRow = listResult.rows[0];
+      if (listRow === undefined) {
+        await transaction.commit();
+        return undefined;
+      }
+      const itemsResult = await transaction.query<ItemRow>(
+        `SELECT id, list_id, product_id, display_name, quantity, unit, package_id,
+            state, source_type, source_ref, version
+         FROM shopping_items
+         WHERE list_id = $1
+         ORDER BY created_at ASC`,
+        [listRow.id],
+      );
+      await transaction.commit();
+      return { list: mapList(listRow), items: itemsResult.rows.map(mapItem) };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+}
+
+function mapList(row: ListRow): ShoppingList {
+  return {
+    id: row.id,
+    familyId: row.family_id,
+    ownerUserId: row.owner_user_id,
+    name: row.name,
+    status: row.status,
+    version: row.version as 1,
+  };
 }
 
 function mapItem(row: ItemRow): ShoppingItem {

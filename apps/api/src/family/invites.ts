@@ -57,7 +57,8 @@ export interface InviteRepository {
   createJoinAttempt(attempt: JoinAttempt): Promise<void>;
   getJoinAttempt(id: string): Promise<JoinAttempt | undefined>;
   markExpired(inviteId: string, now: Date): Promise<void>;
-  revoke(inviteId: string, actorId: string, now: Date): Promise<void>;
+  revoke(inviteId: string, familyId: string, now: Date): Promise<boolean>;
+  rejectAtomically(input: { attemptId: string; userId: string; now: Date }): Promise<JoinAttempt>;
   acceptAtomically(input: {
     attemptId: string;
     userId: string;
@@ -167,6 +168,24 @@ export class InviteService {
       now: this.clock.now(),
       consentVersion,
     });
+  }
+
+  public async revoke(familyId: string, inviteId: string): Promise<{ inviteId: string; status: "REVOKED" }> {
+    const revoked = await this.repository.revoke(inviteId, familyId, this.clock.now());
+    if (!revoked) throw new InviteUnavailableError();
+    return { inviteId, status: "REVOKED" };
+  }
+
+  public async reject(attemptId: string, userId: string): Promise<JoinAttempt> {
+    try {
+      return await this.repository.rejectAtomically({
+        attemptId,
+        userId,
+        now: this.clock.now(),
+      });
+    } catch {
+      throw new InviteUnavailableError();
+    }
   }
 }
 

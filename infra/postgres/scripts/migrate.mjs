@@ -69,22 +69,41 @@ export function migrationTransactionSql(migration) {
   ].join("\n");
 }
 
+/**
+ * Builds the argv passed to the `psql` binary for a single query. Kept as a
+ * pure function (no process spawning) so its shape can be unit-tested
+ * directly, independent of whether a `psql` binary is installed.
+ *
+ * IMPORTANT: `--no-align` mode defaults psql's field separator to '|', not a
+ * tab, while parseRows() below splits result lines on "\t". Without the
+ * explicit --field-separator flag, every multi-column row silently fails to
+ * parse the moment this executor is pointed at a real database. This was
+ * only caught by running the script against a live PostgreSQL 16 instance;
+ * the pre-existing tests could not detect it because they always supplied
+ * pre-shaped fake stdout instead of exercising psql's actual output format.
+ */
+export function buildPsqlQueryArgs(databaseUrl, sql) {
+  return [
+    "--no-psqlrc",
+    "--quiet",
+    "--tuples-only",
+    "--no-align",
+    "--field-separator",
+    "\t",
+    "--dbname",
+    databaseUrl,
+    "--command",
+    sql,
+  ];
+}
+
 export function createPsqlExecutor({ databaseUrl, psql = "psql" }) {
   if (!databaseUrl) {
     throw new Error("A database URL is required.");
   }
   return {
     query(sql) {
-      return runProcess(psql, [
-        "--no-psqlrc",
-        "--quiet",
-        "--tuples-only",
-        "--no-align",
-        "--dbname",
-        databaseUrl,
-        "--command",
-        sql,
-      ]);
+      return runProcess(psql, buildPsqlQueryArgs(databaseUrl, sql));
     },
   };
 }

@@ -7,6 +7,7 @@ import type {
   FamilyRepository,
 } from "./service.js";
 import type { FamilyInviteRecord, InviteRepository, JoinAttempt } from "./invites.js";
+import type { ManagedMembership, MembershipRepository } from "./membership.js";
 
 export interface SqlResult<Row> {
   readonly rows: readonly Row[];
@@ -216,12 +217,47 @@ export class PostgresInviteRepository implements InviteRepository {
     );
   }
 
-  public async revoke(inviteId: string, actorId: string, now: Date): Promise<void> {
-    await this.query(
+  public async revoke(inviteId: string, familyId: string, now: Date): Promise<boolean> {
+    const result = await this.query<{ id: string }>(
       `UPDATE family_invites SET status = 'REVOKED', revoked_at = $3
-       WHERE id = $1 AND created_by = $2 AND status = 'CREATED'`,
-      [inviteId, actorId, now],
+       WHERE id = $1 AND family_id = $2 AND status = 'CREATED'
+       RETURNING id`,
+      [inviteId, familyId, now],
     );
+    return result.rows[0] !== undefined;
+  }
+
+  public async rejectAtomically(input: {
+    attemptId: string;
+    userId: string;
+    now: Date;
+  }): Promise<JoinAttempt> {
+    const transaction = await this.database.transaction();
+    try {
+      const attempt = await transaction.query<JoinAttemptRow>(
+        `SELECT id, invite_id, user_id, encode(browser_binding_hash, 'hex') AS browser_binding_hash,
+          state, expires_at, completed_at, trace_id
+         FROM family_join_attempts WHERE id = $1 FOR UPDATE`,
+        [input.attemptId],
+      );
+      const current = attempt.rows[0];
+      if (
+        current === undefined ||
+        (current.state !== "PENDING_AUTHENTICATION" && current.state !== "PENDING_REVIEW")
+      ) {
+        throw new Error("Join attempt is not available.");
+      }
+      await transaction.query(
+        `UPDATE family_join_attempts SET user_id = $2, state = 'REJECTED', completed_at = $3
+         WHERE id = $1`,
+        [input.attemptId, input.userId, input.now],
+      );
+      await transaction.commit();
+      return { ...toJoinAttempt(current), userId: input.userId, state: "REJECTED" };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
 
   public async acceptAtomically(input: {
@@ -282,6 +318,167 @@ export class PostgresInviteRepository implements InviteRepository {
         throw error;
       }
     });
+  }
+}
+
+interface MembershipRow {
+  id: string;
+  family_id: string;
+  user_id: string;
+  role: ManagedMembership["role"];
+  status: ManagedMembership["status"];
+  version: number;
+}
+
+export class PostgresMembershipRepository implements MembershipRepository {
+  private readonly database: SqlTransactionFactory;
+
+  public constructor(database: SqlTransactionFactory) {
+    this.database = database;
+  }
+
+  public async getById(
+    familyId: string,
+    membershipId: string,
+  ): Promise<ManagedMembership | undefined> {
+    const result = await this.query<MembershipRow>(
+      `SELECT id, family_id, user_id, role, status, version
+       FROM family_memberships WHERE id = $1 AND family_id = $2`,
+      [membershipId, familyId],
+    );
+    return result.rows[0] === undefined ? undefined : toMembership(result.rows[0]);
+  }
+
+  public async listByFamily(familyId: string): Promise<readonly ManagedMembership[]> {
+    const result = await this.query<MembershipRow>(
+      `SELECT id, family_id, user_id, role, status, version
+       FROM family_memberships WHERE family_id = $1 ORDER BY joined_at NULLS LAST, created_at`,
+      [familyId],
+    );
+    return result.rows.map(toMembership);
+  }
+
+  public async countActiveOwners(familyId: string): Promise<number> {
+    const result = await this.query<{ count: string | number }>(
+      `SELECT count(*)::int AS count FROM family_memberships
+       WHERE family_id = $1 AND role = 'OWNER' AND status = 'ACTIVE'`,
+      [familyId],
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  public async updateAtomic(input: {
+    familyId: string;
+    membershipId: string;
+    role: ManagedMembership["role"];
+    status: Extract<ManagedMembership["status"], "ACTIVE" | "SUSPENDED">;
+  }): Promise<ManagedMembership> {
+    const transaction = await this.database.transaction();
+    try {
+      const updated = await transaction.query<MembershipRow>(
+        `UPDATE family_memberships
+         SET role = $3, status = $4, version = version + 1, updated_at = now()
+         WHERE id = $1 AND family_id = $2 AND status IN ('ACTIVE', 'SUSPENDED')
+         RETURNING id, family_id, user_id, role, status, version`,
+        [input.membershipId, input.familyId, input.role, input.status],
+      );
+      const row = updated.rows[0];
+      if (row === undefined) throw new Error("Membership is not available.");
+      await transaction.commit();
+      return toMembership(row);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
+  public async removeAtomic(input: {
+    familyId: string;
+    membershipId: string;
+    removedAt: Date;
+  }): Promise<void> {
+    const transaction = await this.database.transaction();
+    try {
+      await transaction.query(
+        `UPDATE family_memberships
+         SET status = 'REMOVED', removed_at = $3, version = version + 1, updated_at = $3
+         WHERE id = $1 AND family_id = $2 AND status <> 'REMOVED'`,
+        [input.membershipId, input.familyId, input.removedAt],
+      );
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
+  private query<Row>(text: string, values: readonly unknown[] = []): Promise<SqlResult<Row>> {
+    return this.database.transaction().then(async (transaction) => {
+      try {
+        const result = await transaction.query<Row>(text, values);
+        await transaction.commit();
+        return result;
+      } catch (error) {
+        await transaction.rollback();
+        throw error;
+      }
+    });
+  }
+}
+
+function toMembership(row: MembershipRow): ManagedMembership {
+  return {
+    id: row.id,
+    familyId: row.family_id,
+    userId: row.user_id,
+    role: row.role,
+    status: row.status,
+    version: row.version,
+  };
+}
+
+interface MembershipContextRow {
+  family_id: string;
+  user_id: string;
+  role: "OWNER" | "MANAGER" | "MEMBER" | "VIEWER";
+  status: "ACTIVE" | "SUSPENDED" | "REMOVED" | "PENDING";
+}
+
+/**
+ * Reads the caller's membership for a family, used by FamilyController to
+ * authorize invite creation ("family.admin"). Kept separate from
+ * PostgresMembershipRepository because the controller boundary only needs a
+ * read-only lookup by (familyId, userId), not the full membership lifecycle
+ * surface.
+ */
+export class PostgresFamilyMembershipReader {
+  private readonly database: SqlTransactionFactory;
+
+  public constructor(database: SqlTransactionFactory) {
+    this.database = database;
+  }
+
+  public async getMembership(
+    familyId: string,
+    userId: string,
+  ): Promise<
+    { familyId: string; userId: string; role: MembershipContextRow["role"]; status: MembershipContextRow["status"] } | undefined
+  > {
+    const transaction = await this.database.transaction();
+    try {
+      const result = await transaction.query<MembershipContextRow>(
+        `SELECT family_id, user_id, role, status FROM family_memberships
+         WHERE family_id = $1 AND user_id = $2`,
+        [familyId, userId],
+      );
+      await transaction.commit();
+      const row = result.rows[0];
+      if (row === undefined) return undefined;
+      return { familyId: row.family_id, userId: row.user_id, role: row.role, status: row.status };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
 }
 

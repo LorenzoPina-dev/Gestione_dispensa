@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
+  buildPsqlQueryArgs,
   checksum,
   discoverMigrations,
   migrate,
@@ -93,6 +94,36 @@ test("migrate obtains the advisory lock, applies pending migrations, and unlocks
     assert.ok(queries.some((query) => query.includes("BEGIN;")));
     assert.ok(queries.some((query) => query.includes("pg_advisory_unlock")));
   });
+});
+
+test("buildPsqlQueryArgs requests a tab field separator so parseRows() can split rows correctly", () => {
+  // Regression test for a real bug: psql's --no-align mode defaults to '|'
+  // as the field separator, not a tab, while parseRows() above splits on
+  // "\t". Without an explicit --field-separator flag, every multi-column row
+  // silently fails to parse the moment this executor runs against a real
+  // database. It was only caught by running the migration script against a
+  // live PostgreSQL 16 instance, because every other test in this file
+  // supplies pre-shaped fake stdout instead of exercising psql's actual
+  // output format. Testing the pure arg-builder (rather than spawning a real
+  // or fake process) keeps this both deterministic and cross-platform.
+  const args = buildPsqlQueryArgs("postgresql://user:pass@localhost:5432/db", "SELECT 1;");
+
+  const flagIndex = args.indexOf("--field-separator");
+  assert.notEqual(flagIndex, -1, `--field-separator missing from psql args: ${args.join(" ")}`);
+  assert.equal(args[flagIndex + 1], "\t");
+  assert.ok(args.includes("--no-align"), "--no-align must stay paired with an explicit separator");
+  assert.deepEqual(args, [
+    "--no-psqlrc",
+    "--quiet",
+    "--tuples-only",
+    "--no-align",
+    "--field-separator",
+    "\t",
+    "--dbname",
+    "postgresql://user:pass@localhost:5432/db",
+    "--command",
+    "SELECT 1;",
+  ]);
 });
 
 test("status reports applied and pending migrations", async () => {

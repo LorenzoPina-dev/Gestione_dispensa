@@ -4,8 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/src/shell.test.js dist/src/family-journey.test.js dist/src/family-onboarding.test.js dist/src/inventory-journey.test.js dist/src/inventory-workflow.test.js dist/src/shopping-journey.test.js dist/src/runtime.test.js"
+    "dev": "vite",
+    "build": "npm run build:domain && tsc -p tsconfig.app.json && vite build",
+    "build:domain": "tsc -p tsconfig.json",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "test": "npm run build:domain && node --test dist-domain/shell.test.js dist-domain/dashboard.test.js dist-domain/family-journey.test.js dist-domain/family-onboarding.test.js dist-domain/inventory-journey.test.js dist-domain/inventory-workflow.test.js dist-domain/shopping-journey.test.js dist-domain/runtime.test.js"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.0.0"
   }
 }

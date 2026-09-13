@@ -42,6 +42,11 @@ export interface InventoryRepository {
   recordMovementAtomic(
     input: RecordMovementCommand,
   ): Promise<{ stockItem: StockItem; movementId: string; duplicate: boolean }>;
+  /**
+   * Lists every active stock item for a family. Backs the read-only
+   * `GET /api/v1/inventory/stock-items` HTTP surface (InventoryController.listStockItems).
+   */
+  listByFamily(familyId: string): Promise<StockItem[]>;
 }
 
 export interface InventoryIdGenerator {
@@ -89,6 +94,11 @@ export class InventoryService {
     const issues = validateMovement(command);
     if (issues.length > 0) throw new InventoryValidationError(issues);
     return this.repository.recordMovementAtomic(command);
+  }
+
+  public async listStockItems(familyId: string): Promise<StockItem[]> {
+    if (!familyId.trim()) throw new InventoryValidationError(["familyId is required"]);
+    return this.repository.listByFamily(familyId);
   }
 }
 

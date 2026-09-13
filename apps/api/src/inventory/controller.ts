@@ -6,6 +6,7 @@ import {
   InventoryValidationError,
   type CreateStockItemCommand,
   type RecordMovementCommand,
+  type StockItem,
 } from "./service.js";
 
 export interface InventoryMembershipReader {
@@ -88,6 +89,22 @@ export class InventoryController {
     );
   }
 
+  /**
+   * Backs `GET /api/v1/inventory/stock-items?familyId=...`. Any active family member (including
+   * VIEWER) may read; only OWNER/MANAGER/MEMBER may write (see `assertWrite`).
+   */
+  public async listStockItems(
+    principal: Principal | undefined,
+    familyId: string,
+    meta: InventoryHttpMeta,
+  ): Promise<InventoryHttpSuccess<{ items: StockItem[] }>> {
+    if (principal === undefined)
+      throw new InventoryHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertRead(principal, familyId);
+    const items = await this.inventory.listStockItems(familyId);
+    return success({ items }, meta);
+  }
+
   private async assertWrite(principal: Principal, familyId: string): Promise<void> {
     const membership = await this.memberships.getMembership(familyId, principal.subject);
     const decision =
@@ -104,6 +121,25 @@ export class InventoryController {
         decision.code === "NOT_FOUND_OR_NOT_VISIBLE" ? 404 : 403,
         decision.code,
         "Inventory operation is forbidden.",
+      );
+  }
+
+  private async assertRead(principal: Principal, familyId: string): Promise<void> {
+    const membership = await this.memberships.getMembership(familyId, principal.subject);
+    const decision =
+      membership === undefined
+        ? authorize({ principal, action: "inventory.read", resourceFamilyId: familyId })
+        : authorize({
+            principal,
+            action: "inventory.read",
+            resourceFamilyId: familyId,
+            membership,
+          });
+    if (!decision.allowed)
+      throw new InventoryHttpError(
+        decision.code === "NOT_FOUND_OR_NOT_VISIBLE" ? 404 : 403,
+        decision.code,
+        "Inventory read is forbidden.",
       );
   }
 }

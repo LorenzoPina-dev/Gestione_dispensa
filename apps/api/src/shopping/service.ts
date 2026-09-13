@@ -46,11 +46,22 @@ export interface ShoppingItem {
   version: number;
 }
 
+export interface ActiveShoppingList {
+  list: ShoppingList;
+  items: ShoppingItem[];
+}
+
 export interface ShoppingRepository {
   createListAtomic(input: CreateShoppingListCommand & { id: string }): Promise<ShoppingList>;
   addItemAtomic(
     input: AddShoppingItemCommand & { id: string },
   ): Promise<{ item: ShoppingItem; merged: boolean }>;
+  /**
+   * Returns the family's most recently created ACTIVE list together with its items, or
+   * `undefined` if the family has no active list yet. Backs
+   * `GET /api/v1/shopping/lists/active` (ShoppingController.getActiveList).
+   */
+  getActiveListByFamily(familyId: string): Promise<ActiveShoppingList | undefined>;
 }
 
 export interface ShoppingIdGenerator {
@@ -109,5 +120,10 @@ export class ShoppingService {
       displayName: command.displayName.trim(),
       id: this.ids.next(),
     });
+  }
+
+  public async getActiveList(familyId: string): Promise<ActiveShoppingList | undefined> {
+    if (!familyId.trim()) throw new ShoppingValidationError(["familyId is required"]);
+    return this.repository.getActiveListByFamily(familyId);
   }
 }

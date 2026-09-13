@@ -154,6 +154,29 @@ export class PostgresInventoryRepository implements InventoryRepository {
       throw error;
     }
   }
+
+  /**
+   * Backs `GET /api/v1/inventory/stock-items?familyId=...` (InventoryController.listStockItems).
+   * Read-only, so it uses the same transaction/commit shape as the writes above purely for
+   * consistency with this repository's existing style, not because it needs write locking.
+   */
+  public async listByFamily(familyId: string): Promise<StockItem[]> {
+    const transaction = await this.database.transaction();
+    try {
+      const result = await transaction.query<StockRow>(
+        `SELECT id, family_id, product_id, current_quantity, unit, reorder_point, version, status
+         FROM stock_items
+         WHERE family_id = $1 AND status = 'ACTIVE'
+         ORDER BY updated_at DESC`,
+        [familyId],
+      );
+      await transaction.commit();
+      return result.rows.map(mapStock);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
 }
 
 function movementDelta(input: RecordMovementCommand): number {
@@ -179,4 +202,37 @@ function numberValue(value: string | number): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) throw new Error("Database returned an invalid numeric value.");
   return parsed;
+}
+
+/**
+ * Read-only lookup backing InventoryController's If-Match/version-conflict
+ * check and family-scoping before a movement is recorded. Deliberately
+ * narrow (id -> familyId/version only) rather than reusing StockItem, since
+ * the controller boundary only needs enough to authorize and detect stale
+ * writes, not the full stock item shape.
+ */
+export class PostgresInventoryReader {
+  private readonly database: SqlTransactionFactory;
+
+  public constructor(database: SqlTransactionFactory) {
+    this.database = database;
+  }
+
+  public async getStockItem(
+    stockItemId: string,
+  ): Promise<{ familyId: string; version: number } | undefined> {
+    const transaction = await this.database.transaction();
+    try {
+      const result = await transaction.query<{ family_id: string; version: number }>(
+        `SELECT family_id, version FROM stock_items WHERE id = $1 AND status = 'ACTIVE'`,
+        [stockItemId],
+      );
+      await transaction.commit();
+      const row = result.rows[0];
+      return row === undefined ? undefined : { familyId: row.family_id, version: row.version };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
 }

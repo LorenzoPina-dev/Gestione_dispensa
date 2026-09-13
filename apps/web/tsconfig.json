@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "jsx": "preserve", "rootDir": ".", "outDir": "dist" },
-  "include": ["**/*.ts", "**/*.tsx"]
+  "compilerOptions": { "rootDir": "src/domain", "outDir": "dist-domain", "composite": false },
+  "include": ["src/domain/**/*.ts"]
 }
