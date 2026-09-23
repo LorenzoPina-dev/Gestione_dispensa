@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ShoppingList, ShoppingItemState as UiItemState } from "../types";
-import { shoppingList as mockShoppingList } from "../mockData";
 import * as api from "../api/endpoints";
 import { ApiError, isBackendUnreachable, isNotFound } from "../api/client";
 import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
@@ -38,7 +37,7 @@ export interface UseShoppingListResult {
  */
 export function useShoppingList(familyId?: string | null): UseShoppingListResult {
   const effectiveFamilyId = familyId ?? DEFAULT_FAMILY_ID ?? null;
-  const [list, setListState] = useState<ShoppingList>(mockShoppingList);
+  const [list, setListState] = useState<ShoppingList>({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [demoReason, setDemoReason] = useState<string | null>(null);
@@ -49,8 +48,8 @@ export function useShoppingList(familyId?: string | null): UseShoppingListResult
 
   useEffect(() => {
     if (!effectiveFamilyId) {
-      setListState(mockShoppingList);
-      setIsDemo(true);
+      setListState({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
+      setIsDemo(false);
       setDemoReason("Nessuna famiglia attiva");
       setLoading(false);
       return;
@@ -76,14 +75,14 @@ export function useShoppingList(familyId?: string | null): UseShoppingListResult
             setDemoReason(null);
           } catch (createErr) {
             if (cancelled) return;
-            setListState(mockShoppingList);
-            setIsDemo(true);
+            setListState({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
+            setIsDemo(false);
             setDemoReason(describeError(createErr));
           }
         } else {
           if (cancelled) return;
-          setListState(mockShoppingList);
-          setIsDemo(true);
+          setListState({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
+          setIsDemo(false);
           setDemoReason(describeError(err));
         }
       } finally {

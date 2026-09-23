@@ -27,8 +27,8 @@ export interface Invite {
   expiresAt: string;
   fallbackCode: string;
   createdAt: string;
+  qrPayload?: string;
 }
-
 export interface StockBatch {
   quantity: number;
   expiryDate?: string;

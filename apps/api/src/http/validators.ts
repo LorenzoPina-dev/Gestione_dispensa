@@ -104,12 +104,14 @@ export function parseCreateStockItemBody(body: Body):
       productId: string;
       packageId?: string;
       locationId?: string;
+      location?: string;
+      expiresAt?: string;
       quantity: number;
       unit: InventoryUnit;
       reorderPoint?: number;
     }
   | undefined {
-  const { familyId, productId, packageId, locationId, quantity, unit, reorderPoint } = body;
+  const { familyId, productId, packageId, locationId, location, expiresAt, quantity, unit, reorderPoint } = body;
   if (
     typeof familyId !== "string" ||
     familyId.length === 0 ||
@@ -121,14 +123,20 @@ export function parseCreateStockItemBody(body: Body):
     !INVENTORY_UNITS.includes(unit as InventoryUnit) ||
     (packageId !== undefined && typeof packageId !== "string") ||
     (locationId !== undefined && typeof locationId !== "string") ||
+    (location !== undefined && typeof location !== "string") ||
+    (expiresAt !== undefined && typeof expiresAt !== "string") ||
     (reorderPoint !== undefined && (typeof reorderPoint !== "number" || !Number.isFinite(reorderPoint)))
   ) {
     return undefined;
   }
+  if (expiresAt !== undefined && Number.isNaN(new Date(expiresAt).getTime())) return undefined;
   return {
     familyId,
+    productId,
     ...(packageId !== undefined ? { packageId: packageId as string } : {}),
     ...(locationId !== undefined ? { locationId: locationId as string } : {}),
+    ...(location !== undefined ? { location: location as string } : {}),
+    ...(expiresAt !== undefined ? { expiresAt: expiresAt as string } : {}),
     quantity,
     unit: unit as InventoryUnit,
     ...(reorderPoint !== undefined ? { reorderPoint: reorderPoint as number } : {}),
@@ -179,18 +187,30 @@ export function parseRecordMovementBody(body: Body):
 
 export function parseCreateProductBody(
   body: Body,
-): { canonicalName: string; brand?: string; defaultUnit: ProductUnit } | undefined {
-  const { canonicalName, brand, defaultUnit } = body;
+): { canonicalName: string; brand?: string; defaultUnit: ProductUnit; category?: string; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number } | undefined {
+  const { canonicalName, brand, defaultUnit, category, calories, protein, carbs, fat, fiber } = body;
   if (
     typeof canonicalName !== "string" ||
     canonicalName.length === 0 ||
     typeof defaultUnit !== "string" ||
     !PRODUCT_UNITS.includes(defaultUnit as ProductUnit) ||
-    (brand !== undefined && typeof brand !== "string")
+    (brand !== undefined && typeof brand !== "string") ||
+    (category !== undefined && typeof category !== "string") ||
+    [calories, protein, carbs, fat, fiber].some(v => v !== undefined && (typeof v !== "number" || !Number.isFinite(v)))
   ) {
     return undefined;
   }
-  return { canonicalName, ...(brand !== undefined ? { brand: brand as string } : {}), defaultUnit: defaultUnit as ProductUnit };
+  return {
+    canonicalName,
+    ...(brand !== undefined ? { brand: brand as string } : {}),
+    defaultUnit: defaultUnit as ProductUnit,
+    ...(category !== undefined ? { category: category as string } : {}),
+    ...(calories !== undefined ? { calories } : {}),
+    ...(protein !== undefined ? { protein } : {}),
+    ...(carbs !== undefined ? { carbs } : {}),
+    ...(fat !== undefined ? { fat } : {}),
+    ...(fiber !== undefined ? { fiber } : {}),
+  };
 }
 
 export function parseResolveBarcodeBody(body: Body): { identifierType: IdentifierType; value: string } | undefined {
@@ -325,4 +345,42 @@ export function parseExportRequestBody(body: Body): { familyId: string } | undef
 /** Validates a plain-object JSON body has actually been sent (not an array, not null, not a primitive). */
 export function isPlainBody(value: unknown): value is Body {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseSubmitCandidateBody(body: Body):
+  | {
+      productId?: string;
+      canonicalName: string;
+      brand?: string;
+      defaultUnit: ProductUnit;
+      confidence: number;
+      source: string;
+    }
+  | undefined {
+  const { productId, canonicalName, brand, defaultUnit, confidence, source } = body;
+  if (
+    typeof canonicalName !== "string" ||
+    canonicalName.trim().length === 0 ||
+    canonicalName.length > 240 ||
+    typeof defaultUnit !== "string" ||
+    !PRODUCT_UNITS.includes(defaultUnit as ProductUnit) ||
+    typeof confidence !== "number" ||
+    !Number.isFinite(confidence) ||
+    confidence < 0 ||
+    confidence > 1 ||
+    typeof source !== "string" ||
+    source.trim().length === 0 ||
+    (productId !== undefined && typeof productId !== "string") ||
+    (brand !== undefined && typeof brand !== "string")
+  ) {
+    return undefined;
+  }
+  return {
+    ...(productId !== undefined ? { productId: productId as string } : {}),
+    canonicalName,
+    ...(brand !== undefined ? { brand: brand as string } : {}),
+    defaultUnit: defaultUnit as ProductUnit,
+    confidence,
+    source,
+  };
 }

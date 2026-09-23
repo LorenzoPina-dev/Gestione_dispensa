@@ -4,6 +4,7 @@ import {
   RecipeNotFoundError,
   RecipeService,
   RecipeValidationError,
+  type Recipe,
   type RecipeMatch,
 } from "./service.js";
 
@@ -101,6 +102,37 @@ export class RecipeController {
         traceId,
       });
       return success(result, meta);
+    } catch (error) {
+      throw toRecipeDomainError(error);
+    }
+  }
+  /** Backs `GET /api/v1/recipes?familyId=...`. Any active family member may read. */
+  public async listRecipes(
+    principal: Principal | undefined,
+    familyId: string,
+    meta: RecipeHttpMeta,
+  ): Promise<RecipeHttpSuccess<{ recipes: Recipe[] }>> {
+    if (principal === undefined)
+      throw new RecipeHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertRead(principal, familyId);
+    const recipes = await this.recipes.listRecipes();
+    return success({ recipes }, meta);
+  }
+
+  /** Backs `GET /api/v1/recipes/:recipeId?familyId=...`. Any active family member may read. */
+  public async getRecipe(
+    principal: Principal | undefined,
+    familyId: string,
+    recipeId: string,
+    meta: RecipeHttpMeta,
+  ): Promise<RecipeHttpSuccess<{ recipe: Recipe }>> {
+    if (principal === undefined)
+      throw new RecipeHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertRead(principal, familyId);
+    try {
+      const recipe = await this.recipes.getRecipe(recipeId);
+      if (recipe === undefined) throw new RecipeNotFoundError();
+      return success({ recipe }, meta);
     } catch (error) {
       throw toRecipeDomainError(error);
     }

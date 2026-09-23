@@ -9,6 +9,8 @@ export interface CreateStockItemCommand {
   quantity: number;
   unit: InventoryUnit;
   reorderPoint?: number;
+  location?: string;
+  expiresAt?: Date;
   actorId: string;
   traceId: string;
 }
@@ -35,6 +37,17 @@ export interface StockItem {
   reorderPoint: number | undefined;
   version: number;
   status: "ACTIVE";
+  productName?: string;
+  brand?: string;
+  category?: string;
+  provenance?: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
+  location?: string;
+  batches?: readonly { quantity: number; expiryDate?: string }[];
 }
 
 export interface InventoryRepository {

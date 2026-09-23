@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem } from "../types";
-import { stockItems as mockStockItems } from "../mockData";
 import * as api from "../api/endpoints";
 import { ApiError, isBackendUnreachable } from "../api/client";
 import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
@@ -45,9 +44,11 @@ export interface UseInventoryResult {
  *   backend is unreachable/errors, the hook falls back to the bundled demo dataset so the UI
  *   stays fully interactive.
  */
+// apps/web/src/hooks/useInventory.ts — sostituisci il blocco attorno alle righe 55-100
+
 export function useInventory(familyId?: string | null): UseInventoryResult {
   const effectiveFamilyId = familyId ?? DEFAULT_FAMILY_ID ?? null;
-  const [stock, setStockState] = useState<StockItem[]>(mockStockItems);
+  const [stock, setStockState] = useState<StockItem[]>([]);
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [demoReason, setDemoReason] = useState<string | null>(null);
@@ -56,11 +57,16 @@ export function useInventory(familyId?: string | null): UseInventoryResult {
   const familyIdRef = useRef(effectiveFamilyId);
   familyIdRef.current = effectiveFamilyId;
 
+  // Tiene traccia dell'ultimo array di stock "sincronizzato", così il useEffect
+  // sotto può calcolare il diff senza dover leggere lo state precedente da setState.
+  const prevStockRef = useRef<StockItem[] | null>(null);
+
   useEffect(() => {
     if (!effectiveFamilyId) {
-      setStockState(mockStockItems);
-      setIsDemo(true);
-      setDemoReason("Nessuna famiglia attiva");
+      setStockState([]);
+      prevStockRef.current = [];
+      setIsDemo(false);
+      setDemoReason(null);
       setLoading(false);
       return;
     }
@@ -70,13 +76,16 @@ export function useInventory(familyId?: string | null): UseInventoryResult {
       try {
         const res = await api.listStockItems(effectiveFamilyId);
         if (cancelled) return;
-        setStockState(res.items.map(mapStockItemDtoToUi));
+        const items = res.items.map(mapStockItemDtoToUi);
+        prevStockRef.current = items;   // ← stesso riferimento che diventerà lo state
+        setStockState(items);
         setIsDemo(false);
         setDemoReason(null);
       } catch (err) {
         if (cancelled) return;
-        setStockState(mockStockItems);
-        setIsDemo(true);
+        setStockState([]);
+        prevStockRef.current = [];
+        setIsDemo(false);
         setDemoReason(describeError(err));
       } finally {
         if (!cancelled) setLoading(false);
@@ -87,12 +96,25 @@ export function useInventory(familyId?: string | null): UseInventoryResult {
     };
   }, [effectiveFamilyId]);
 
+  // Side effect FUORI dall'updater: React 18 StrictMode esegue gli updater di setState
+  // due volte in DEV, quindi qualunque side effect dentro l'updater (come chiamare
+  // syncInventoryDiff) viene eseguito due volte e genera richieste duplicate al server.
+  // Qui l'effect parte UNA VOLTA per ogni transizione reale di `stock`, e skippa il
+  // primo popolamento grazie al confronto per reference con prevStockRef.
+  useEffect(() => {
+    const prev = prevStockRef.current;
+    if (prev === null) return;              // load non ancora avvenuto
+    if (prev === stock) return;             // stesso riferimento → nessun cambiamento reale
+    prevStockRef.current = stock;
+    if (isDemoRef.current || !familyIdRef.current) return;
+    void syncInventoryDiff(familyIdRef.current, prev, stock);
+  }, [stock]);
+
   const setStock = useCallback<SetStock>((updater) => {
-    setStockState((prev) => {
-      const next = typeof updater === "function" ? (updater as (p: StockItem[]) => StockItem[])(prev) : updater;
-      if (!isDemoRef.current && familyIdRef.current) void syncInventoryDiff(familyIdRef.current, prev, next);
-      return next;
-    });
+    // Updater PURO: solo calcola il nuovo array. Nessun side effect qui dentro.
+    setStockState((prev) =>
+      typeof updater === "function" ? (updater as (p: StockItem[]) => StockItem[])(prev) : updater,
+    );
   }, []);
 
   return { stock, setStock, isDemo, loading, demoReason };
@@ -114,11 +136,13 @@ async function syncInventoryDiff(familyId: string, prev: StockItem[], next: Stoc
     const afterQty = totalQuantity(item);
     if (afterQty < beforeQty) {
       const delta = beforeQty - afterQty;
-      await syncMovement(familyId, item.id, item.version, "CONSUMPTION", delta, item.unit).catch((err) =>
+      // If-Match deve essere la versione PRIMA della modifica ottimistica:
+      // il server ha ancora quella, perché non ha applicato il movimento.
+      await syncMovement(familyId, item.id, before.version, "CONSUMPTION", delta, item.unit).catch((err) =>
         reportIssue(
           `Consumo di "${item.name}" non salvato sul server.`,
           err,
-          () => syncMovement(familyId, item.id, item.version, "CONSUMPTION", delta, item.unit),
+          () => syncMovement(familyId, item.id, before.version, "CONSUMPTION", delta, item.unit),
         ),
       );
     }
@@ -156,6 +180,12 @@ async function syncCreate(familyId: string, item: StockItem): Promise<void> {
     canonicalName: item.name,
     brand: item.brand ?? null,
     defaultUnit: normalizeUnit(item.unit),
+    category: item.category,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+    fiber: item.fiber,
   });
   await api.createStockItem({
     familyId,
@@ -163,6 +193,8 @@ async function syncCreate(familyId: string, item: StockItem): Promise<void> {
     quantity: totalQuantity(item),
     unit: normalizeUnit(item.unit),
     reorderPoint: item.reorderPoint,
+    location: item.location,
+    expiresAt: item.batches.find(b => b.expiryDate)?.expiryDate,
   });
 }
 

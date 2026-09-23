@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import type { PostgresLiveness } from "./routes/health.js";
 import type { OidcTokenVerifier } from "../identity/oidc.js";
-import { buildCoreRouter } from "./routes/core.js";
+import { buildCoreRouter, CoreRouteOptions } from "./routes/core.js";
 import { buildCatalogRouter, type CatalogRouteDependencies } from "./routes/catalog.js";
 import { buildFamilyRouter, type FamilyRouteDependencies } from "./routes/family.js";
 import { buildHealthRouter } from "./routes/health.js";
@@ -14,6 +14,7 @@ import { buildRecipesRouter, type RecipeRouteDependencies } from "./routes/recip
 import { buildShoppingRouter, type ShoppingRouteDependencies } from "./routes/shopping.js";
 import { buildMeta, sendFailure, type HttpMeta } from "./envelope.js";
 import { corsMiddleware, requestMetaMiddleware } from "./middleware.js";
+import type { PostgresUserProfileRepository } from "../identity/users.js";
 
 export type {
   CatalogRouteDependencies,
@@ -54,6 +55,7 @@ export interface ApiServerOptions {
   jobs?: JobAdminRouteDependencies;
   /** When provided, wires the privacy HTTP surface: erasure, consent, export/download. */
   privacy?: PrivacyRouteDependencies;
+  userProfiles?: PostgresUserProfileRepository;
 }
 
 /**
@@ -76,18 +78,19 @@ export function buildApp(options: ApiServerOptions) {
     next();
   });
   app.use(express.json({ limit: MAX_BODY_BYTES, strict: true }));
-
-  app.use(
+  app.use(buildHealthRouter(options.version, options.postgres));
+  
+  const apiRouter = express.Router();
+  apiRouter.use(
     buildCoreRouter({
       version: options.version,
       profile: options.profile,
       startedAt,
       getAnyVerifier: () => firstVerifier(options),
-    }),
+      userProfiles: options.userProfiles,
+    }as CoreRouteOptions),
   );
-  app.use(buildHealthRouter(options.version, options.postgres));
 
-  const apiRouter = express.Router();
   if (options.family) apiRouter.use(buildFamilyRouter(options.family));
   if (options.inventory) apiRouter.use(buildInventoryRouter(options.inventory));
   if (options.catalog) apiRouter.use(buildCatalogRouter(options.catalog));

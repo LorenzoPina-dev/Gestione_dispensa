@@ -195,6 +195,16 @@ export class RecipeService {
     }
     return { movementIds };
   }
+  /** Backs `GET /api/v1/recipes`. Global reference data, no family scoping. */
+  public async listRecipes(): Promise<Recipe[]> {
+    return this.recipes.listActive();
+  }
+
+  /** Backs `GET /api/v1/recipes/:recipeId`. Returns `undefined` when not visible. */
+  public async getRecipe(recipeId: string): Promise<Recipe | undefined> {
+    if (!recipeId.trim()) throw new RecipeValidationError(["recipeId is required"]);
+    return this.recipes.getById(recipeId);
+  }
 }
 
 function matchRecipe(recipe: Recipe, inStock: Set<string>): RecipeMatch {
@@ -210,3 +220,4 @@ function matchRecipe(recipe: Recipe, inStock: Set<string>): RecipeMatch {
   const total = recipe.ingredients.length || 1;
   return { recipe, score: matched.length / total, matchedIngredientNames: matched, missingIngredients: missing };
 }
+

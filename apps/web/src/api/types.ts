@@ -112,6 +112,10 @@ export interface ManagedMembershipDto {
   role: MembershipRole;
   status: MembershipStatus;
   version: number;
+  name?: string;
+  email?: string;
+  avatar?: string;
+  joinedAt?: string;
 }
 
 // --- Catalog (apps/api/src/catalog/service.ts) -------------------------------
@@ -124,8 +128,14 @@ export interface ProductDto {
   brand?: string;
   defaultUnit: ProductUnit;
   status: "ACTIVE";
-  provenanceQuality: "VERIFIED";
+  provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
   version: number;
+  category?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,6 +154,17 @@ export interface StockItemDto {
   reorderPoint?: number;
   version: number;
   status: "ACTIVE";
+  productName?: string;
+  brand?: string;
+  category?: string;
+  provenance?: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
+  location?: string;
+  batches?: Array<{ quantity: number; expiryDate?: string }>;
 }
 
 export interface RecordMovementResultDto {
@@ -195,4 +216,72 @@ export interface AddShoppingItemResultDto {
 export interface ReadinessDto {
   status: "ready";
   dependencies: Record<string, unknown>;
+}
+
+
+export interface MovementDto {
+  id: string;
+  stockItemId: string;
+  kind: MovementKind;
+  quantity: number;
+  unit: InventoryUnit;
+  source: string;
+  actorId?: string;
+  actorName?: string;
+  occurredAt: string;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface NotificationDto {
+  id: string;
+  familyId: string;
+  category: "REORDER" | "INVITE" | "SYSTEM";
+  title: string;
+  body: string;
+  readAt?: string;
+  createdAt: string;
+}
+
+export interface RecipeIngredientDto {
+  id: string;
+  productId?: string;
+  displayName: string;
+  amount: number;
+  unit: InventoryUnit;
+  allergens: string[];
+}
+export interface RecipeDto {
+  id: string;
+  title: string;
+  source?: string;
+  quality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+  servings: number;
+  timeMinutes: number;
+  difficulty: "Facile" | "Medio" | "Difficile";
+  image?: string;
+  tags: string[];
+  caloriesPerServing?: number;
+  steps: string[];
+  ingredients: RecipeIngredientDto[];
+}
+export interface RecipeMatchDto {
+  recipe: RecipeDto;
+  score: number;
+  matchedIngredientNames: string[];
+  missingIngredients: RecipeIngredientDto[];
+}
+export interface NutritionSummaryDto {
+  since: string;
+  totals: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+  items: Array<{
+    movementId: string;
+    productId: string;
+    productName: string;
+    quantity: number;
+    unit: string;
+    occurredAt: string;
+    nutrients: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+    confidence: "CONFIRMED" | "ESTIMATED" | "UNKNOWN";
+  }>;
 }

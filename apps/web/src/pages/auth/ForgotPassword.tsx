@@ -2,7 +2,7 @@ import { useState } from "react";
 import AuthShell from "./AuthShell";
 import { colors } from "../../tokens";
 import { Input } from "../../components/ui/Input";
-import { KEYCLOAK_REALM_URL, KEYCLOAK_CLIENT_ID } from "../../api/config";
+import * as api from "../../api/endpoints";
 
 type Step = "email" | "submitting" | "sent";
 
@@ -21,20 +21,13 @@ export default function ForgotPassword({ onBack }: Props) {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    if (KEYCLOAK_REALM_URL && KEYCLOAK_CLIENT_ID) {
-      try {
-        const apiBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
-        await fetch(`${apiBaseUrl}/v1/auth/reset-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: cleanEmail }),
-        }).catch(() => null);
-      } catch {
-        // Gestione silenziosa
-      }
+    try {
+      await api.requestPasswordReset(cleanEmail);
+    } catch {
+      // Keep the UI deliberately opaque and show the same confirmation to avoid account enumeration.
     }
 
-    setTimeout(() => setStep("sent"), 800);
+setStep("sent");
   }
 
   return (

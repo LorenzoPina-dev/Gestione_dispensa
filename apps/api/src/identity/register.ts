@@ -168,3 +168,49 @@ export async function registerUser(
 
   return { success: true, message: "Utente registrato con successo." };
 }
+
+
+export async function requestPasswordReset(
+  email: string,
+  config: KeycloakAdminConfig,
+  fetchImpl: FetchLike = fetch,
+): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  if (!EMAIL_PATTERN.test(normalized)) return;
+  let adminToken: string | undefined;
+  try {
+    const tokenResponse = await fetchImpl(
+      `${config.baseUrl}/realms/master/protocol/openid-connect/token`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "password", client_id: "admin-cli",
+          username: config.adminUsername, password: config.adminPassword,
+        }).toString(),
+      },
+    );
+    if (!tokenResponse.ok) return;
+    const body = await tokenResponse.json() as { access_token?: unknown };
+    if (typeof body.access_token !== "string") return;
+    adminToken = body.access_token;
+    const usersResponse = await fetchImpl(
+      `${config.baseUrl}/admin/realms/${config.realm}/users?email=${encodeURIComponent(normalized)}&exact=true`,
+      { headers: { authorization: `Bearer ${adminToken}` } },
+    );
+    if (!usersResponse.ok) return;
+    const users = await usersResponse.json() as Array<{ id?: unknown }>;
+    const userId = users.find(u => typeof u.id === "string")?.id;
+    if (typeof userId !== "string") return;
+    await fetchImpl(
+      `${config.baseUrl}/admin/realms/${config.realm}/users/${encodeURIComponent(userId)}/execute-actions-email`,
+      {
+        method: "PUT",
+        headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+        body: JSON.stringify(["UPDATE_PASSWORD"]),
+      },
+    );
+  } catch {
+    // Deliberately opaque: password reset must not disclose account existence.
+  }
+}

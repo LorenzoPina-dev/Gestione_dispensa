@@ -3,7 +3,7 @@ import { CatalogController, toCatalogHttpError } from "../../catalog/controller.
 import type { OidcTokenVerifier } from "../../identity/oidc.js";
 import { respond, sendFailure } from "../envelope.js";
 import { asyncHandler, methodNotAllowed, resolvePrincipal } from "../middleware.js";
-import { IDENTIFIER_TYPES, parseCreateProductBody, parseResolveBarcodeBody } from "../validators.js";
+import { IDENTIFIER_TYPES, parseCreateProductBody, parseResolveBarcodeBody, parseSubmitCandidateBody, } from "../validators.js";
 import type { IdentifierType } from "../../catalog/service.js";
 
 export interface CatalogRouteDependencies {
@@ -36,6 +36,23 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
       toCatalogHttpError,
     );
   });
+
+   const submitCandidate = asyncHandler(async (req, res) => {
+    const principal = await resolvePrincipal(req, verifier);
+    const parsed = parseSubmitCandidateBody(req.body);
+    if (parsed === undefined) {
+      sendFailure(res, 400, "VALIDATION_ERROR", "The request body is invalid.", req.meta);
+      return;
+    }
+    await respond(
+      res,
+      req.meta,
+      controller.submitImportedCandidate(principal, parsed, req.meta),
+      toCatalogHttpError,
+    );
+  });
+  router.route("/products/candidates").post(submitCandidate).all(methodNotAllowed);
+  router.route("/catalog/candidates").post(submitCandidate).all(methodNotAllowed);
 
   // Registered before "/products/:productId" so "resolve-barcode" isn't swallowed as a product id.
   router

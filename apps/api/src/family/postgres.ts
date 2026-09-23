@@ -8,6 +8,7 @@ import type {
 } from "./service.js";
 import type { FamilyInviteRecord, InviteRepository, JoinAttempt } from "./invites.js";
 import type { ManagedMembership, MembershipRepository } from "./membership.js";
+import { randomUUID } from "crypto";
 
 export interface SqlResult<Row> {
   readonly rows: readonly Row[];
@@ -317,13 +318,45 @@ export class PostgresInviteRepository implements InviteRepository {
       );
       const current = attempt.rows[0];
       if (current === undefined) throw new Error("Join attempt is not available.");
-      await transaction.query(
+      if (current.family_id === undefined || current.role === undefined) {
+        throw new Error("Invite has no family context.");
+      }
+
+      // 1. Caso "membership pre-esistente in PENDING" (raro ma possibile se un domani
+      //    createInvite() inizierà a scriverla): promuovila.
+      const updated = await transaction.query<{ id: string }>(
         `UPDATE family_memberships
          SET status = 'ACTIVE', joined_at = $2, invited_by = NULL, updated_at = $2
-         WHERE family_id = (SELECT family_id FROM family_invites WHERE id = $1)
-           AND user_id = $3 AND status = 'PENDING'`,
-        [current.invite_id, input.now, input.userId],
+         WHERE family_id = $1 AND user_id = $3 AND status IN ('PENDING', 'SUSPENDED')
+         RETURNING id`,
+        [current.family_id, input.now, input.userId],
       );
+
+      // 2. Caso normale: nessuna membership esiste → creala ora.
+      if (updated.rows[0] === undefined) {
+        const existing = await transaction.query<{ id: string }>(
+          `SELECT id FROM family_memberships
+           WHERE family_id = $1 AND user_id = $2 AND status = 'ACTIVE'`,
+          [current.family_id, input.userId],
+        );
+        if (existing.rows[0] === undefined) {
+          await transaction.query(
+            `INSERT INTO family_memberships
+               (id, family_id, user_id, role, status, joined_at, invited_by, version, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, 'ACTIVE', $5, NULL, 1, $5, $5)`,
+            [
+              randomUUID(),
+              current.family_id,
+              input.userId,
+              current.role,
+              input.now,
+            ],
+          );
+        }
+        // Se esisteva già una membership ACTIVE, l'utente era già membro:
+        // idempotente, non tocchiamo nulla.
+      }
+
       await transaction.query(
         `UPDATE family_join_attempts SET user_id = $2, state = 'ACCEPTED', completed_at = $3
          WHERE id = $1`,
@@ -339,8 +372,8 @@ export class PostgresInviteRepository implements InviteRepository {
         ...toJoinAttempt(current),
         userId: input.userId,
         state: "ACCEPTED",
-        ...(current.family_id !== undefined ? { familyId: current.family_id } : {}),
-        ...(current.role !== undefined ? { role: current.role } : {}),
+        familyId: current.family_id,
+        role: current.role,
       };
     } catch (error) {
       await transaction.rollback();
@@ -369,6 +402,10 @@ interface MembershipRow {
   role: ManagedMembership["role"];
   status: ManagedMembership["status"];
   version: number;
+  display_name?: string | null;
+  email?: string | null;
+  avatar?: string | null;
+  joined_at?: string | null;
 }
 
 export class PostgresMembershipRepository implements MembershipRepository {
@@ -383,8 +420,11 @@ export class PostgresMembershipRepository implements MembershipRepository {
     membershipId: string,
   ): Promise<ManagedMembership | undefined> {
     const result = await this.query<MembershipRow>(
-      `SELECT id, family_id, user_id, role, status, version
-       FROM family_memberships WHERE id = $1 AND family_id = $2`,
+      `SELECT m.id, m.family_id, m.user_id, m.role, m.status, m.version,
+              u.display_name, u.email, u.avatar, m.joined_at
+       FROM family_memberships m
+       LEFT JOIN users u ON u.id = m.user_id
+       WHERE m.id = $1 AND m.family_id = $2`,
       [membershipId, familyId],
     );
     return result.rows[0] === undefined ? undefined : toMembership(result.rows[0]);
@@ -392,8 +432,11 @@ export class PostgresMembershipRepository implements MembershipRepository {
 
   public async listByFamily(familyId: string): Promise<readonly ManagedMembership[]> {
     const result = await this.query<MembershipRow>(
-      `SELECT id, family_id, user_id, role, status, version
-       FROM family_memberships WHERE family_id = $1 ORDER BY joined_at NULLS LAST, created_at`,
+      `SELECT m.id, m.family_id, m.user_id, m.role, m.status, m.version,
+              u.display_name, u.email, u.avatar, m.joined_at
+       FROM family_memberships m
+       LEFT JOIN users u ON u.id = m.user_id
+       WHERE m.family_id = $1 ORDER BY m.joined_at NULLS LAST, m.created_at`,
       [familyId],
     );
     return result.rows.map(toMembership);
@@ -475,6 +518,10 @@ function toMembership(row: MembershipRow): ManagedMembership {
     role: row.role,
     status: row.status,
     version: row.version,
+    ...(row.display_name ? { name: row.display_name } : {}),
+    ...(row.email ? { email: row.email } : {}),
+    ...(row.avatar ? { avatar: row.avatar } : {}),
+    ...(row.joined_at ? { joinedAt: row.joined_at } : {}),
   };
 }
 

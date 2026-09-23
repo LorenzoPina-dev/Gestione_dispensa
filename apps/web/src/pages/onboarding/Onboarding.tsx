@@ -20,24 +20,15 @@ interface Props {
   onComplete: (user: AuthUser) => void;
 }
 
-// Demo fallback codes, tried first so the always-available demo experience keeps working even
-// without a backend. Any other 6-digit code is resolved against the real
-// `POST /api/v1/invites/resolve-code` endpoint (apps/api/src/family/invites.ts).
-const VALID_CODES: Record<string, { familyName: string; role: string; expiresIn: string }> = {
-  "847-291": { familyName: "Famiglia Ferretti", role: "Membro", expiresIn: "2 giorni" },
-  "123-456": { familyName: "Famiglia Rossi", role: "Gestore", expiresIn: "12 ore" },
-};
-
 export default function Onboarding({ user, onComplete }: Props) {
   const [step, setStep] = useState<Step>("choose");
   const [familyName, setFamilyName] = useState("");
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState("");
-  const [inviteDetails, setInviteDetails] = useState<(typeof VALID_CODES)[string] | null>(null);
+  const [inviteDetails, setInviteDetails] = useState<{ familyName: string; role: string; expiresIn: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [backendNote, setBackendNote] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
-  const [usingDemoInvite, setUsingDemoInvite] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [scanActive, setScanActive] = useState(false);
   const [scanError, setScanError] = useState("");
@@ -63,18 +54,13 @@ export default function Onboarding({ user, onComplete }: Props) {
     );
   }
 
-  /**
-   * Tries the real `POST /api/v1/families` endpoint first (this is the one real "bootstrap"
-   * write available — see docs comment in api/config.ts about there being no session/login
-   * endpoint yet). If the backend is unreachable or rejects the call for any reason, falls back
-   * to a local demo family id so onboarding still completes and the rest of the app runs in
-   * demo mode, exactly like the inventory/shopping hooks do.
-   */
+  const [createError, setCreateError] = useState<string | null>(null);
+
   async function createFamily() {
     if (!familyName.trim()) return;
     setSubmitting(true);
     setBackendNote(null);
-    let resolvedFamilyId: string;
+    setCreateError(null);
     try {
       const result = await api.createFamily({
         displayName: familyName.trim(),
@@ -82,109 +68,60 @@ export default function Onboarding({ user, onComplete }: Props) {
         timezone: "Europe/Rome",
         unitSystem: "METRIC",
       });
-      resolvedFamilyId = result.family.id;
-    } catch {
-      resolvedFamilyId = "fam_new_" + Date.now();
-      setBackendNote("Backend non raggiungibile: la famiglia è stata creata solo in modalità demo.");
+      const resolvedFamilyId = result.family.id;
+      setSubmitting(false);
+      setStep("create_done");
+      setTimeout(() => {
+        onComplete({ ...user, hasFamilyId: resolvedFamilyId, role: "OWNER" });
+      }, 1500);
+    } catch (err) {
+      // Prima non c'era nessun try/catch qui: un errore del backend lasciava lo spinner
+      // "Creazione in corso…" bloccato per sempre senza alcun messaggio per l'utente.
+      setSubmitting(false);
+      setCreateError(
+        isBackendUnreachable(err)
+          ? "Backend non raggiungibile. Controlla la connessione e riprova."
+          : err instanceof Error
+            ? err.message
+            : "Errore durante la creazione della famiglia. Riprova.",
+      );
     }
-    setSubmitting(false);
-    setStep("create_done");
-    setTimeout(() => {
-      onComplete({ ...user, hasFamilyId: resolvedFamilyId, role: "OWNER" });
-    }, 1500);
   }
 
-  function checkCode() {
+  async function checkCode() {
     const trimmed = code.trim();
-    const demo = VALID_CODES[trimmed];
-    if (demo) {
-      setCodeError("");
-      setUsingDemoInvite(true);
-      setAttemptId(null);
-      setInviteDetails(demo);
-      setStep("join_review");
-      return;
-    }
     setCodeError("");
     setSubmitting(true);
-    const digits = trimmed.replace(/[^0-9]/g, "");
-    api
-      .resolveInviteByCode(digits, getBrowserBindingHash())
-      .then((result) => {
-        setSubmitting(false);
-        setUsingDemoInvite(false);
-        setAttemptId(result.id);
-        // The resolve endpoint doesn't return the family name (no such lookup exists yet), so
-        // the review screen shows a generic label for real invites instead of a fabricated name.
-        setInviteDetails({ familyName: "la famiglia che ti ha invitato", role: "Membro", expiresIn: "pochi minuti" });
-        setStep("join_review");
-      })
-      .catch(() => {
-        setSubmitting(false);
-        setCodeError("Codice non trovato o scaduto. Riprova o chiedi un nuovo invito.");
-      });
+    try {
+      const result = await api.resolveInviteByCode(trimmed, getBrowserBindingHash());
+      setSubmitting(false);
+      setAttemptId(result.id);
+      setInviteDetails({ familyName: "la famiglia che ti ha invitato", role: result.role === "MANAGER" ? "Gestore" : result.role === "VIEWER" ? "Visualizzatore" : "Membro", expiresIn: "valido" });
+      setStep("join_review");
+    } catch {
+      setSubmitting(false);
+      setCodeError("Codice non trovato o scaduto. Riprova o chiedi un nuovo invito.");
+    }
   }
 
   async function startScan() {
-    setScanError("");
-    setScanActive(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
-      // Simulate finding a QR after 2 seconds
-      setTimeout(() => {
-        stream.getTracks().forEach((t) => t.stop());
-        setScanActive(false);
-        const found = VALID_CODES["847-291"];
-        setUsingDemoInvite(true);
-        setAttemptId(null);
-        setInviteDetails(found);
-        setCode("847-291");
-        setStep("join_review");
-      }, 2000);
-    } catch {
-      setScanActive(false);
-      setScanError("Impossibile accedere alla fotocamera. Inserisci il codice manualmente.");
-    }
+    setScanError("La scansione QR richiede un decoder BarcodeDetector disponibile nel browser; per ora inserisci il codice numerico dell'invito.");
   }
 
-  /**
-   * Real invites (anything not one of the two demo codes) are accepted via the real
-   * `POST /api/v1/invites/{attemptId}/accept`. The accept response now includes the resulting
-   * `familyId` (apps/api/src/family/invites.ts `JoinAttempt.familyId`, added alongside this
-   * flow) so the app can actually use the family the user just joined. Demo codes keep the
-   * original mock timing/behaviour untouched.
-   */
+
   function acceptInvite() {
-    if (usingDemoInvite || !attemptId) {
-      setSubmitting(true);
-      setTimeout(() => {
-        setSubmitting(false);
-        setStep("join_done");
-        setTimeout(() => {
-          onComplete({ ...user, hasFamilyId: "fam1", role: "MEMBER" });
-        }, 1200);
-      }, 900);
-      return;
-    }
+    if (!attemptId) return;
     setSubmitting(true);
-    api
-      .acceptInvite(attemptId, "privacy-consent-v1")
+    api.acceptInvite(attemptId, "privacy-consent-v1")
       .then((result) => {
         setSubmitting(false);
         setStep("join_done");
         const grantedRole: Role = result.role === "MANAGER" ? "MANAGER" : result.role === "VIEWER" ? "VIEWER" : "MEMBER";
-        setTimeout(() => {
-          onComplete({ ...user, hasFamilyId: result.familyId ?? "fam_joined_" + Date.now(), role: grantedRole });
-        }, 1200);
+        setTimeout(() => onComplete({ ...user, hasFamilyId: result.familyId ?? null, role: grantedRole }), 300);
       })
       .catch((err) => {
         setSubmitting(false);
-        setBackendNote(
-          isBackendUnreachable(err)
-            ? "Backend non raggiungibile: impossibile completare l'adesione in questo momento."
-            : "L'invito non è più valido. Chiedine uno nuovo.",
-        );
+        setBackendNote(isBackendUnreachable(err) ? "Backend non raggiungibile." : "L'invito non è più valido.");
       });
   }
 
@@ -235,6 +172,11 @@ export default function Onboarding({ user, onComplete }: Props) {
         <Card>
           <button onClick={() => setStep("choose")} className="text-xs font-medium" style={{ color: colors.inkMuted }}>← Indietro</button>
           <Header title="Come si chiama la tua famiglia?" sub="Sarà il nome visibile a tutti i membri che aggiungerai." />
+          {createError && (
+            <div className="rounded-xl px-4 py-3 text-sm" style={{ backgroundColor: colors.terracottaLight, color: colors.terracotta }}>
+              {createError}
+            </div>
+          )}
           <Input
             label="Nome famiglia"
             type="text"
@@ -343,9 +285,7 @@ export default function Onboarding({ user, onComplete }: Props) {
             </button>
           </div>
 
-          <p className="text-[10px] text-center" style={{ color: colors.inkMuted }}>
-            Codici demo validi: <strong>847-291</strong> · <strong>123-456</strong>
-          </p>
+
         </Card>
       )}
 

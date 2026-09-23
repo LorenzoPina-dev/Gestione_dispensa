@@ -1,4 +1,5 @@
 import type { Principal } from "../identity/oidc.js";
+import type { ProductCandidate } from "./workflow.js";
 import {
   CatalogService,
   CatalogValidationError,
@@ -79,6 +80,25 @@ export class CatalogController {
   ): Promise<CatalogHttpSuccess<unknown>> {
     const resolution = await this.workflow.resolveBarcode(identifierType, value);
     return success(resolution, meta);
+  }
+  /**
+   * Backs `POST /api/v1/products/candidates`. Persists an imported candidate
+   * (typically from a barcode scan) and marks it `requiresReview` when the
+   * confidence is below 0.95 — CatalogWorkflowService owns that threshold.
+   */
+  public async submitImportedCandidate(
+    principal: Principal | undefined,
+    candidate: Omit<ProductCandidate, "requiresReview">,
+    meta: CatalogHttpMeta,
+  ): Promise<CatalogHttpSuccess<ProductCandidate>> {
+    if (principal === undefined)
+      throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    const result = await this.workflow.submitImportedCandidate(
+      candidate,
+      principal.subject,
+      meta.traceId,
+    );
+    return success(result, meta);
   }
 }
 

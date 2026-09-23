@@ -1,33 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { StockItem, StorageLocation, ActionState } from "../types";
-
-// ── Mock barcode database ──────────────────────────────────────────────────────
-const BARCODE_DB: Record<string, Partial<StockItem> & { confidence: number; source: string }> = {
-  "8076800105063": { name: "Pasta Barilla Rigatoni", brand: "Barilla", unit: "g", category: "Cereali", calories: 352, protein: 12, carbs: 70, fat: 1.5, fiber: 3, confidence: 0.97, source: "Open Food Facts" },
-  "8001120748485": { name: "Parmigiano Reggiano DOP", brand: "Grana Padano", unit: "g", category: "Latticini", calories: 392, protein: 33, carbs: 0, fat: 28, fiber: 0, confidence: 0.92, source: "Open Food Facts" },
-  "8001830002681": { name: "Olio Extra Vergine di Oliva", brand: "Monini", unit: "ml", category: "Condimenti", calories: 884, protein: 0, carbs: 0, fat: 100, fiber: 0, confidence: 0.89, source: "Open Food Facts" },
-  "8000050012117": { name: "Latte Intero UHT", brand: "Granarolo", unit: "ml", category: "Latticini", calories: 64, protein: 3.2, carbs: 4.8, fat: 3.6, fiber: 0, confidence: 0.95, source: "Open Food Facts" },
-};
-
-// Simulated photo recognition candidates
-const PHOTO_CANDIDATES = [
-  [
-    { name: "Pomodori pelati", confidence: 0.82, source: "Vision AI" },
-    { name: "Pomodori interi", confidence: 0.71, source: "Vision AI" },
-  ],
-  [
-    { name: "Petto di pollo", confidence: 0.88, source: "Vision AI" },
-    { name: "Fesa di tacchino", confidence: 0.61, source: "Vision AI" },
-  ],
-  [
-    { name: "Pasta integrale", confidence: 0.79, source: "Vision AI" },
-    { name: "Pasta semola", confidence: 0.74, source: "Vision AI" },
-  ],
-];
+import * as api from "../api/endpoints";
 
 type AddMode = "menu" | "manuale" | "barcode" | "foto" | "lista";
 type BarcodeState = "IDLE" | "SCANNING" | "CANDIDATE" | "MANUAL_REQUIRED" | "NOT_FOUND" | "DEGRADED" | "CONFIRMED";
-type PhotoState = "IDLE" | "UPLOADING" | "PENDING_REVIEW" | "MANUAL_REQUIRED" | "CONFIRMED";
 
 const LOCATIONS: { key: StorageLocation; label: string; icon: string }[] = [
   { key: "frigo", label: "Frigo", icon: "❄️" },
@@ -109,7 +85,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [state, setState] = useState<BarcodeState>("IDLE");
-  const [candidate, setCandidate] = useState<(typeof BARCODE_DB)[string] | null>(null);
+  const [candidate, setCandidate] = useState<{ name: string; brand?: string; unit: string; confidence?: number; source?: string } | null>(null);
   const [manualCode, setManualCode] = useState("");
   const [form, setForm] = useState<Partial<StockItem>>({});
   const [qty, setQty] = useState("1");
@@ -174,13 +150,22 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
     }
   }
 
-  function processBarcode(code: string) {
+  async function processBarcode(code: string) {
     setManualCode(code);
-    const found = BARCODE_DB[code];
-    if (found) {
-      setCandidate(found);
-      setState("CANDIDATE");
-    } else {
+    try {
+      const result = await api.resolveProductBarcode("BARCODE", code);
+      if (result.product) {
+        setCandidate({
+          name: result.product.canonicalName,
+          ...(result.product.brand ? { brand: result.product.brand } : {}),
+          unit: result.product.defaultUnit,
+          source: result.product.provenanceQuality,
+        });
+        setState("CANDIDATE");
+      } else {
+        setState("NOT_FOUND");
+      }
+    } catch {
       setState("NOT_FOUND");
     }
   }
@@ -188,14 +173,9 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   function handleFileBarcode(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setState("SCANNING");
-    // Simulate lookup delay
-    setTimeout(() => {
-      // Randomly pick a known product for demo
-      const codes = Object.keys(BARCODE_DB);
-      const code = codes[Math.floor(Math.random() * codes.length)];
-      processBarcode(code);
-    }, 1200);
+    setState("NOT_FOUND");
+    setCameraError(`Immagine acquisita (${file.name}). Il browser non espone un decoder barcode affidabile per questo file; inserisci il codice manualmente.`);
+
   }
 
   function confirmCandidate() {
@@ -376,147 +356,17 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
 
 // ── Photo capture ──────────────────────────────────────────────────────────────
 function PhotoCapture({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) {
-  const [state, setPhotoState] = useState<PhotoState>("IDLE");
-  const [preview, setPreview] = useState<string | null>(null);
-  const [candidates, setCandidates] = useState<{ name: string; confidence: number; source: string }[]>([]);
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [loc, setLoc] = useState<StorageLocation>("frigo");
-  const [qty, setQty] = useState("1");
-  const [expiry, setExpiry] = useState("");
-
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    setPhotoState("UPLOADING");
-    setTimeout(() => {
-      setPhotoState("PENDING_REVIEW");
-      const group = PHOTO_CANDIDATES[Math.floor(Math.random() * PHOTO_CANDIDATES.length)];
-      setCandidates(group);
-    }, 1500);
-  }
-
-  function selectCandidate(name: string) {
-    setChosen(name);
-    setPhotoState("CONFIRMED");
-  }
-
-  function handleSave() {
-    onAdd({
-      name: chosen ?? "Prodotto da foto",
-      batches: [{ quantity: Number(qty), expiryDate: expiry || undefined }],
-      unit: "pz",
-      location: loc,
-      category: "Altro",
-    });
-  }
-
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center gap-3">
-        <button onClick={onBack} className="text-sm" style={{ color: "#6b5e4e" }}>← Indietro</button>
-        <h3 className="text-lg font-light flex-1" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>Foto prodotto</h3>
+        <button onClick={onBack} className="text-sm" style={{color:"#6b5e4e"}}>← Indietro</button>
+        <h3 className="text-lg font-light flex-1" style={{fontFamily:"var(--font-display)",color:"#1a1510"}}>Foto prodotto</h3>
       </div>
-
-      {state === "IDLE" && (
-        <div className="space-y-4">
-          <div className="rounded-2xl p-4 text-sm leading-relaxed" style={{ backgroundColor: "#faecd4", color: "#92400e" }}>
-            <p className="font-medium mb-1">Come funziona</p>
-            <p className="text-xs">Scatta una foto allo scontrino o al prodotto. Il riconoscimento propone dei candidati che dovrai sempre confermare prima che entrino in dispensa.</p>
-          </div>
-          <label
-            className="w-full py-6 rounded-2xl flex flex-col items-center gap-3 cursor-pointer transition-all hover:opacity-80"
-            style={{ backgroundColor: "#fff", border: "2px dashed #d8cfc0" }}
-          >
-            <span className="text-4xl">🖼️</span>
-            <div className="text-center">
-              <p className="font-medium text-sm" style={{ color: "#1a1510" }}>Scatta o carica una foto</p>
-              <p className="text-xs mt-0.5" style={{ color: "#6b5e4e" }}>JPG o PNG · max 10 MB</p>
-            </div>
-            <input type="file" accept="image/jpeg,image/png" capture="environment" className="hidden" onChange={handleFile} />
-          </label>
-        </div>
-      )}
-
-      {state === "UPLOADING" && (
-        <div className="space-y-4">
-          {preview && <img src={preview} alt="Anteprima" className="w-full rounded-2xl object-cover" style={{ maxHeight: 220 }} />}
-          <div className="rounded-xl px-4 py-3 flex items-center gap-3" style={{ backgroundColor: "#ede6d6" }}>
-            <span className="text-lg animate-spin">⏳</span>
-            <div>
-              <p className="text-sm font-medium" style={{ color: "#1a1510" }}>Analisi in corso…</p>
-              <p className="text-xs" style={{ color: "#6b5e4e" }}>Riconoscimento del prodotto tramite Vision AI</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {state === "PENDING_REVIEW" && (
-        <div className="space-y-4">
-          {preview && <img src={preview} alt="Foto caricata" className="w-full rounded-2xl object-cover" style={{ maxHeight: 180 }} />}
-          <div className="rounded-xl px-4 py-2 text-xs font-medium" style={{ backgroundColor: "#dceadd", color: "#3d6641" }}>
-            Analisi completata · ogni candidato richiede conferma prima di entrare in dispensa
-          </div>
-          <p className="text-sm font-semibold" style={{ color: "#1a1510" }}>Quale prodotto hai fotografato?</p>
-          <div className="space-y-2">
-            {candidates.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => selectCandidate(c.name)}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-left transition-all hover:opacity-80"
-                style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}
-              >
-                <span className="text-sm font-medium" style={{ color: "#1a1510" }}>{c.name}</span>
-                <span
-                  className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                  style={{ backgroundColor: c.confidence >= 0.8 ? "#dceadd" : "#faecd4", color: c.confidence >= 0.8 ? "#3d6641" : "#92400e" }}
-                >
-                  {Math.round(c.confidence * 100)}% · {c.source}
-                </span>
-              </button>
-            ))}
-            <button
-              onClick={() => setPhotoState("MANUAL_REQUIRED")}
-              className="w-full py-2.5 rounded-xl text-sm font-medium"
-              style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}
-            >
-              Nessuno di questi — inserisci manualmente
-            </button>
-          </div>
-        </div>
-      )}
-
-      {state === "MANUAL_REQUIRED" && (
-        <ManualForm onAdd={onAdd} onBack={() => setPhotoState("PENDING_REVIEW")} />
-      )}
-
-      {state === "CONFIRMED" && (
-        <div className="space-y-4">
-          <div className="rounded-2xl p-4 space-y-1" style={{ backgroundColor: "#dceadd" }}>
-            <p className="text-xs font-medium" style={{ color: "#3d6641" }}>Prodotto confermato</p>
-            <p className="text-lg font-light" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>{chosen}</p>
-          </div>
-          <div>
-            <label className="text-xs font-medium block mb-1" style={{ color: "#6b5e4e" }}>Quantità</label>
-            <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm outline-none" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0", color: "#1a1510", fontFamily: "var(--font-sans)" }} />
-          </div>
-          <div>
-            <label className="text-xs font-medium block mb-1" style={{ color: "#6b5e4e" }}>Scadenza</label>
-            <input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm outline-none" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0", color: "#1a1510", fontFamily: "var(--font-sans)" }} />
-          </div>
-          <div>
-            <label className="text-xs font-medium block mb-1" style={{ color: "#6b5e4e" }}>Luogo</label>
-            <select value={loc} onChange={(e) => setLoc(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl text-sm outline-none" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0", color: "#1a1510", fontFamily: "var(--font-sans)" }}>
-              {LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}
-            </select>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => setPhotoState("PENDING_REVIEW")} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>Indietro</button>
-            <button onClick={handleSave} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Carica in dispensa</button>
-          </div>
-        </div>
-      )}
+      <div className="rounded-2xl p-4 text-sm leading-relaxed" style={{backgroundColor:"#faecd4",color:"#92400e"}}>
+        <p className="font-medium mb-1">Acquisizione foto</p>
+        <p className="text-xs">Il backend espone il catalogo e la risoluzione barcode, ma non un servizio Vision AI per riconoscere immagini. Per evitare risultati simulati, usa l'inserimento manuale oppure la scansione barcode.</p>
+      </div>
+      <ManualForm onAdd={onAdd} onBack={onBack} />
     </div>
   );
 }
@@ -536,10 +386,8 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
   function handleSave() {
     if (!name) return;
     setSubmitState("SUBMITTING");
-    setTimeout(() => {
-      onAdd({ name, brand: brand || undefined, batches: [{ quantity: Number(qty), expiryDate: expiry || undefined }], unit, location: loc, category, reorderPoint: reorder ? Number(reorder) : undefined });
-      setSubmitState("SUCCESS");
-    }, 600);
+    onAdd({ name, brand: brand || undefined, batches: [{ quantity: Number(qty), expiryDate: expiry || undefined }], unit, location: loc, category, reorderPoint: reorder ? Number(reorder) : undefined });
+    setSubmitState("SUCCESS");
   }
 
   return (

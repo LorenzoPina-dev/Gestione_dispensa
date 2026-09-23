@@ -1,21 +1,39 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { StockItem, ShoppingList } from "../types";
 import { colors, fonts } from "../tokens";
 import { expiryDays } from "../utils/expiry";
-import { computeRecipeMatches } from "../mockData";
+import * as api from "../api/endpoints";
+import type { RecipeMatch } from "../types";
 
 interface Props {
   stock: StockItem[];
   shopping: ShoppingList;
   currentUserName: string;
   onNavigate: (tab: string) => void;
+  familyId?: string | null;
 }
 
-export default function Oggi({ stock, shopping, currentUserName, onNavigate }: Props) {
+export default function Oggi({ stock, shopping, currentUserName, onNavigate, familyId }: Props) {
+  const [topRecipe, setTopRecipe] = useState<RecipeMatch | null>(null);
+  useEffect(() => {
+    if (!familyId) { setTopRecipe(null); return; }
+    api.listRecipeSuggestions(familyId).then(r => {
+      const m = r.suggestions[0];
+      if (!m) return setTopRecipe(null);
+      const recipe = m.recipe;
+      setTopRecipe({
+        recipe: { id: recipe.id, title: recipe.title, source: recipe.source || "", quality: recipe.quality, servings: recipe.servings,
+          time: recipe.timeMinutes, difficulty: recipe.difficulty,
+          ingredients: recipe.ingredients.map(i => ({ name:i.displayName, stockItemId:i.productId, amount:i.amount, unit:i.unit, allergens:i.allergens })),
+          steps: recipe.steps, image: recipe.image || "", tags: recipe.tags, caloriesPerServing: recipe.caloriesPerServing || 0 },
+        score:m.score, matchedIngredients:m.matchedIngredientNames, missingIngredients:m.missingIngredients.map(i=>i.displayName)
+      });
+    }).catch(() => setTopRecipe(null));
+  }, [familyId]);
+
   const expired = useMemo(() => stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d <= 0; }), [stock]);
   const expiring = useMemo(() => stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d > 0 && d <= 5; }), [stock]);
   const lowStock = useMemo(() => stock.filter((s) => s.reorderPoint !== undefined && s.batches.reduce((a, b) => a + b.quantity, 0) <= s.reorderPoint), [stock]);
-  const topRecipe = useMemo(() => computeRecipeMatches(stock)[0], [stock]);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Buongiorno" : hour < 18 ? "Buon pomeriggio" : "Buonasera";

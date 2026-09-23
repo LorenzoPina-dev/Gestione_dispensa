@@ -1,5 +1,5 @@
-import { API_BASE_URL, API_TIMEOUT_MS, DEV_BEARER_TOKEN } from "./config";
-import type { Envelope, ErrorEnvelope } from "./types";
+import { API_BASE_URL, API_TIMEOUT_MS, DEV_BEARER_TOKEN } from "./config.js";
+import type { Envelope, ErrorEnvelope } from "./types.js";
 
 /**
  * Thrown for any request that reached the server and came back as a documented error envelope
@@ -52,6 +52,50 @@ export function newIdempotencyKey(): string {
   return `idem_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * Legge il token dallo storage persistito dal middleware `persist` di Zustand
+ * (chiave `dispensa-auth`, formato `{ state: { token, user, isAuthenticated }, version: 0 }`).
+ *
+ * Tenuto qui invece che importare `useAuthStore` per evitare il ciclo di import
+ * `client.ts → store/auth.ts → api/endpoints.ts → client.ts`, che in fase di
+ * bundling ESM può causare "Cannot access 'useAuthStore' before initialization".
+ */
+function readPersistedToken(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("dispensa-auth");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { token?: string | null } } | null;
+    return parsed?.state?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Nome del CustomEvent emesso quando una risposta 401 forza la fine della sessione. */
+export const SESSION_EXPIRED_EVENT = "dispensa:session-expired";
+
+/**
+ * Rimuove lo storage di auth (usato su 401 per forzare re-autenticazione) e notifica il resto
+ * dell'app con un evento DOM, così lo stato Zustand in memoria (isAuthenticated/token/user) può
+ * essere allineato a quello che è appena stato cancellato da localStorage — vedi il listener in
+ * store/auth.ts. Senza questo evento, prima, l'app restava convinta in memoria di essere ancora
+ * autenticata mentre ogni richiesta successiva partiva senza token (perché apiRequest rilegge
+ * sempre localStorage), causando una cascata di 401 silenziosi invece di un chiaro "sessione
+ * scaduta, accedi di nuovo".
+ */
+function clearPersistedAuth(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.removeItem("dispensa-auth");
+  } catch {
+    /* ignore */
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+}
+
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
   const url = new URL(API_BASE_URL + path);
   if (query) {
@@ -74,7 +118,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (ifMatch !== undefined) headers["If-Match"] = String(ifMatch);
-  const token = localStorage.getItem('auth_token') || DEV_BEARER_TOKEN;
+  const token = readPersistedToken() ?? DEV_BEARER_TOKEN;
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -99,10 +143,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (response.status === 204) return undefined as T;
 
   if (response.status === 401) {
-    // Rimuove token scaduto/non valido per forzare re-autenticazione
-    localStorage.removeItem("auth_token");
+    // Rimuove il token scaduto/non valido per forzare re-autenticazione.
+    clearPersistedAuth();
   }
-  
+
   let payload: unknown;
   try {
     payload = await response.json();
@@ -139,4 +183,3 @@ export function isBackendUnreachable(error: unknown): boolean {
 export function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.code === "NOT_FOUND_OR_NOT_VISIBLE";
 }
-

@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import type { AuthUser, AuthScreen } from "./store/auth";
 import type { ShoppingList, Role } from "./types";
-import { notifications as initialNotifications } from "./mockData";
 import { colors, fonts } from "./tokens";
 import { expiryDays } from "./utils/expiry";
 import { ROLE_LABELS } from "./utils/roles";
@@ -11,6 +10,9 @@ import SyncIssuesBanner from "./components/SyncIssuesBanner";
 import { useInventory } from "./hooks/useInventory";
 import { useShoppingList } from "./hooks/useShoppingList";
 import { useFamilyMembers } from "./hooks/useFamily";
+import { useNotifications } from "./hooks/useNotifications";
+import { useAuthStore } from "./store/auth";
+import { getCurrentUser, listFamilies } from "./api/endpoints";
 
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
@@ -35,29 +37,6 @@ const CAN_MANAGE_FAMILY: Role[] = ["OWNER", "MANAGER"];
  * survive a page refresh. This is a client-only convenience, not a security mechanism: it holds
  * no secrets, just the same non-sensitive profile fields the login screen already produces.
  */
-const SESSION_STORAGE_KEY = "dispensa.session.user";
-
-function loadStoredUser(): AuthUser | null {
-  try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as AuthUser;
-    if (typeof parsed?.id === "string" && typeof parsed?.email === "string") return parsed;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function storeUser(user: AuthUser | null): void {
-  try {
-    if (user) window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
-    else window.localStorage.removeItem(SESSION_STORAGE_KEY);
-  } catch {
-    // Storage can fail (private browsing, quota) — session just won't survive a refresh.
-  }
-}
-
 export default function App() {
   const [screen, setScreen] = useState<AuthScreen>("login");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -65,19 +44,47 @@ export default function App() {
   const [sessionChecked, setSessionChecked] = useState(false);
 
   // Restore a previous session on first load.
+  const authToken = useAuthStore((s) => s.token);
   useEffect(() => {
-    const stored = loadStoredUser();
-    if (stored) {
-      setCurrentUser(stored);
-      setScreen(stored.hasFamilyId ? "app" : "onboarding");
-    }
-    setSessionChecked(true);
-  }, []);
-
-  // Persist whenever the session changes.
-  useEffect(() => {
-    if (sessionChecked) storeUser(currentUser);
-  }, [currentUser, sessionChecked]);
+    let cancelled = false;
+    (async () => {
+      if (!authToken) {
+        // Prima non veniva mai richiamato setScreen("login") qui: se il token diventava null a
+        // sessione già avviata (es. dopo un 401 — vedi store/auth.ts), currentUser diventava
+        // null ma "screen" restava com'era, e il render cadeva nel `if (!currentUser) return
+        // null;` più sotto: una pagina completamente bianca invece di essere riportati al login.
+        if (!cancelled) { setCurrentUser(null); setScreen("login"); setSessionChecked(true); }
+        return;
+      }
+      try {
+        const apiUser = await getCurrentUser();
+        const families = await listFamilies();
+        const active = apiUser.activeFamilyId
+          ? families.families.find(f => f.familyId === apiUser.activeFamilyId)
+          : families.families[0];
+        const user: AuthUser = {
+          id: apiUser.id,
+          name: apiUser.name || apiUser.preferredUsername || apiUser.email || "Utente",
+          email: apiUser.email || "",
+          avatar: (apiUser.name || apiUser.preferredUsername || "U").slice(0, 2).toUpperCase(),
+          role: (active?.role as Role) || "OWNER",
+          hasFamilyId: active?.familyId || null,
+        };
+        if (!cancelled) { setCurrentUser(user); setScreen(user.hasFamilyId ? "app" : "onboarding"); setSessionChecked(true); }
+      } catch {
+        if (!cancelled) {
+          // Il token persistito non e' (piu') valido: puliamo lo stato di auth di Zustand,
+          // non una chiave localStorage inesistente ("auth_token"). La chiave reale e'
+          // "dispensa-auth", gestita dal middleware `persist` — vedi store/auth.ts. Usare
+          // setState qui aggiorna anche il localStorage persistito, cosi' un token rotto
+          // non resta salvato e non causa un loop di re-render.
+          useAuthStore.setState({ token: null, user: null, isAuthenticated: false });
+          setCurrentUser(null); setScreen("login"); setSessionChecked(true);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authToken]);
 
   // Real backend data (falls back to demo data automatically — see hooks/useInventory.ts and
   // hooks/useShoppingList.ts for exactly what's wired to which endpoint and why).
@@ -90,9 +97,9 @@ export default function App() {
   const shoppingList = shopping.list;
   const setShoppingList = shopping.setList;
 
-  // Notifications have no backend endpoint at all yet (see hooks/useNotifications.ts) — they stay
-  // local state, same as the original Figma prototype.
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const notificationState = useNotifications(familyId);
+  const notifications = notificationState.notifications;
+  const setNotifications = notificationState.setNotifications;
 
   const [isOffline, setIsOffline] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -148,7 +155,7 @@ export default function App() {
   const expiringCount = stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d > 0 && d <= 5; }).length;
   const unreadNotifs = notifications.filter((n) => !n.readAt).length;
   const urgentBadge = expiredCount + expiringCount;
-  const isAnyDemo = inventory.isDemo || shopping.isDemo || family.isDemo;
+  const isAnyDemo = false;
   const isLoadingBackend = inventory.loading || shopping.loading || family.loading;
 
   const ALL_NAV: { key: Tab; label: string; icon: string; roles?: Role[] }[] = [
@@ -185,15 +192,7 @@ export default function App() {
       )}
 
       {/* Backend connection banner */}
-      {!isOffline && !isLoadingBackend && isAnyDemo && (
-        <div
-          className="px-4 py-2 text-center text-xs font-medium"
-          style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}
-          title={inventory.demoReason ?? shopping.demoReason ?? undefined}
-        >
-          Modalità demo: alcune sezioni non sono collegate al backend reale ({inventory.demoReason ?? shopping.demoReason ?? "vedi hooks/*.ts"}). Dati di esempio in uso.
-        </div>
-      )}
+
 
       {/* Role badge for non-owner */}
       {role !== "OWNER" && role !== "MANAGER" && (
@@ -289,12 +288,12 @@ export default function App() {
           </div>
 
           <div className="max-w-3xl mx-auto px-4 py-6 pb-28 sm:pb-8">
-            {currentTab === "oggi" && <Oggi stock={stock} shopping={shoppingList} currentUserName={currentUser.name} onNavigate={(t) => setTab(t as Tab)} />}
+            {currentTab === "oggi" && <Oggi stock={stock} shopping={shoppingList} currentUserName={currentUser.name} familyId={familyId} onNavigate={(t) => setTab(t as Tab)} />}
             {currentTab === "dispensa" && <Dispensa stock={stock} setStock={canWrite ? setStock : () => {}} readOnly={!canWrite} />}
             {currentTab === "spesa" && canWrite && <Spesa list={shoppingList} setList={setShoppingList} currentUserName={currentUser.name} />}
             {currentTab === "spesa" && !canWrite && <ReadOnlySpesa list={shoppingList} />}
-            {currentTab === "ricette" && <Ricette stock={stock} setList={canWrite ? setShoppingList : () => {}} />}
-            {currentTab === "nutrienti" && <Nutrienti stock={stock} />}
+            {currentTab === "ricette" && <Ricette stock={stock} setList={canWrite ? setShoppingList : () => {}} familyId={familyId} />}
+            {currentTab === "nutrienti" && <Nutrienti stock={stock} familyId={familyId} />}
             {currentTab === "famiglia" && (
               <Famiglia
                 members={family.members}
@@ -303,6 +302,7 @@ export default function App() {
                 canManage={canManage}
                 isOwner={role === "OWNER"}
                 onInviteCreated={family.syncInviteCreated}
+                familyName={family.familyName}
               />
             )}
             {currentTab === "notifiche" && <Notifiche notifications={notifications} setNotifications={setNotifications} />}

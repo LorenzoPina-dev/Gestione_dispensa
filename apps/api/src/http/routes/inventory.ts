@@ -43,7 +43,11 @@ export function buildInventoryRouter(deps: InventoryRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.createStockItem(principal, { ...parsed, traceId: req.meta.traceId }, req.meta),
+          controller.createStockItem(principal, {
+            ...parsed,
+            ...(parsed.expiresAt ? { expiresAt: new Date(parsed.expiresAt) } : {}),
+            traceId: req.meta.traceId,
+          }, req.meta),
           toInventoryHttpError,
         );
       }),

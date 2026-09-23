@@ -42,6 +42,7 @@ import {
   PostgresPrivacyAuditWriter,
 } from "./privacy/postgres.js";
 import { OidcTokenVerifier } from "./identity/oidc.js";
+import { PostgresUserProfileRepository } from "./identity/users.js";
 import { NotificationService } from "./notifications/service.js";
 import { NotificationController } from "./notifications/controller.js";
 import { PostgresNotificationRepository } from "./notifications/postgres.js";
@@ -74,6 +75,7 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
   try {
     postgres = PostgresClient.create({ connectionString: resolveDatabaseUrl() });
     options.postgres = postgres;
+    options.userProfiles = new PostgresUserProfileRepository(postgres);
   } catch (error) {
     startupLog.info("postgres_not_configured", {
       reason: error instanceof Error ? error.message : "unknown",

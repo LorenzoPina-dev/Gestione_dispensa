@@ -5,7 +5,7 @@ import { colors } from "../../tokens";
 import { Input } from "../../components/ui/Input";
 import { KEYCLOAK_REALM_URL, KEYCLOAK_CLIENT_ID } from "../../api/config";
 import { useAuthStore } from "../../store/auth";
-import { registerUser } from "../../api/endpoints";
+import { registerUser, getCurrentUser, listFamilies } from "../../api/endpoints";
 
 type Step = "form" | "submitting" | "done";
 
@@ -52,58 +52,83 @@ export default function Register({ onRegistered, onLogin }: Props) {
     const cleanName = name.trim();
 
     try {
-      // 1. Invocazione dell'endpoint REST per la registrazione su Keycloak
+      // 1. Registra l'utente su Keycloak (via backend Admin API)
       await registerUser({
         name: cleanName,
         email: cleanEmail,
         password: password,
       });
 
-      // 2. Login OIDC automatico se le credenziali Keycloak sono configurate
-      if (KEYCLOAK_REALM_URL && KEYCLOAK_CLIENT_ID) {
+      // 2. Configurazione OIDC obbligatoria — scambio credenziali per ottenere il token
+      if (!KEYCLOAK_REALM_URL || !KEYCLOAK_CLIENT_ID) {
+        throw new Error("Configurazione OIDC non disponibile. Contatta l'amministratore.");
+      }
+
+      const bodyParams = new URLSearchParams({
+        grant_type: "password",
+        client_id: KEYCLOAK_CLIENT_ID,
+        username: cleanEmail,
+        password: password,
+        scope: "openid profile email",
+      });
+
+      const tokenRes = await fetch(`${KEYCLOAK_REALM_URL}/protocol/openid-connect/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: bodyParams.toString(),
+      });
+
+      const tokenData = await tokenRes.json().catch(() => ({}));
+
+      if (!tokenRes.ok || !tokenData.access_token) {
+        throw new Error(
+          tokenData.error_description || "Impossibile completare l'accesso dopo la registrazione.",
+        );
+      }
+
+      setToken(tokenData.access_token);
+
+      // 3. Risolvi il profilo utente e l'eventuale famiglia attiva. Un utente appena
+      // registrato normalmente non ne ha ancora una: in quel caso hasFamilyId resta null e
+      // App.tsx instrada correttamente verso l'onboarding (vedi handleRegistered in App.tsx).
+      let familyId: string | null = null;
+      let userId = cleanEmail;
+      let userProfileName = cleanName || cleanEmail.split("@")[0];
+
+      try {
+        const apiUser = await getCurrentUser();
+        if (apiUser) {
+          userId = apiUser.id;
+          userProfileName = apiUser.name || userProfileName;
+          if (apiUser.activeFamilyId) familyId = apiUser.activeFamilyId;
+        }
+      } catch {
+        // /auth/me non ancora disponibile subito dopo la registrazione: proseguiamo con i
+        // dati del form, come fa Login.tsx nello stesso caso.
+      }
+
+      let role: AuthUser["role"] = "OWNER";
+      if (familyId) {
         try {
-          const bodyParams = new URLSearchParams({
-            grant_type: "password",
-            client_id: KEYCLOAK_CLIENT_ID,
-            username: cleanEmail,
-            password: password,
-            scope: "openid profile email",
-          });
-
-          const res = await fetch(`${KEYCLOAK_REALM_URL}/protocol/openid-connect/token`, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: bodyParams.toString(),
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            if (data.access_token) {
-              setToken(data.access_token);
-            }
-          }
+          const families = await listFamilies();
+          const found = families.families.find((f) => f.familyId === familyId);
+          if (found) role = found.role as AuthUser["role"];
         } catch {
-          // Proseguiamo con la transizione UI anche in caso di warn sulla sessione OIDC
+          /* mantieni il default */
         }
       }
 
+      const user: AuthUser = {
+        id: userId,
+        name: userProfileName,
+        email: cleanEmail,
+        avatar: userProfileName.slice(0, 2).toUpperCase(),
+        role,
+        hasFamilyId: familyId,
+      };
+
       setStep("done");
-      setTimeout(() => {
-        const user: AuthUser = {
-          id: "u_" + Date.now(),
-          name: cleanName,
-          email: cleanEmail,
-          avatar: cleanName
-            .split(" ")
-            .map((w) => w[0])
-            .join("")
-            .slice(0, 2)
-            .toUpperCase(),
-          role: "OWNER",
-          hasFamilyId: null, // Scatena l'Onboarding per la creazione/unione famiglia
-        };
-        onRegistered(user);
-      }, 600);
+      setTimeout(() => onRegistered(user), 900);
     } catch (err: unknown) {
       setStep("form");
       setApiError(err instanceof Error ? err.message : "Errore durante la registrazione. Riprova.");

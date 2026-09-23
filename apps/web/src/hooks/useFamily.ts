@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FamilyMember, Invite, Role } from "../types";
-import { members as mockMembers } from "../mockData";
 import * as api from "../api/endpoints";
 import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
 import { reportSyncIssue } from "../lib/syncBus";
@@ -14,7 +13,8 @@ export interface UseFamilyMembersResult {
   isDemo: boolean;
   loading: boolean;
   /** Fire-and-forget sync of a client-created invite to the backend (no-op in demo mode). */
-  syncInviteCreated: (invite: Invite) => void;
+  syncInviteCreated: (invite: Invite) => Promise<Invite>;
+  familyName: string;
 }
 
 const API_ROLE_TO_UI: Record<MembershipRole, Role> = {
@@ -52,18 +52,21 @@ const INVITE_ROLE_TO_API: Record<Role, InviteRole> = {
  */
 export function useFamilyMembers(familyId?: string | null): UseFamilyMembersResult {
   const effectiveFamilyId = familyId ?? DEFAULT_FAMILY_ID ?? null;
-  const [members, setMembersState] = useState<FamilyMember[]>(mockMembers);
+  const [members, setMembersState] = useState<FamilyMember[]>([]);
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [familyName, setFamilyName] = useState("Famiglia");
   const isDemoRef = useRef(isDemo);
   isDemoRef.current = isDemo;
   const familyIdRef = useRef(effectiveFamilyId);
   familyIdRef.current = effectiveFamilyId;
+  const prevMembersRef = useRef<FamilyMember[] | null>(null);
 
   useEffect(() => {
     if (!effectiveFamilyId) {
-      setMembersState(mockMembers);
-      setIsDemo(true);
+      setMembersState([]);
+      prevMembersRef.current = [];
+      setIsDemo(false);
       setLoading(false);
       return;
     }
@@ -71,47 +74,66 @@ export function useFamilyMembers(familyId?: string | null): UseFamilyMembersResu
     setLoading(true);
     (async () => {
       try {
+        const families = await api.listFamilies();
+        const current = families.families.find((f) => f.familyId === effectiveFamilyId);
+        if (current) setFamilyName(current.displayName);
         const res = await api.listFamilyMembers(effectiveFamilyId);
         if (cancelled) return;
-        setMembersState(res.memberships.filter((m) => m.status !== "REMOVED").map(mapMembershipToUi));
+        const mapped = res.memberships.filter((m) => m.status !== "REMOVED").map(mapMembershipToUi);
+        prevMembersRef.current = mapped;
+        setMembersState(mapped);
         setIsDemo(false);
       } catch {
         if (cancelled) return;
-        setMembersState(mockMembers);
-        setIsDemo(true);
+        prevMembersRef.current = [];
+        setMembersState([]);
+        setIsDemo(false);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [effectiveFamilyId]);
 
+  useEffect(() => {
+    const prev = prevMembersRef.current;
+    if (prev === null) return;
+    if (prev === members) return;
+    prevMembersRef.current = members;
+    if (isDemoRef.current || !familyIdRef.current) return;
+    void syncMembersDiff(familyIdRef.current, prev, members);
+  }, [members]);
+
   const setMembers = useCallback<SetMembers>((updater) => {
-    setMembersState((prev) => {
-      const next = typeof updater === "function" ? (updater as (p: FamilyMember[]) => FamilyMember[])(prev) : updater;
-      if (!isDemoRef.current && familyIdRef.current) void syncMembersDiff(familyIdRef.current, prev, next);
-      return next;
-    });
+    setMembersState((prev) =>
+      typeof updater === "function" ? (updater as (p: FamilyMember[]) => FamilyMember[])(prev) : updater,
+    );
   }, []);
 
   const syncInviteCreated = useCallback(
-    (invite: Invite) => {
-      const id = effectiveFamilyId;
-      if (isDemoRef.current || !id) return;
+    async (invite: Invite): Promise<Invite> => {
+      if (isDemoRef.current || !effectiveFamilyId) return invite;
       const expiresInSeconds = Math.max(
         60,
         Math.min(86_400, Math.round((new Date(invite.expiresAt).getTime() - Date.now()) / 1000)),
       );
-      api
-        .createFamilyInvite(id, { role: INVITE_ROLE_TO_API[invite.role], expiresInSeconds })
-        .catch((err) => console.warn("[family] failed to sync invite creation to the backend:", err));
+      const created = await api.createFamilyInvite(effectiveFamilyId, {
+        role: INVITE_ROLE_TO_API[invite.role],
+        expiresInSeconds,
+      });
+      return {
+        inviteId: created.inviteId,
+        role: created.role,
+        status: created.status,
+        expiresAt: created.expiresAt,
+        fallbackCode: created.fallbackCode,
+        createdAt: new Date().toISOString(),
+        qrPayload: created.qrPayload,   // ← QUESTA RIGA MANCA
+      };
     },
     [effectiveFamilyId],
   );
-
-  return { members, setMembers, isDemo, loading, syncInviteCreated };
+  return { members, setMembers, isDemo, loading, syncInviteCreated, familyName };
 }
 
 async function syncMembersDiff(familyId: string, prev: FamilyMember[], next: FamilyMember[]): Promise<void> {
@@ -150,14 +172,14 @@ async function syncMembersDiff(familyId: string, prev: FamilyMember[], next: Fam
 
 function mapMembershipToUi(dto: ManagedMembershipDto): FamilyMember {
   const shortId = dto.userId.slice(0, 8);
-  const name = `Utente ${shortId}`;
+  const name = dto.name || `Utente ${shortId}`;
   return {
     id: dto.id,
     name,
-    email: "",
-    avatar: shortId.slice(0, 2).toUpperCase(),
+    email: dto.email || "",
+    avatar: dto.avatar || shortId.slice(0, 2).toUpperCase(),
     role: API_ROLE_TO_UI[dto.role] ?? "MEMBER",
     status: dto.status === "REMOVED" ? "REMOVED" : dto.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE",
-    joinedAt: new Date().toISOString(),
+    joinedAt: dto.joinedAt || new Date().toISOString(),
   };
 }

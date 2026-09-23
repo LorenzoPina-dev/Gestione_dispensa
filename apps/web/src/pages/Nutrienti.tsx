@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import type { ConsumedItem, StockItem, ConfidenceLabel } from "../types";
-import { recentConsumed } from "../mockData";
+import * as api from "../api/endpoints";
 import { colors, fonts } from "../tokens";
 import { timeAgo } from "../utils/time";
 import { Input } from "../components/ui/Input";
@@ -15,32 +15,34 @@ const CONFIDENCE_META: Record<ConfidenceLabel, { label: string; color: string; b
 
 interface Props {
   stock: StockItem[];
+  familyId?: string | null;
 }
 
-export default function Nutrienti({ stock }: Props) {
+export default function Nutrienti({ stock, familyId }: Props) {
+  const [summary, setSummary] = useState<Awaited<ReturnType<typeof api.getNutritionSummary>> | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const [period, setPeriod] = useState<"oggi" | "settimana">("oggi");
   const [scaleItem, setScaleItem] = useState<StockItem | null>(null);
   const [scaleQty, setScaleQty] = useState(100);
   const [search, setSearch] = useState("");
 
-  // Filter consumed by period
-  const consumed: ConsumedItem[] = useMemo(() => {
-    const cutoff = period === "oggi"
-      ? new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
-      : new Date(Date.now() - 7 * 86400000).toISOString();
-    return recentConsumed.filter((c) => c.at >= cutoff);
-  }, [period]);
+  useEffect(() => {
+    if (!familyId) { setSummary(null); return; }
+    let cancelled = false;
+    setLoadingSummary(true);
+    api.getNutritionSummary(familyId, period === "oggi" ? "today" : "week")
+      .then(v => { if (!cancelled) setSummary(v); })
+      .catch(() => { if (!cancelled) setSummary(null); })
+      .finally(() => { if (!cancelled) setLoadingSummary(false); });
+    return () => { cancelled = true; };
+  }, [familyId, period]);
 
-  const totals = useMemo(() => consumed.reduce(
-    (acc, c) => ({
-      calories: acc.calories + c.nutrients.calories,
-      protein: acc.protein + c.nutrients.protein,
-      carbs: acc.carbs + c.nutrients.carbs,
-      fat: acc.fat + c.nutrients.fat,
-      fiber: acc.fiber + c.nutrients.fiber,
-    }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
-  ), [consumed]);
+  const consumed: ConsumedItem[] = useMemo(() => (summary?.items ?? []).map(c => ({
+    id: c.movementId, name: c.productName, quantity:c.quantity, unit:c.unit,
+    nutrients:{...c.nutrients, confidence:c.confidence}, at:c.occurredAt
+  })), [summary]);
+
+  const totals = summary?.totals ?? { calories:0, protein:0, carbs:0, fat:0, fiber:0 };
 
   const filteredStock = useMemo(() => {
     if (!search) return [];

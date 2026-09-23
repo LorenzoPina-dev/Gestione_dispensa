@@ -20,6 +20,11 @@ import type {
   InviteRole,
   UserFamilySummaryDto,
   UserDto,
+  MovementDto,
+  NotificationDto,
+  RecipeDto,
+  RecipeMatchDto,
+  NutritionSummaryDto,
 } from "./types";
 
 // --- Platform ----------------------------------------------------------------
@@ -129,6 +134,12 @@ export function createProduct(input: {
   canonicalName: string;
   brand?: string | null;
   defaultUnit: ProductUnit;
+  category?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
 }): Promise<ProductDto> {
   return apiRequest("/products", {
     method: "POST",
@@ -150,6 +161,8 @@ export function createStockItem(input: {
   quantity: number;
   unit: InventoryUnit;
   reorderPoint?: number;
+  location?: string;
+  expiresAt?: string;
 }): Promise<StockItemDto> {
   return apiRequest("/inventory/items", { method: "POST", body: input });
 }
@@ -231,4 +244,82 @@ export function batchUpdateShoppingItems(
     method: "POST",
     body: { familyId, itemIds, state },
   });
+}
+
+// --- Notifications ----------------------------------------------------------
+
+export function listNotifications(familyId: string): Promise<{ notifications: NotificationDto[] }> {
+  return apiRequest("/notifications", { query: { familyId } });
+}
+
+export function markNotificationRead(
+  familyId: string,
+  notificationId: string,
+): Promise<NotificationDto> {
+  return apiRequest(`/notifications/${notificationId}/read`, {
+    method: "POST",
+    body: { familyId },
+  });
+}
+
+// --- Inventory history / dashboard ------------------------------------------
+
+export function listMovements(stockItemId: string): Promise<{ movements: MovementDto[] }> {
+  return apiRequest(`/inventory/items/${stockItemId}/movements`);
+}
+
+// --- Recipes -----------------------------------------------------------------
+
+export function listRecipes(familyId: string): Promise<{ recipes: RecipeDto[] }> {
+  return apiRequest("/recipes", { query: { familyId } });
+}
+
+export function listRecipeSuggestions(familyId: string): Promise<{ suggestions: RecipeMatchDto[] }> {
+  return apiRequest("/recipes/suggestions", { query: { familyId } });
+}
+
+export function getRecipe(familyId: string, recipeId: string): Promise<{ recipe: RecipeDto }> {
+  return apiRequest(`/recipes/${recipeId}`, { query: { familyId } });
+}
+
+export function addRecipeMissingIngredients(
+  familyId: string,
+  recipeId: string,
+): Promise<{ itemIds: string[] }> {
+  return apiRequest(`/recipes/${recipeId}/add-missing`, {
+    method: "POST",
+    body: { familyId },
+  });
+}
+
+export function cookRecipe(
+  familyId: string,
+  recipeId: string,
+  servings: number,
+): Promise<{ movementIds: string[] }> {
+  return apiRequest(`/recipes/${recipeId}/cook`, {
+    method: "POST",
+    body: { familyId, servings },
+  });
+}
+
+// --- Nutrition ---------------------------------------------------------------
+
+export function getNutritionSummary(
+  familyId: string,
+  period: "today" | "week" = "today",
+): Promise<NutritionSummaryDto> {
+  return apiRequest("/nutrition/summary", { query: { familyId, period } });
+}
+
+export function listFamilyInvites(familyId: string): Promise<{ invites: Array<{ id?: string; inviteId?: string; role: InviteRole; status: "CREATED"|"REVOKED"|"CONSUMED"|"EXPIRED"; expiresAt: string; fallbackCode?: string; createdAt: string }> }> {
+  return apiRequest(`/families/${familyId}/invites`);
+}
+
+export function requestPasswordReset(email: string): Promise<{ accepted: boolean; message: string }> {
+  return apiRequest("/auth/reset-password", { method: "POST", body: { email } });
+}
+
+export function resolveProductBarcode(identifierType: "EAN8"|"EAN13"|"GTIN12"|"GTIN14"|"SKU"|"BARCODE", value: string): Promise<{ product?: ProductDto }> {
+  return apiRequest("/products/resolve-barcode", { method: "POST", body: { identifierType, value } });
 }

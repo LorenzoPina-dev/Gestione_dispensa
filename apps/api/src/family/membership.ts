@@ -9,6 +9,10 @@ export interface ManagedMembership {
   role: MembershipRole;
   status: MembershipStatus;
   version: number;
+  name?: string;
+  email?: string;
+  avatar?: string;
+  joinedAt?: string;
 }
 
 export interface MembershipRepository {

@@ -39,6 +39,12 @@ interface ProductRow {
   status: "ACTIVE";
   provenance_quality: Product["provenanceQuality"];
   version: number;
+  category?: string | null;
+  calories_per_100?: string | number | null;
+  protein_per_100?: string | number | null;
+  carbs_per_100?: string | number | null;
+  fat_per_100?: string | number | null;
+  fiber_per_100?: string | number | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,7 +59,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   public async listActive(): Promise<Product[]> {
     const result = await this.database.transaction();
     try {
-      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
       await result.commit(); return rows.rows.map(mapProduct);
     } catch (error) { await result.rollback(); throw error; }
   }
@@ -61,7 +67,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   public async getById(productId: string): Promise<Product | undefined> {
     const result = await this.database.transaction();
     try {
-      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.id = $1 AND p.status = 'ACTIVE'`, [productId]);
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.id = $1 AND p.status = 'ACTIVE'`, [productId]);
       await result.commit(); const row=rows.rows[0]; return row===undefined ? undefined : mapProduct(row);
     } catch (error) { await result.rollback(); throw error; }
   }
@@ -77,8 +83,8 @@ export class PostgresCatalogRepository implements CatalogRepository {
       const brandId = await ensureBrand(transaction, input.product.brand);
       await transaction.query(
         `INSERT INTO products
-          (id, canonical_name, brand_id, default_unit, status, provenance_quality, version, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          (id, canonical_name, brand_id, default_unit, status, provenance_quality, version, category, calories_per_100, protein_per_100, carbs_per_100, fat_per_100, fiber_per_100, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           input.product.id,
           input.product.canonicalName,
@@ -87,6 +93,12 @@ export class PostgresCatalogRepository implements CatalogRepository {
           input.product.status,
           input.product.provenanceQuality,
           input.product.version,
+          input.product.category ?? null,
+          input.product.calories ?? null,
+          input.product.protein ?? null,
+          input.product.carbs ?? null,
+          input.product.fat ?? null,
+          input.product.fiber ?? null,
           input.product.createdAt,
           input.product.updatedAt,
         ],
@@ -126,7 +138,7 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
   }): Promise<Product | undefined> {
     const result = await this.database.query<ProductRow>(
       `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status,
-          p.provenance_quality, p.version, p.created_at, p.updated_at
+          p.provenance_quality, p.version, p.category, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at
        FROM product_identifiers i
        JOIN products p ON p.id = i.product_id
        LEFT JOIN brands b ON b.id = p.brand_id
@@ -206,17 +218,18 @@ async function ensureSource(
 async function ensureBrand(database: SqlClient, brand: string | undefined): Promise<string | null> {
   if (brand === undefined || brand.trim() === "") return null;
   const normalized = brand.trim().toLocaleLowerCase("en-US");
-  const existing = await database.query<{ id: string }>(
-    "SELECT id FROM brands WHERE normalized_name = $1",
-    [normalized],
-  );
-  const existingId = existing.rows[0]?.id;
-  if (existingId !== undefined) return existingId;
-  const inserted = await database.query<{ id: string }>(
-    "INSERT INTO brands (name, normalized_name) VALUES ($1, $2) RETURNING id",
+  // Upsert atomico: evita la race SELECT-poi-INSERT (due richieste concorrenti per lo stesso
+  // brand, es. React StrictMode che monta gli effect due volte, potevano entrambe superare la
+  // SELECT e scontrarsi sull'INSERT, causando un 500 per violazione del vincolo unique su
+  // normalized_name). ON CONFLICT rende l'operazione idempotente indipendentemente dalla
+  // concorrenza.
+  const upserted = await database.query<{ id: string }>(
+    `INSERT INTO brands (name, normalized_name) VALUES ($1, $2)
+     ON CONFLICT (normalized_name) DO UPDATE SET name = brands.name
+     RETURNING id`,
     [brand.trim(), normalized],
   );
-  const id = inserted.rows[0]?.id;
+  const id = upserted.rows[0]?.id;
   if (id === undefined) throw new Error("Catalog brand insert returned no id.");
   return id;
 }
@@ -246,6 +259,12 @@ function mapProduct(row: ProductRow): Product {
     status: row.status,
     provenanceQuality: row.provenance_quality as Product["provenanceQuality"],
     version: row.version as 1,
+    ...(row.category ? { category: row.category } : {}),
+    ...(row.calories_per_100 != null ? { calories: Number(row.calories_per_100) } : {}),
+    ...(row.protein_per_100 != null ? { protein: Number(row.protein_per_100) } : {}),
+    ...(row.carbs_per_100 != null ? { carbs: Number(row.carbs_per_100) } : {}),
+    ...(row.fat_per_100 != null ? { fat: Number(row.fat_per_100) } : {}),
+    ...(row.fiber_per_100 != null ? { fiber: Number(row.fiber_per_100) } : {}),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };

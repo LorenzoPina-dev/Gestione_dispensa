@@ -6,6 +6,12 @@ export interface CreateManualProductCommand {
   canonicalName: string;
   brand?: string;
   defaultUnit: ProductUnit;
+  category?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
   actorId: string;
   traceId: string;
 }
@@ -18,6 +24,12 @@ export interface Product {
   status: "ACTIVE";
   provenanceQuality: "VERIFIED";
   version: 1;
+  category?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -103,6 +115,12 @@ export class CatalogService {
         status: "ACTIVE",
         provenanceQuality: "VERIFIED",
         version: 1,
+        ...(command.category?.trim() ? { category: command.category.trim() } : {}),
+        ...(command.calories != null ? { calories: command.calories } : {}),
+        ...(command.protein != null ? { protein: command.protein } : {}),
+        ...(command.carbs != null ? { carbs: command.carbs } : {}),
+        ...(command.fat != null ? { fat: command.fat } : {}),
+        ...(command.fiber != null ? { fiber: command.fiber } : {}),
         createdAt: now,
         updatedAt: now,
       },

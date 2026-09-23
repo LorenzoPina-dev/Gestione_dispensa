@@ -21,6 +21,11 @@ export interface Principal {
   issuedAt: Date | undefined;
   roles: readonly string[];
   scopes: readonly string[];
+  email?: string;
+  name?: string;
+  givenName?: string;
+  familyName?: string;
+  preferredUsername?: string;
 }
 
 export class AuthenticationError extends Error {
@@ -112,6 +117,11 @@ function toPrincipal(payload: JWTPayload): Principal {
     issuedAt: typeof payload.iat === "number" ? new Date(payload.iat * 1000) : undefined,
     roles: extractRoles(payload),
     scopes: typeof payload.scope === "string" ? payload.scope.split(" ").filter(Boolean) : [],
+    ...(typeof payload.email === "string" ? { email: payload.email } : {}),
+    ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+    ...(typeof payload.given_name === "string" ? { givenName: payload.given_name } : {}),
+    ...(typeof payload.family_name === "string" ? { familyName: payload.family_name } : {}),
+    ...(typeof payload.preferred_username === "string" ? { preferredUsername: payload.preferred_username } : {}),
   };
 }
 

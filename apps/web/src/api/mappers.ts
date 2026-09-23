@@ -13,14 +13,20 @@ const DEFAULT_UNIT_FALLBACK = "pz";
 export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
   return {
     id: dto.id,
-    name: `Prodotto ${dto.productId.slice(0, 8)}`,
-    batches: [{ quantity: dto.quantity }],
+    name: dto.productName || `Prodotto ${dto.productId.slice(0, 8)}`,
+    ...(dto.brand ? { brand: dto.brand } : {}),
+    batches: dto.batches?.length ? dto.batches : [{ quantity: dto.quantity }],
     unit: dto.unit || DEFAULT_UNIT_FALLBACK,
     ...(dto.reorderPoint != null ? { reorderPoint: dto.reorderPoint } : {}),
-    location: "dispensa",
-    category: "Generale",
-    provenance: "UNKNOWN",
+    location: mapLocation(dto.location),
+    category: dto.category || "Generale",
+    provenance: dto.provenance || "UNKNOWN",
     version: dto.version,
+    ...(dto.calories != null ? { calories: dto.calories } : {}),
+    ...(dto.protein != null ? { protein: dto.protein } : {}),
+    ...(dto.carbs != null ? { carbs: dto.carbs } : {}),
+    ...(dto.fat != null ? { fat: dto.fat } : {}),
+    ...(dto.fiber != null ? { fiber: dto.fiber } : {}),
   };
 }
 
@@ -47,4 +53,12 @@ export function mapActiveShoppingListDtoToUi(dto: ActiveShoppingListDto): Shoppi
     version: dto.list.version,
     items: dto.items.map(mapShoppingItemDtoToUi),
   };
+}
+
+function mapLocation(value?: string): StockItem["location"] {
+  const v = (value || "").toUpperCase();
+  if (v === "FRIDGE" || v === "FRIGO") return "frigo";
+  if (v === "FREEZER") return "freezer";
+  if (v === "PANTRY" || v === "DISPENSA") return "dispensa";
+  return "altro";
 }

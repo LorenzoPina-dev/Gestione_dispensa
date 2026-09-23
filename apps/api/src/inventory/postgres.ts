@@ -34,6 +34,17 @@ interface StockRow {
   reorder_point: string | number | null;
   version: number;
   status: "ACTIVE";
+  product_name?: string | null;
+  brand?: string | null;
+  category?: string | null;
+  provenance_quality?: StockItem["provenance"];
+  calories_per_100?: string | number | null;
+  protein_per_100?: string | number | null;
+  carbs_per_100?: string | number | null;
+  fat_per_100?: string | number | null;
+  fiber_per_100?: string | number | null;
+  location_name?: string | null;
+  batches?: unknown;
 }
 
 export class PostgresInventoryRepository implements InventoryRepository {
@@ -44,7 +55,7 @@ export class PostgresInventoryRepository implements InventoryRepository {
   }
 
   public async getById(stockItemId: string): Promise<StockItem | undefined> {
-    const tx=await this.database.transaction(); try { const r=await tx.query<StockRow>(`SELECT id, family_id, product_id, current_quantity, unit, reorder_point, version, status FROM stock_items WHERE id=$1 AND status='ACTIVE'`,[stockItemId]); await tx.commit(); const row=r.rows[0]; return row===undefined?undefined:mapStock(row); } catch(e){await tx.rollback();throw e;}
+    const tx=await this.database.transaction(); try { const r=await tx.query<StockRow>(`SELECT s.id, s.family_id, s.product_id, s.current_quantity, s.unit, s.reorder_point, s.version, s.status, p.canonical_name AS product_name, b.name AS brand, p.category, p.provenance_quality, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, l.name AS location_name, (SELECT jsonb_agg(jsonb_build_object('quantity', sl.quantity_snapshot, 'expiryDate', sl.expires_at) ORDER BY sl.expires_at NULLS LAST) FROM stock_lots sl WHERE sl.stock_item_id = s.id) AS batches FROM stock_items s JOIN products p ON p.id=s.product_id LEFT JOIN brands b ON b.id=p.brand_id LEFT JOIN locations l ON l.id=s.location_id WHERE s.id=$1 AND s.status='ACTIVE'`,[stockItemId]); await tx.commit(); const row=r.rows[0]; return row===undefined?undefined:mapStock(row); } catch(e){await tx.rollback();throw e;}
   }
 
   public async listMovements(stockItemId: string, familyId: string): Promise<readonly Record<string, unknown>[]> {
@@ -56,21 +67,43 @@ export class PostgresInventoryRepository implements InventoryRepository {
   ): Promise<StockItem> {
     const transaction = await this.database.transaction();
     try {
+      let locationId = input.locationId ?? null;
+      if (!locationId && input.location) {
+        const normalizedLocation = input.location.toLowerCase() === "frigo" ? "FRIDGE"
+          : input.location.toLowerCase() === "freezer" ? "FREEZER"
+          : input.location.toLowerCase() === "dispensa" ? "PANTRY" : "OTHER";
+        const locationResult = await transaction.query<{ id: string }>(
+          `INSERT INTO locations (family_id, name, kind)
+           VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [input.familyId, input.location, normalizedLocation],
+        );
+        locationId = locationResult.rows[0]?.id ?? null;
+        if (!locationId) {
+          const existing = await transaction.query<{ id: string }>(
+            `SELECT id FROM locations WHERE family_id=$1 AND name=$2 AND status='ACTIVE' LIMIT 1`,
+            [input.familyId, input.location],
+          );
+          locationId = existing.rows[0]?.id ?? null;
+        }
+      }
       await transaction.query(
         `INSERT INTO stock_items
           (id, family_id, product_id, package_id, location_id, current_quantity, unit, reorder_point, status, version)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE', 1)`,
         [
-          input.id,
-          input.familyId,
-          input.productId,
-          input.packageId ?? null,
-          input.locationId ?? null,
-          input.quantity,
-          input.unit,
-          input.reorderPoint ?? null,
+          input.id, input.familyId, input.productId, input.packageId ?? null,
+          locationId, input.quantity, input.unit, input.reorderPoint ?? null,
         ],
       );
+      if (input.expiresAt) {
+        await transaction.query(
+          `INSERT INTO stock_lots (stock_item_id, received_at, expires_at, quantity_snapshot)
+           VALUES ($1, $2, $3, $4)`,
+          [input.id, new Date(), input.expiresAt, input.quantity],
+        );
+      }
       await transaction.commit();
       return {
         id: input.id,
@@ -155,6 +188,33 @@ export class PostgresInventoryRepository implements InventoryRepository {
       );
       const movementId = movement.rows[0]?.id;
       if (movementId === undefined) throw new Error("Movement insert returned no id.");
+
+      if (input.kind === "RECEIPT") {
+        await transaction.query(
+          `INSERT INTO stock_lots (stock_item_id, received_at, quantity_snapshot)
+           VALUES ($1, $2, $3)`,
+          [input.stockItemId, input.occurredAt, input.quantity],
+        );
+      } else if (input.kind === "CONSUMPTION" || input.kind === "WASTE") {
+        let remaining = input.quantity;
+        const lots = await transaction.query<{ id: string; quantity_snapshot: string | number }>(
+          `SELECT id, quantity_snapshot FROM stock_lots
+           WHERE stock_item_id=$1 AND quantity_snapshot > 0
+           ORDER BY expires_at NULLS LAST, received_at ASC, id
+           FOR UPDATE`,
+          [input.stockItemId],
+        );
+        for (const lot of lots.rows) {
+          if (remaining <= 0) break;
+          const available = numberValue(lot.quantity_snapshot);
+          const consumed = Math.min(available, remaining);
+          await transaction.query(
+            `UPDATE stock_lots SET quantity_snapshot = quantity_snapshot - $2 WHERE id=$1`,
+            [lot.id, consumed],
+          );
+          remaining -= consumed;
+        }
+      }
       await transaction.commit();
       return { stockItem: mapStock(updatedRow), movementId, duplicate: false };
     } catch (error) {
@@ -172,10 +232,30 @@ export class PostgresInventoryRepository implements InventoryRepository {
     const transaction = await this.database.transaction();
     try {
       const result = await transaction.query<StockRow>(
-        `SELECT id, family_id, product_id, current_quantity, unit, reorder_point, version, status
-         FROM stock_items
-         WHERE family_id = $1 AND status = 'ACTIVE'
-         ORDER BY updated_at DESC`,
+        `SELECT
+          s.id, s.family_id, s.product_id, s.current_quantity, s.unit,
+          s.reorder_point, s.version, s.status,
+          p.canonical_name AS product_name,
+          b.name AS brand,
+          p.category,
+          p.provenance_quality,
+          p.calories_per_100, p.protein_per_100, p.carbs_per_100,
+          p.fat_per_100, p.fiber_per_100,
+          l.name AS location_name,
+          (SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'quantity', sl.quantity_snapshot,
+                      'expiryDate', sl.expires_at
+                    ) ORDER BY sl.expires_at NULLS LAST
+                  )
+            FROM stock_lots sl
+            WHERE sl.stock_item_id = s.id) AS batches
+        FROM stock_items s
+        JOIN products p ON p.id = s.product_id
+        LEFT JOIN brands b ON b.id = p.brand_id
+        LEFT JOIN locations l ON l.id = s.location_id
+        WHERE s.family_id = $1 AND s.status = 'ACTIVE'
+        ORDER BY s.updated_at DESC`,
         [familyId],
       );
       await transaction.commit();
@@ -194,6 +274,14 @@ function movementDelta(input: RecordMovementCommand): number {
 }
 
 function mapStock(row: StockRow): StockItem {
+  const batches = Array.isArray(row.batches)
+    ? row.batches
+        .filter((value): value is { quantity?: unknown; expiryDate?: unknown } => typeof value === "object" && value !== null)
+        .map((value) => ({
+          quantity: numberValue(value.quantity ?? 0),
+          ...(typeof value.expiryDate === "string" ? { expiryDate: value.expiryDate } : {}),
+        }))
+    : undefined;
   return {
     id: row.id,
     familyId: row.family_id,
@@ -203,6 +291,17 @@ function mapStock(row: StockRow): StockItem {
     reorderPoint: row.reorder_point === null ? undefined : numberValue(row.reorder_point),
     version: row.version,
     status: row.status,
+    ...(row.product_name ? { productName: row.product_name } : {}),
+    ...(row.brand ? { brand: row.brand } : {}),
+    ...(row.category ? { category: row.category } : {}),
+    ...(row.provenance_quality ? { provenance: row.provenance_quality } : {}),
+    ...(row.calories_per_100 != null ? { calories: numberValue(row.calories_per_100) } : {}),
+    ...(row.protein_per_100 != null ? { protein: numberValue(row.protein_per_100) } : {}),
+    ...(row.carbs_per_100 != null ? { carbs: numberValue(row.carbs_per_100) } : {}),
+    ...(row.fat_per_100 != null ? { fat: numberValue(row.fat_per_100) } : {}),
+    ...(row.fiber_per_100 != null ? { fiber: numberValue(row.fiber_per_100) } : {}),
+    ...(row.location_name ? { location: row.location_name } : {}),
+    ...(batches && batches.length ? { batches } : {}),
   };
 }
 
