@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { ConsumedItem, StockItem, ConfidenceLabel } from "../types";
 import * as api from "../api/endpoints";
 import { colors, fonts } from "../tokens";
