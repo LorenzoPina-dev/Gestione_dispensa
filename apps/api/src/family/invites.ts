@@ -49,14 +49,21 @@ export interface JoinAttempt {
   state: JoinAttemptState;
   expiresAt: Date;
   traceId: string;
+  /** Populated only on `acceptAtomically`'s result — the family the user just joined. */
+  familyId?: string;
+  /** Populated only on `acceptAtomically`'s result — the role granted by the invite. */
+  role?: InviteRole;
 }
 
 export interface InviteRepository {
   createInvite(record: FamilyInviteRecord): Promise<void>;
   findByTokenHash(tokenHash: string): Promise<FamilyInviteRecord | undefined>;
+  /** Backs join-by-fallback-code (InviteService.resolveByFallbackCode). */
+  findByFallbackCodeHash(fallbackCodeHash: string): Promise<FamilyInviteRecord | undefined>;
   createJoinAttempt(attempt: JoinAttempt): Promise<void>;
   getJoinAttempt(id: string): Promise<JoinAttempt | undefined>;
   markExpired(inviteId: string, now: Date): Promise<void>;
+  listByFamily(familyId: string): Promise<FamilyInviteRecord[]>;
   revoke(inviteId: string, familyId: string, now: Date): Promise<boolean>;
   rejectAtomically(input: { attemptId: string; userId: string; now: Date }): Promise<JoinAttempt>;
   acceptAtomically(input: {
@@ -136,7 +143,32 @@ export class InviteService {
     browserBindingHash: string,
     traceId: string,
   ): Promise<JoinAttempt> {
-    const invite = await this.repository.findByTokenHash(hashSecret(token));
+    return this.resolveInternal(await this.repository.findByTokenHash(hashSecret(token)), browserBindingHash, traceId);
+  }
+
+  /**
+   * Same resolution flow as `resolve`, but looks the invite up by its human-readable fallback
+   * code (the 6-digit code shown alongside the QR in Famiglia.tsx) instead of the QR token.
+   * Backs `POST /api/v1/invites/resolve-code`, used by Onboarding's "unisciti con un invito"
+   * manual-code entry.
+   */
+  public async resolveByFallbackCode(
+    code: string,
+    browserBindingHash: string,
+    traceId: string,
+  ): Promise<JoinAttempt> {
+    return this.resolveInternal(
+      await this.repository.findByFallbackCodeHash(hashSecret(code)),
+      browserBindingHash,
+      traceId,
+    );
+  }
+
+  private async resolveInternal(
+    invite: FamilyInviteRecord | undefined,
+    browserBindingHash: string,
+    traceId: string,
+  ): Promise<JoinAttempt> {
     const now = this.clock.now();
     if (invite === undefined || invite.status !== "CREATED") throw new InviteUnavailableError();
     if (invite.expiresAt <= now) {
@@ -156,6 +188,10 @@ export class InviteService {
     return attempt;
   }
 
+  public async getJoinAttempt(attemptId: string): Promise<JoinAttempt | undefined> {
+    return this.repository.getJoinAttempt(attemptId);
+  }
+
   public async accept(
     attemptId: string,
     userId: string,
@@ -168,6 +204,10 @@ export class InviteService {
       now: this.clock.now(),
       consentVersion,
     });
+  }
+
+  public async list(familyId: string): Promise<FamilyInviteRecord[]> {
+    return this.repository.listByFamily(familyId);
   }
 
   public async revoke(familyId: string, inviteId: string): Promise<{ inviteId: string; status: "REVOKED" }> {

@@ -42,6 +42,8 @@ export interface CatalogUpdatedEvent {
 }
 
 export interface CatalogRepository {
+  listActive(): Promise<Product[]>;
+  getById(productId: string): Promise<Product | undefined>;
   createManualProductAtomic(input: {
     product: Product;
     provenance: ProductProvenance;
@@ -77,6 +79,13 @@ export class CatalogService {
     this.repository = repository;
     this.ids = ids;
     this.clock = clock;
+  }
+
+  public async listProducts(): Promise<Product[]> { return this.repository.listActive(); }
+
+  public async getProduct(productId: string): Promise<Product | undefined> {
+    if (!productId.trim()) throw new CatalogValidationError(["productId is required"]);
+    return this.repository.getById(productId);
   }
 
   public async createManualProduct(command: CreateManualProductCommand): Promise<Product> {

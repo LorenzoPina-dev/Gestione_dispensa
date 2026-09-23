@@ -68,6 +68,7 @@ export interface FamilyCreationResult {
 }
 
 export interface FamilyRepository {
+  getById(familyId: string): Promise<Family | undefined>;
   createFamilyAtomic(input: {
     family: Family;
     membership: FamilyMembership;
@@ -104,6 +105,11 @@ export class FamilyService {
     this.repository = repository;
     this.ids = ids;
     this.clock = clock;
+  }
+
+  public async getFamily(familyId: string): Promise<Family | undefined> {
+    if (!familyId.trim()) throw new FamilyValidationError(["familyId is required"]);
+    return this.repository.getById(familyId);
   }
 
   public async createFamily(command: CreateFamilyCommand): Promise<FamilyCreationResult> {

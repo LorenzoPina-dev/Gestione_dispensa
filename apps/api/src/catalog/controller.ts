@@ -4,6 +4,7 @@ import {
   CatalogValidationError,
   type CreateManualProductCommand,
   type IdentifierType,
+  type Product,
 } from "./service.js";
 import { CatalogWorkflowService } from "./workflow.js";
 
@@ -45,6 +46,16 @@ export class CatalogController {
   public constructor(catalog: CatalogService, workflow: CatalogWorkflowService) {
     this.catalog = catalog;
     this.workflow = workflow;
+  }
+
+  public async listProducts(meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<{ products: Product[] }>> {
+    return success({ products: await this.catalog.listProducts() }, meta);
+  }
+
+  public async getProduct(productId: string, meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<{ product: Product }>> {
+    const product = await this.catalog.getProduct(productId);
+    if (product === undefined) throw new CatalogHttpError(404, "NOT_FOUND_OR_NOT_VISIBLE", "Product is not visible.");
+    return success({ product }, meta);
   }
 
   public async createProduct(

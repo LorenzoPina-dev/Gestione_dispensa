@@ -6,14 +6,20 @@ import type {
   FamilyCreationResultDto,
   InventoryUnit,
   JoinAttemptDto,
+  ManagedMembershipDto,
+  MembershipRole,
   MovementKind,
   ProductDto,
   ProductUnit,
   ReadinessDto,
+  ShoppingItemDto,
+  ShoppingItemState,
   ShoppingSourceType,
   StockItemDto,
   RecordMovementResultDto,
   InviteRole,
+  UserFamilySummaryDto,
+  UserDto,
 } from "./types";
 
 // --- Platform ----------------------------------------------------------------
@@ -22,9 +28,43 @@ export function getReadiness(): Promise<ReadinessDto> {
   return apiRequest<ReadinessDto>("/health/ready");
 }
 
-// --- Family (POST /api/v1/families, /invites, /invites/resolve|accept) -------
-// There is no GET for families or members in the current backend — see
-// docs comment in config.ts. Only these write endpoints exist.
+// --- Auth / Identity ---------------------------------------------------------
+
+export function getCurrentUser(): Promise<UserDto> {
+  return apiRequest<UserDto>("/auth/me");
+}
+
+export function logoutSession(): Promise<void> {
+  return apiRequest<void>("/auth/logout", { method: "POST" });
+}
+
+export async function getFamily(): Promise<{ id: string; displayName: string } | null> {
+  const result = await listFamilies();
+  if (result.families && result.families.length > 0) {
+    return {
+      id: result.families[0].familyId,
+      displayName: result.families[0].displayName,
+    };
+  }
+  return null;
+}
+
+// Integrazione nella sezione Auth / Identity
+
+export interface RegisterPayload {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export function registerUser(payload: RegisterPayload): Promise<{ success: boolean; message: string }> {
+  return apiRequest<{ success: boolean; message: string }>("/auth/register", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+// --- Family ------------------------------------------------------------------
 
 export function createFamily(input: {
   displayName: string;
@@ -46,30 +86,60 @@ export function resolveInvite(
   token: string,
   browserBindingHash: string,
 ): Promise<JoinAttemptDto> {
-  return apiRequest("/invites/resolve", { method: "POST", body: { token, browserBindingHash } });
+  return apiRequest("/family-invites/resolve", { method: "POST", body: { token, browserBindingHash } });
+}
+
+export function resolveInviteByCode(
+  code: string,
+  browserBindingHash: string,
+): Promise<JoinAttemptDto> {
+  return apiRequest("/family-invites/resolve-code", { method: "POST", body: { code, browserBindingHash } });
 }
 
 export function acceptInvite(attemptId: string, consentVersion: string): Promise<JoinAttemptDto> {
   return apiRequest(`/invites/${attemptId}/accept`, { method: "POST", body: { consentVersion } });
 }
 
-// --- Catalog (POST /api/v1/catalog/products, GET /catalog/lookup) ------------
+export function listFamilies(): Promise<{ families: UserFamilySummaryDto[] }> {
+  return apiRequest("/families");
+}
+
+export function listFamilyMembers(familyId: string): Promise<{ memberships: ManagedMembershipDto[] }> {
+  return apiRequest(`/families/${familyId}/members`);
+}
+
+export function updateFamilyMembership(
+  familyId: string,
+  membershipId: string,
+  input: { role: MembershipRole | "ADMIN"; status: "ACTIVE" | "SUSPENDED" },
+): Promise<ManagedMembershipDto> {
+  return apiRequest(`/families/${familyId}/members/${membershipId}`, { method: "PATCH", body: input });
+}
+
+export function removeFamilyMembership(
+  familyId: string,
+  membershipId: string,
+): Promise<ManagedMembershipDto> {
+  return apiRequest(`/families/${familyId}/members/${membershipId}`, { method: "DELETE" });
+}
+
+// --- Catalog -----------------------------------------------------------------
 
 export function createProduct(input: {
   canonicalName: string;
   brand?: string | null;
   defaultUnit: ProductUnit;
 }): Promise<ProductDto> {
-  return apiRequest("/catalog/products", {
+  return apiRequest("/products", {
     method: "POST",
     body: { ...input, brand: input.brand ?? undefined },
   });
 }
 
-// --- Inventory (GET/POST /api/v1/inventory/stock-items, POST .../movements) --
+// --- Inventory ---------------------------------------------------------------
 
 export function listStockItems(familyId: string): Promise<{ items: StockItemDto[] }> {
-  return apiRequest("/inventory/stock-items", { query: { familyId } });
+  return apiRequest("/inventory/items", { query: { familyId } });
 }
 
 export function createStockItem(input: {
@@ -81,7 +151,7 @@ export function createStockItem(input: {
   unit: InventoryUnit;
   reorderPoint?: number;
 }): Promise<StockItemDto> {
-  return apiRequest("/inventory/stock-items", { method: "POST", body: input });
+  return apiRequest("/inventory/items", { method: "POST", body: input });
 }
 
 export function recordMovement(
@@ -95,17 +165,17 @@ export function recordMovement(
     occurredAt: string;
   },
 ): Promise<RecordMovementResultDto> {
-  return apiRequest(`/inventory/stock-items/${stockItemId}/movements`, {
+  return apiRequest(`/inventory/items/${stockItemId}/movements`, {
     method: "POST",
     ifMatch: version,
     body: { ...input, source: "web-app", clientOperationId: newIdempotencyKey() },
   });
 }
 
-// --- Shopping (GET .../lists/active, POST .../lists, POST .../lists/{id}/items) --
+// --- Shopping ----------------------------------------------------------------
 
 export function getActiveShoppingList(familyId: string): Promise<ActiveShoppingListDto> {
-  return apiRequest("/shopping/lists/active", { query: { familyId } });
+  return apiRequest("/shopping-lists/active", { query: { familyId } });
 }
 
 export function createShoppingList(familyId: string, name: string): Promise<{
@@ -116,7 +186,7 @@ export function createShoppingList(familyId: string, name: string): Promise<{
   status: "ACTIVE";
   version: number;
 }> {
-  return apiRequest("/shopping/lists", { method: "POST", body: { familyId, name } });
+  return apiRequest("/shopping-lists", { method: "POST", body: { familyId, name } });
 }
 
 export function addShoppingItem(
@@ -131,8 +201,34 @@ export function addShoppingItem(
     sourceRef?: string;
   },
 ): Promise<AddShoppingItemResultDto> {
-  return apiRequest(`/shopping/lists/${listId}/items`, {
+  return apiRequest(`/shopping-lists/${listId}/items`, {
     method: "POST",
     body: { familyId, ...input },
+  });
+}
+
+export function updateShoppingItemState(
+  familyId: string,
+  listId: string,
+  itemId: string,
+  version: number,
+  state: ShoppingItemState,
+): Promise<ShoppingItemDto> {
+  return apiRequest(`/shopping-lists/${listId}/items/${itemId}`, {
+    method: "PATCH",
+    ifMatch: version,
+    body: { familyId, state },
+  });
+}
+
+export function batchUpdateShoppingItems(
+  familyId: string,
+  listId: string,
+  itemIds: string[],
+  state: ShoppingItemState,
+): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> {
+  return apiRequest(`/shopping-lists/${listId}/batch-action`, {
+    method: "POST",
+    body: { familyId, itemIds, state },
   });
 }

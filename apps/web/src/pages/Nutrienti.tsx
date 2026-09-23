@@ -1,20 +1,17 @@
 import { useState, useMemo } from "react";
 import type { ConsumedItem, StockItem, ConfidenceLabel } from "../types";
 import { recentConsumed } from "../mockData";
+import { colors, fonts } from "../tokens";
+import { timeAgo } from "../utils/time";
+import { Input } from "../components/ui/Input";
+import SectionHeading from "../components/ui/SectionHeading";
+import { RowList, Row } from "../components/ui/ListRow";
 
-const confidenceStyle: Record<ConfidenceLabel, { label: string; color: string; bg: string }> = {
-  CONFIRMED: { label: "confermato", color: "#3d6641", bg: "#dceadd" },
-  ESTIMATED: { label: "stimato", color: "#92400e", bg: "#faecd4" },
-  UNKNOWN: { label: "non disponibile", color: "#6b5e4e", bg: "#ede6d6" },
+const CONFIDENCE_META: Record<ConfidenceLabel, { label: string; color: string; bg: string }> = {
+  CONFIRMED: { label: "confermato", color: colors.sageDark, bg: colors.sageLight },
+  ESTIMATED: { label: "stimato", color: colors.amberDark, bg: colors.amberLight },
+  UNKNOWN: { label: "non disponibile", color: colors.inkMuted, bg: colors.creamDark },
 };
-
-function timeLabel(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const hrs = Math.floor(diff / 3600000);
-  if (hrs < 1) return "meno di un'ora fa";
-  if (hrs < 24) return `${hrs}h fa`;
-  return `${Math.floor(hrs / 24)}g fa`;
-}
 
 interface Props {
   stock: StockItem[];
@@ -26,20 +23,24 @@ export default function Nutrienti({ stock }: Props) {
   const [scaleQty, setScaleQty] = useState(100);
   const [search, setSearch] = useState("");
 
-  const consumed: ConsumedItem[] = recentConsumed;
+  // Filter consumed by period
+  const consumed: ConsumedItem[] = useMemo(() => {
+    const cutoff = period === "oggi"
+      ? new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+      : new Date(Date.now() - 7 * 86400000).toISOString();
+    return recentConsumed.filter((c) => c.at >= cutoff);
+  }, [period]);
 
-  const totals = useMemo(() => {
-    return consumed.reduce(
-      (acc, c) => ({
-        calories: acc.calories + c.nutrients.calories,
-        protein: acc.protein + c.nutrients.protein,
-        carbs: acc.carbs + c.nutrients.carbs,
-        fat: acc.fat + c.nutrients.fat,
-        fiber: acc.fiber + c.nutrients.fiber,
-      }),
-      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
-    );
-  }, [consumed]);
+  const totals = useMemo(() => consumed.reduce(
+    (acc, c) => ({
+      calories: acc.calories + c.nutrients.calories,
+      protein: acc.protein + c.nutrients.protein,
+      carbs: acc.carbs + c.nutrients.carbs,
+      fat: acc.fat + c.nutrients.fat,
+      fiber: acc.fiber + c.nutrients.fiber,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
+  ), [consumed]);
 
   const filteredStock = useMemo(() => {
     if (!search) return [];
@@ -63,14 +64,15 @@ export default function Nutrienti({ stock }: Props) {
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-2xl font-light" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>Nutrienti</h2>
-        <div className="flex rounded-xl overflow-hidden" style={{ border: "1px solid #d8cfc0" }}>
+        <h2 className="text-2xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>Nutrienti</h2>
+        <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
           {(["oggi", "settimana"] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
               className="px-4 py-2 text-xs font-medium transition-all"
-              style={{ backgroundColor: period === p ? "#1a1510" : "#fff", color: period === p ? "#f5f0e8" : "#6b5e4e" }}
+              style={{ backgroundColor: period === p ? colors.ink : colors.white, color: period === p ? colors.cream : colors.inkMuted }}
+              aria-pressed={period === p}
             >
               {p === "oggi" ? "Oggi" : "Settimana"}
             </button>
@@ -81,35 +83,35 @@ export default function Nutrienti({ stock }: Props) {
       {/* Summary stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Calorie", value: Math.round(totals.calories), unit: "kcal", color: "#c4623a", bg: "#f0ddd5" },
-          { label: "Proteine", value: Math.round(totals.protein), unit: "g", color: "#5a7a5e", bg: "#dceadd" },
-          { label: "Carboidrati", value: Math.round(totals.carbs), unit: "g", color: "#d4943a", bg: "#faecd4" },
-          { label: "Grassi", value: Math.round(totals.fat), unit: "g", color: "#6b5e4e", bg: "#ede6d6" },
+          { label: "Calorie", value: Math.round(totals.calories), unit: "kcal", color: colors.terracotta, bg: colors.terracottaLight },
+          { label: "Proteine", value: Math.round(totals.protein), unit: "g", color: colors.sage, bg: colors.sageLight },
+          { label: "Carboidrati", value: Math.round(totals.carbs), unit: "g", color: colors.expiring, bg: colors.amberLight },
+          { label: "Grassi", value: Math.round(totals.fat), unit: "g", color: colors.inkMuted, bg: colors.creamDark },
         ].map((s) => (
           <div key={s.label} className="rounded-2xl p-5" style={{ backgroundColor: s.bg }}>
             <p className="text-xs font-medium" style={{ color: s.color }}>{s.label}</p>
-            <p className="text-3xl font-light mt-1" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>{s.value}</p>
-            <p className="text-[10px] mt-0.5" style={{ color: "#6b5e4e" }}>{s.unit} totali {period === "oggi" ? "oggi" : "questa settimana"}</p>
+            <p className="text-3xl font-light mt-1" style={{ fontFamily: fonts.display, color: colors.ink }}>{s.value}</p>
+            <p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>{s.unit} totali {period === "oggi" ? "oggi" : "questa settimana"}</p>
           </div>
         ))}
       </div>
 
       {/* Macro distribution */}
-      <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
-        <p className="text-xs font-semibold" style={{ color: "#6b5e4e" }}>Distribuzione macronutrienti</p>
+      <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+        <SectionHeading>Distribuzione macronutrienti</SectionHeading>
         {[
-          { label: "Proteine", value: totals.protein, kcal: totals.protein * 4, color: "#5a7a5e" },
-          { label: "Carboidrati", value: totals.carbs, kcal: totals.carbs * 4, color: "#d4943a" },
-          { label: "Grassi", value: totals.fat, kcal: totals.fat * 9, color: "#c4623a" },
+          { label: "Proteine", value: totals.protein, kcal: totals.protein * 4, color: colors.sage },
+          { label: "Carboidrati", value: totals.carbs, kcal: totals.carbs * 4, color: colors.expiring },
+          { label: "Grassi", value: totals.fat, kcal: totals.fat * 9, color: colors.terracotta },
         ].map((m) => {
           const pct = macroTotal > 0 ? Math.round((m.kcal / macroTotal) * 100) : 0;
           return (
             <div key={m.label} className="space-y-1">
               <div className="flex justify-between text-xs">
-                <span style={{ color: "#1a1510", fontWeight: 500 }}>{m.label}</span>
-                <span style={{ color: "#6b5e4e" }}>{Math.round(m.value)}g · {pct}%</span>
+                <span style={{ color: colors.ink, fontWeight: 500 }}>{m.label}</span>
+                <span style={{ color: colors.inkMuted }}>{Math.round(m.value)}g · {pct}%</span>
               </div>
-              <div className="h-2 rounded-full" style={{ backgroundColor: "#ede6d6" }}>
+              <div className="h-2 rounded-full" style={{ backgroundColor: colors.creamDark }}>
                 <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: m.color }} />
               </div>
             </div>
@@ -118,41 +120,39 @@ export default function Nutrienti({ stock }: Props) {
       </div>
 
       {/* Quantity scaler */}
-      <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
-        <p className="text-xs font-semibold" style={{ color: "#6b5e4e" }}>Calcolatore per quantità</p>
-        <input
+      <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+        <SectionHeading>Calcolatore per quantità</SectionHeading>
+        <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Cerca un prodotto in dispensa…"
-          className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
-          style={{ backgroundColor: "#f5f0e8", border: "1px solid #d8cfc0", color: "#1a1510", fontFamily: "var(--font-sans)" }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = "#c4623a")}
-          onBlur={(e) => (e.currentTarget.style.borderColor = "#d8cfc0")}
+          aria-label="Cerca prodotto"
         />
         {filteredStock.length > 0 && !scaleItem && (
-          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #d8cfc0" }}>
+          <RowList>
             {filteredStock.map((item, i) => (
-              <button
-                key={item.id}
-                onClick={() => { setScaleItem(item); setScaleQty(100); setSearch(""); }}
-                className="w-full flex items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-opacity-50"
-                style={{ backgroundColor: i % 2 === 0 ? "#fff" : "#faf7f2", borderBottom: i < filteredStock.length - 1 ? "1px solid #f0ebe0" : "none", color: "#1a1510" }}
-              >
-                {item.name}
-                <span style={{ color: "#6b5e4e", fontSize: "0.7rem" }}>{item.calories} kcal/100g</span>
-              </button>
+              <Row key={item.id} index={i} last={i === filteredStock.length - 1}>
+                <button
+                  onClick={() => { setScaleItem(item); setScaleQty(100); setSearch(""); }}
+                  className="flex-1 flex items-center justify-between text-left text-sm"
+                  style={{ color: colors.ink }}
+                >
+                  {item.name}
+                  <span style={{ color: colors.inkMuted, fontSize: "0.7rem" }}>{item.calories} kcal/100g</span>
+                </button>
+              </Row>
             ))}
-          </div>
+          </RowList>
         )}
         {scaleItem && scaledValues && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="font-medium text-sm" style={{ color: "#1a1510" }}>{scaleItem.name}</p>
-              <button onClick={() => { setScaleItem(null); setScaleQty(100); }} className="text-xs" style={{ color: "#6b5e4e" }}>Cambia</button>
+              <p className="font-medium text-sm" style={{ color: colors.ink }}>{scaleItem.name}</p>
+              <button onClick={() => { setScaleItem(null); setScaleQty(100); }} className="text-xs" style={{ color: colors.inkMuted }}>Cambia</button>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium flex justify-between" style={{ color: "#6b5e4e" }}>
-                Quantità <span style={{ color: "#1a1510" }}>{scaleQty} {scaleItem.unit}</span>
+              <label className="text-xs font-medium flex justify-between" style={{ color: colors.inkMuted }}>
+                Quantità <span style={{ color: colors.ink }}>{scaleQty} {scaleItem.unit}</span>
               </label>
               <input
                 type="range"
@@ -172,9 +172,9 @@ export default function Nutrienti({ stock }: Props) {
                 { label: "grassi", value: scaledValues.fat },
                 { label: "fibre", value: scaledValues.fiber },
               ].map((n) => (
-                <div key={n.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: "#f5f0e8" }}>
-                  <p className="text-base font-semibold" style={{ color: "#1a1510" }}>{n.value}</p>
-                  <p className="text-[9px] mt-0.5" style={{ color: "#6b5e4e" }}>{n.label}</p>
+                <div key={n.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: colors.cream }}>
+                  <p className="text-base font-semibold" style={{ color: colors.ink }}>{n.value}</p>
+                  <p className="text-[9px] mt-0.5" style={{ color: colors.inkMuted }}>{n.label}</p>
                 </div>
               ))}
             </div>
@@ -184,34 +184,36 @@ export default function Nutrienti({ stock }: Props) {
 
       {/* Recent consumption */}
       <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#6b5e4e" }}>Consumati di recente</p>
-        <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid #d8cfc0" }}>
-          {consumed.map((item, idx) => {
-            const cs = confidenceStyle[item.nutrients.confidence];
-            return (
-              <div
-                key={item.id}
-                className="flex items-center gap-4 px-4 py-3"
-                style={{ backgroundColor: idx % 2 === 0 ? "#fff" : "#faf7f2", borderBottom: idx < consumed.length - 1 ? "1px solid #f0ebe0" : "none" }}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium" style={{ color: "#1a1510" }}>{item.name}</p>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: cs.bg, color: cs.color }}>{cs.label}</span>
+        <SectionHeading>Consumati di recente</SectionHeading>
+        {consumed.length === 0 ? (
+          <div className="rounded-2xl p-6 text-center text-sm" style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}>
+            Nessun consumo registrato {period === "oggi" ? "oggi" : "questa settimana"}.
+          </div>
+        ) : (
+          <RowList>
+            {consumed.map((item, idx) => {
+              const cs = CONFIDENCE_META[item.nutrients.confidence];
+              return (
+                <Row key={item.id} index={idx} last={idx === consumed.length - 1}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium" style={{ color: colors.ink }}>{item.name}</p>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: cs.bg, color: cs.color }}>{cs.label}</span>
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: colors.inkMuted }}>
+                      {item.quantity} {item.unit} · {timeAgo(item.at)}
+                    </p>
                   </div>
-                  <p className="text-xs mt-0.5" style={{ color: "#6b5e4e" }}>
-                    {item.quantity} {item.unit} · {timeLabel(item.at)}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-sm font-semibold" style={{ color: "#c4623a" }}>{item.nutrients.calories}</p>
-                  <p className="text-[10px]" style={{ color: "#6b5e4e" }}>kcal</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="text-[10px] text-center" style={{ color: "#6b5e4e" }}>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-semibold" style={{ color: colors.terracotta }}>{item.nutrients.calories}</p>
+                    <p className="text-[10px]" style={{ color: colors.inkMuted }}>kcal</p>
+                  </div>
+                </Row>
+              );
+            })}
+          </RowList>
+        )}
+        <p className="text-[10px] text-center" style={{ color: colors.inkMuted }}>
           I valori nutrizionali sono indicativi e non costituiscono consulenza medica o dietetica.
         </p>
       </div>

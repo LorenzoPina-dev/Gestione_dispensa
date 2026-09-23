@@ -55,6 +55,21 @@ export class InventoryController {
     this.reader = reader;
   }
 
+  public async getStockItem(principal: Principal | undefined, stockItemId: string, meta: InventoryHttpMeta): Promise<InventoryHttpSuccess<{ item: StockItem }>> {
+    if (principal === undefined) throw new InventoryHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    const item = await this.inventory.getStockItem(stockItemId);
+    if (item === undefined) throw new InventoryHttpError(404, "NOT_FOUND_OR_NOT_VISIBLE", "Stock item is not visible.");
+    await this.assertRead(principal, item.familyId); return success({item}, meta);
+  }
+
+  public async listMovements(principal: Principal | undefined, stockItemId: string, meta: InventoryHttpMeta): Promise<InventoryHttpSuccess<{ movements: readonly Record<string, unknown>[] }>> {
+    if (principal === undefined) throw new InventoryHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    const item = await this.inventory.getStockItem(stockItemId);
+    if (item === undefined) throw new InventoryHttpError(404, "NOT_FOUND_OR_NOT_VISIBLE", "Stock item is not visible.");
+    await this.assertRead(principal, item.familyId);
+    return success({movements: await this.inventory.listMovements(stockItemId, item.familyId)}, meta);
+  }
+
   public async createStockItem(
     principal: Principal | undefined,
     command: Omit<CreateStockItemCommand, "actorId">,

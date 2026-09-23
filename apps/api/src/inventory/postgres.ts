@@ -43,6 +43,14 @@ export class PostgresInventoryRepository implements InventoryRepository {
     this.database = database;
   }
 
+  public async getById(stockItemId: string): Promise<StockItem | undefined> {
+    const tx=await this.database.transaction(); try { const r=await tx.query<StockRow>(`SELECT id, family_id, product_id, current_quantity, unit, reorder_point, version, status FROM stock_items WHERE id=$1 AND status='ACTIVE'`,[stockItemId]); await tx.commit(); const row=r.rows[0]; return row===undefined?undefined:mapStock(row); } catch(e){await tx.rollback();throw e;}
+  }
+
+  public async listMovements(stockItemId: string, familyId: string): Promise<readonly Record<string, unknown>[]> {
+    const tx=await this.database.transaction(); try { const r=await tx.query(`SELECT id, stock_item_id AS "stockItemId", kind, quantity, unit, source, actor_id AS "actorId", occurred_at AS "occurredAt", created_at AS "createdAt", metadata FROM stock_movements WHERE stock_item_id=$1 AND family_id=$2 ORDER BY occurred_at DESC, created_at DESC`,[stockItemId,familyId]); await tx.commit(); return r.rows; } catch(e){await tx.rollback();throw e;}
+  }
+
   public async createStockItemAtomic(
     input: CreateStockItemCommand & { id: string },
   ): Promise<StockItem> {

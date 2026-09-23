@@ -50,6 +50,22 @@ export class PostgresCatalogRepository implements CatalogRepository {
     this.database = database;
   }
 
+  public async listActive(): Promise<Product[]> {
+    const result = await this.database.transaction();
+    try {
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
+      await result.commit(); return rows.rows.map(mapProduct);
+    } catch (error) { await result.rollback(); throw error; }
+  }
+
+  public async getById(productId: string): Promise<Product | undefined> {
+    const result = await this.database.transaction();
+    try {
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.id = $1 AND p.status = 'ACTIVE'`, [productId]);
+      await result.commit(); const row=rows.rows[0]; return row===undefined ? undefined : mapProduct(row);
+    } catch (error) { await result.rollback(); throw error; }
+  }
+
   public async createManualProductAtomic(input: {
     product: Product;
     provenance: ProductProvenance;

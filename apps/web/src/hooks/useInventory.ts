@@ -3,8 +3,9 @@ import type { StockItem } from "../types";
 import { stockItems as mockStockItems } from "../mockData";
 import * as api from "../api/endpoints";
 import { ApiError, isBackendUnreachable } from "../api/client";
-import { FAMILY_ID } from "../api/config";
+import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
 import { mapStockItemDtoToUi } from "../api/mappers";
+import { reportSyncIssue } from "../lib/syncBus";
 import {
   beginInventoryAction,
   resolveInventoryResult,
@@ -38,30 +39,36 @@ export interface UseInventoryResult {
  *  - an item disappearing entirely ("waste" button) -> POST .../movements (WASTE) for the
  *    remaining quantity
  *
- * Requires `VITE_FAMILY_ID` to be set (see api/config.ts for why). Without it, or when the
- * backend is unreachable/errors, the hook falls back to the bundled demo dataset so the UI stays
- * fully interactive.
+ * @param familyId The signed-in user's family id (from `AuthUser.hasFamilyId`, set at login or
+ *   by Onboarding's real `POST /api/v1/families` call). Falls back to `VITE_FAMILY_ID` when not
+ *   provided, for local testing before a session exists. When neither is available, or the
+ *   backend is unreachable/errors, the hook falls back to the bundled demo dataset so the UI
+ *   stays fully interactive.
  */
-export function useInventory(): UseInventoryResult {
+export function useInventory(familyId?: string | null): UseInventoryResult {
+  const effectiveFamilyId = familyId ?? DEFAULT_FAMILY_ID ?? null;
   const [stock, setStockState] = useState<StockItem[]>(mockStockItems);
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [demoReason, setDemoReason] = useState<string | null>(null);
   const isDemoRef = useRef(isDemo);
   isDemoRef.current = isDemo;
+  const familyIdRef = useRef(effectiveFamilyId);
+  familyIdRef.current = effectiveFamilyId;
 
   useEffect(() => {
-    if (!FAMILY_ID) {
+    if (!effectiveFamilyId) {
       setStockState(mockStockItems);
       setIsDemo(true);
-      setDemoReason("VITE_FAMILY_ID non configurato");
+      setDemoReason("Nessuna famiglia attiva");
       setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
     (async () => {
       try {
-        const res = await api.listStockItems(FAMILY_ID);
+        const res = await api.listStockItems(effectiveFamilyId);
         if (cancelled) return;
         setStockState(res.items.map(mapStockItemDtoToUi));
         setIsDemo(false);
@@ -78,12 +85,12 @@ export function useInventory(): UseInventoryResult {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [effectiveFamilyId]);
 
   const setStock = useCallback<SetStock>((updater) => {
     setStockState((prev) => {
       const next = typeof updater === "function" ? (updater as (p: StockItem[]) => StockItem[])(prev) : updater;
-      if (!isDemoRef.current && FAMILY_ID) void syncInventoryDiff(FAMILY_ID, prev, next);
+      if (!isDemoRef.current && familyIdRef.current) void syncInventoryDiff(familyIdRef.current, prev, next);
       return next;
     });
   }, []);
@@ -98,14 +105,21 @@ async function syncInventoryDiff(familyId: string, prev: StockItem[], next: Stoc
   for (const item of next) {
     const before = prevById.get(item.id);
     if (before === undefined) {
-      await syncCreate(familyId, item).catch((err) => logSyncFailure("RECEIPT", err));
+      await syncCreate(familyId, item).catch((err) =>
+        reportIssue("Aggiunta prodotto non salvata sul server.", err, () => syncCreate(familyId, item)),
+      );
       continue;
     }
     const beforeQty = totalQuantity(before);
     const afterQty = totalQuantity(item);
     if (afterQty < beforeQty) {
-      await syncMovement(familyId, item.id, item.version, "CONSUMPTION", beforeQty - afterQty, item.unit).catch(
-        (err) => logSyncFailure("CONSUMPTION", err),
+      const delta = beforeQty - afterQty;
+      await syncMovement(familyId, item.id, item.version, "CONSUMPTION", delta, item.unit).catch((err) =>
+        reportIssue(
+          `Consumo di "${item.name}" non salvato sul server.`,
+          err,
+          () => syncMovement(familyId, item.id, item.version, "CONSUMPTION", delta, item.unit),
+        ),
       );
     }
   }
@@ -115,11 +129,26 @@ async function syncInventoryDiff(familyId: string, prev: StockItem[], next: Stoc
       const remaining = totalQuantity(item);
       if (remaining > 0) {
         await syncMovement(familyId, item.id, item.version, "WASTE", remaining, item.unit).catch((err) =>
-          logSyncFailure("WASTE", err),
+          reportIssue(
+            `Spreco di "${item.name}" non salvato sul server.`,
+            err,
+            () => syncMovement(familyId, item.id, item.version, "WASTE", remaining, item.unit),
+          ),
         );
       }
     }
   }
+}
+
+function reportIssue(message: string, err: unknown, retry: () => Promise<void>): void {
+  logSyncFailure(message, err);
+  const conflict = isConflict(err);
+  reportSyncIssue({
+    domain: "inventory",
+    message: conflict ? `${message} La dispensa è cambiata altrove: ricarica per vedere lo stato attuale.` : message,
+    retryable: !conflict,
+    retry,
+  });
 }
 
 async function syncCreate(familyId: string, item: StockItem): Promise<void> {

@@ -1,8 +1,11 @@
 import { useState, useRef } from "react";
 import type { AuthUser } from "../../store/auth";
+import type { Role } from "../../types";
 import { colors, fonts } from "../../tokens";
 import { Input } from "../../components/ui/Input";
 import * as api from "../../api/endpoints";
+import { getBrowserBindingHash } from "../../api/config";
+import { isBackendUnreachable } from "../../api/client";
 
 type Step =
   | "choose"          // create vs join
@@ -17,10 +20,9 @@ interface Props {
   onComplete: (user: AuthUser) => void;
 }
 
-// Simulated valid invite codes. The real backend only resolves invites by their secret QR token
-// (see apps/api/src/family/invites.ts — there is no "look up by fallback code" endpoint), so the
-// join-by-code flow below stays a local demo; only "create a family" is wired to the real
-// `POST /api/v1/families` endpoint.
+// Demo fallback codes, tried first so the always-available demo experience keeps working even
+// without a backend. Any other 6-digit code is resolved against the real
+// `POST /api/v1/invites/resolve-code` endpoint (apps/api/src/family/invites.ts).
 const VALID_CODES: Record<string, { familyName: string; role: string; expiresIn: string }> = {
   "847-291": { familyName: "Famiglia Ferretti", role: "Membro", expiresIn: "2 giorni" },
   "123-456": { familyName: "Famiglia Rossi", role: "Gestore", expiresIn: "12 ore" },
@@ -34,6 +36,8 @@ export default function Onboarding({ user, onComplete }: Props) {
   const [inviteDetails, setInviteDetails] = useState<(typeof VALID_CODES)[string] | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [backendNote, setBackendNote] = useState<string | null>(null);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [usingDemoInvite, setUsingDemoInvite] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [scanActive, setScanActive] = useState(false);
   const [scanError, setScanError] = useState("");
@@ -91,11 +95,34 @@ export default function Onboarding({ user, onComplete }: Props) {
   }
 
   function checkCode() {
-    const found = VALID_CODES[code.trim()];
-    if (!found) { setCodeError("Codice non trovato o scaduto. Riprova o chiedi un nuovo invito."); return; }
+    const trimmed = code.trim();
+    const demo = VALID_CODES[trimmed];
+    if (demo) {
+      setCodeError("");
+      setUsingDemoInvite(true);
+      setAttemptId(null);
+      setInviteDetails(demo);
+      setStep("join_review");
+      return;
+    }
     setCodeError("");
-    setInviteDetails(found);
-    setStep("join_review");
+    setSubmitting(true);
+    const digits = trimmed.replace(/[^0-9]/g, "");
+    api
+      .resolveInviteByCode(digits, getBrowserBindingHash())
+      .then((result) => {
+        setSubmitting(false);
+        setUsingDemoInvite(false);
+        setAttemptId(result.id);
+        // The resolve endpoint doesn't return the family name (no such lookup exists yet), so
+        // the review screen shows a generic label for real invites instead of a fabricated name.
+        setInviteDetails({ familyName: "la famiglia che ti ha invitato", role: "Membro", expiresIn: "pochi minuti" });
+        setStep("join_review");
+      })
+      .catch(() => {
+        setSubmitting(false);
+        setCodeError("Codice non trovato o scaduto. Riprova o chiedi un nuovo invito.");
+      });
   }
 
   async function startScan() {
@@ -109,6 +136,8 @@ export default function Onboarding({ user, onComplete }: Props) {
         stream.getTracks().forEach((t) => t.stop());
         setScanActive(false);
         const found = VALID_CODES["847-291"];
+        setUsingDemoInvite(true);
+        setAttemptId(null);
         setInviteDetails(found);
         setCode("847-291");
         setStep("join_review");
@@ -119,15 +148,44 @@ export default function Onboarding({ user, onComplete }: Props) {
     }
   }
 
+  /**
+   * Real invites (anything not one of the two demo codes) are accepted via the real
+   * `POST /api/v1/invites/{attemptId}/accept`. The accept response now includes the resulting
+   * `familyId` (apps/api/src/family/invites.ts `JoinAttempt.familyId`, added alongside this
+   * flow) so the app can actually use the family the user just joined. Demo codes keep the
+   * original mock timing/behaviour untouched.
+   */
   function acceptInvite() {
-    setSubmitting(true);
-    setTimeout(() => {
-      setSubmitting(false);
-      setStep("join_done");
+    if (usingDemoInvite || !attemptId) {
+      setSubmitting(true);
       setTimeout(() => {
-        onComplete({ ...user, hasFamilyId: "fam1", role: "MEMBER" });
-      }, 1200);
-    }, 900);
+        setSubmitting(false);
+        setStep("join_done");
+        setTimeout(() => {
+          onComplete({ ...user, hasFamilyId: "fam1", role: "MEMBER" });
+        }, 1200);
+      }, 900);
+      return;
+    }
+    setSubmitting(true);
+    api
+      .acceptInvite(attemptId, "privacy-consent-v1")
+      .then((result) => {
+        setSubmitting(false);
+        setStep("join_done");
+        const grantedRole: Role = result.role === "MANAGER" ? "MANAGER" : result.role === "VIEWER" ? "VIEWER" : "MEMBER";
+        setTimeout(() => {
+          onComplete({ ...user, hasFamilyId: result.familyId ?? "fam_joined_" + Date.now(), role: grantedRole });
+        }, 1200);
+      })
+      .catch((err) => {
+        setSubmitting(false);
+        setBackendNote(
+          isBackendUnreachable(err)
+            ? "Backend non raggiungibile: impossibile completare l'adesione in questo momento."
+            : "L'invito non è più valido. Chiedine uno nuovo.",
+        );
+      });
   }
 
   return (

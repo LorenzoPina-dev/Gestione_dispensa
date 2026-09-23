@@ -8,6 +8,11 @@ export type AuthorizationAction =
   | "inventory.write"
   | "shopping.read"
   | "shopping.write"
+  | "notifications.read"
+  | "notifications.write"
+  | "nutrition.read"
+  | "recipes.read"
+  | "recipes.write"
   | "owner"
   | "operator";
 
@@ -82,13 +87,26 @@ function normalizeRole(role: MembershipContext["role"]): MembershipRole {
 }
 
 function roleAllows(role: MembershipRole, action: AuthorizationAction): boolean {
-  if (action === "family.read" || action === "inventory.read" || action === "shopping.read") {
+  if (
+    action === "family.read" ||
+    action === "inventory.read" ||
+    action === "shopping.read" ||
+    action === "notifications.read" ||
+    action === "nutrition.read" ||
+    action === "recipes.read"
+  ) {
     return true;
   }
   if (action === "family.admin") {
     return role === "OWNER" || role === "MANAGER";
   }
-  if (action === "family.write" || action === "inventory.write" || action === "shopping.write") {
+  if (
+    action === "family.write" ||
+    action === "inventory.write" ||
+    action === "shopping.write" ||
+    action === "notifications.write" ||
+    action === "recipes.write"
+  ) {
     return role === "OWNER" || role === "MANAGER" || role === "MEMBER";
   }
   return false;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createApiServer, type ApiServerOptions } from "./http.js";
+import { buildApp, type ApiServerOptions } from "./http/app.js";           // ← era "./http.js"
 import { JsonLogSink, RuntimeObservability } from "@gestione-dispensa/observability";
 import { PostgresClient, resolveDatabaseUrl } from "./db/postgres-client.js";
 import { FamilyService } from "./family/service.js";
@@ -8,7 +8,10 @@ import {
   PostgresFamilyRepository,
   PostgresFamilyMembershipReader,
   PostgresInviteRepository,
+  PostgresMembershipRepository,
+  PostgresUserFamiliesReader,
 } from "./family/postgres.js";
+import { MembershipService } from "./family/membership.js";
 import { FamilyController } from "./family/controller.js";
 import { InventoryService } from "./inventory/service.js";
 import { PostgresInventoryRepository, PostgresInventoryReader } from "./inventory/postgres.js";
@@ -24,7 +27,30 @@ import { CatalogController } from "./catalog/controller.js";
 import { ShoppingService } from "./shopping/service.js";
 import { PostgresShoppingRepository } from "./shopping/postgres.js";
 import { ShoppingController } from "./shopping/controller.js";
+import { JobAdministrationService } from "./jobs/admin.js";
+import {
+  PostgresJobAdminRepository,
+  PostgresJobReplayPublisher,
+  PostgresSecurityAuditWriter,
+} from "./jobs/postgres.js";
+import { PrivacyErasureService } from "./privacy/erasure.js";
+import { PrivacyExportService } from "./privacy/export.js";
+import {
+  PostgresPrivacyErasureRepository,
+  PostgresPrivacyExportRepository,
+  PostgresExportArtifactStore,
+  PostgresPrivacyAuditWriter,
+} from "./privacy/postgres.js";
 import { OidcTokenVerifier } from "./identity/oidc.js";
+import { NotificationService } from "./notifications/service.js";
+import { NotificationController } from "./notifications/controller.js";
+import { PostgresNotificationRepository } from "./notifications/postgres.js";
+import { NutritionService } from "./nutrition/service.js";
+import { NutritionController } from "./nutrition/controller.js";
+import { PostgresNutritionReader } from "./nutrition/postgres.js";
+import { RecipeService } from "./recipes/service.js";
+import { RecipeController } from "./recipes/controller.js";
+import { PostgresRecipeRepository, PostgresRecipeStockReader } from "./recipes/postgres.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const version = process.env.APP_VERSION ?? "0.1.0-local";
@@ -34,6 +60,9 @@ const observability = new RuntimeObservability(
   new JsonLogSink({ write: (line) => process.stdout.write(line) }),
 );
 const startupLog = observability.logger({ requestId: "system", traceId: "startup" });
+
+const idGenerator = { next: () => randomUUID() };
+const clock = { now: () => new Date() };
 
 async function buildServerOptions(): Promise<ApiServerOptions> {
   const options: ApiServerOptions = {
@@ -59,25 +88,79 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
       const families = new FamilyService(new PostgresFamilyRepository(postgres), idGenerator, clock);
       const invites = new InviteService(new PostgresInviteRepository(postgres), idGenerator, clock);
       const memberships = new PostgresFamilyMembershipReader(postgres);
-      const controller = new FamilyController(families, invites, memberships);
-      options.family = { controller, verifier };
+      const membershipService = new MembershipService(new PostgresMembershipRepository(postgres));
+      const userFamilies = new PostgresUserFamiliesReader(postgres);
+      options.family = {
+        controller: new FamilyController(families, invites, memberships, membershipService, userFamilies),
+        verifier,
+      };
 
       const inventoryService = new InventoryService(new PostgresInventoryRepository(postgres), idGenerator);
       const inventoryReader = new PostgresInventoryReader(postgres);
-      const inventoryController = new InventoryController(inventoryService, memberships, inventoryReader);
-      options.inventory = { controller: inventoryController, verifier };
+      options.inventory = {
+        controller: new InventoryController(inventoryService, memberships, inventoryReader),
+        verifier,
+      };
 
       const catalogService = new CatalogService(new PostgresCatalogRepository(postgres), idGenerator, clock);
       const catalogWorkflow = new CatalogWorkflowService(
         new PostgresCatalogLookupRepository(postgres),
         new PostgresCatalogCandidateRepository(postgres),
       );
-      const catalogController = new CatalogController(catalogService, catalogWorkflow);
-      options.catalog = { controller: catalogController, verifier };
+      options.catalog = { controller: new CatalogController(catalogService, catalogWorkflow), verifier };
 
       const shoppingService = new ShoppingService(new PostgresShoppingRepository(postgres), idGenerator);
-      const shoppingController = new ShoppingController(shoppingService, memberships);
-      options.shopping = { controller: shoppingController, verifier };
+      options.shopping = { controller: new ShoppingController(shoppingService, memberships), verifier };
+
+      const notificationService = new NotificationService(
+        new PostgresNotificationRepository(postgres),
+        idGenerator,
+      );
+      options.notifications = {
+        controller: new NotificationController(notificationService, memberships),
+        verifier,
+      };
+
+      const nutritionService = new NutritionService(new PostgresNutritionReader(postgres));
+      options.nutrition = {
+        controller: new NutritionController(nutritionService, memberships),
+        verifier,
+      };
+
+      const recipeService = new RecipeService(
+        new PostgresRecipeRepository(postgres),
+        new PostgresRecipeStockReader(postgres),
+        shoppingService,
+        inventoryService,
+      );
+      options.recipes = { controller: new RecipeController(recipeService, memberships), verifier };
+
+      const jobAdminService = new JobAdministrationService(
+        new PostgresJobAdminRepository(postgres),
+        new PostgresJobReplayPublisher(postgres),
+        new PostgresSecurityAuditWriter(postgres),
+        idGenerator.next,
+        () => Date.now(),
+      );
+      options.jobs = { service: jobAdminService, verifier };
+
+      const privacyAudit = new PostgresPrivacyAuditWriter(postgres);
+      const erasureService = new PrivacyErasureService(
+        new PostgresPrivacyErasureRepository(postgres),
+        memberships,
+        { publish: async () => {} },
+        privacyAudit,
+        () => Date.now(),
+      );
+      const exportService = new PrivacyExportService(
+        new PostgresPrivacyExportRepository(postgres),
+        memberships,
+        { publish: async () => {} },
+        new PostgresExportArtifactStore(postgres),
+        privacyAudit,
+        () => Date.now(),
+      );
+      options.privacy = { erasure: erasureService, export: exportService, verifier };
     } catch (error) {
       startupLog.info("oidc_not_configured", {
         reason: error instanceof Error ? error.message : "unknown",
@@ -86,21 +169,20 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
   } else if (postgres !== undefined) {
     startupLog.info("family_routes_disabled", {
       reason:
-        "OIDC_ISSUER and OIDC_AUDIENCE must both be set to enable the family/inventory/catalog/shopping HTTP surface",
+        "OIDC_ISSUER and OIDC_AUDIENCE must both be set to enable the family/inventory/catalog/shopping/jobs/privacy HTTP surface",
     });
   }
 
   return options;
 }
 
-const idGenerator = { next: () => randomUUID() };
-const clock = { now: () => new Date() };
-
 buildServerOptions()
   .then((options) => {
-    const server = createApiServer(options);
-
-    server.listen(port, "0.0.0.0", () => {
+    // ─── QUI LA DIFFERENZA CHIAVE ─────────────────────────────────
+    // buildApp() restituisce un'istanza Express; .listen() restituisce
+    // comunque un http.Server, quindi shutdown/close restano identici.
+    const app = buildApp(options);
+    const server = app.listen(port, "0.0.0.0", () => {
       startupLog.info("api_started", {
         port,
         version,
@@ -109,6 +191,11 @@ buildServerOptions()
         inventoryRoutesEnabled: options.inventory !== undefined,
         catalogRoutesEnabled: options.catalog !== undefined,
         shoppingRoutesEnabled: options.shopping !== undefined,
+        notificationsRoutesEnabled: options.notifications !== undefined,
+        nutritionRoutesEnabled: options.nutrition !== undefined,
+        recipesRoutesEnabled: options.recipes !== undefined,
+        jobsRoutesEnabled: options.jobs !== undefined,
+        privacyRoutesEnabled: options.privacy !== undefined,
       });
     });
 

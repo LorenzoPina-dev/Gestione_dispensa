@@ -28,8 +28,8 @@ export interface ShoppingList {
   familyId: string;
   ownerUserId: string;
   name: string;
-  status: "ACTIVE";
-  version: 1;
+  status: "ACTIVE" | "ARCHIVED";
+  version: number;
 }
 
 export interface ShoppingItem {
@@ -62,6 +62,21 @@ export interface ShoppingRepository {
    * `GET /api/v1/shopping/lists/active` (ShoppingController.getActiveList).
    */
   getActiveListByFamily(familyId: string): Promise<ActiveShoppingList | undefined>;
+  /**
+   * Optimistic-concurrency state transition (accept/snooze/ignore/complete) for a single item.
+   * Returns `undefined` when the item isn't visible for that family/list, and throws
+   * `ShoppingConflictError` when `expectedVersion` doesn't match the stored version. Backs
+   * `PATCH /api/v1/shopping/lists/{listId}/items/{itemId}`.
+   */
+  getListById(familyId: string, listId: string): Promise<ActiveShoppingList | undefined>;
+  archiveListAtomic(input: { familyId: string; listId: string; expectedVersion: number }): Promise<ShoppingList | undefined>;
+  updateItemStateAtomic(input: {
+    familyId: string;
+    listId: string;
+    itemId: string;
+    expectedVersion: number;
+    state: ShoppingItemState;
+  }): Promise<ShoppingItem | undefined>;
 }
 
 export interface ShoppingIdGenerator {
@@ -78,6 +93,32 @@ export class ShoppingValidationError extends Error {
     this.issues = issues;
   }
 }
+
+export class ShoppingConflictError extends Error {
+  public readonly code = "VERSION_CONFLICT";
+
+  public constructor(message: string) {
+    super(message);
+    this.name = "ShoppingConflictError";
+  }
+}
+
+export class ShoppingNotFoundError extends Error {
+  public readonly code = "NOT_FOUND_OR_NOT_VISIBLE";
+
+  public constructor(message = "Shopping item is not visible.") {
+    super(message);
+    this.name = "ShoppingNotFoundError";
+  }
+}
+
+const VALID_ITEM_STATES: readonly ShoppingItemState[] = [
+  "SUGGESTED",
+  "ACCEPTED",
+  "SNOOZED",
+  "IGNORED",
+  "COMPLETED",
+];
 
 export class ShoppingService {
   private readonly repository: ShoppingRepository;
@@ -125,5 +166,85 @@ export class ShoppingService {
   public async getActiveList(familyId: string): Promise<ActiveShoppingList | undefined> {
     if (!familyId.trim()) throw new ShoppingValidationError(["familyId is required"]);
     return this.repository.getActiveListByFamily(familyId);
+  }
+
+  public async getList(familyId: string, listId: string): Promise<ActiveShoppingList> {
+    if (!familyId.trim() || !listId.trim()) throw new ShoppingValidationError(["familyId and listId are required"]);
+    const result = await this.repository.getListById(familyId, listId);
+    if (result === undefined) throw new ShoppingNotFoundError("Shopping list is not visible.");
+    return result;
+  }
+
+  public async archiveList(command: { familyId: string; listId: string; expectedVersion: number }): Promise<ShoppingList> {
+    if (!command.familyId.trim() || !command.listId.trim() || !Number.isInteger(command.expectedVersion) || command.expectedVersion < 1)
+      throw new ShoppingValidationError(["familyId, listId and expectedVersion are required"]);
+    const result = await this.repository.archiveListAtomic(command);
+    if (result === undefined) throw new ShoppingNotFoundError("Shopping list is not visible.");
+    return result;
+  }
+
+  public async updateItemState(command: {
+    familyId: string;
+    listId: string;
+    itemId: string;
+    expectedVersion: number;
+    state: ShoppingItemState;
+  }): Promise<ShoppingItem> {
+    const issues: string[] = [];
+    if (!command.familyId.trim() || !command.listId.trim() || !command.itemId.trim())
+      issues.push("familyId, listId and itemId are required");
+    if (!Number.isInteger(command.expectedVersion) || command.expectedVersion < 1)
+      issues.push("expectedVersion is invalid");
+    if (!VALID_ITEM_STATES.includes(command.state)) issues.push("state is invalid");
+    if (issues.length > 0) throw new ShoppingValidationError(issues);
+
+    const updated = await this.repository.updateItemStateAtomic(command);
+    if (updated === undefined) throw new ShoppingNotFoundError();
+    return updated;
+  }
+
+  /**
+   * Applies the same state transition to several items at once (Spesa.tsx's "accetta
+   * selezionati"). Best-effort per item: a single stale/missing item doesn't fail the whole
+   * batch, it's reported in `failedItemIds` instead — see docs on the ACTION_STATES vocabulary
+   * used by the domain journeys in apps/web/src/domain/shopping-workflow.ts.
+   */
+  public async batchUpdateItemState(command: {
+    familyId: string;
+    listId: string;
+    itemIds: readonly string[];
+    state: ShoppingItemState;
+  }): Promise<{ updated: ShoppingItem[]; failedItemIds: string[] }> {
+    if (!command.familyId.trim() || !command.listId.trim())
+      throw new ShoppingValidationError(["familyId and listId are required"]);
+    if (command.itemIds.length === 0)
+      throw new ShoppingValidationError(["itemIds must contain at least one id"]);
+    if (!VALID_ITEM_STATES.includes(command.state))
+      throw new ShoppingValidationError(["state is invalid"]);
+
+    const updated: ShoppingItem[] = [];
+    const failedItemIds: string[] = [];
+    for (const itemId of command.itemIds) {
+      try {
+        const current = await this.repository.getActiveListByFamily(command.familyId);
+        const existing = current?.items.find((item) => item.id === itemId);
+        if (existing === undefined) {
+          failedItemIds.push(itemId);
+          continue;
+        }
+        const result = await this.repository.updateItemStateAtomic({
+          familyId: command.familyId,
+          listId: command.listId,
+          itemId,
+          expectedVersion: existing.version,
+          state: command.state,
+        });
+        if (result === undefined) failedItemIds.push(itemId);
+        else updated.push(result);
+      } catch {
+        failedItemIds.push(itemId);
+      }
+    }
+    return { updated, failedItemIds };
   }
 }

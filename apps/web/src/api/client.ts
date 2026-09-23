@@ -74,8 +74,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (ifMatch !== undefined) headers["If-Match"] = String(ifMatch);
-  if (DEV_BEARER_TOKEN) headers.Authorization = `Bearer ${DEV_BEARER_TOKEN}`;
-
+  const token = localStorage.getItem('auth_token') || DEV_BEARER_TOKEN;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   const combinedSignal = signal ? anySignal([signal, controller.signal]) : controller.signal;
@@ -96,6 +98,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   if (response.status === 204) return undefined as T;
 
+  if (response.status === 401) {
+    // Rimuove token scaduto/non valido per forzare re-autenticazione
+    localStorage.removeItem("auth_token");
+  }
+  
   let payload: unknown;
   try {
     payload = await response.json();
@@ -132,3 +139,4 @@ export function isBackendUnreachable(error: unknown): boolean {
 export function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.code === "NOT_FOUND_OR_NOT_VISIBLE";
 }
+

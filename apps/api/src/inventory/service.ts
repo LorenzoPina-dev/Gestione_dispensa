@@ -47,6 +47,8 @@ export interface InventoryRepository {
    * `GET /api/v1/inventory/stock-items` HTTP surface (InventoryController.listStockItems).
    */
   listByFamily(familyId: string): Promise<StockItem[]>;
+  getById(stockItemId: string): Promise<StockItem | undefined>;
+  listMovements(stockItemId: string, familyId: string): Promise<readonly Record<string, unknown>[]>;
 }
 
 export interface InventoryIdGenerator {
@@ -95,6 +97,10 @@ export class InventoryService {
     if (issues.length > 0) throw new InventoryValidationError(issues);
     return this.repository.recordMovementAtomic(command);
   }
+
+  public async getStockItem(stockItemId: string): Promise<StockItem | undefined> { return this.repository.getById(stockItemId); }
+
+  public async listMovements(stockItemId: string, familyId: string): Promise<readonly Record<string, unknown>[]> { return this.repository.listMovements(stockItemId, familyId); }
 
   public async listStockItems(familyId: string): Promise<StockItem[]> {
     if (!familyId.trim()) throw new InventoryValidationError(["familyId is required"]);

@@ -1,11 +1,15 @@
 import { authorize, type MembershipContext } from "../identity/authorization.js";
 import type { Principal } from "../identity/oidc.js";
 import {
+  ShoppingConflictError,
+  ShoppingNotFoundError,
   ShoppingService,
   ShoppingValidationError,
   type ActiveShoppingList,
   type AddShoppingItemCommand,
   type CreateShoppingListCommand,
+  type ShoppingItem,
+  type ShoppingItemState,
 } from "./service.js";
 
 export interface ShoppingMembershipReader {
@@ -56,6 +60,18 @@ export class ShoppingController {
     return success(list, meta);
   }
 
+  public async getList(principal: Principal | undefined, familyId: string, listId: string, meta: ShoppingHttpMeta): Promise<ShoppingHttpSuccess<ActiveShoppingList>> {
+    if (principal === undefined) throw new ShoppingHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertRead(principal, familyId);
+    try { return success(await this.shopping.getList(familyId, listId), meta); } catch (error) { throw toShoppingItemError(error); }
+  }
+
+  public async archiveList(principal: Principal | undefined, familyId: string, listId: string, expectedVersion: number, meta: ShoppingHttpMeta): Promise<ShoppingHttpSuccess<unknown>> {
+    if (principal === undefined) throw new ShoppingHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertWrite(principal, familyId);
+    try { return success(await this.shopping.archiveList({ familyId, listId, expectedVersion }), meta); } catch (error) { throw toShoppingItemError(error); }
+  }
+
   public async addItem(
     principal: Principal | undefined,
     command: AddShoppingItemCommand,
@@ -84,6 +100,49 @@ export class ShoppingController {
     if (active === undefined)
       throw new ShoppingHttpError(404, "NOT_FOUND_OR_NOT_VISIBLE", "No active shopping list.");
     return success(active, meta);
+  }
+
+  /** Backs `PATCH /api/v1/shopping/lists/{listId}/items/{itemId}`. Requires `If-Match: <version>`. */
+  public async updateItemState(
+    principal: Principal | undefined,
+    familyId: string,
+    listId: string,
+    itemId: string,
+    expectedVersion: number,
+    state: ShoppingItemState,
+    meta: ShoppingHttpMeta,
+  ): Promise<ShoppingHttpSuccess<ShoppingItem>> {
+    if (principal === undefined)
+      throw new ShoppingHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertWrite(principal, familyId);
+    try {
+      const item = await this.shopping.updateItemState({
+        familyId,
+        listId,
+        itemId,
+        expectedVersion,
+        state,
+      });
+      return success(item, meta);
+    } catch (error) {
+      throw toShoppingItemError(error);
+    }
+  }
+
+  /** Backs `POST /api/v1/shopping/lists/{listId}/batch-action`. Best-effort per item. */
+  public async batchUpdateItemState(
+    principal: Principal | undefined,
+    familyId: string,
+    listId: string,
+    itemIds: readonly string[],
+    state: ShoppingItemState,
+    meta: ShoppingHttpMeta,
+  ): Promise<ShoppingHttpSuccess<{ updated: ShoppingItem[]; failedItemIds: string[] }>> {
+    if (principal === undefined)
+      throw new ShoppingHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertWrite(principal, familyId);
+    const result = await this.shopping.batchUpdateItemState({ familyId, listId, itemIds, state });
+    return success(result, meta);
   }
 
   private async assertWrite(principal: Principal, familyId: string): Promise<void> {
@@ -123,6 +182,15 @@ export class ShoppingController {
         "Shopping read is forbidden.",
       );
   }
+}
+
+function toShoppingItemError(error: unknown): ShoppingHttpError {
+  if (error instanceof ShoppingNotFoundError) return new ShoppingHttpError(404, error.code, error.message);
+  if (error instanceof ShoppingConflictError) return new ShoppingHttpError(409, error.code, error.message);
+  if (error instanceof ShoppingValidationError)
+    return new ShoppingHttpError(422, error.code, "Shopping input is invalid.");
+  if (error instanceof ShoppingHttpError) return error;
+  return new ShoppingHttpError(500, "INTERNAL_ERROR", "The request could not be completed.");
 }
 
 export function toShoppingHttpError(

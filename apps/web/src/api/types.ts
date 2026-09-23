@@ -29,6 +29,19 @@ export interface Envelope<T> {
   meta: Meta;
 }
 
+// --- Auth & Identity --------------------------------------------------------
+
+export interface UserDto {
+  id: string;
+  email?: string;
+  name?: string;
+  givenName?: string;
+  familyName?: string;
+  preferredUsername?: string;
+  roles?: string[];
+  activeFamilyId?: string;
+}
+
 // --- Family (apps/api/src/family/service.ts, invites.ts) --------------------
 
 export type FamilyUnitSystem = "METRIC" | "IMPERIAL";
@@ -78,6 +91,27 @@ export interface JoinAttemptDto {
   userId?: string;
   state: "PENDING_AUTHENTICATION" | "PENDING_REVIEW" | "ACCEPTED" | "REJECTED" | "EXPIRED";
   expiresAt: string;
+  /** Only present once the invite has been accepted. */
+  familyId?: string;
+  role?: InviteRole;
+}
+
+export interface UserFamilySummaryDto {
+  familyId: string;
+  displayName: string;
+  role: string;
+}
+
+export type MembershipRole = "OWNER" | "MANAGER" | "MEMBER" | "VIEWER";
+export type MembershipStatus = "ACTIVE" | "SUSPENDED" | "REMOVED" | "PENDING";
+
+export interface ManagedMembershipDto {
+  id: string;
+  familyId: string;
+  userId: string;
+  role: MembershipRole;
+  status: MembershipStatus;
+  version: number;
 }
 
 // --- Catalog (apps/api/src/catalog/service.ts) -------------------------------

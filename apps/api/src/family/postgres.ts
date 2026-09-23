@@ -36,6 +36,23 @@ export class PostgresFamilyRepository implements FamilyRepository {
     this.database = database;
   }
 
+  public async getById(familyId: string): Promise<Family | undefined> {
+    const result = await this.database.transaction();
+    try {
+      const rows = await result.query<{ id: string; display_name: string; creator_user_id: string; locale: string; timezone: string; unit_system: Family["unitSystem"]; status: Family["status"]; version: number; created_at: string; updated_at: string }>(
+        `SELECT id, display_name, creator_user_id, locale, timezone, unit_system, status, version, created_at, updated_at FROM families WHERE id = $1`,
+        [familyId],
+      );
+      await result.commit();
+      const row = rows.rows[0];
+      return row === undefined ? undefined : {
+        id: row.id, displayName: row.display_name, creatorUserId: row.creator_user_id, locale: row.locale,
+        timezone: row.timezone, unitSystem: row.unit_system, status: row.status, version: row.version,
+        createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+      };
+    } catch (error) { await result.rollback(); throw error; }
+  }
+
   public async createFamilyAtomic(input: {
     family: Family;
     membership: FamilyMembership;
@@ -135,6 +152,8 @@ interface JoinAttemptRow {
   expires_at: string;
   completed_at?: string | null;
   trace_id: string;
+  family_id?: string;
+  role?: FamilyInviteRecord["role"];
 }
 
 export class PostgresInviteRepository implements InviteRepository {
@@ -182,6 +201,17 @@ export class PostgresInviteRepository implements InviteRepository {
     return result.rows[0] === undefined ? undefined : toInvite(result.rows[0]);
   }
 
+  public async findByFallbackCodeHash(fallbackCodeHash: string): Promise<FamilyInviteRecord | undefined> {
+    const result = await this.query<InviteRow>(
+      `SELECT id, family_id, created_by, role, encode(token_hash, 'hex') AS token_hash,
+        encode(fallback_code_hash, 'hex') AS fallback_code_hash, status, expires_at, consumed_at,
+        revoked_at, created_at
+       FROM family_invites WHERE fallback_code_hash = decode($1, 'hex')`,
+      [fallbackCodeHash],
+    );
+    return result.rows[0] === undefined ? undefined : toInvite(result.rows[0]);
+  }
+
   public async createJoinAttempt(attempt: JoinAttempt): Promise<void> {
     await this.query(
       `INSERT INTO family_join_attempts
@@ -215,6 +245,15 @@ export class PostgresInviteRepository implements InviteRepository {
        WHERE id = $1 AND status = 'CREATED' AND expires_at <= $2`,
       [inviteId, now],
     );
+  }
+
+  public async listByFamily(familyId: string): Promise<FamilyInviteRecord[]> {
+    const result = await this.query<InviteRow>(
+      `SELECT id, family_id, created_by, role, encode(token_hash, 'hex') AS token_hash,
+        encode(fallback_code_hash, 'hex') AS fallback_code_hash, status, expires_at, consumed_at, revoked_at, created_at
+       FROM family_invites WHERE family_id = $1 ORDER BY created_at DESC`, [familyId],
+    );
+    return result.rows.map(toInvite);
   }
 
   public async revoke(inviteId: string, familyId: string, now: Date): Promise<boolean> {
@@ -300,6 +339,8 @@ export class PostgresInviteRepository implements InviteRepository {
         ...toJoinAttempt(current),
         userId: input.userId,
         state: "ACCEPTED",
+        ...(current.family_id !== undefined ? { familyId: current.family_id } : {}),
+        ...(current.role !== undefined ? { role: current.role } : {}),
       };
     } catch (error) {
       await transaction.rollback();
@@ -435,6 +476,49 @@ function toMembership(row: MembershipRow): ManagedMembership {
     status: row.status,
     version: row.version,
   };
+}
+
+/**
+ * Backs `GET /api/v1/families` (FamilyController.listFamilies) — the small set of families a
+ * user belongs to, with their role in each. Distinct from PostgresFamilyMembershipReader (a
+ * single-family authorization lookup) because this is a cross-family query with no prior use in
+ * this codebase.
+ */
+export class PostgresUserFamiliesReader {
+  private readonly database: SqlTransactionFactory;
+
+  public constructor(database: SqlTransactionFactory) {
+    this.database = database;
+  }
+
+  public async listFamiliesForUser(
+    userId: string,
+  ): Promise<readonly { familyId: string; displayName: string; role: string }[]> {
+    const transaction = await this.database.transaction();
+    try {
+      const result = await transaction.query<{
+        family_id: string;
+        display_name: string;
+        role: string;
+      }>(
+        `SELECT m.family_id, f.display_name, m.role
+         FROM family_memberships m
+         JOIN families f ON f.id = m.family_id
+         WHERE m.user_id = $1 AND m.status = 'ACTIVE' AND f.status = 'ACTIVE'
+         ORDER BY m.joined_at NULLS LAST, m.created_at`,
+        [userId],
+      );
+      await transaction.commit();
+      return result.rows.map((row) => ({
+        familyId: row.family_id,
+        displayName: row.display_name,
+        role: row.role,
+      }));
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
 }
 
 interface MembershipContextRow {

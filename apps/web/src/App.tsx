@@ -1,9 +1,21 @@
 import { useState, useEffect } from "react";
-import type { StockItem } from "./types";
+import type { AuthUser, AuthScreen } from "./store/auth";
+import type { ShoppingList, Role } from "./types";
+import { notifications as initialNotifications } from "./mockData";
+import { colors, fonts } from "./tokens";
+import { expiryDays } from "./utils/expiry";
+import { ROLE_LABELS } from "./utils/roles";
+import AvatarUI from "./components/ui/Avatar";
+import { ConfirmModal } from "./components/ui/Modal";
+import SyncIssuesBanner from "./components/SyncIssuesBanner";
 import { useInventory } from "./hooks/useInventory";
 import { useShoppingList } from "./hooks/useShoppingList";
-import { useNotifications } from "./hooks/useNotifications";
-import { useFamily } from "./hooks/useFamily";
+import { useFamilyMembers } from "./hooks/useFamily";
+
+import Login from "./pages/auth/Login";
+import Register from "./pages/auth/Register";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import Onboarding from "./pages/onboarding/Onboarding";
 import Oggi from "./pages/Oggi";
 import Dispensa from "./pages/Dispensa";
 import Spesa from "./pages/Spesa";
@@ -14,114 +26,219 @@ import Notifiche from "./pages/Notifiche";
 
 type Tab = "oggi" | "dispensa" | "spesa" | "ricette" | "nutrienti" | "famiglia" | "notifiche";
 
-const NAV = [
-  { key: "oggi" as Tab, label: "Oggi", icon: "🏠" },
-  { key: "dispensa" as Tab, label: "Dispensa", icon: "🏺" },
-  { key: "spesa" as Tab, label: "Spesa", icon: "🛒" },
-  { key: "ricette" as Tab, label: "Ricette", icon: "👨‍🍳" },
-  { key: "nutrienti" as Tab, label: "Nutrienti", icon: "📊" },
-  { key: "famiglia" as Tab, label: "Famiglia", icon: "👥" },
-  { key: "notifiche" as Tab, label: "Notifiche", icon: "🔔" },
-];
+const CAN_WRITE: Role[] = ["OWNER", "MANAGER", "MEMBER"];
+const CAN_MANAGE_FAMILY: Role[] = ["OWNER", "MANAGER"];
 
-function expiryDays(batches: StockItem["batches"]): number | null {
-  const dates = batches.map((b) => b.expiryDate).filter(Boolean) as string[];
-  if (!dates.length) return null;
-  return Math.ceil((Math.min(...dates.map((d) => new Date(d).getTime())) - Date.now()) / 86400000);
+/**
+ * Session persistence. The backend has no session/cookie concept for this mock login (see
+ * pages/auth/Login.tsx), so the app keeps the signed-in user in localStorage itself — enough to
+ * survive a page refresh. This is a client-only convenience, not a security mechanism: it holds
+ * no secrets, just the same non-sensitive profile fields the login screen already produces.
+ */
+const SESSION_STORAGE_KEY = "dispensa.session.user";
+
+function loadStoredUser(): AuthUser | null {
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AuthUser;
+    if (typeof parsed?.id === "string" && typeof parsed?.email === "string") return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function storeUser(user: AuthUser | null): void {
+  try {
+    if (user) window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+    else window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // Storage can fail (private browsing, quota) — session just won't survive a refresh.
+  }
 }
 
 export default function App() {
+  const [screen, setScreen] = useState<AuthScreen>("login");
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [tab, setTab] = useState<Tab>("oggi");
-  const [isOffline, setIsOffline] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
-  const inventory = useInventory();
-  const shopping = useShoppingList();
-  const { notifications, setNotifications, isDemo: notificationsDemo } = useNotifications();
-  const family = useFamily();
+  // Restore a previous session on first load.
+  useEffect(() => {
+    const stored = loadStoredUser();
+    if (stored) {
+      setCurrentUser(stored);
+      setScreen(stored.hasFamilyId ? "app" : "onboarding");
+    }
+    setSessionChecked(true);
+  }, []);
 
+  // Persist whenever the session changes.
+  useEffect(() => {
+    if (sessionChecked) storeUser(currentUser);
+  }, [currentUser, sessionChecked]);
+
+  // Real backend data (falls back to demo data automatically — see hooks/useInventory.ts and
+  // hooks/useShoppingList.ts for exactly what's wired to which endpoint and why).
+  const familyId = currentUser?.hasFamilyId ?? null;
+  const inventory = useInventory(familyId);
+  const shopping = useShoppingList(familyId);
+  const family = useFamilyMembers(familyId);
   const stock = inventory.stock;
   const setStock = inventory.setStock;
   const shoppingList = shopping.list;
   const setShoppingList = shopping.setList;
 
-  // Simulate offline detection
+  // Notifications have no backend endpoint at all yet (see hooks/useNotifications.ts) — they stay
+  // local state, same as the original Figma prototype.
+  const [notifications, setNotifications] = useState(initialNotifications);
+
+  const [isOffline, setIsOffline] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
     const onOffline = () => setIsOffline(true);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    return () => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    };
+    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
   }, []);
 
-  const expiredCount = stock.filter((s) => {
-    const d = expiryDays(s.batches);
-    return d !== null && d <= 0;
-  }).length;
-  const expiringCount = stock.filter((s) => {
-    const d = expiryDays(s.batches);
-    return d !== null && d > 0 && d <= 5;
-  }).length;
-  const unreadNotifs = notifications.filter((n) => !n.readAt).length;
+  function handleLogin(user: AuthUser) {
+    setCurrentUser(user);
+    if (user.hasFamilyId) { setScreen("app"); }
+    else { setScreen("onboarding"); }
+  }
 
+  function handleRegistered(user: AuthUser) {
+    setCurrentUser(user);
+    setScreen("onboarding");
+  }
+
+  function handleOnboardingComplete(user: AuthUser) {
+    setCurrentUser(user);
+    setScreen("app");
+  }
+
+  function handleLogout() {
+    setCurrentUser(null);
+    setScreen("login");
+    setTab("oggi");
+    setShowLogoutConfirm(false);
+  }
+
+  // Don't render the auth/app shell until we've checked for a persisted session, to avoid a
+  // flash of the login screen for a user who's actually already signed in.
+  if (!sessionChecked) return null;
+
+  // ── Auth screens ─────────────────────────────────────────────────────────────
+  if (screen === "login") return <Login onLogin={handleLogin} onRegister={() => setScreen("register")} onForgot={() => setScreen("forgot")} />;
+  if (screen === "register") return <Register onRegistered={handleRegistered} onLogin={() => setScreen("login")} />;
+  if (screen === "forgot") return <ForgotPassword onBack={() => setScreen("login")} />;
+  if (screen === "onboarding" && currentUser) return <Onboarding user={currentUser} onComplete={handleOnboardingComplete} />;
+
+  if (!currentUser) return null;
+
+  const role = currentUser.role;
+  const canWrite = CAN_WRITE.includes(role);
+  const canManage = CAN_MANAGE_FAMILY.includes(role);
+
+  const expiredCount = stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d <= 0; }).length;
+  const expiringCount = stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d > 0 && d <= 5; }).length;
+  const unreadNotifs = notifications.filter((n) => !n.readAt).length;
   const urgentBadge = expiredCount + expiringCount;
-  const currentUser = family.members.find((m) => m.id === family.currentUserId) ?? family.members[0];
-  const isAnyDemo = inventory.isDemo || shopping.isDemo || notificationsDemo || family.isDemo;
-  const isLoading = inventory.loading || shopping.loading || family.loading;
+  const isAnyDemo = inventory.isDemo || shopping.isDemo || family.isDemo;
+  const isLoadingBackend = inventory.loading || shopping.loading || family.loading;
+
+  const ALL_NAV: { key: Tab; label: string; icon: string; roles?: Role[] }[] = [
+    { key: "oggi", label: "Oggi", icon: "🏠" },
+    { key: "dispensa", label: "Dispensa", icon: "🏺" },
+    { key: "spesa", label: "Spesa", icon: "🛒" },
+    { key: "ricette", label: "Ricette", icon: "👨‍🍳" },
+    { key: "nutrienti", label: "Nutrienti", icon: "📊" },
+    { key: "famiglia", label: "Famiglia", icon: "👥" },
+    { key: "notifiche", label: "Notifiche", icon: "🔔" },
+  ];
+
+  // VIEWER sees only oggi, dispensa, ricette, nutrienti
+  const visibleNav = role === "VIEWER"
+    ? ALL_NAV.filter((n) => ["oggi", "dispensa", "ricette", "nutrienti", "notifiche"].includes(n.key))
+    : ALL_NAV;
+
+  // If current tab is hidden for this role, redirect to oggi
+  const currentTab = visibleNav.find((n) => n.key === tab) ? tab : "oggi";
+
+  function navBadge(key: Tab) {
+    if (key === "oggi" && urgentBadge > 0) return urgentBadge;
+    if (key === "notifiche" && unreadNotifs > 0) return unreadNotifs;
+    return 0;
+  }
 
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: "#f5f0e8", fontFamily: "var(--font-sans)" }}>
+    <div className="flex flex-col h-full" style={{ backgroundColor: colors.cream, fontFamily: "var(--font-sans)" }}>
       {/* Offline banner */}
       {isOffline && (
-        <div className="px-4 py-2 text-center text-xs font-medium" style={{ backgroundColor: "#faecd4", color: "#92400e" }}>
+        <div className="px-4 py-2 text-center text-xs font-medium" style={{ backgroundColor: colors.amberLight, color: colors.amberDark }}>
           Sei offline. Le modifiche verranno sincronizzate appena torni online.
         </div>
       )}
 
       {/* Backend connection banner */}
-      {!isOffline && !isLoading && isAnyDemo && (
+      {!isOffline && !isLoadingBackend && isAnyDemo && (
         <div
           className="px-4 py-2 text-center text-xs font-medium"
-          style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}
-          title="L'app tenta le chiamate reali definite in docs/openapi.yaml; finché il backend non risponde, mostra dati demo."
+          style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}
+          title={inventory.demoReason ?? shopping.demoReason ?? undefined}
         >
-          Modalità demo: backend non raggiungibile su {import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1"}. Dati di esempio in uso.
+          Modalità demo: alcune sezioni non sono collegate al backend reale ({inventory.demoReason ?? shopping.demoReason ?? "vedi hooks/*.ts"}). Dati di esempio in uso.
         </div>
       )}
 
+      {/* Role badge for non-owner */}
+      {role !== "OWNER" && role !== "MANAGER" && (
+        <div
+          className="px-4 py-2 text-center text-xs font-medium"
+          style={{ backgroundColor: role === "VIEWER" ? colors.creamDark : colors.sageLight, color: role === "VIEWER" ? colors.inkMuted : colors.sageDark }}
+        >
+          {role === "VIEWER" ? "Modalità sola lettura — sei un visualizzatore di questa famiglia" : "Stai visualizzando la dispensa di famiglia come Membro"}
+        </div>
+      )}
+
+      {/* Background sync failures (conflicts, offline retries) */}
+      <SyncIssuesBanner />
+
       <div className="flex flex-1 min-h-0">
-        {/* Desktop sidebar */}
+        {/* ── Desktop sidebar ────────────────────────────────────────────────── */}
         <nav
-          className="hidden sm:flex flex-col w-52 shrink-0 py-6 px-3"
-          style={{ backgroundColor: "#f5f0e8", borderRight: "1px solid #d8cfc0" }}
+          className="hidden sm:flex flex-col w-56 shrink-0 py-6 px-3"
+          style={{ backgroundColor: colors.cream, borderRight: `1px solid ${colors.border}` }}
         >
           {/* Logo */}
           <div className="px-3 mb-8">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <span className="text-2xl">🫙</span>
-              <span className="text-lg font-light" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>Dispensa</span>
+              <span className="text-xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>Dispensa</span>
             </div>
-            <p className="text-[10px] mt-0.5" style={{ color: "#6b5e4e" }}>{family.familyName}</p>
+            <p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>Famiglia Ferretti</p>
           </div>
 
-          {/* Nav items */}
-          <div className="flex-1 space-y-1">
-            {NAV.map((n) => {
-              const isActive = tab === n.key;
-              const badge = n.key === "oggi" && urgentBadge > 0 ? urgentBadge : n.key === "notifiche" && unreadNotifs > 0 ? unreadNotifs : 0;
+          {/* Nav */}
+          <div className="flex-1 space-y-0.5">
+            {visibleNav.map((n) => {
+              const isActive = currentTab === n.key;
+              const badge = navBadge(n.key);
               return (
                 <button
                   key={n.key}
                   onClick={() => setTab(n.key)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-all"
-                  style={{ backgroundColor: isActive ? "#ede6d6" : "transparent", color: isActive ? "#1a1510" : "#6b5e4e" }}
+                  style={{ backgroundColor: isActive ? colors.creamDark : "transparent", color: isActive ? colors.ink : colors.inkMuted }}
                 >
-                  <span className="text-base">{n.icon}</span>
+                  <span className="text-base leading-none">{n.icon}</span>
                   <span className="flex-1">{n.label}</span>
                   {badge > 0 && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[18px] text-center" style={{ backgroundColor: "#c4623a", color: "#fff" }}>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center" style={{ backgroundColor: colors.terracotta, color: colors.white }}>
                       {badge}
                     </span>
                   )}
@@ -130,63 +247,89 @@ export default function App() {
             })}
           </div>
 
-          {/* User */}
-          <div className="mt-4 px-3 pt-4" style={{ borderTop: "1px solid #d8cfc0" }}>
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold" style={{ backgroundColor: "#f0ddd5", color: "#c4623a" }}>
-                {currentUser?.avatar ?? "?"}
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium truncate" style={{ color: "#1a1510" }}>{currentUser?.name.split(" ")[0] ?? ""}</p>
-                <p className="text-[10px]" style={{ color: "#6b5e4e" }}>Proprietario</p>
+          {/* User + logout */}
+          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
+            <div className="flex items-center gap-2.5 px-3 py-2">
+              <AvatarUI initials={currentUser.avatar} size={8} />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold truncate" style={{ color: colors.ink }}>{currentUser.name}</p>
+                <p className="text-[10px]" style={{ color: colors.inkMuted }}>{ROLE_LABELS[role]}</p>
               </div>
             </div>
+            <button
+              onClick={() => setShowLogoutConfirm(true)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:opacity-80 mt-1"
+              style={{ color: colors.inkMuted }}
+            >
+              <span className="text-base">🚪</span>
+              <span className="text-xs font-medium">Esci</span>
+            </button>
           </div>
         </nav>
 
-        {/* Main content */}
+        {/* ── Main content ─────────────────────────────────────────────────── */}
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 py-6 pb-24 sm:pb-6">
-            {tab === "oggi" && <Oggi stock={stock} shopping={shoppingList} onNavigate={(t) => setTab(t as Tab)} />}
-            {tab === "dispensa" && <Dispensa stock={stock} setStock={setStock} />}
-            {tab === "spesa" && <Spesa list={shoppingList} setList={setShoppingList} />}
-            {tab === "ricette" && <Ricette stock={stock} setList={setShoppingList} />}
-            {tab === "nutrienti" && <Nutrienti stock={stock} />}
-            {tab === "famiglia" && (
+          {/* Mobile top bar */}
+          <div className="sm:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-30" style={{ backgroundColor: colors.cream, borderBottom: `1px solid ${colors.border}` }}>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🫙</span>
+              <span className="font-light text-base" style={{ fontFamily: fonts.display, color: colors.ink }}>Dispensa</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {unreadNotifs > 0 && (
+                <button onClick={() => setTab("notifiche")} className="relative">
+                  <span className="text-xl">🔔</span>
+                  <span className="absolute -top-1 -right-1 text-[9px] font-bold px-1 rounded-full" style={{ backgroundColor: colors.terracotta, color: colors.white }}>{unreadNotifs}</span>
+                </button>
+              )}
+              <button onClick={() => setShowLogoutConfirm(true)}>
+                <AvatarUI initials={currentUser.avatar} size={7} />
+              </button>
+            </div>
+          </div>
+
+          <div className="max-w-3xl mx-auto px-4 py-6 pb-28 sm:pb-8">
+            {currentTab === "oggi" && <Oggi stock={stock} shopping={shoppingList} currentUserName={currentUser.name} onNavigate={(t) => setTab(t as Tab)} />}
+            {currentTab === "dispensa" && <Dispensa stock={stock} setStock={canWrite ? setStock : () => {}} readOnly={!canWrite} />}
+            {currentTab === "spesa" && canWrite && <Spesa list={shoppingList} setList={setShoppingList} currentUserName={currentUser.name} />}
+            {currentTab === "spesa" && !canWrite && <ReadOnlySpesa list={shoppingList} />}
+            {currentTab === "ricette" && <Ricette stock={stock} setList={canWrite ? setShoppingList : () => {}} />}
+            {currentTab === "nutrienti" && <Nutrienti stock={stock} />}
+            {currentTab === "famiglia" && (
               <Famiglia
                 members={family.members}
-                currentUserId={family.currentUserId}
+                setMembers={family.setMembers}
+                currentUserId={currentUser.id}
+                canManage={canManage}
+                isOwner={role === "OWNER"}
                 onInviteCreated={family.syncInviteCreated}
               />
             )}
-            {tab === "notifiche" && <Notifiche notifications={notifications} setNotifications={setNotifications} />}
+            {currentTab === "notifiche" && <Notifiche notifications={notifications} setNotifications={setNotifications} />}
           </div>
         </main>
       </div>
 
-      {/* Mobile bottom nav */}
+      {/* ── Mobile bottom nav ──────────────────────────────────────────────── */}
       <nav
-        className="sm:hidden fixed bottom-0 left-0 right-0 flex items-center justify-around px-1 py-2"
-        style={{ backgroundColor: "#f5f0e8", borderTop: "1px solid #d8cfc0", zIndex: 40 }}
+        className="sm:hidden fixed bottom-0 left-0 right-0 flex items-center justify-around px-1 py-1.5"
+        style={{ backgroundColor: colors.cream, borderTop: `1px solid ${colors.border}`, zIndex: 40 }}
       >
-        {NAV.map((n) => {
-          const isActive = tab === n.key;
-          const badge = n.key === "oggi" && urgentBadge > 0 ? urgentBadge : n.key === "notifiche" && unreadNotifs > 0 ? unreadNotifs : 0;
+        {visibleNav.map((n) => {
+          const isActive = currentTab === n.key;
+          const badge = navBadge(n.key);
           return (
             <button
               key={n.key}
               onClick={() => setTab(n.key)}
-              className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-xl transition-all min-w-[44px] min-h-[44px] justify-center relative"
-              style={{ color: isActive ? "#c4623a" : "#6b5e4e" }}
+              className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all relative"
+              style={{ color: isActive ? colors.terracotta : colors.inkMuted, minWidth: "44px", minHeight: "44px", justifyContent: "center" }}
               aria-label={n.label}
             >
               <span className="text-lg leading-none">{n.icon}</span>
               <span className="text-[9px] font-medium">{n.label}</span>
               {badge > 0 && (
-                <span
-                  className="absolute top-0.5 right-0.5 text-[8px] font-bold px-1 py-0.5 rounded-full min-w-[14px] text-center leading-none"
-                  style={{ backgroundColor: "#c4623a", color: "#fff" }}
-                >
+                <span className="absolute top-0.5 right-0 text-[8px] font-bold px-1 py-0.5 rounded-full leading-none" style={{ backgroundColor: colors.terracotta, color: colors.white }}>
                   {badge}
                 </span>
               )}
@@ -194,6 +337,44 @@ export default function App() {
           );
         })}
       </nav>
+
+      {showLogoutConfirm && (
+        <ConfirmModal
+          title="Esci dall'account?"
+          message={`Stai per uscire come ${currentUser.name}. Dovrai accedere di nuovo.`}
+          confirmLabel="Esci"
+          destructive
+          onConfirm={handleLogout}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Read-only spesa for VIEWER ─────────────────────────────────────────────────
+function ReadOnlySpesa({ list }: { list: ShoppingList }) {
+  return (
+    <div className="space-y-5">
+      <h2 className="text-2xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>{list.name}</h2>
+      <div className="rounded-xl px-4 py-3 text-sm" style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}>
+        Sei un visualizzatore — puoi vedere la lista ma non modificarla.
+      </div>
+      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+        {list.items.filter((i) => i.state !== "IGNORED").map((item, idx, arr) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-3 px-4 py-3"
+            style={{ backgroundColor: idx % 2 === 0 ? colors.white : colors.creamMid, borderBottom: idx < arr.length - 1 ? `1px solid ${colors.borderLight}` : "none", opacity: item.state === "COMPLETED" ? 0.45 : 1 }}
+          >
+            <div className="w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center" style={{ borderColor: item.state === "COMPLETED" ? colors.sage : colors.border, backgroundColor: item.state === "COMPLETED" ? colors.sage : "transparent" }}>
+              {item.state === "COMPLETED" && <span className="text-white text-[8px]">✓</span>}
+            </div>
+            <span className="text-sm" style={{ color: colors.ink, textDecoration: item.state === "COMPLETED" ? "line-through" : "none" }}>{item.displayName}</span>
+            <span className="text-xs ml-auto" style={{ color: colors.inkMuted }}>{item.quantity} {item.unit}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
