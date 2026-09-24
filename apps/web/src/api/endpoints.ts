@@ -9,6 +9,7 @@ import type {
   ManagedMembershipDto,
   MembershipRole,
   MovementKind,
+  BarcodeResolutionDto,
   ProductDto,
   ProductUnit,
   ReadinessDto,
@@ -320,6 +321,9 @@ export function requestPasswordReset(email: string): Promise<{ accepted: boolean
   return apiRequest("/auth/reset-password", { method: "POST", body: { email } });
 }
 
-export function resolveProductBarcode(identifierType: "EAN8"|"EAN13"|"GTIN12"|"GTIN14"|"SKU"|"BARCODE", value: string): Promise<{ product?: ProductDto }> {
+export function resolveProductBarcode(
+  identifierType: "EAN8" | "EAN13" | "GTIN12" | "GTIN14" | "SKU" | "BARCODE",
+  value: string,
+): Promise<BarcodeResolutionDto> {
   return apiRequest("/products/resolve-barcode", { method: "POST", body: { identifierType, value } });
 }

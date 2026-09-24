@@ -10,6 +10,13 @@ export interface BarcodeProviderProduct {
   readonly canonicalName: string;
   readonly brand?: string;
   readonly defaultUnit?: "g" | "kg" | "ml" | "l" | "piece" | "pack";
+  /** Per-100-base-unit values (100g or 100ml), matching how the catalog stores nutrition. */
+  readonly photoUrl?: string;
+  readonly calories?: number;
+  readonly protein?: number;
+  readonly carbs?: number;
+  readonly fat?: number;
+  readonly fiber?: number;
 }
 
 export interface BarcodeProviderResponse {

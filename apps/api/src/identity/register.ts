@@ -53,7 +53,7 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
 /** Reads Keycloak admin connection settings from the environment (same variables as before). */
 export function resolveKeycloakAdminConfig(env: NodeJS.ProcessEnv = process.env): KeycloakAdminConfig {
-  const issuer = env.OIDC_ISSUER || "http://localhost:8080/realms/dispensa";
+  const issuer = env.OIDC_ISSUER || "http://192.168.1.24:8080/realms/dispensa";
   const [baseUrl, realm] = splitIssuer(issuer);
   return {
     baseUrl,

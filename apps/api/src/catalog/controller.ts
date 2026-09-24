@@ -78,7 +78,7 @@ export class CatalogController {
     value: string,
     meta: CatalogHttpMeta,
   ): Promise<CatalogHttpSuccess<unknown>> {
-    const resolution = await this.workflow.resolveBarcode(identifierType, value);
+    const resolution = await this.workflow.resolveBarcode(identifierType, value, meta.traceId);
     return success(resolution, meta);
   }
   /**

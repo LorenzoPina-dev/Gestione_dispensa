@@ -9,3 +9,4 @@ npm-debug.log*
 # Local Compose state
 *.log
 .data/
+/certs

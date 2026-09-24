@@ -1,0 +1,25 @@
+services:
+  mkcert:
+    image: alpine/mkcert
+    # Override dell'entrypoint: senza questo, il comando viene passato
+    # come argomento a `mkcert`, che lo interpreta come un hostname.
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      # CAROOT punta alla cartella montata, così la CA persiste fra le run
+      # e non viene rigenerata ogni volta (altrimenti i certificati già
+      # emessi diventano invalidi ad ogni docker compose run).
+      CAROOT: /certs
+    volumes:
+      # ./certs (sulla root del progetto Windows) → /certs (nel container)
+      - ./certs:/certs
+    command:
+      - |
+        set -e
+        echo "==> Inizializzo CA locale in $$CAROOT"
+        mkcert -install
+        echo "==> Genero certificato per localhost + 127.0.0.1 + ::1"
+        mkcert -key-file /certs/local-key.pem \
+               -cert-file /certs/local.pem \
+               localhost 127.0.0.1 ::1
+        echo "==> Fatto. File generati in ./certs/"
+        ls -la /certs/

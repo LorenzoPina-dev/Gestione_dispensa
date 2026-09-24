@@ -131,6 +131,7 @@ export interface ProductDto {
   provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
   version: number;
   category?: string;
+  photoUrl?: string;
   calories?: number;
   protein?: number;
   carbs?: number;
@@ -138,6 +139,15 @@ export interface ProductDto {
   fiber?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type BarcodeResolutionStatus = "MATCHED" | "UNKNOWN" | "DEGRADED";
+
+export interface BarcodeResolutionDto {
+  status: BarcodeResolutionStatus;
+  identifierType: string;
+  normalizedValue: string;
+  product?: ProductDto;
 }
 
 // --- Inventory (apps/api/src/inventory/service.ts) ---------------------------

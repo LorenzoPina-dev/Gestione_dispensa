@@ -8,6 +8,12 @@ services:
       APP_VERSION: ${APP_VERSION:-0.1.0-local}
       PORT: 3000
       NODE_OPTIONS: --enable-source-maps
+      # Talks to worker-integrations for barcode enrichment. Deliberately NOT a `depends_on`
+      # health-gate: the api must start and keep serving everything else even if this worker is
+      # unhealthy or absent -- resolve-barcode just degrades to manual entry (see
+      # apps/api/src/catalog/external-barcode-client.ts).
+      BARCODE_WORKER_URL: ${BARCODE_WORKER_URL:-http://worker-integrations:3100}
+      BARCODE_WORKER_TIMEOUT_MS: ${BARCODE_WORKER_TIMEOUT_MS:-3000}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
@@ -32,6 +38,40 @@ services:
         reservations:
           cpus: "0.25"
           memory: 256M
+
+  worker-integrations:
+    build:
+      context: ../..
+      dockerfile: services/worker-integrations/Dockerfile
+    environment:
+      WORKER_INTEGRATIONS_PORT: 3100
+      OPEN_FOOD_FACTS_BASE_URL: ${OPEN_FOOD_FACTS_BASE_URL:-https://world.openfoodfacts.org}
+      OPEN_FOOD_FACTS_TIMEOUT_MS: ${OPEN_FOOD_FACTS_TIMEOUT_MS:-4000}
+      NODE_OPTIONS: --enable-source-maps
+    ports:
+      - "${WORKER_INTEGRATIONS_PORT:-3100}:3100"
+    profiles: [core, family-local]
+    # Isolated on purpose: this is the only service that calls third-party APIs (Open Food
+    # Facts today). If it crashes or the third party is down/slow, it must never take the api
+    # down with it -- the api calls it over HTTP with its own timeout + circuit breaker and
+    # falls back to manual product entry. `restart: unless-stopped` brings it back automatically
+    # after any crash.
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3100/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
 
   postgres:
     image: postgres:16-alpine
@@ -87,7 +127,11 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.1
-    command: ["start-dev", "--import-realm"]
+    command: 
+      - "start-dev"
+      - "--import-realm"
+      - "--http-host=0.0.0.0"          # <- Consente le connessioni da qualsiasi IP
+      - "--hostname-strict=false"       # <- Disattiva il vincolo sull'hostname unico
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}

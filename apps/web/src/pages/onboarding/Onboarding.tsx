@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { AuthUser } from "../../store/auth";
 import type { Role } from "../../types";
 import { colors, fonts } from "../../tokens";
@@ -32,6 +32,26 @@ export default function Onboarding({ user, onComplete }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [scanActive, setScanActive] = useState(false);
   const [scanError, setScanError] = useState("");
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const detectorRef = useRef<any>(null);
+
+  // Attacca lo stream della fotocamera al <video> non appena l'elemento è montato
+  // (si monta solo quando scanActive diventa true).
+  useEffect(() => {
+    if (scanActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [scanActive]);
+
+  // Rilascia sempre la fotocamera quando il componente viene smontato.
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
 
   // Shared card wrapper
   function Card({ children }: { children: React.ReactNode }) {
@@ -104,8 +124,90 @@ export default function Onboarding({ user, onComplete }: Props) {
     }
   }
 
+  function stopScan() {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setScanActive(false);
+  }
+
+  async function handleScannedValue(raw: string) {
+    stopScan();
+    // Se il QR contiene l'URL di join generato da QRCodeDisplay (vedi pages/Famiglia.tsx)
+    // estraiamo il token dal parametro `familyInvite`; altrimenti trattiamo l'intero valore
+    // scansionato come token grezzo.
+    let token = raw.trim();
+    try {
+      const url = new URL(raw);
+      const fromQuery = url.searchParams.get("familyInvite");
+      if (fromQuery) token = fromQuery;
+    } catch {
+      // raw non è un URL assoluto: va bene, lo usiamo così com'è
+    }
+    if (!token) return;
+    setSubmitting(true);
+    setScanError("");
+    try {
+      const result = await api.resolveInvite(token, getBrowserBindingHash());
+      setSubmitting(false);
+      setAttemptId(result.id);
+      setInviteDetails({
+        familyName: "la famiglia che ti ha invitato",
+        role: result.role === "MANAGER" ? "Gestore" : result.role === "VIEWER" ? "Visualizzatore" : "Membro",
+        expiresIn: "valido",
+      });
+      setStep("join_review");
+    } catch {
+      setSubmitting(false);
+      setScanError("QR non valido o invito scaduto. Riprova a scansionare oppure inserisci il codice numerico.");
+    }
+  }
+
+  function runDetectionLoop() {
+    const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+    if (!BarcodeDetectorCtor) {
+      setScanError("Il tuo browser non supporta la scansione QR nativa. Inserisci il codice numerico dell'invito qui sotto.");
+      return;
+    }
+    if (!detectorRef.current) {
+      detectorRef.current = new BarcodeDetectorCtor({ formats: ["qr_code"] });
+    }
+    const tick = async () => {
+      if (!videoRef.current || videoRef.current.readyState < 2) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      try {
+        const codes = await detectorRef.current.detect(videoRef.current);
+        if (codes.length > 0 && codes[0].rawValue) {
+          handleScannedValue(codes[0].rawValue);
+          return;
+        }
+      } catch {
+        // frame non decodificabile in questo istante: si ritenta al prossimo
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
   async function startScan() {
-    setScanError("La scansione QR richiede un decoder BarcodeDetector disponibile nel browser; per ora inserisci il codice numerico dell'invito.");
+    setScanError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setScanActive(true);
+      runDetectionLoop();
+    } catch (err) {
+      setScanError(
+        err instanceof DOMException && err.name === "NotAllowedError"
+          ? "Permesso fotocamera negato. Abilitalo nelle impostazioni del browser oppure inserisci il codice numerico."
+          : "Impossibile accedere alla fotocamera. Inserisci il codice numerico dell'invito.",
+      );
+    }
   }
 
 
@@ -222,7 +324,7 @@ export default function Onboarding({ user, onComplete }: Props) {
       {/* ── JOIN SCAN ───────────────────────────────────────────────── */}
       {step === "join_scan" && (
         <Card>
-          <button onClick={() => { setScanActive(false); setStep("choose"); }} className="text-xs font-medium" style={{ color: colors.inkMuted }}>← Indietro</button>
+          <button onClick={() => { stopScan(); setStep("choose"); }} className="text-xs font-medium" style={{ color: colors.inkMuted }}>← Indietro</button>
           <Header title="Unisciti alla famiglia" sub="Scansiona il QR code ricevuto oppure inserisci il codice numerico." />
 
           {/* QR scan area */}
@@ -237,7 +339,7 @@ export default function Onboarding({ user, onComplete }: Props) {
                   <p className="text-white text-xs">Inquadra il codice QR dell'invito…</p>
                 </div>
                 <button
-                  onClick={() => setScanActive(false)}
+                  onClick={stopScan}
                   className="absolute top-3 right-3 text-xs px-2 py-1 rounded-lg"
                   style={{ backgroundColor: "rgba(26,21,16,0.6)", color: colors.white }}
                 >

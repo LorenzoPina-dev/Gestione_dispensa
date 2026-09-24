@@ -24,6 +24,7 @@ import {
   PostgresCatalogLookupRepository,
 } from "./catalog/postgres.js";
 import { CatalogController } from "./catalog/controller.js";
+import { HttpExternalBarcodeLookupClient } from "./catalog/external-barcode-client.js";
 import { ShoppingService } from "./shopping/service.js";
 import { PostgresShoppingRepository } from "./shopping/postgres.js";
 import { ShoppingController } from "./shopping/controller.js";
@@ -105,9 +106,21 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
       };
 
       const catalogService = new CatalogService(new PostgresCatalogRepository(postgres), idGenerator, clock);
+      // Optional on purpose: with BARCODE_WORKER_URL unset (or the worker unreachable at request
+      // time), resolveBarcode simply falls back to "UNKNOWN" for unrecognized barcodes instead of
+      // failing to start or failing the request -- see CatalogWorkflowService.resolveBarcode.
+      const barcodeWorkerUrl = process.env.BARCODE_WORKER_URL;
+      const externalBarcodeLookup =
+        barcodeWorkerUrl !== undefined && barcodeWorkerUrl.trim().length > 0
+          ? new HttpExternalBarcodeLookupClient({
+              baseUrl: barcodeWorkerUrl,
+              timeoutMs: Number(process.env.BARCODE_WORKER_TIMEOUT_MS ?? 3000),
+            })
+          : undefined;
       const catalogWorkflow = new CatalogWorkflowService(
         new PostgresCatalogLookupRepository(postgres),
         new PostgresCatalogCandidateRepository(postgres),
+        externalBarcodeLookup,
       );
       options.catalog = { controller: new CatalogController(catalogService, catalogWorkflow), verifier };
 

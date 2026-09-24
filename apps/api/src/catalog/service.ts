@@ -22,9 +22,13 @@ export interface Product {
   brand: string | undefined;
   defaultUnit: ProductUnit;
   status: "ACTIVE";
-  provenanceQuality: "VERIFIED";
+  // Widened from the original "VERIFIED"-only literal: products created from an external match
+  // (see CatalogWorkflowService.resolveBarcode) are genuinely IMPORTED, and the Postgres mapping
+  // was already casting across this type without it being true -- this makes the type honest.
+  provenanceQuality: ProductQuality;
   version: 1;
   category?: string;
+  photoUrl?: string;
   calories?: number;
   protein?: number;
   carbs?: number;

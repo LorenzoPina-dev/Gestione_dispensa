@@ -8,6 +8,7 @@ import type {
 import type {
   CatalogCandidateRepository,
   CatalogLookupRepository,
+  ExternalProductMatch,
   ProductCandidate,
 } from "./workflow.js";
 
@@ -40,6 +41,7 @@ interface ProductRow {
   provenance_quality: Product["provenanceQuality"];
   version: number;
   category?: string | null;
+  photo_url?: string | null;
   calories_per_100?: string | number | null;
   protein_per_100?: string | number | null;
   carbs_per_100?: string | number | null;
@@ -59,7 +61,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   public async listActive(): Promise<Product[]> {
     const result = await this.database.transaction();
     try {
-      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
       await result.commit(); return rows.rows.map(mapProduct);
     } catch (error) { await result.rollback(); throw error; }
   }
@@ -67,7 +69,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   public async getById(productId: string): Promise<Product | undefined> {
     const result = await this.database.transaction();
     try {
-      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.id = $1 AND p.status = 'ACTIVE'`, [productId]);
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.id = $1 AND p.status = 'ACTIVE'`, [productId]);
       await result.commit(); const row=rows.rows[0]; return row===undefined ? undefined : mapProduct(row);
     } catch (error) { await result.rollback(); throw error; }
   }
@@ -126,9 +128,9 @@ export class PostgresCatalogRepository implements CatalogRepository {
 }
 
 export class PostgresCatalogLookupRepository implements CatalogLookupRepository {
-  private readonly database: SqlClient;
+  private readonly database: SqlClient & SqlTransactionFactory;
 
-  public constructor(database: SqlClient) {
+  public constructor(database: SqlClient & SqlTransactionFactory) {
     this.database = database;
   }
 
@@ -138,7 +140,7 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
   }): Promise<Product | undefined> {
     const result = await this.database.query<ProductRow>(
       `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status,
-          p.provenance_quality, p.version, p.category, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at
+          p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at
        FROM product_identifiers i
        JOIN products p ON p.id = i.product_id
        LEFT JOIN brands b ON b.id = p.brand_id
@@ -149,6 +151,73 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
     );
     const row = result.rows[0];
     return row === undefined ? undefined : mapProduct(row);
+  }
+
+  /**
+   * Persists a match from an external provider (Open Food Facts today) as a real catalog
+   * product and links the barcode to it, atomically, so this exact barcode is served from the
+   * local `findByIdentifier` path forever after. On any failure the whole transaction rolls
+   * back -- we never want a half-written product (e.g. missing its identifier link, which would
+   * silently force a repeat external call on every future scan of the same code).
+   */
+  public async persistExternalMatch(input: {
+    identifierType: IdentifierType;
+    normalizedValue: string;
+    match: ExternalProductMatch;
+    traceId: string;
+  }): Promise<Product> {
+    const transaction = await this.database.transaction();
+    try {
+      const sourceId = await ensureSource(transaction, "PROVIDER", input.match.source);
+      const brandId = await ensureBrand(transaction, input.match.brand);
+      const nutritionConfidence = input.match.calories !== undefined ? "ESTIMATED" : "UNKNOWN";
+
+      const inserted = await transaction.query<ProductRow>(
+        `INSERT INTO products
+          (canonical_name, brand_id, default_unit, status, provenance_quality,
+           calories_per_100, protein_per_100, carbs_per_100, fat_per_100, fiber_per_100,
+           nutrition_confidence, photo_url, external_source, external_ref, external_synced_at)
+         VALUES ($1, $2, $3, 'ACTIVE', 'IMPORTED', $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+         RETURNING id, canonical_name, default_unit, status, provenance_quality, version,
+           category, photo_url, calories_per_100, protein_per_100, carbs_per_100, fat_per_100,
+           fiber_per_100, created_at, updated_at`,
+        [
+          input.match.canonicalName,
+          brandId,
+          input.match.defaultUnit,
+          input.match.calories ?? null,
+          input.match.protein ?? null,
+          input.match.carbs ?? null,
+          input.match.fat ?? null,
+          input.match.fiber ?? null,
+          nutritionConfidence,
+          input.match.photoUrl ?? null,
+          input.match.source,
+          input.match.sourceVersion,
+        ],
+      );
+      const row = inserted.rows[0];
+      if (row === undefined) throw new Error("Catalog external-match insert returned no row.");
+
+      await transaction.query(
+        `INSERT INTO product_identifiers (product_id, source_id, identifier_type, normalized_value, is_verified)
+         VALUES ($1, $2, $3, $4, false)
+         ON CONFLICT (source_id, identifier_type, normalized_value) DO NOTHING`,
+        [row.id, sourceId, input.identifierType, input.normalizedValue],
+      );
+
+      await transaction.query(
+        `INSERT INTO data_provenance (entity_type, entity_id, source_id, observed_at, source_version, confidence, raw_ref)
+         VALUES ('product', $1, $2, now(), $3, $4, $5)`,
+        [row.id, sourceId, input.match.sourceVersion, input.match.confidence, input.traceId],
+      );
+
+      await transaction.commit();
+      return mapProduct({ ...row, brand: input.match.brand ?? null });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
 }
 
@@ -260,6 +329,7 @@ function mapProduct(row: ProductRow): Product {
     provenanceQuality: row.provenance_quality as Product["provenanceQuality"],
     version: row.version as 1,
     ...(row.category ? { category: row.category } : {}),
+    ...(row.photo_url ? { photoUrl: row.photo_url } : {}),
     ...(row.calories_per_100 != null ? { calories: Number(row.calories_per_100) } : {}),
     ...(row.protein_per_100 != null ? { protein: Number(row.protein_per_100) } : {}),
     ...(row.carbs_per_100 != null ? { carbs: Number(row.carbs_per_100) } : {}),
