@@ -7,9 +7,9 @@ import {
 
 export interface OpenFoodFactsProviderOptions {
   /** Overridable for tests and self-hosted mirrors. Defaults to the public OFF instance. */
-  readonly baseUrl?: string;
-  readonly userAgent?: string;
-  readonly fetchImpl?: typeof fetch;
+  readonly baseUrl?: string | undefined;
+  readonly userAgent?: string | undefined;
+  readonly fetchImpl?: typeof fetch | undefined;
 }
 
 type ProductUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";

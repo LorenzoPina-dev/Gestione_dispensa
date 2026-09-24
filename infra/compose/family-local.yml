@@ -8,6 +8,15 @@ services:
       APP_VERSION: ${APP_VERSION:-0.1.0-local}
       PORT: 3000
       NODE_OPTIONS: --enable-source-maps
+      # Senza queste due, server.ts salta la creazione dell'OidcTokenVerifier e monta le rotte
+      # autenticate come "disabled": /auth/me (e tutto il resto) risponde sempre 401, anche con
+      # un token valido. Devono corrispondere a quanto configurato nel client Keycloak
+      # dispensa-app (vedi infra/identity/keycloak/realm-dispensa.json -> protocolMappers).
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-http://keycloak:8080/realms/dispensa}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs}
+      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
       # Talks to worker-integrations for barcode enrichment. Deliberately NOT a `depends_on`
       # health-gate: the api must start and keep serving everything else even if this worker is
       # unhealthy or absent -- resolve-barcode just degrades to manual entry (see
@@ -38,6 +47,25 @@ services:
         reservations:
           cpus: "0.25"
           memory: 256M
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ../nginx/local.conf:/etc/nginx/nginx.conf:ro
+      - ../../certs:/etc/nginx/certs:ro
+    ports:
+      - "${NGINX_HTTPS_PORT:-8443}:8443"
+      - "${NGINX_HTTP_PORT:-8081}:8080"
+    extra_hosts:
+      # Necessario per raggiungere Vite e API che girano sull'host (fuori Docker)
+      # tramite il nome `host.docker.internal`. Docker Desktop su Windows/Mac lo
+      # fornisce già, ma lo dichiariamo esplicitamente per non dipendere da quel
+      # comportamento implicito (utile anche su Linux con Docker Engine).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    profiles: [family-local]
+    restart: unless-stopped
 
   worker-integrations:
     build:
@@ -127,11 +155,15 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.1
-    command: 
+    command:
       - "start-dev"
       - "--import-realm"
-      - "--http-host=0.0.0.0"          # <- Consente le connessioni da qualsiasi IP
-      - "--hostname-strict=false"       # <- Disattiva il vincolo sull'hostname unico
+      - "--http-host=0.0.0.0"
+      - "--hostname=https://192.168.1.24:8443"
+      - "--hostname-strict=true"
+      - "--hostname-backchannel-dynamic=false"
+      - "--proxy-headers=xforwarded"
+      - "--http-enabled=true"
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
@@ -142,10 +174,18 @@ services:
       - ../identity/keycloak/realm-dispensa.json:/opt/keycloak/data/import/realm-dispensa.json:ro
       - keycloak-data:/opt/keycloak/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready"]
-      interval: 15s
+      # L'immagine ufficiale (ubi9-micro) non include curl/wget, quindi l'healthcheck non puo'
+      # usarli (fallirebbe sempre con "not found", lasciando il container bloccato su
+      # "unhealthy" per sempre). Usiamo il builtin /dev/tcp di bash, che e' presente.
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 10s
       timeout: 5s
       retries: 20
+      start_period: 20s
     profiles: [family-local]
     restart: unless-stopped
     deploy:

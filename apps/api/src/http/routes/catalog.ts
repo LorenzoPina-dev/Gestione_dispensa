@@ -5,6 +5,7 @@ import { respond, sendFailure } from "../envelope.js";
 import { asyncHandler, methodNotAllowed, resolvePrincipal } from "../middleware.js";
 import { IDENTIFIER_TYPES, parseCreateProductBody, parseResolveBarcodeBody, parseSubmitCandidateBody, } from "../validators.js";
 import type { IdentifierType } from "../../catalog/service.js";
+import { ProductCandidate } from "../../catalog/workflow.js";
 
 export interface CatalogRouteDependencies {
   controller: CatalogController;
@@ -47,7 +48,7 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     await respond(
       res,
       req.meta,
-      controller.submitImportedCandidate(principal, parsed, req.meta),
+      controller.submitImportedCandidate(principal, parsed as Omit<ProductCandidate, "requiresReview">, req.meta),
       toCatalogHttpError,
     );
   });
@@ -81,7 +82,7 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     .route("/products/:productId")
     .get(
       asyncHandler(async (req, res) => {
-        await respond(res, req.meta, controller.getProduct(req.params.productId, req.meta), toCatalogHttpError);
+        await respond(res, req.meta, controller.getProduct(req.params.productId as string, req.meta), toCatalogHttpError);
       }),
     )
     .all(methodNotAllowed);

@@ -67,7 +67,7 @@ export function buildRecipesRouter(deps: RecipeRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.getRecipe(principal, familyId, req.params.recipeId, req.meta),
+          controller.getRecipe(principal, familyId, req.params.recipeId as string, req.meta),
           toRecipeHttpError,
         );
       }),
@@ -87,7 +87,7 @@ export function buildRecipesRouter(deps: RecipeRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.addMissingIngredients(principal, familyId, req.params.recipeId, req.meta.traceId, req.meta),
+          controller.addMissingIngredients(principal, familyId, req.params.recipeId as string, req.meta.traceId, req.meta),
           toRecipeHttpError,
         );
       }),
@@ -108,7 +108,7 @@ export function buildRecipesRouter(deps: RecipeRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.cook(principal, familyId, req.params.recipeId, servings, req.meta.traceId, req.meta),
+          controller.cook(principal, familyId, req.params.recipeId as string, servings, req.meta.traceId, req.meta),
           toRecipeHttpError,
         );
       }),

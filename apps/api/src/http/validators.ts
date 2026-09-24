@@ -210,7 +210,7 @@ export function parseCreateProductBody(
     ...(carbs !== undefined ? { carbs } : {}),
     ...(fat !== undefined ? { fat } : {}),
     ...(fiber !== undefined ? { fiber } : {}),
-  };
+  } as { canonicalName: string; brand?: string; defaultUnit: ProductUnit; category?: string; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number };
 }
 
 export function parseResolveBarcodeBody(body: Body): { identifierType: IdentifierType; value: string } | undefined {

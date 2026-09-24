@@ -106,38 +106,57 @@ export class CatalogWorkflowService {
    * barcode -- it should just fall back to manual entry.
    */
   public async resolveBarcode(
-    identifierType: IdentifierType,
-    value: string,
-    traceId: string,
-  ): Promise<BarcodeResolution> {
-    const normalizedValue = normalizeIdentifier(identifierType, value);
-    const local = await this.lookup.findByIdentifier({ identifierType, normalizedValue });
-    if (local !== undefined) {
-      return { status: "MATCHED", identifierType, normalizedValue, product: local };
-    }
+  identifierType: IdentifierType,
+  value: string,
+  traceId: string,
+): Promise<BarcodeResolution> {
+  const normalizedValue = normalizeIdentifier(identifierType, value);
+  console.log("[catalog] resolveBarcode START", { identifierType, normalizedValue, traceId });
 
-    if (this.externalLookup === undefined) {
+  const local = await this.lookup.findByIdentifier({ identifierType, normalizedValue });
+  console.log("[catalog] local lookup:", local ? `HIT ${local.id}` : "miss");
+
+  if (local !== undefined) {
+    return { status: "MATCHED", identifierType, normalizedValue, product: local };
+  }
+
+  if (this.externalLookup === undefined) {
+    console.log("[catalog] externalLookup NOT configured (undefined)");
+    return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
+  }
+
+  try {
+    console.log("[catalog] calling externalLookup...");
+    const match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
+    console.log("[catalog] externalLookup returned:", match ? `MATCH name=${match.canonicalName}` : "undefined");
+
+    if (match === undefined) {
+      console.log("[catalog] external match is undefined → UNKNOWN");
       return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
     }
 
-    try {
-      const match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
-      if (match === undefined) {
-        return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
-      }
-      const product = await this.lookup.persistExternalMatch({
-        identifierType,
-        normalizedValue,
-        match,
-        traceId,
-      });
-      return { status: "MATCHED", identifierType, normalizedValue, product };
-    } catch {
-      // Anything unexpected in the external path (a DB hiccup while persisting the match, a
-      // client bug, etc.) degrades instead of failing the request outright.
-      return { status: "DEGRADED", identifierType, normalizedValue, product: undefined };
-    }
+    console.log("[catalog] calling persistExternalMatch...");
+    const product = await this.lookup.persistExternalMatch({
+      identifierType,
+      normalizedValue,
+      match,
+      traceId,
+    });
+    console.log("[catalog] persistExternalMatch OK, productId =", product.id);
+    return { status: "MATCHED", identifierType, normalizedValue, product };
+  } catch (error) {
+    console.error("[catalog] persistExternalMatch failed", {
+      identifierType,
+      normalizedValue,
+      traceId,
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message, stack: error.stack }
+          : String(error),
+    });
+    return { status: "DEGRADED", identifierType, normalizedValue, product: undefined };
   }
+}
 
   public async submitImportedCandidate(
     candidate: Omit<ProductCandidate, "requiresReview">,

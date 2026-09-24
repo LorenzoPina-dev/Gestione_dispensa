@@ -1,99 +1,111 @@
-// apps/web/src/store/auth.ts
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { getCurrentUser, logoutSession } from "../api/endpoints";
-import { SESSION_EXPIRED_EVENT } from "../api/client";
-import type { UserDto } from "../api/types";
+import { persist } from "zustand/middleware";
+import { SESSION_EXPIRED_EVENT, TOKENS_REFRESHED_EVENT } from "../api/client";
 
-/** Tipo usato dalle pagine di auth; allineato al profilo che il backend ritorna da /me. */
+export type AuthScreen = "login" | "register" | "forgot" | "onboarding" | "app";
+
+export type Role = "OWNER" | "MANAGER" | "MEMBER" | "VIEWER";
+
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
   avatar: string;
-  role: "OWNER" | "MANAGER" | "MEMBER" | "VIEWER";
+  role: Role;
   hasFamilyId: string | null;
 }
 
 interface AuthState {
+  /** Access token OIDC corrente (JWT). Usato da client.ts per l'header Authorization. */
   token: string | null;
-  user: UserDto | null;
+  /** Refresh token OIDC. Presente solo se lo scope `offline_access` è stato richiesto. */
+  refreshToken: string | null;
+  /** Epoch ms in cui `token` scade. Usato da client.ts per rinnovare in anticipo. */
+  expiresAt: number | null;
+  user: AuthUser | null;
   isAuthenticated: boolean;
-  isLoading: boolean;
   error: string | null;
-  setToken: (token: string) => void;
-  initializeAuth: () => Promise<void>;
-  logout: () => Promise<void>;
+
+  /** Compatibilità: alcuni consumer passano solo l'access token (nessun refresh). */
+  setToken: (token: string | null) => void;
+  /** Login/Register dopo il password grant: salva il bundle completo (access + refresh). */
+  setTokens: (bundle: {
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  }) => void;
+  clearToken: () => void;
+  setUser: (user: AuthUser | null) => void;
+  setError: (error: string | null) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       token: null,
+      refreshToken: null,
+      expiresAt: null,
       user: null,
       isAuthenticated: false,
-      isLoading: false,
       error: null,
 
-      setToken: (token: string) => {
-        set({ token, isAuthenticated: true });
-      },
+      setToken: (token) =>
+        set({
+          token,
+          // Azzera il refresh: se qualcuno chiama setToken direttamente (bypassando il
+          // password grant), non abbiamo un refresh token valido da usare. Il prossimo 401
+          // porterà al login, come deve.
+          refreshToken: null,
+          expiresAt: null,
+          isAuthenticated: token !== null,
+        }),
 
-      initializeAuth: async () => {
-        const token = get().token;
-        if (!token) {
-          set({ isAuthenticated: false, user: null, isLoading: false });
-          return;
-        }
+      setTokens: ({ accessToken, refreshToken, expiresIn }) =>
+        set({
+          token: accessToken,
+          refreshToken,
+          expiresAt: Date.now() + expiresIn * 1000,
+          isAuthenticated: true,
+        }),
 
-        set({ isLoading: true, error: null });
-        try {
-          const user = await getCurrentUser();
-          set({ user, isAuthenticated: true, isLoading: false });
-        } catch (err) {
-          console.error("Errore validazione token utente:", err);
-          set({ token: null, user: null, isAuthenticated: false, isLoading: false });
-        }
-      },
+      clearToken: () =>
+        set({
+          token: null,
+          refreshToken: null,
+          expiresAt: null,
+          user: null,
+          isAuthenticated: false,
+        }),
 
-      logout: async () => {
-        try {
-          await logoutSession();
-        } catch {
-          // Prosegue con la pulizia locale anche se la richiesta fallisce
-        } finally {
-          set({ token: null, user: null, isAuthenticated: false });
-          window.location.href = "/";
-        }
-      },
+      setUser: (user) => set({ user }),
+      setError: (error) => set({ error }),
     }),
-    {
-      name: "dispensa-auth",
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        token: state.token,
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-      }),
-    },
+    { name: "dispensa-auth" },
   ),
 );
 
-/**
- * `apiRequest` (api/client.ts) cancella localStorage e emette questo evento ogni volta che il
- * backend risponde 401 (token scaduto/non valido), qualunque sia la chiamata che l'ha causato.
- * Prima questo listener non esisteva: solo `localStorage` veniva ripulito, mentre lo stato
- * Zustand in memoria restava `isAuthenticated: true` con un token ormai andato — l'app credeva
- * di essere ancora loggata mentre ogni richiesta successiva partiva senza header Authorization,
- * causando una cascata di errori silenziosi invece di un messaggio chiaro all'utente.
- */
+// ── Bridge tra client.ts e store ───────────────────────────────────────────────
+//
+// Il refresh avviene fuori da React (in client.ts) e non può importare lo store (ciclo di
+// import ESM). Questi due listener allineano lo stato in memoria a quello che client.ts ha
+// appena scritto in localStorage, così `useAuthStore((s) => s.token)` resta fresco.
 if (typeof window !== "undefined") {
   window.addEventListener(SESSION_EXPIRED_EVENT, () => {
+    useAuthStore.getState().clearToken();
+    useAuthStore.getState().setError("Sessione scaduta. Effettua di nuovo l'accesso.");
+  });
+
+  window.addEventListener(TOKENS_REFRESHED_EVENT, (e) => {
+    const d = (e as CustomEvent).detail as {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+    };
     useAuthStore.setState({
-      token: null,
-      user: null,
-      isAuthenticated: false,
-      error: "La sessione è scaduta. Accedi di nuovo per continuare.",
+      token: d.accessToken,
+      refreshToken: d.refreshToken,
+      expiresAt: d.expiresAt,
+      isAuthenticated: true,
     });
   });
 }

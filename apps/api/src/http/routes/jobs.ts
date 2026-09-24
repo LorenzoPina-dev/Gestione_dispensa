@@ -24,7 +24,7 @@ export function buildJobsRouter(deps: JobAdminRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          service.inspect(principal, req.params.jobId, req.meta.traceId).then((data) => ({ data, meta: req.meta })),
+          service.inspect(principal, req.params.jobId as string, req.meta.traceId).then((data) => ({ data, meta: req.meta })),
           toJobAdminHttpError,
         );
       }),
@@ -45,7 +45,7 @@ export function buildJobsRouter(deps: JobAdminRouteDependencies): Router {
           res,
           req.meta,
           service
-            .replay(principal, req.params.deadLetterId, { ...parsed, traceId: req.meta.traceId })
+            .replay(principal, req.params.deadLetterId as string, { ...parsed, traceId: req.meta.traceId })
             .then((data) => ({ data, meta: req.meta })),
           toJobAdminHttpError,
         );

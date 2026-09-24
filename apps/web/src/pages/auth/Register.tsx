@@ -24,7 +24,7 @@ export default function Register({ onRegistered, onLogin }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [apiError, setApiError] = useState<string | null>(null);
 
-  const setToken = useAuthStore((s) => s.setToken);
+  const setTokens = useAuthStore((s) => s.setTokens);
 
   function validate() {
     const e: Record<string, string> = {};
@@ -69,7 +69,9 @@ export default function Register({ onRegistered, onLogin }: Props) {
         client_id: KEYCLOAK_CLIENT_ID,
         username: cleanEmail,
         password: password,
-        scope: "openid profile email",
+        // offline_access: vedi la nota in Login.tsx. Senza questo scope il refresh token
+        // non viene emesso e la sessione muore insieme all'access token.
+        scope: "openid profile email offline_access",
       });
 
       const tokenRes = await fetch(`${KEYCLOAK_REALM_URL}/protocol/openid-connect/token`, {
@@ -85,8 +87,17 @@ export default function Register({ onRegistered, onLogin }: Props) {
           tokenData.error_description || "Impossibile completare l'accesso dopo la registrazione.",
         );
       }
+      if (!tokenData.refresh_token) {
+        throw new Error(
+          "Il server non ha emesso un refresh token. Verifica che il client Keycloak abbia lo scope `offline_access` abilitato.",
+        );
+      }
 
-      setToken(tokenData.access_token);
+      setTokens({
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        expiresIn: typeof tokenData.expires_in === "number" ? tokenData.expires_in : 300,
+      });
 
       // 3. Risolvi il profilo utente e l'eventuale famiglia attiva. Un utente appena
       // registrato normalmente non ne ha ancora una: in quel caso hasFamilyId resta null e

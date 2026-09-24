@@ -15,4 +15,4 @@ RUN npm install --workspace @gestione-dispensa/worker-integrations --omit=dev --
 COPY --from=build /app/services/worker-integrations/dist ./services/worker-integrations/dist
 USER node
 EXPOSE 3100
-CMD ["node", "services/worker-integrations/dist/src/server.js"]
+CMD ["node", "services/worker-integrations/dist/server.js"]

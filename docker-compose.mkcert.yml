@@ -17,9 +17,9 @@ services:
         set -e
         echo "==> Inizializzo CA locale in $$CAROOT"
         mkcert -install
-        echo "==> Genero certificato per localhost + 127.0.0.1 + ::1"
+        echo "==> Genero certificato per localhost + 127.0.0.1 + ::1 + 192.168.1.24"
         mkcert -key-file /certs/local-key.pem \
                -cert-file /certs/local.pem \
-               localhost 127.0.0.1 ::1
+               localhost 127.0.0.1 ::1 192.168.1.24
         echo "==> Fatto. File generati in ./certs/"
         ls -la /certs/

@@ -13,6 +13,7 @@ import { useFamilyMembers } from "./hooks/useFamily";
 import { useNotifications } from "./hooks/useNotifications";
 import { useAuthStore } from "./store/auth";
 import { getCurrentUser, listFamilies } from "./api/endpoints";
+import { isBackendUnreachable } from "./api/client";
 
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
@@ -32,10 +33,11 @@ const CAN_WRITE: Role[] = ["OWNER", "MANAGER", "MEMBER"];
 const CAN_MANAGE_FAMILY: Role[] = ["OWNER", "MANAGER"];
 
 /**
- * Session persistence. The backend has no session/cookie concept for this mock login (see
- * pages/auth/Login.tsx), so the app keeps the signed-in user in localStorage itself — enough to
- * survive a page refresh. This is a client-only convenience, not a security mechanism: it holds
- * no secrets, just the same non-sensitive profile fields the login screen already produces.
+ * Session persistence. The backend has no session/cookie concept for this login (see
+ * pages/auth/Login.tsx — password grant contro Keycloak via OIDC), so the app keeps the
+ * signed-in user in localStorage itself — enough to survive a page refresh. Il refresh del
+ * token è gestito trasparentemente da client.ts (single-flight); lo store qui sotto riflette
+ * solo lo stato osservabile.
  */
 export default function App() {
   const [screen, setScreen] = useState<AuthScreen>("login");
@@ -45,22 +47,25 @@ export default function App() {
 
   // Restore a previous session on first load.
   const authToken = useAuthStore((s) => s.token);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!authToken) {
-        // Prima non veniva mai richiamato setScreen("login") qui: se il token diventava null a
-        // sessione già avviata (es. dopo un 401 — vedi store/auth.ts), currentUser diventava
-        // null ma "screen" restava com'era, e il render cadeva nel `if (!currentUser) return
-        // null;` più sotto: una pagina completamente bianca invece di essere riportati al login.
-        if (!cancelled) { setCurrentUser(null); setScreen("login"); setSessionChecked(true); }
+        // Il token è null (mai loggato, oppure SESSION_EXPIRED_EVENT ha appena svuotato lo
+        // store): torniamo al login e resettiamo lo stato derivato.
+        if (!cancelled) {
+          setCurrentUser(null);
+          setScreen("login");
+          setSessionChecked(true);
+        }
         return;
       }
       try {
         const apiUser = await getCurrentUser();
         const families = await listFamilies();
         const active = apiUser.activeFamilyId
-          ? families.families.find(f => f.familyId === apiUser.activeFamilyId)
+          ? families.families.find((f) => f.familyId === apiUser.activeFamilyId)
           : families.families[0];
         const user: AuthUser = {
           id: apiUser.id,
@@ -70,16 +75,28 @@ export default function App() {
           role: (active?.role as Role) || "OWNER",
           hasFamilyId: active?.familyId || null,
         };
-        if (!cancelled) { setCurrentUser(user); setScreen(user.hasFamilyId ? "app" : "onboarding"); setSessionChecked(true); }
-      } catch {
         if (!cancelled) {
-          // Il token persistito non e' (piu') valido: puliamo lo stato di auth di Zustand,
-          // non una chiave localStorage inesistente ("auth_token"). La chiave reale e'
-          // "dispensa-auth", gestita dal middleware `persist` — vedi store/auth.ts. Usare
-          // setState qui aggiorna anche il localStorage persistito, cosi' un token rotto
-          // non resta salvato e non causa un loop di re-render.
-          useAuthStore.setState({ token: null, user: null, isAuthenticated: false });
-          setCurrentUser(null); setScreen("login"); setSessionChecked(true);
+          setCurrentUser(user);
+          setScreen(user.hasFamilyId ? "app" : "onboarding");
+          setSessionChecked(true);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          if (isBackendUnreachable(err)) {
+            // Backend momentaneamente irraggiungibile: NON e' un segnale che il token sia
+            // invalido. Manteniamo la sessione (e il token) cosi' com'e' e lasciamo che l'utente
+            // riprovi/rimanga sulla schermata corrente; gli hook dei dati (useInventory, ecc.)
+            // gestiscono gia' la modalita' demo/offline per i singoli pannelli.
+            setSessionChecked(true);
+            return;
+          }
+          // Il token persistito non e' (piu') valido: svuotiamo lo store. Il middleware
+          // `persist` aggiorna anche localStorage, così un token rotto non resta salvato
+          // e non causa un loop di re-render.
+          useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, isAuthenticated: false });
+          setCurrentUser(null);
+          setScreen("login");
+          setSessionChecked(true);
         }
       }
     })();
@@ -88,7 +105,13 @@ export default function App() {
 
   // Real backend data (falls back to demo data automatically — see hooks/useInventory.ts and
   // hooks/useShoppingList.ts for exactly what's wired to which endpoint and why).
-  const familyId = currentUser?.hasFamilyId ?? null;
+  //
+  // IMPORTANTE: `familyId` è null quando `authToken` è null, anche se `currentUser` non è
+  // ancora stato azzerato dal setState dell'effect sopra. Questo evita che gli hook partano
+  // con un `familyId` valorizzato prima che il token sia effettivamente disponibile: senza
+  // questo guard, al momento di un refresh fallito si vedrebbe una cascata di 401 su
+  // /families, /inventory, /shopping-lists, tutti lanciati con Authorization assente.
+  const familyId = authToken !== null ? (currentUser?.hasFamilyId ?? null) : null;
   const inventory = useInventory(familyId);
   const shopping = useShoppingList(familyId);
   const family = useFamilyMembers(familyId);
@@ -129,6 +152,11 @@ export default function App() {
   }
 
   function handleLogout() {
+    // Password grant contro Keycloak: non c'è una "sessione server" da invalidare. Il client
+    // ha solo l'access/refresh token; buttarli via basta. Keycloak ha una sua SSO session
+    // separata che scade da sola, ma finché non chiami /logout su Keycloak resta valida — non
+    // è un problema per il nostro caso d'uso (una famiglia in locale).
+    useAuthStore.getState().clearToken();
     setCurrentUser(null);
     setScreen("login");
     setTab("oggi");
@@ -155,8 +183,6 @@ export default function App() {
   const expiringCount = stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d > 0 && d <= 5; }).length;
   const unreadNotifs = notifications.filter((n) => !n.readAt).length;
   const urgentBadge = expiredCount + expiringCount;
-  const isAnyDemo = false;
-  const isLoadingBackend = inventory.loading || shopping.loading || family.loading;
 
   const ALL_NAV: { key: Tab; label: string; icon: string; roles?: Role[] }[] = [
     { key: "oggi", label: "Oggi", icon: "🏠" },
@@ -190,9 +216,6 @@ export default function App() {
           Sei offline. Le modifiche verranno sincronizzate appena torni online.
         </div>
       )}
-
-      {/* Backend connection banner */}
-
 
       {/* Role badge for non-owner */}
       {role !== "OWNER" && role !== "MANAGER" && (

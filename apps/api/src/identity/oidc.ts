@@ -59,18 +59,37 @@ export class OidcTokenVerifier {
     issuer: string,
     audience: string,
     fetchImpl: FetchLike = fetch,
+    options: { discoveryUrl?: string; jwksUrl?: string } = {},
   ): Promise<OidcTokenVerifier> {
-    const discoveryUrl = new URL(".well-known/openid-configuration", ensureTrailingSlash(issuer));
+    const discoveryUrl = options.discoveryUrl
+      ? new URL(options.discoveryUrl)
+      : new URL(".well-known/openid-configuration", ensureTrailingSlash(issuer));
     const response = await fetchImpl(discoveryUrl);
     if (!response.ok) {
       throw new Error(`OIDC discovery failed with status ${response.status}.`);
     }
     const discovery = (await response.json()) as Partial<OidcDiscoveryDocument>;
-    if (discovery.issuer !== issuer || typeof discovery.jwks_uri !== "string") {
+    console.log("[OIDC DEBUG]", {
+      expectedIssuer: issuer,
+      discoveryIssuer: discovery.issuer,
+      jwksUri: discovery.jwks_uri,
+      issuerEqual: discovery.issuer === issuer,
+      jwksIsString: typeof discovery.jwks_uri === "string",
+      discoveryUrl: discoveryUrl.toString(),
+    });
+    const discoveryIssuer = discovery.issuer?.replace(/\/+$/, "");
+    const expectedIssuer = issuer.replace(/\/+$/, "");
+
+    if (
+      discoveryIssuer !== expectedIssuer ||
+      typeof discovery.jwks_uri !== "string" ||
+      discovery.jwks_uri.trim().length === 0
+    ) {
       throw new Error("OIDC discovery document is invalid.");
     }
 
-    return new OidcTokenVerifier(issuer, audience, createRemoteJWKSet(new URL(discovery.jwks_uri)));
+    const jwksUrl = options.jwksUrl ?? discovery.jwks_uri;
+    return new OidcTokenVerifier(issuer, audience, createRemoteJWKSet(new URL(jwksUrl)));
   }
 
   public async verifyAuthorizationHeader(authorization: string | undefined): Promise<Principal> {

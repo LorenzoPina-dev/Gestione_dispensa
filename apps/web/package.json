@@ -12,6 +12,7 @@
     "test": "npm run build:domain && node --test dist-domain/shell.test.js dist-domain/dashboard.test.js dist-domain/family-journey.test.js dist-domain/family-onboarding.test.js dist-domain/inventory-journey.test.js dist-domain/inventory-workflow.test.js dist-domain/shopping-journey.test.js dist-domain/runtime.test.js"
   },
   "dependencies": {
+    "oidc-client-ts": "^3.5.0",
     "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

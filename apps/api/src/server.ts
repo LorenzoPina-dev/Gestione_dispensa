@@ -87,7 +87,10 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
   const oidcAudience = process.env.OIDC_AUDIENCE;
   if (postgres !== undefined && oidcIssuer && oidcAudience) {
     try {
-      const verifier = await OidcTokenVerifier.fromIssuer(oidcIssuer, oidcAudience);
+      const oidcOptions: { discoveryUrl?: string; jwksUrl?: string } = {};
+      if (process.env.OIDC_DISCOVERY_URL) oidcOptions.discoveryUrl = process.env.OIDC_DISCOVERY_URL;
+      if (process.env.OIDC_JWKS_URL) oidcOptions.jwksUrl = process.env.OIDC_JWKS_URL;
+      const verifier = await OidcTokenVerifier.fromIssuer(oidcIssuer, oidcAudience, fetch, oidcOptions);
       const families = new FamilyService(new PostgresFamilyRepository(postgres), idGenerator, clock);
       const invites = new InviteService(new PostgresInviteRepository(postgres), idGenerator, clock);
       const memberships = new PostgresFamilyMembershipReader(postgres);

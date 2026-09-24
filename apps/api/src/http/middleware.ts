@@ -41,6 +41,7 @@ export function requestMetaMiddleware(): RequestHandler {
     const meta = buildMeta(req);
     req.meta = meta;
     applyCorrelationHeaders(res, meta);
+    console.log("[req]", req.method, req.url, "origin=", req.headers.origin ?? "-");
     next();
   };
 }
@@ -56,7 +57,10 @@ export async function resolvePrincipal(
 ): Promise<Principal | undefined> {
   try {
     return await verifier.verifyAuthorizationHeader(req.headers.authorization);
-  } catch {
+  } catch (error) {
+    console.error("[auth] token verification failed:", 
+      error instanceof Error ? `${error.name}: ${error.message}` : error
+    );
     return undefined;
   }
 }

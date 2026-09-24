@@ -77,7 +77,7 @@ export function buildShoppingRouter(deps: ShoppingRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.archiveList(principal, familyId, req.params.listId, expectedVersion, req.meta),
+          controller.archiveList(principal, familyId, req.params.listId as string, expectedVersion, req.meta),
           toShoppingHttpError,
         );
       }),
@@ -94,7 +94,7 @@ export function buildShoppingRouter(deps: ShoppingRouteDependencies): Router {
     await respond(
       res,
       req.meta,
-      controller.addItem(principal, { ...parsed, listId: req.params.listId, traceId: req.meta.traceId }, req.meta),
+      controller.addItem(principal, { ...parsed, listId: req.params.listId as string, traceId: req.meta.traceId }, req.meta),
       toShoppingHttpError,
     );
   });
@@ -116,8 +116,8 @@ export function buildShoppingRouter(deps: ShoppingRouteDependencies): Router {
       controller.updateItemState(
         principal,
         parsed.familyId,
-        req.params.listId,
-        req.params.itemId,
+        req.params.listId as string,
+        req.params.itemId as string,
         expectedVersion,
         parsed.state,
         req.meta,
@@ -141,7 +141,7 @@ export function buildShoppingRouter(deps: ShoppingRouteDependencies): Router {
       controller.batchUpdateItemState(
         principal,
         parsed.familyId,
-        req.params.listId,
+        req.params.listId as string,
         parsed.itemIds,
         parsed.state,
         req.meta,
@@ -165,7 +165,7 @@ export function buildShoppingRouter(deps: ShoppingRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.getList(principal, familyId, req.params.listId, req.meta),
+          controller.getList(principal, familyId, req.params.listId as string, req.meta),
           toShoppingHttpError,
         );
       }),

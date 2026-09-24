@@ -63,7 +63,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.getFamily(principal, req.params.familyId, req.meta),
+          controller.getFamily(principal, req.params.familyId as string, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -78,7 +78,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.listMembers(principal, req.params.familyId, req.meta),
+          controller.listMembers(principal, req.params.familyId as string, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -98,7 +98,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.updateMembership(principal, req.params.familyId, req.params.membershipId, parsed, req.meta),
+          controller.updateMembership(principal, req.params.familyId as string, req.params.membershipId as string, parsed, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -109,7 +109,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.removeMembership(principal, req.params.familyId, req.params.membershipId, req.meta),
+          controller.removeMembership(principal, req.params.familyId as string, req.params.membershipId as string, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -124,7 +124,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.listInvites(principal, req.params.familyId, req.meta),
+          controller.listInvites(principal, req.params.familyId as string, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -140,7 +140,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.createInvite(principal, req.params.familyId, parsed, req.meta),
+          controller.createInvite(principal, req.params.familyId as string, parsed, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -155,7 +155,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.revokeInvite(principal, req.params.familyId, req.params.inviteId, req.meta),
+          controller.revokeInvite(principal, req.params.familyId as string, req.params.inviteId as string, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -203,7 +203,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.reviewInvite(principal, req.params.attemptId, req.meta),
+          controller.reviewInvite(principal, req.params.attemptId as string, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -218,7 +218,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.rejectInvite(principal, req.params.attemptId, req.meta),
+          controller.rejectInvite(principal, req.params.attemptId as string, req.meta),
           toFamilyHttpError,
         );
       }),
@@ -238,7 +238,7 @@ export function buildFamilyRouter(deps: FamilyRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.acceptInvite(principal, req.params.attemptId, parsed.consentVersion, req.meta),
+          controller.acceptInvite(principal, req.params.attemptId as string, parsed.consentVersion, req.meta),
           toFamilyHttpError,
         );
       }),

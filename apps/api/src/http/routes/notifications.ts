@@ -41,7 +41,7 @@ export function buildNotificationsRouter(deps: NotificationRouteDependencies): R
         await respond(
           res,
           req.meta,
-          controller.markRead(principal, familyId, req.params.notificationId, req.meta),
+          controller.markRead(principal, familyId, req.params.notificationId as string, req.meta),
           toNotificationHttpError,
         );
       }),

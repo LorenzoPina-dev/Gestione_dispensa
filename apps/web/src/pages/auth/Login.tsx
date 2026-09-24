@@ -9,6 +9,14 @@ import { getCurrentUser, listFamilies } from "../../api/endpoints";
 
 type LoginState = "IDLE" | "SUBMITTING" | "ERROR";
 
+function mapRealmRole(roles: string[] | undefined): AuthUser["role"] {
+  const allowed: AuthUser["role"][] = ["OWNER", "MANAGER", "MEMBER", "VIEWER"];
+  const match = roles?.find((role): role is AuthUser["role"] =>
+    allowed.includes(role as AuthUser["role"]),
+  );
+  return match ?? "MEMBER";
+}
+
 interface Props {
   onLogin: (user: AuthUser) => void;
   onRegister: () => void;
@@ -22,10 +30,10 @@ export default function Login({ onLogin, onRegister, onForgot }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
 
-  const setToken = useAuthStore((s) => s.setToken);
-  // Impostato dal listener in store/auth.ts quando una richiesta qualsiasi risponde 401 (token
-  // scaduto/non valido) mentre l'utente era altrove nell'app — così, invece di una pagina bianca
-  // o di richieste che falliscono in silenzio, l'utente vede perché è tornato al login.
+  const setTokens = useAuthStore((s) => s.setTokens);
+  // Impostato dal listener SESSION_EXPIRED_EVENT in store/auth.ts quando una richiesta
+  // qualsiasi risponde 401 e il refresh token non è più valido — così l'utente vede perché è
+  // tornato al login invece di una pagina bianca o di richieste che falliscono in silenzio.
   const sessionExpiredMessage = useAuthStore((s) => s.error);
 
   async function handleLogin(e: React.FormEvent) {
@@ -51,7 +59,11 @@ export default function Login({ onLogin, onRegister, onForgot }: Props) {
           client_id: KEYCLOAK_CLIENT_ID,
           username: cleanEmail,
           password,
-          scope: "openid profile email",
+          // offline_access è indispensabile: senza, Keycloak emette un refresh token che
+          // muore insieme alla SSO session (default 30 minuti). Con offline_access, il
+          // refresh vive per Offline Session Idle (default 30 giorni), che è quello che
+          // serve per "restare loggati".
+          scope: "openid profile email offline_access",
         }).toString(),
       });
 
@@ -63,41 +75,41 @@ export default function Login({ onLogin, onRegister, onForgot }: Props) {
       if (!data.access_token) {
         throw new Error("Token di accesso non restituito da Keycloak.");
       }
-
-      setToken(data.access_token);
-
-      // Risolvi il profilo e la famiglia attiva da /me
-      let familyId: string | null = null;
-      let userId = cleanEmail;
-      let userProfileName = cleanEmail.split("@")[0];
-
-      try {
-        const apiUser = await getCurrentUser();
-        if (apiUser) {
-          userId = apiUser.id;
-          userProfileName = apiUser.name || userProfileName;
-          if (apiUser.activeFamilyId) familyId = apiUser.activeFamilyId;
-        }
-      } catch {
-        // /me non disponibile: proseguiamo con i dati del form
+      if (!data.refresh_token) {
+        // Sintomo sicuro che il client Keycloak non ha lo scope `offline_access` abilitato.
+        // Senza refresh token la sessione muore alla prima scadenza dell'access token,
+        // mandando fuori l'utente senza che sia colpa sua.
+        throw new Error(
+          "Il server non ha emesso un refresh token. Verifica che il client Keycloak abbia lo scope `offline_access` abilitato.",
+        );
       }
 
-      // Ruolo: derivato da listFamilies solo se familyId esiste
-      let role: AuthUser["role"] = "OWNER";
+      setTokens({
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: typeof data.expires_in === "number" ? data.expires_in : 300,
+      });
+
+      // /me è il punto di sincronizzazione obbligatorio fra Keycloak e il dominio applicativo.
+      // Non entriamo nell'app con un utente sintetico se l'API non riesce a verificare il JWT.
+      const apiUser = await getCurrentUser();
+      if (!apiUser?.id) {
+        throw new Error("L'API non ha restituito un profilo utente valido.");
+      }
+
+      const familyId = apiUser.activeFamilyId ?? null;
+      let role: AuthUser["role"] = mapRealmRole(apiUser.roles);
       if (familyId) {
-        try {
-          const families = await listFamilies();
-          const found = families.families.find((f) => f.familyId === familyId);
-          if (found) role = found.role as AuthUser["role"];
-        } catch {
-          /* mantieni default */
-        }
+        const families = await listFamilies();
+        const found = families.families.find((f) => f.familyId === familyId);
+        if (found) role = found.role as AuthUser["role"];
       }
 
+      const userProfileName = apiUser.name || apiUser.preferredUsername || cleanEmail.split("@")[0];
       const user: AuthUser = {
-        id: userId,
+        id: apiUser.id,
         name: userProfileName,
-        email: cleanEmail,
+        email: apiUser.email || cleanEmail,
         avatar: userProfileName.slice(0, 2).toUpperCase(),
         role,
         hasFamilyId: familyId,

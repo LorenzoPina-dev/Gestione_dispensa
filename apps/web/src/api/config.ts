@@ -1,43 +1,42 @@
 /**
- * Backend connection settings. Override at build/dev time with a `.env.local` file:
+ * Backend connection settings. In sviluppo i default sono path relativi: la pagina è servita da
+ * Vite in HTTPS, API e Keycloak girano in HTTP locale — il browser rifiuta richieste cross-origin
+ * HTTP da una pagina HTTPS (mixed content). Il proxy configurato in vite.config.ts inoltra
+ * `/api` e `/realms` verso `http://localhost:3000` e `http://localhost:8080`, così dal punto di
+ * vista del browser è tutto same-origin HTTPS.
  *
- *   VITE_API_BASE_URL=http://localhost:3000/api/v1
+ * In produzione, override a build time con un `.env.local`:
  *
- * Defaults to the local `docker-compose --profile family-local` port documented in
- * `.env.example` (API_PORT=3000) and the `/api/v1` base path.
+ *   VITE_API_BASE_URL=https://api.example.com/api/v1
+ *   VITE_OIDC_ISSUER=https://auth.example.com/realms/dispensa
  */
 // apps/web/src/api/config.ts
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, "") ||
-  "http://localhost:3000/api/v1";
+  "/api/v1";
 
-export const KEYCLOAK_REALM_URL =
-  import.meta.env.VITE_OIDC_ISSUER || "http://localhost:8080/realms/dispensa";
+export const KEYCLOAK_REALM_URL: string =
+  (import.meta.env.VITE_OIDC_ISSUER as string | undefined)?.replace(/\/+$/, "") ||
+  "/realms/dispensa";
 
-export const KEYCLOAK_CLIENT_ID =
-  import.meta.env.VITE_OIDC_CLIENT_ID || "dispensa-app";
-
+export const KEYCLOAK_CLIENT_ID: string =
+  (import.meta.env.VITE_OIDC_CLIENT_ID as string | undefined) || "dispensa-app";
 
 /**
- * Fallback family id used by the hooks when there is no signed-in user yet (e.g. before Login
- * runs). Once a user logs in or completes Onboarding, `App.tsx` passes `currentUser.hasFamilyId`
- * to the hooks instead — see `hooks/useInventory.ts`, `hooks/useShoppingList.ts`,
- * `hooks/useFamily.ts`. Onboarding's "create a family" step calls the real
- * `POST /api/v1/families` and uses the returned id, so in normal use this env var is only useful
- * for testing the API layer before wiring up a screen.
+ * Fallback family id usato dagli hook quando non c'è ancora un utente loggato. Normalmente
+ * `App.tsx` passa `currentUser.hasFamilyId`, quindi questa env var serve solo per testare il
+ * layer API prima che il flusso di login sia cablato.
  */
 export const FAMILY_ID: string | undefined = import.meta.env.VITE_FAMILY_ID;
 
 /**
- * The backend's OIDC verifier requires a real bearer token on every request (see
- * apps/api/src/identity/oidc.ts). Login/Register in this UI are local mock screens (the backend
- * has no password-auth endpoint at all), so for local testing against a real backend you can
- * mint a token against your Keycloak instance and set it here. Never commit a real token — this
- * is a `.env.local`-only development convenience, not a production auth mechanism.
+ * Token bearer per test locali senza passare da Keycloak. Da mettere in `.env.local`, mai
+ * committare. In produzione l'API verifica i token OIDC reali (vedi
+ * apps/api/src/identity/oidc.ts).
  */
 export const DEV_BEARER_TOKEN: string | undefined = import.meta.env.VITE_DEV_BEARER_TOKEN;
 
-/** Request timeout before a call is treated as unreachable and demo mode kicks in. */
+/** Request timeout prima che una chiamata sia considerata irraggiungibile. */
 export const API_TIMEOUT_MS = 6000;
 
 /**

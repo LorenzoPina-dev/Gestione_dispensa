@@ -103,7 +103,7 @@ export function buildPrivacyRouter(deps: PrivacyRouteDependencies): Router {
           res,
           req.meta,
           exportService
-            .download(principal, req.params.exportId, req.meta.traceId)
+            .download(principal, req.params.exportId as string, req.meta.traceId)
             .then((data) => ({ data, meta: req.meta })),
           toPrivacyExportHttpError,
         );

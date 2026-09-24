@@ -44,6 +44,7 @@ export class RegistrationError extends Error {
 
 export interface KeycloakAdminConfig {
   readonly baseUrl: string;
+  /** Internal Keycloak base URL used by the API for admin calls. */
   readonly realm: string;
   readonly adminUsername: string;
   readonly adminPassword: string;
@@ -53,8 +54,9 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
 /** Reads Keycloak admin connection settings from the environment (same variables as before). */
 export function resolveKeycloakAdminConfig(env: NodeJS.ProcessEnv = process.env): KeycloakAdminConfig {
-  const issuer = env.OIDC_ISSUER || "http://192.168.1.24:8080/realms/dispensa";
-  const [baseUrl, realm] = splitIssuer(issuer);
+  const issuer = env.OIDC_ISSUER || "https://192.168.1.24:8443/realms/dispensa";
+  const [publicBaseUrl, realm] = splitIssuer(issuer);
+  const baseUrl = (env.KEYCLOAK_INTERNAL_URL || publicBaseUrl).replace(/\/+$/, "");
   return {
     baseUrl,
     realm,

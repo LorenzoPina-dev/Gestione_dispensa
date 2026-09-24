@@ -16,6 +16,37 @@
   },
   "clients": [
     {
+      "clientId": "dispensa-app",
+      "name": "Dispensa Web (local, Resource Owner Password Credentials)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["https://192.168.1.24:8443/*"],
+      "webOrigins": ["https://192.168.1.24:8443"],
+      "attributes": {
+        "access.token.lifespan": "300",
+        "client.offline.session.idle.timeout": "2592000",
+        "client.offline.session.max.lifespan": "2592000",
+        "use.refresh.tokens": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "dispensa-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "dispensa-web",
       "name": "Dispensa Web Local",
       "enabled": true,

@@ -1,9 +1,24 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { StockItem, StorageLocation, ActionState } from "../types";
 import * as api from "../api/endpoints";
+import {
+  isBarcodeDetectorAvailable,
+  detectBestBarcode,
+  computeViewfinderCrop,
+  type BarcodeHit,
+} from "../lib/barcodePreprocess";
+import { isBackendUnreachable } from "../api/client.js";
 
 type AddMode = "menu" | "manuale" | "barcode" | "foto" | "lista";
-type BarcodeState = "IDLE" | "SCANNING" | "CANDIDATE" | "MANUAL_REQUIRED" | "NOT_FOUND" | "DEGRADED" | "CONFIRMED";
+type BarcodeState =
+  | "IDLE"
+  | "SCANNING"
+  | "LOOKING"
+  | "CANDIDATE"
+  | "MANUAL_REQUIRED"
+  | "NOT_FOUND"
+  | "DEGRADED"
+  | "CONFIRMED";
 
 const LOCATIONS: { key: StorageLocation; label: string; icon: string }[] = [
   { key: "frigo", label: "Frigo", icon: "❄️" },
@@ -85,7 +100,19 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [state, setState] = useState<BarcodeState>("IDLE");
-  const [candidate, setCandidate] = useState<{ name: string; brand?: string; unit: string; confidence?: number; source?: string } | null>(null);
+  const [candidate, setCandidate] = useState<{
+    name: string;
+    brand?: string;
+    unit: string;
+    category?: string;
+    photoUrl?: string;
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    fiber?: number;
+    provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+  } | null>(null);
   const [manualCode, setManualCode] = useState("");
   const [form, setForm] = useState<Partial<StockItem>>({});
   const [qty, setQty] = useState("1");
@@ -93,56 +120,95 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   const [expiry, setExpiry] = useState("");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const scanIntervalRef = useRef<number | null>(null);
+  const scanTimeoutRef = useRef<number | null>(null);
+  const lastSeenRef = useRef<{ value: string; count: number }>({ value: "", count: 0 });
+  const stoppedRef = useRef(false);
 
   const stopCamera = useCallback(() => {
+    stoppedRef.current = true;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
+    if (scanTimeoutRef.current !== null) {
+      clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
     }
+    lastSeenRef.current = { value: "", count: 0 };
   }, []);
 
   useEffect(() => {
     return () => stopCamera();
   }, [stopCamera]);
 
+  // ── Fotocamera ──────────────────────────────────────────────────────────────
+  //
+  // Constraints: risoluzione alta (più pixel sul barcode), autofocus continuo,
+  // leggero zoom digitale per far riempire il codice. I parametri focus/zoom NON
+  // sono standard in `getUserMedia`, quindi li applichiamo in un secondo momento
+  // via `applyConstraints` controllando `getCapabilities()` — su iOS/desktop
+  // semplicemente non sono disponibili e li saltiamo.
   async function startCamera() {
+    if (!isBarcodeDetectorAvailable()) {
+      setCameraError(
+        "Questo browser non espone la decodifica barcode nativa. Puoi comunque caricare una foto o inserire il codice manualmente.",
+      );
+      setState("IDLE");
+      return;
+    }
     setState("SCANNING");
     setCameraError(null);
+    stoppedRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 } },
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 60 },
+        },
       });
+      if (stoppedRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      // Try BarcodeDetector API
-      if ("BarcodeDetector" in window) {
-        const detector = new (window as unknown as { BarcodeDetector: new (opts: { formats: string[] }) => { detect: (img: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "code_128"] });
-        scanIntervalRef.current = window.setInterval(async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2) return;
-          try {
-            const codes = await detector.detect(videoRef.current);
-            if (codes.length > 0) {
-              stopCamera();
-              processBarcode(codes[0].rawValue);
-            }
-          } catch {
-            // continue scanning
+
+      // Applica focus/zoom/exposure avanzati se il device li supporta.
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        try {
+          const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & {
+            focusMode?: string[];
+            zoom?: { min: number; max: number; step?: number };
+          };
+          const advanced: MediaTrackConstraintSet[] = [];
+          if (caps.focusMode?.includes("continuous")) {
+            advanced.push({ focusMode: "continuous" } as unknown as MediaTrackConstraintSet);
           }
-        }, 400);
-      } else {
-        // BarcodeDetector not available — offer file fallback
-        stopCamera();
-        setCameraError("Il browser non supporta la scansione automatica. Usa il file sottostante.");
-        setState("IDLE");
+          if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+            const bump = caps.zoom.min + (caps.zoom.max - caps.zoom.min) * 0.2;
+            advanced.push({ zoom: bump } as unknown as MediaTrackConstraintSet);
+          }
+          if (advanced.length > 0) {
+            await track.applyConstraints({ advanced } as MediaTrackConstraints);
+          }
+        } catch {
+          /* capabilities non disponibili: nessun problema */
+        }
       }
+
+      const video = videoRef.current;
+      if (!video) {
+        stopCamera();
+        setState("IDLE");
+        return;
+      }
+      video.srcObject = stream;
+      await video.play();
+
+      scheduleScanFrame();
     } catch {
       stopCamera();
       setCameraError("Impossibile accedere alla fotocamera. Controlla i permessi del browser.");
@@ -150,37 +216,195 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
     }
   }
 
-  async function processBarcode(code: string) {
-    setManualCode(code);
-    try {
-      const result = await api.resolveProductBarcode("BARCODE", code);
-      if (result.product) {
-        setCandidate({
-          name: result.product.canonicalName,
-          ...(result.product.brand ? { brand: result.product.brand } : {}),
-          unit: result.product.defaultUnit,
-          source: result.product.provenanceQuality,
-        });
-        setState("CANDIDATE");
-      } else {
-        setState("NOT_FOUND");
-      }
-    } catch {
-      setState("NOT_FOUND");
-    }
+  // ── Loop di scansione ───────────────────────────────────────────────────────
+  //
+  // setTimeout ricorsivo (non setInterval) per evitare che le chiamate async si
+  // accavallino: la prossima iterazione parte solo dopo che la precedente è
+  // terminata. La pipeline multi-variante richiede ~100-300 ms per frame.
+  function scheduleScanFrame() {
+    if (stoppedRef.current) return;
+    scanTimeoutRef.current = window.setTimeout(scanFrame, 500);
   }
 
-  function handleFileBarcode(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setState("NOT_FOUND");
-    setCameraError(`Immagine acquisita (${file.name}). Il browser non espone un decoder barcode affidabile per questo file; inserisci il codice manualmente.`);
+  async function scanFrame() {
+    if (stoppedRef.current) return;
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) {
+      scheduleScanFrame();
+      return;
+    }
 
+    try {
+      const crop = computeViewfinderCrop(video.videoWidth, video.videoHeight);
+      const hit: BarcodeHit | null = await detectBestBarcode(
+        video,
+        video.videoWidth,
+        video.videoHeight,
+        { maxDimension: 900, crop },
+      );
+
+      if (hit) {
+        // Richiediamo la stessa lettura su due frame consecutivi prima di accettarla:
+        // un singolo frame può produrre una lettura valida-per-checksum ma sbagliata
+        // (raro, ma possibile con riflessi che cambiano). Due letture identiche di
+        // fila sono un segnale molto più affidabile.
+        if (lastSeenRef.current.value === hit.rawValue) {
+          lastSeenRef.current.count += 1;
+        } else {
+          lastSeenRef.current = { value: hit.rawValue, count: 1 };
+        }
+        // Se il valore è già validato GS1, basta 1 frame; altrimenti ne servono 2.
+        const threshold = hit.validated ? 1 : 2;
+        if (lastSeenRef.current.count >= threshold) {
+          const confirmed = hit.rawValue;
+          stopCamera();
+          void processBarcode(confirmed);
+          return;
+        }
+      } else {
+        lastSeenRef.current = { value: "", count: 0 };
+      }
+    } catch (err) {
+      // Non inghiottire i ReferenceError: se c'è un bug interno, vogliamo saperlo.
+      if (err instanceof ReferenceError) {
+        console.error("[barcode] bug interno nello scanner:", err);
+        stopCamera();
+        setCameraError("Errore interno dello scanner. Riprova.");
+        setState("IDLE");
+        return;
+      }
+    }
+
+    scheduleScanFrame();
+  }
+
+  // ── Risoluzione codice ──────────────────────────────────────────────────────
+  //
+  // Catena: catalogo locale → worker esterno (Open Food Facts). Tre esiti:
+  //  - MATCHED: trovato → mostra candidato.
+  //  - UNKNOWN: non esiste → inserimento manuale.
+  //  - DEGRADED: worker/OFF non ha risposto → retry.
+ async function processBarcode(code: string) {
+  setManualCode(code);
+  setCameraError(null);   // pulisce eventuali messaggi precedenti
+  setState("LOOKING");
+  try {
+    const result = await api.resolveProductBarcode("BARCODE", code);
+    if (result.status === "MATCHED" && result.product) {
+      setCandidate({
+        name: result.product.canonicalName,
+        ...(result.product.brand ? { brand: result.product.brand } : {}),
+        unit: result.product.defaultUnit,
+        ...(result.product.category ? { category: result.product.category } : {}),
+        ...(result.product.photoUrl ? { photoUrl: result.product.photoUrl } : {}),
+        ...(result.product.calories !== undefined ? { calories: result.product.calories } : {}),
+        ...(result.product.protein !== undefined ? { protein: result.product.protein } : {}),
+        ...(result.product.carbs !== undefined ? { carbs: result.product.carbs } : {}),
+        ...(result.product.fat !== undefined ? { fat: result.product.fat } : {}),
+        ...(result.product.fiber !== undefined ? { fiber: result.product.fiber } : {}),
+        provenanceQuality: result.product.provenanceQuality,
+      });
+      setState("CANDIDATE");
+      return;
+    }
+
+    if (result.status === "DEGRADED") {
+      // Il worker ha risposto ma il provider esterno (Open Food Facts) non ha risposto
+      // in tempo o è rate-limited. È un problema temporaneo, il retry ha senso.
+      setCameraError(
+        "Open Food Facts non ha risposto in tempo. Riprova tra poco oppure inserisci i dati manualmente.",
+      );
+      setState("DEGRADED");
+      return;
+    }
+
+    // status === "UNKNOWN" | qualsiasi altro valore: il worker ha risposto e il prodotto
+    // non esiste né in catalogo locale né su OFF.
+    setState("NOT_FOUND");
+  } catch (err) {
+    // Distinguiamo le due famiglie di errore, altrimenti l'utente vede un messaggio
+    // fuorviante ("Open Food Facts lento") quando in realtà il backend non è
+    // raggiungibile (es. `localhost` chiamato dal telefono, mixed content, CORS).
+    if (isBackendUnreachable(err)) {
+      setCameraError(
+        "Impossibile contattare il server. Verifica di essere connesso e che l'app punti all'indirizzo giusto, poi riprova.",
+      );
+    } else {
+      console.error("[barcode] resolve fallita:", err);
+      setCameraError("Errore imprevisto durante la verifica del codice. Riprova o inserisci manualmente.");
+    }
+    setState("DEGRADED");
+  }
+}
+
+  // ── Upload foto con barcode ─────────────────────────────────────────────────
+  //
+  // La pipeline di preprocessing è la stessa del video, ma può essere più aggressiva
+  // perché abbiamo una sola immagine e tutto il tempo che serve: maxDimension più
+  // alto (1600) e nessun crop (l'utente ha già inquadrato il codice).
+  async function handleFileBarcode(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permette di ricaricare lo stesso file
+    if (!file) return;
+
+    if (!isBarcodeDetectorAvailable()) {
+      setCameraError(
+        "Questo browser non espone la decodifica barcode nativa. Inserisci il codice manualmente.",
+      );
+      setState("NOT_FOUND");
+      return;
+    }
+
+    setState("LOOKING");
+    setCameraError(null);
+
+    let bitmap: ImageBitmap | null = null;
+    try {
+      bitmap = await createImageBitmap(file);
+      const hit = await detectBestBarcode(bitmap, bitmap.width, bitmap.height, {
+        maxDimension: 1600,
+      });
+
+      if (hit && hit.validated) {
+        await processBarcode(hit.rawValue);
+        return;
+      }
+      if (hit) {
+        // Letto ma non valido-GS1: mostriamo come "da confermare" senza pretendere
+        // che il prodotto esista — spesso è un barcode parzialmente ostruito.
+        setManualCode(hit.rawValue);
+        setCameraError(
+          `Ho letto "${hit.rawValue}" ma non supera il check digit GS1. Verifica il codice e correggilo se serve.`,
+        );
+        setState("NOT_FOUND");
+        return;
+      }
+
+      setCameraError(
+        "Nessun barcode leggibile nell'immagine. Prova con una foto più nitida, senza riflessi, con il codice ben centrato e che occupi almeno un terzo dell'inquadratura.",
+      );
+      setState("NOT_FOUND");
+    } catch (err) {
+      console.error("[barcode] decodifica file fallita:", err);
+      setState("DEGRADED");
+    } finally {
+      bitmap?.close();
+    }
   }
 
   function confirmCandidate() {
     if (!candidate) return;
-    setForm({ name: candidate.name, brand: candidate.brand, unit: candidate.unit, category: candidate.category, calories: candidate.calories, protein: candidate.protein, carbs: candidate.carbs, fat: candidate.fat, fiber: candidate.fiber });
+    setForm({
+      name: candidate.name,
+      brand: candidate.brand,
+      unit: candidate.unit,
+      category: candidate.category,
+      calories: candidate.calories,
+      protein: candidate.protein,
+      carbs: candidate.carbs,
+      fat: candidate.fat,
+      fiber: candidate.fiber,
+    });
     setState("CONFIRMED");
   }
 
@@ -254,9 +478,9 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
         <div className="space-y-4">
           <div className="relative rounded-2xl overflow-hidden bg-black" style={{ aspectRatio: "4/3" }}>
             <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-            {/* Viewfinder overlay */}
+            {/* Viewfinder overlay: coincide all'incirca con la ROI 60%×35% del preprocessing */}
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-52 h-32 border-2 rounded-xl" style={{ borderColor: "#c4623a", boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }} />
+              <div className="w-[60%] h-[35%] border-2 rounded-xl" style={{ borderColor: "#c4623a", boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }} />
             </div>
             <div className="absolute bottom-4 left-0 right-0 text-center">
               <p className="text-white text-xs">Punta verso il codice a barre</p>
@@ -268,24 +492,45 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
         </div>
       )}
 
+      {/* LOOKING — waiting on local DB / worker / Open Food Facts */}
+      {state === "LOOKING" && (
+        <div className="space-y-4 text-center py-10">
+          <div className="w-10 h-10 mx-auto rounded-full animate-spin" style={{ border: "3px solid #ede6d6", borderTopColor: "#c4623a" }} />
+          <p className="text-sm" style={{ color: "#6b5e4e" }}>Ricerca del codice {manualCode}…</p>
+          <p className="text-xs" style={{ color: "#6b5e4e" }}>Controllo prima il catalogo locale, poi Open Food Facts se necessario.</p>
+        </div>
+      )}
+
       {/* CANDIDATE — requires explicit confirmation */}
       {state === "CANDIDATE" && candidate && (
         <div className="space-y-4">
           <div className="rounded-xl px-4 py-3 text-xs font-medium" style={{ backgroundColor: "#faecd4", color: "#92400e" }}>
-            Codice rilevato: {manualCode} · fonte: {candidate.source}
+            Codice rilevato: {manualCode} · fonte: {candidate.provenanceQuality === "VERIFIED" ? "catalogo locale" : "Open Food Facts"}
           </div>
           <div className="rounded-2xl p-5 space-y-3" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="font-semibold" style={{ color: "#1a1510" }}>{candidate.name}</p>
-                {candidate.brand && <p className="text-sm" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}
+            <div className="flex items-start gap-3">
+              {candidate.photoUrl && (
+                <img src={candidate.photoUrl} alt={candidate.name} className="w-14 h-14 rounded-xl object-cover shrink-0" style={{ border: "1px solid #d8cfc0" }} />
+              )}
+              <div className="flex items-start justify-between gap-2 flex-1">
+                <div>
+                  <p className="font-semibold" style={{ color: "#1a1510" }}>{candidate.name}</p>
+                  {candidate.brand && <p className="text-sm" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}
+                </div>
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0"
+                  style={{
+                    backgroundColor: candidate.provenanceQuality === "VERIFIED" ? "#dceadd" : "#faecd4",
+                    color: candidate.provenanceQuality === "VERIFIED" ? "#3d6641" : "#92400e",
+                  }}
+                >
+                  {candidate.provenanceQuality === "VERIFIED"
+                    ? "verificato"
+                    : candidate.provenanceQuality === "UNKNOWN"
+                      ? "dati incompleti"
+                      : "importato da Open Food Facts"}
+                </span>
               </div>
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0"
-                style={{ backgroundColor: candidate.confidence >= 0.9 ? "#dceadd" : "#faecd4", color: candidate.confidence >= 0.9 ? "#3d6641" : "#92400e" }}
-              >
-                {Math.round(candidate.confidence * 100)}% fiducia · {candidate.confidence >= 0.9 ? "verificato" : "importato"}
-              </span>
             </div>
             {candidate.calories !== undefined && (
               <div className="grid grid-cols-5 gap-1 pt-1">
@@ -323,13 +568,60 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
         <div className="space-y-4">
           <div className="rounded-xl p-4 text-center space-y-2" style={{ backgroundColor: "#f0ddd5" }}>
             <p className="font-medium text-sm" style={{ color: "#c4623a" }}>Prodotto non trovato</p>
-            <p className="text-xs" style={{ color: "#6b5e4e" }}>Il codice <strong>{manualCode}</strong> non è presente nel database. Inserisci i dati manualmente.</p>
+            <p className="text-xs" style={{ color: "#6b5e4e" }}>
+              Il codice <strong>{manualCode}</strong> non è presente né nel catalogo locale né su Open Food Facts. Inserisci i dati manualmente: verranno salvati e collegati a questo codice per le prossime scansioni.
+            </p>
           </div>
+          {cameraError && (
+            <div className="rounded-xl px-4 py-3 text-xs" style={{ backgroundColor: "#faecd4", color: "#92400e" }}>
+              {cameraError}
+            </div>
+          )}
           <button onClick={() => { setForm({}); setState("MANUAL_REQUIRED"); }} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: "#c4623a", color: "#fff" }}>
             Inserisci manualmente
           </button>
-          <button onClick={() => setState("IDLE")} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
+          <button onClick={() => { setCameraError(null); setState("IDLE"); }} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
             Riprova la scansione
+          </button>
+        </div>
+      )}
+
+      {/* DEGRADED */}
+      {state === "DEGRADED" && (
+        <div className="space-y-4">
+          <div className="rounded-xl p-4 text-center space-y-2" style={{ backgroundColor: "#faecd4" }}>
+            <p className="font-medium text-sm" style={{ color: "#92400e" }}>
+              Verifica non riuscita
+            </p>
+            <p className="text-xs" style={{ color: "#6b5e4e" }}>
+              {cameraError ?? (
+                <>
+                  Non è stato possibile verificare il codice <strong>{manualCode}</strong>.
+                  Riprova tra poco oppure inserisci i dati manualmente.
+                </>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={() => processBarcode(manualCode)}
+            className="w-full py-2.5 rounded-xl text-sm font-medium"
+            style={{ backgroundColor: "#c4623a", color: "#fff" }}
+          >
+            Riprova
+          </button>
+          <button
+            onClick={() => { setForm({}); setState("MANUAL_REQUIRED"); }}
+            className="w-full py-2.5 rounded-xl text-sm font-medium"
+            style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}
+          >
+            Inserisci manualmente
+          </button>
+          <button
+            onClick={() => { setCameraError(null); setState("IDLE"); }}
+            className="w-full py-2.5 rounded-xl text-sm font-medium"
+            style={{ backgroundColor: "transparent", color: "#6b5e4e" }}
+          >
+            Annulla
           </button>
         </div>
       )}

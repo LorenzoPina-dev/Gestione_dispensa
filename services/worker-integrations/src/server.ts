@@ -26,6 +26,7 @@ function log(level: "info" | "error", event: string, fields: Record<string, unkn
 }
 
 const adapter = new BarcodeCatalogAdapter({
+  
   provider: new OpenFoodFactsProvider({ baseUrl: process.env.OPEN_FOOD_FACTS_BASE_URL }),
   timeoutMs: Number.isFinite(PROVIDER_TIMEOUT_MS) && PROVIDER_TIMEOUT_MS > 0 ? PROVIDER_TIMEOUT_MS : 4000,
 });

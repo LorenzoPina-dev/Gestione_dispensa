@@ -4,6 +4,7 @@ import type { OidcTokenVerifier } from "../../identity/oidc.js";
 import { respond, sendFailure } from "../envelope.js";
 import { asyncHandler, methodNotAllowed, requireIfMatchHeader, resolvePrincipal } from "../middleware.js";
 import { parseCreateStockItemBody, parseRecordMovementBody } from "../validators.js";
+import { CreateStockItemCommand } from "../../inventory/service.js";
 
 export interface InventoryRouteDependencies {
   controller: InventoryController;
@@ -47,7 +48,7 @@ export function buildInventoryRouter(deps: InventoryRouteDependencies): Router {
             ...parsed,
             ...(parsed.expiresAt ? { expiresAt: new Date(parsed.expiresAt) } : {}),
             traceId: req.meta.traceId,
-          }, req.meta),
+          } as Omit<CreateStockItemCommand, "actorId">, req.meta),
           toInventoryHttpError,
         );
       }),
@@ -62,7 +63,7 @@ export function buildInventoryRouter(deps: InventoryRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.getStockItem(principal, req.params.stockItemId, req.meta),
+          controller.getStockItem(principal, req.params.stockItemId as string, req.meta),
           toInventoryHttpError,
         );
       }),
@@ -77,7 +78,7 @@ export function buildInventoryRouter(deps: InventoryRouteDependencies): Router {
         await respond(
           res,
           req.meta,
-          controller.listMovements(principal, req.params.stockItemId, req.meta),
+          controller.listMovements(principal, req.params.stockItemId as string, req.meta),
           toInventoryHttpError,
         );
       }),
@@ -97,7 +98,7 @@ export function buildInventoryRouter(deps: InventoryRouteDependencies): Router {
           req.meta,
           controller.recordMovement(
             principal,
-            { ...parsed, stockItemId: req.params.stockItemId, traceId: req.meta.traceId },
+            { ...parsed, stockItemId: req.params.stockItemId as string, traceId: req.meta.traceId },
             ifMatch,
             req.meta,
           ),
