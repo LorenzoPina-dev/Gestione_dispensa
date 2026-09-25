@@ -16,6 +16,9 @@ import { FamilyController } from "./family/controller.js";
 import { InventoryService } from "./inventory/service.js";
 import { PostgresInventoryRepository, PostgresInventoryReader } from "./inventory/postgres.js";
 import { InventoryController } from "./inventory/controller.js";
+import { ShelfLifeEstimationService } from "./shelf-life/service.js";
+import { PostgresShelfLifeRuleRepository, PostgresExpiryScanRepository } from "./shelf-life/postgres.js";
+import { ExpiryScanService } from "./shelf-life/expiry-scan.js";
 import { CatalogService } from "./catalog/service.js";
 import { CatalogWorkflowService } from "./catalog/workflow.js";
 import {
@@ -101,7 +104,11 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
         verifier,
       };
 
-      const inventoryService = new InventoryService(new PostgresInventoryRepository(postgres), idGenerator);
+      const shelfLifeEstimator = new ShelfLifeEstimationService(new PostgresShelfLifeRuleRepository(postgres));
+      const inventoryService = new InventoryService(
+        new PostgresInventoryRepository(postgres, shelfLifeEstimator),
+        idGenerator,
+      );
       const inventoryReader = new PostgresInventoryReader(postgres);
       options.inventory = {
         controller: new InventoryController(inventoryService, memberships, inventoryReader),
@@ -138,6 +145,33 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
         controller: new NotificationController(notificationService, memberships),
         verifier,
       };
+
+      // EXPIRY_SCAN: periodically warns families about stock lots (manually dated or
+      // auto-estimated via shelfLifeEstimator above) approaching their expiry. This is the
+      // directly-callable composition of the EXPIRY_SCAN task placeholder declared in
+      // services/scheduler/src/scheduler.ts (TASK_TYPES) -- see ExpiryScanService for why a
+      // simple interval is used here instead of the full distributed Scheduler.
+      const expiryScanIntervalMs = Number(process.env.EXPIRY_SCAN_INTERVAL_MS ?? 21_600_000); // 6h
+      if (process.env.EXPIRY_SCAN_ENABLED !== "false" && expiryScanIntervalMs > 0) {
+        const expiryScan = new ExpiryScanService(
+          new PostgresExpiryScanRepository(postgres),
+          shelfLifeEstimator,
+          notificationService,
+        );
+        const expiryScanLog = observability.logger({ requestId: "system", traceId: "expiry-scan" });
+        const runExpiryScan = (): void => {
+          expiryScan
+            .scan()
+            .then((result) => expiryScanLog.info("expiry_scan_completed", result))
+            .catch((error: unknown) =>
+              expiryScanLog.error("expiry_scan_failed", {
+                error: error instanceof Error ? error.message : "unknown",
+              }),
+            );
+        };
+        runExpiryScan();
+        setInterval(runExpiryScan, expiryScanIntervalMs).unref();
+      }
 
       const nutritionService = new NutritionService(new PostgresNutritionReader(postgres));
       options.nutrition = {

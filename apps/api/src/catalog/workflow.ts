@@ -25,6 +25,8 @@ export interface ExternalProductMatch {
   readonly carbs?: number;
   readonly fat?: number;
   readonly fiber?: number;
+  /** Canonical shelf-life category (see apps/api/src/shelf-life/service.ts), when the provider derives one. */
+  readonly category?: string;
   readonly source: string;
   readonly sourceVersion: string;
   readonly confidence: number;

@@ -4,6 +4,8 @@ import type {
   RecordMovementCommand,
   StockItem,
 } from "./service.js";
+import type { ShelfLifeEstimationService, StorageKind } from "../shelf-life/service.js";
+import { normalizeStorageKind } from "../shelf-life/service.js";
 
 export interface SqlResult<Row> {
   readonly rows: readonly Row[];
@@ -49,9 +51,16 @@ interface StockRow {
 
 export class PostgresInventoryRepository implements InventoryRepository {
   private readonly database: SqlTransactionFactory;
+  private readonly shelfLife: ShelfLifeEstimationService | undefined;
 
-  public constructor(database: SqlTransactionFactory) {
+  /**
+   * `shelfLife` is optional so this repository keeps working unconfigured (e.g. in existing
+   * tests that construct it with just a database double): without it, createStockItemAtomic
+   * falls back to today's behaviour exactly -- no expiresAt means no stock_lots row at all.
+   */
+  public constructor(database: SqlTransactionFactory, shelfLife?: ShelfLifeEstimationService) {
     this.database = database;
+    this.shelfLife = shelfLife;
   }
 
   public async getById(stockItemId: string): Promise<StockItem | undefined> {
@@ -68,10 +77,9 @@ export class PostgresInventoryRepository implements InventoryRepository {
     const transaction = await this.database.transaction();
     try {
       let locationId = input.locationId ?? null;
+      let storageKind: StorageKind = normalizeStorageKind(input.location);
       if (!locationId && input.location) {
-        const normalizedLocation = input.location.toLowerCase() === "frigo" ? "FRIDGE"
-          : input.location.toLowerCase() === "freezer" ? "FREEZER"
-          : input.location.toLowerCase() === "dispensa" ? "PANTRY" : "OTHER";
+        const normalizedLocation = storageKind;
         const locationResult = await transaction.query<{ id: string }>(
           `INSERT INTO locations (family_id, name, kind)
            VALUES ($1, $2, $3)
@@ -87,6 +95,15 @@ export class PostgresInventoryRepository implements InventoryRepository {
           );
           locationId = existing.rows[0]?.id ?? null;
         }
+      } else if (locationId) {
+        // locationId was passed directly (no free-text location): resolve its stored kind so the
+        // shelf-life estimate below uses the location the caller actually picked, not a guess.
+        const kindResult = await transaction.query<{ kind: string }>(
+          `SELECT kind FROM locations WHERE id = $1`,
+          [locationId],
+        );
+        const kind = kindResult.rows[0]?.kind;
+        if (kind) storageKind = normalizeStorageKind(kind);
       }
       await transaction.query(
         `INSERT INTO stock_items
@@ -97,11 +114,33 @@ export class PostgresInventoryRepository implements InventoryRepository {
           locationId, input.quantity, input.unit, input.reorderPoint ?? null,
         ],
       );
-      if (input.expiresAt) {
+      let expiresAt = input.expiresAt;
+      let expirySource: "MANUAL" | "ESTIMATED" = "MANUAL";
+      if (!expiresAt && this.shelfLife) {
+        // No explicit expiry: ask ShelfLifeEstimationService, using the product's catalog
+        // category and the resolved storage kind (see shelf-life/service.ts). A product with no
+        // category, or a category with no rule, falls back to the DEFAULT_CATEGORY rule for this
+        // storage kind rather than leaving the lot untracked.
+        const productResult = await transaction.query<{ category: string | null }>(
+          `SELECT category FROM products WHERE id = $1`,
+          [input.productId],
+        );
+        const category = productResult.rows[0]?.category ?? undefined;
+        const estimate = await this.shelfLife.estimate({
+          category,
+          storageKind,
+          receivedAt: new Date(),
+        });
+        if (estimate.expiresAt) {
+          expiresAt = estimate.expiresAt;
+          expirySource = "ESTIMATED";
+        }
+      }
+      if (expiresAt) {
         await transaction.query(
-          `INSERT INTO stock_lots (stock_item_id, received_at, expires_at, quantity_snapshot)
-           VALUES ($1, $2, $3, $4)`,
-          [input.id, new Date(), input.expiresAt, input.quantity],
+          `INSERT INTO stock_lots (stock_item_id, received_at, expires_at, quantity_snapshot, expiry_source)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [input.id, new Date(), expiresAt, input.quantity, expirySource],
         );
       }
       await transaction.commit();

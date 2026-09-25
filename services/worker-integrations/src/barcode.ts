@@ -17,6 +17,8 @@ export interface BarcodeProviderProduct {
   readonly carbs?: number;
   readonly fat?: number;
   readonly fiber?: number;
+  /** Canonical shelf-life category (see apps/api/src/shelf-life/service.ts), when derivable. */
+  readonly category?: string;
 }
 
 export interface BarcodeProviderResponse {

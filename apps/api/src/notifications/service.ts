@@ -1,4 +1,4 @@
-export type NotificationCategory = "REORDER" | "INVITE" | "SYSTEM";
+export type NotificationCategory = "REORDER" | "INVITE" | "SYSTEM" | "EXPIRY";
 
 export interface Notification {
   id: string;
@@ -95,6 +95,30 @@ export class NotificationService {
       category: "REORDER",
       title: `Scorte basse: ${input.productName}`,
       body: `Hai ${input.quantity} ${input.unit}. Soglia minima: ${input.reorderPoint} ${input.unit}.`,
+    });
+  }
+
+  /**
+   * Called by ExpiryScanService (see shelf-life/expiry-scan.ts) for a lot whose estimated or
+   * manually-entered expiry falls within its category's notify-days-before window. Satisfies
+   * the ExpiryNotifier interface expected there.
+   */
+  public async notifyExpiringStock(input: {
+    familyId: string;
+    productName: string;
+    quantity: number;
+    unit: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    const dateLabel = input.expiresAt.toLocaleDateString("it-IT", {
+      day: "numeric",
+      month: "long",
+    });
+    await this.create({
+      familyId: input.familyId,
+      category: "EXPIRY",
+      title: `In scadenza: ${input.productName}`,
+      body: `Hai ${input.quantity} ${input.unit} in scadenza il ${dateLabel}.`,
     });
   }
 }

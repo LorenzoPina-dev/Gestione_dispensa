@@ -29,6 +29,7 @@ interface WorkerLookupResponseBody {
       readonly carbs?: number;
       readonly fat?: number;
       readonly fiber?: number;
+      readonly category?: string;
     };
   };
 }
@@ -144,6 +145,7 @@ function toExternalMatch(body: WorkerLookupResponseBody): ExternalProductMatch |
     ...(product?.carbs !== undefined ? { carbs: product.carbs } : {}),
     ...(product?.fat !== undefined ? { fat: product.fat } : {}),
     ...(product?.fiber !== undefined ? { fiber: product.fiber } : {}),
+    ...(product?.category ? { category: product.category } : {}),
     source: body.candidate?.provider ?? "openfoodfacts",
     sourceVersion: body.candidate?.sourceVersion ?? "unknown",
     confidence: typeof confidence === "number" && Number.isFinite(confidence) ? confidence : 0.7,

@@ -31,6 +31,7 @@ interface OffProductPayload {
   readonly quantity?: string;
   readonly nutriments?: OffNutriments;
   readonly nutrition_data_per?: string;
+  readonly categories_tags?: readonly string[];
 }
 
 interface OffApiResponse {
@@ -47,7 +48,40 @@ const REQUESTED_FIELDS = [
   "quantity",
   "nutriments",
   "nutrition_data_per",
+  "categories_tags",
 ].join(",");
+
+/**
+ * Maps an Open Food Facts `categories_tags` entry (e.g. "en:dairies", "en:fresh-meats") to our
+ * canonical shelf-life category vocabulary -- the SAME strings seeded into shelf_life_rules by
+ * infra/postgres/migrations/0014_shelf-life.sql, so a barcode-imported product's category
+ * immediately resolves a shelf-life rule with no further mapping needed downstream (see
+ * apps/api/src/shelf-life/service.ts). This is a first-pass heuristic over the most common OFF
+ * tags; refining it against the local Open Food Facts dump (see openfoodfacts-mongodbdump at the
+ * repo root) is a natural follow-up once real category-tag frequency data is available.
+ */
+const OFF_CATEGORY_RULES: readonly { readonly match: RegExp; readonly category: string }[] = [
+  { match: /meats|fishes|seafood|poultry/, category: "fresh-meat-fish" },
+  { match: /fresh-pastas|fresh-doughs/, category: "fresh-milk-pasta" },
+  { match: /cheeses|cold-cuts|charcuterie|hams/, category: "cold-cuts-fresh-cheese" },
+  { match: /dairies|yogurts|butters|milks/, category: "eggs-dairy" },
+  { match: /fruits|vegetables|salads/, category: "produce-fresh" },
+  { match: /breads|bakery|viennoiseries/, category: "bakery-fresh" },
+  { match: /canned|tomato-purees|sauces|preserves/, category: "canned-preserved" },
+  { match: /pastas|rices|legumes|pulses/, category: "dry-staples" },
+  { match: /frozen/, category: "frozen-general" },
+  { match: /salts|sugars|honeys/, category: "pantry-indefinite" },
+];
+
+function normalizeOffCategory(tags: readonly string[] | undefined): string | undefined {
+  if (!tags || tags.length === 0) return undefined;
+  for (const tag of tags) {
+    const normalized = tag.toLowerCase();
+    const rule = OFF_CATEGORY_RULES.find((candidate) => candidate.match.test(normalized));
+    if (rule) return rule.category;
+  }
+  return undefined;
+}
 
 /**
  * Concrete BarcodeProvider backed by the public Open Food Facts database
@@ -181,6 +215,10 @@ export class OpenFoodFactsProvider implements BarcodeProvider {
         ...(carbs !== undefined ? { carbs } : {}),
         ...(fat !== undefined ? { fat } : {}),
         ...(fiber !== undefined ? { fiber } : {}),
+        ...((): { category?: string } => {
+          const category = normalizeOffCategory(body.product?.categories_tags);
+          return category ? { category } : {};
+        })(),
       },
     };
   }

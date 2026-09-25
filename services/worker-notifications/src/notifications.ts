@@ -26,7 +26,7 @@ export interface NotificationEvent {
   readonly familyId?: string;
   readonly recipientUserId: string;
   readonly channel: NotificationChannel;
-  readonly category: "REORDER" | "INVITE" | "SYSTEM";
+  readonly category: "REORDER" | "INVITE" | "SYSTEM" | "EXPIRY";
   readonly title: string;
   readonly body: string;
   readonly traceId: string;
@@ -309,7 +309,7 @@ function parseEvent(payload: Readonly<Record<string, unknown>>): NotificationEve
     typeof event.channel !== "string" ||
     !["IN_APP", "EMAIL", "PUSH"].includes(event.channel) ||
     typeof event.category !== "string" ||
-    !["REORDER", "INVITE", "SYSTEM"].includes(event.category) ||
+    !["REORDER", "INVITE", "SYSTEM", "EXPIRY"].includes(event.category) ||
     typeof event.title !== "string" ||
     typeof event.body !== "string" ||
     typeof event.traceId !== "string"

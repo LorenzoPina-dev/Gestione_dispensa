@@ -176,8 +176,8 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
         `INSERT INTO products
           (canonical_name, brand_id, default_unit, status, provenance_quality,
            calories_per_100, protein_per_100, carbs_per_100, fat_per_100, fiber_per_100,
-           nutrition_confidence, photo_url, external_source, external_ref, external_synced_at)
-         VALUES ($1, $2, $3, 'ACTIVE', 'IMPORTED', $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+           nutrition_confidence, photo_url, category, external_source, external_ref, external_synced_at)
+         VALUES ($1, $2, $3, 'ACTIVE', 'IMPORTED', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
          RETURNING id, canonical_name, default_unit, status, provenance_quality, version,
            category, photo_url, calories_per_100, protein_per_100, carbs_per_100, fat_per_100,
            fiber_per_100, created_at, updated_at`,
@@ -192,6 +192,10 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
           input.match.fiber ?? null,
           nutritionConfidence,
           input.match.photoUrl ?? null,
+          // Category is imported as-is (already normalized to our canonical vocabulary by the
+          // provider, e.g. open-food-facts-provider.ts's normalizeOffCategory) so it resolves a
+          // shelf-life rule immediately -- see apps/api/src/shelf-life/service.ts.
+          input.match.category ?? null,
           input.match.source,
           input.match.sourceVersion,
         ],

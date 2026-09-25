@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { BarcodeCatalogAdapter, type BarcodeIdentifierType } from "./barcode.js";
+import { BarcodeCatalogAdapter, type BarcodeIdentifierType, type BarcodeProvider } from "./barcode.js";
 import { OpenFoodFactsProvider } from "./providers/open-food-facts-provider.js";
+import { CachingBarcodeProvider } from "./providers/caching-barcode-provider.js";
+import {
+  MongoOffCacheRepository,
+  NullOffCacheRepository,
+  type OffCacheRepository,
+} from "./off-cache-repository.js";
 
 /**
  * Entry point for the worker-integrations service. This runs as its OWN Docker container,
@@ -25,9 +31,50 @@ function log(level: "info" | "error", event: string, fields: Record<string, unkn
   );
 }
 
+// --- Open Food Facts cache (optional) ---------------------------------------------------
+// See docs/ADR-0005-off-cache-datastore.md. When OFF_CACHE_MONGO_URL is unset, offCache is a
+// NullOffCacheRepository and the pipeline behaves exactly as it did before caching existed:
+// every lookup goes straight to the live Open Food Facts API. Setting the URL turns on a
+// read-through cache seeded from the Open Food Facts mongodump (see ops/off-cache-import) and
+// filled incrementally from live API fallbacks. The cache is intentionally never a hard
+// dependency: connection is lazy and every operation is wrapped in its own timeout + circuit
+// breaker (see off-cache-repository.ts), so an absent, overloaded, or too-large-for-this-host
+// cache database degrades straight back to "call the API", never to an outage.
+const OFF_CACHE_MONGO_URL = process.env.OFF_CACHE_MONGO_URL;
+const OFF_CACHE_DB = process.env.OFF_CACHE_DB ?? "openfoodfacts_cache";
+const OFF_CACHE_COLLECTION = process.env.OFF_CACHE_COLLECTION ?? "products";
+const OFF_CACHE_TIMEOUT_MS = Number(process.env.OFF_CACHE_TIMEOUT_MS ?? 300);
+const OFF_CACHE_MAX_CONSECUTIVE_FAILURES = Number(process.env.OFF_CACHE_MAX_CONSECUTIVE_FAILURES ?? 3);
+const OFF_CACHE_COOLDOWN_MS = Number(process.env.OFF_CACHE_COOLDOWN_MS ?? 30_000);
+
+const offCache: OffCacheRepository =
+  OFF_CACHE_MONGO_URL !== undefined && OFF_CACHE_MONGO_URL.trim().length > 0
+    ? new MongoOffCacheRepository({
+        mongoUrl: OFF_CACHE_MONGO_URL,
+        dbName: OFF_CACHE_DB,
+        collectionName: OFF_CACHE_COLLECTION,
+        operationTimeoutMs:
+          Number.isFinite(OFF_CACHE_TIMEOUT_MS) && OFF_CACHE_TIMEOUT_MS > 0 ? OFF_CACHE_TIMEOUT_MS : 300,
+        maxConsecutiveFailures:
+          Number.isFinite(OFF_CACHE_MAX_CONSECUTIVE_FAILURES) && OFF_CACHE_MAX_CONSECUTIVE_FAILURES > 0
+            ? OFF_CACHE_MAX_CONSECUTIVE_FAILURES
+            : 3,
+        cooldownMs:
+          Number.isFinite(OFF_CACHE_COOLDOWN_MS) && OFF_CACHE_COOLDOWN_MS > 0 ? OFF_CACHE_COOLDOWN_MS : 30_000,
+        log,
+      })
+    : new NullOffCacheRepository();
+
+const offCacheEnabled = OFF_CACHE_MONGO_URL !== undefined && OFF_CACHE_MONGO_URL.trim().length > 0;
+log("info", "off_cache_configured", { enabled: offCacheEnabled, db: OFF_CACHE_DB, collection: OFF_CACHE_COLLECTION });
+
+const offFactsProvider = new OpenFoodFactsProvider({ baseUrl: process.env.OPEN_FOOD_FACTS_BASE_URL });
+const barcodeProvider: BarcodeProvider = offCacheEnabled
+  ? new CachingBarcodeProvider({ inner: offFactsProvider, cache: offCache, log })
+  : offFactsProvider;
+
 const adapter = new BarcodeCatalogAdapter({
-  
-  provider: new OpenFoodFactsProvider({ baseUrl: process.env.OPEN_FOOD_FACTS_BASE_URL }),
+  provider: barcodeProvider,
   timeoutMs: Number.isFinite(PROVIDER_TIMEOUT_MS) && PROVIDER_TIMEOUT_MS > 0 ? PROVIDER_TIMEOUT_MS : 4000,
 });
 
@@ -37,8 +84,14 @@ app.use(express.json({ limit: "64kb" }));
 app.get("/health/live", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
-app.get("/health/ready", (_req, res) => {
-  res.status(200).json({ status: "ok" });
+app.get("/health/ready", (_req: Request, res: Response) => {
+  void (async () => {
+    // Cache availability is reported for observability only. It never affects the readiness
+    // status code: the cache is optional, so an unavailable cache must not mark this service
+    // (or take down the api's dependency check) as unready.
+    const cacheAvailable = offCacheEnabled ? await offCache.isAvailable() : false;
+    res.status(200).json({ status: "ok", offCache: { enabled: offCacheEnabled, available: cacheAvailable } });
+  })();
 });
 
 app.post(
@@ -110,7 +163,9 @@ process.on("unhandledRejection", (reason) => {
 
 function shutdown(signal: string): void {
   log("info", "worker_integrations_shutdown", { signal });
-  server.close(() => process.exit(0));
+  server.close(() => {
+    void offCache.close().finally(() => process.exit(0));
+  });
 }
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
