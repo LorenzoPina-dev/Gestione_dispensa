@@ -154,7 +154,7 @@ export default function Famiglia({
         const active = invites.find((i: any) => i.status === "CREATED");
         if (active) {
           setInvite({
-            inviteId: active.id ?? active.inviteId,
+            inviteId: String(active.id ?? active.inviteId ?? ""),
             role: active.role,
             status: active.status,
             expiresAt: active.expiresAt,

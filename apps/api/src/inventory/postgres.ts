@@ -317,7 +317,11 @@ function mapStock(row: StockRow): StockItem {
     ? row.batches
         .filter((value): value is { quantity?: unknown; expiryDate?: unknown } => typeof value === "object" && value !== null)
         .map((value) => ({
-          quantity: numberValue(value.quantity ?? 0),
+          quantity: numberValue(
+            typeof value.quantity === "string" || typeof value.quantity === "number"
+              ? value.quantity
+              : 0,
+          ),
           ...(typeof value.expiryDate === "string" ? { expiryDate: value.expiryDate } : {}),
         }))
     : undefined;

@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/src/server.js",
+    "start": "node --experimental-strip-types dist/server.js",
     "dev": "tsx watch --env-file=../../.env src/server.ts",
     "test": "npm run build && node --experimental-strip-types --test tests/*.mjs",
     "test:integration": "node --experimental-strip-types --test tests/postgres-client.integration.test.mjs"

@@ -112,7 +112,12 @@ async function syncShoppingDiff(familyId: string, prev: ShoppingList, next: Shop
 
   const created = next.items.filter((item) => !prevById.has(item.id));
   for (const item of created) {
-    const input = { displayName: item.displayName, quantity: item.quantity, unit: item.unit, sourceType: item.sourceType };
+    const input = {
+      displayName: item.displayName,
+      quantity: item.quantity,
+      unit: item.unit as import("../api/types.js").InventoryUnit,
+      sourceType: item.sourceType as import("../api/types.js").ShoppingSourceType,
+    };
     await api
       .addShoppingItem(familyId, listId, input)
       .catch((err) =>

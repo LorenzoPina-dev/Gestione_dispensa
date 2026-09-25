@@ -1,0 +1,22 @@
+{
+  "name": "@gestione-dispensa/off-lookup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone read-through lookup service for Open Food Facts barcodes: local MongoDB dump first, live OFF API v3 fallback, auto-heals the local cache.",
+  "dependencies": {
+    "express": "^4.21.2",
+    "mongodb": "^6.13.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "tsx": "^4.23.15"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js",
+    "dev": "tsx watch --env-file=../../.env src/server.ts",
+    "test": "npm run build && node --test tests/*.mjs"
+  }
+}

@@ -1,22 +1,19 @@
 import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { BarcodeCatalogAdapter, type BarcodeIdentifierType, type BarcodeProvider } from "./barcode.js";
-import { OpenFoodFactsProvider } from "./providers/open-food-facts-provider.js";
-import { CachingBarcodeProvider } from "./providers/caching-barcode-provider.js";
-import {
-  MongoOffCacheRepository,
-  NullOffCacheRepository,
-  type OffCacheRepository,
-} from "./off-cache-repository.js";
+import { OffLookupProvider } from "./providers/off-lookup-provider.js";
 
 /**
  * Entry point for the worker-integrations service. This runs as its OWN Docker container,
- * separate from the api service, on purpose: it talks to third-party APIs (Open Food Facts
- * today, possibly others later) whose latency and availability we do not control. Isolating it
- * means a slow/unreachable/crashing third party can never take the main api down with it — the
- * api calls this service over HTTP with its own timeout and circuit breaker (see
- * apps/api/src/catalog/external-barcode-client.ts) and simply degrades to "manual entry" if this
- * container is unhealthy.
+ * separate from the api service, on purpose: it talks to third-party services whose latency
+ * and availability we do not control. Isolating it means a slow/unreachable/crashing dependency
+ * can never take the main api down with it — the api calls this service over HTTP with its own
+ * timeout and circuit breaker (see apps/api/src/catalog/external-barcode-client.ts) and simply
+ * degrades to "manual entry" if this container is unhealthy.
+ *
+ * Barcode resolution is fully delegated to the off-lookup microservice (services/off-lookup),
+ * which implements the Read-Through cache pattern against the local Open Food Facts MongoDB dump
+ * and the live OFF API v3. This service no longer talks to MongoDB or to Open Food Facts directly.
  */
 
 const PORT = Number(process.env.WORKER_INTEGRATIONS_PORT ?? 3100);
@@ -24,54 +21,28 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.OPEN_FOOD_FACTS_TIMEOUT_MS ?? 400
 const IDENTIFIER_TYPES: readonly BarcodeIdentifierType[] = ["EAN8", "EAN13", "GTIN12", "GTIN14", "BARCODE"];
 
 function log(level: "info" | "error", event: string, fields: Record<string, unknown> = {}): void {
-  // Plain structured JSON lines on stdout: no extra logging dependency, easy to pick up from
-  // `docker logs` or ship to Loki like every other service in this stack.
   process.stdout.write(
     `${JSON.stringify({ level, event, service: "worker-integrations", ts: new Date().toISOString(), ...fields })}\n`,
   );
 }
 
-// --- Open Food Facts cache (optional) ---------------------------------------------------
-// See docs/ADR-0005-off-cache-datastore.md. When OFF_CACHE_MONGO_URL is unset, offCache is a
-// NullOffCacheRepository and the pipeline behaves exactly as it did before caching existed:
-// every lookup goes straight to the live Open Food Facts API. Setting the URL turns on a
-// read-through cache seeded from the Open Food Facts mongodump (see ops/off-cache-import) and
-// filled incrementally from live API fallbacks. The cache is intentionally never a hard
-// dependency: connection is lazy and every operation is wrapped in its own timeout + circuit
-// breaker (see off-cache-repository.ts), so an absent, overloaded, or too-large-for-this-host
-// cache database degrades straight back to "call the API", never to an outage.
-const OFF_CACHE_MONGO_URL = process.env.OFF_CACHE_MONGO_URL;
-const OFF_CACHE_DB = process.env.OFF_CACHE_DB ?? "openfoodfacts_cache";
-const OFF_CACHE_COLLECTION = process.env.OFF_CACHE_COLLECTION ?? "products";
-const OFF_CACHE_TIMEOUT_MS = Number(process.env.OFF_CACHE_TIMEOUT_MS ?? 300);
-const OFF_CACHE_MAX_CONSECUTIVE_FAILURES = Number(process.env.OFF_CACHE_MAX_CONSECUTIVE_FAILURES ?? 3);
-const OFF_CACHE_COOLDOWN_MS = Number(process.env.OFF_CACHE_COOLDOWN_MS ?? 30_000);
+// --- off-lookup HTTP provider ---------------------------------------------------------------
+// All barcode resolution (local MongoDB dump + live OFF API fallback) is handled by the
+// off-lookup microservice. OFF_LOOKUP_BASE_URL must point to it (e.g. http://off-lookup:3200).
+// When unset, OffLookupProvider returns PROVIDER_UNAVAILABLE immediately (circuit open path),
+// which BarcodeCatalogAdapter maps to DEGRADED — manual entry, never a crash.
+const OFF_LOOKUP_BASE_URL = process.env.OFF_LOOKUP_BASE_URL ?? "";
+const offLookupEnabled = OFF_LOOKUP_BASE_URL.trim().length > 0;
+log("info", "off_lookup_provider_configured", {
+  enabled: offLookupEnabled,
+  baseUrl: offLookupEnabled ? OFF_LOOKUP_BASE_URL : "(not set)",
+});
 
-const offCache: OffCacheRepository =
-  OFF_CACHE_MONGO_URL !== undefined && OFF_CACHE_MONGO_URL.trim().length > 0
-    ? new MongoOffCacheRepository({
-        mongoUrl: OFF_CACHE_MONGO_URL,
-        dbName: OFF_CACHE_DB,
-        collectionName: OFF_CACHE_COLLECTION,
-        operationTimeoutMs:
-          Number.isFinite(OFF_CACHE_TIMEOUT_MS) && OFF_CACHE_TIMEOUT_MS > 0 ? OFF_CACHE_TIMEOUT_MS : 300,
-        maxConsecutiveFailures:
-          Number.isFinite(OFF_CACHE_MAX_CONSECUTIVE_FAILURES) && OFF_CACHE_MAX_CONSECUTIVE_FAILURES > 0
-            ? OFF_CACHE_MAX_CONSECUTIVE_FAILURES
-            : 3,
-        cooldownMs:
-          Number.isFinite(OFF_CACHE_COOLDOWN_MS) && OFF_CACHE_COOLDOWN_MS > 0 ? OFF_CACHE_COOLDOWN_MS : 30_000,
-        log,
-      })
-    : new NullOffCacheRepository();
-
-const offCacheEnabled = OFF_CACHE_MONGO_URL !== undefined && OFF_CACHE_MONGO_URL.trim().length > 0;
-log("info", "off_cache_configured", { enabled: offCacheEnabled, db: OFF_CACHE_DB, collection: OFF_CACHE_COLLECTION });
-
-const offFactsProvider = new OpenFoodFactsProvider({ baseUrl: process.env.OPEN_FOOD_FACTS_BASE_URL });
-const barcodeProvider: BarcodeProvider = offCacheEnabled
-  ? new CachingBarcodeProvider({ inner: offFactsProvider, cache: offCache, log })
-  : offFactsProvider;
+const barcodeProvider: BarcodeProvider = new OffLookupProvider({
+  baseUrl: OFF_LOOKUP_BASE_URL,
+  timeoutMs: Number.isFinite(PROVIDER_TIMEOUT_MS) && PROVIDER_TIMEOUT_MS > 0 ? PROVIDER_TIMEOUT_MS : 4000,
+  log,
+});
 
 const adapter = new BarcodeCatalogAdapter({
   provider: barcodeProvider,
@@ -84,14 +55,15 @@ app.use(express.json({ limit: "64kb" }));
 app.get("/health/live", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
+
 app.get("/health/ready", (_req: Request, res: Response) => {
-  void (async () => {
-    // Cache availability is reported for observability only. It never affects the readiness
-    // status code: the cache is optional, so an unavailable cache must not mark this service
-    // (or take down the api's dependency check) as unready.
-    const cacheAvailable = offCacheEnabled ? await offCache.isAvailable() : false;
-    res.status(200).json({ status: "ok", offCache: { enabled: offCacheEnabled, available: cacheAvailable } });
-  })();
+  // off-lookup is an optional dependency: when absent the service degrades to DEGRADED
+  // barcode results (manual entry), never to an outage. The readiness endpoint always
+  // returns 200 so the api's own health check never gates on this worker's upstream.
+  res.status(200).json({
+    status: "ok",
+    offLookup: { enabled: offLookupEnabled, baseUrl: offLookupEnabled ? OFF_LOOKUP_BASE_URL : null },
+  });
 });
 
 app.post(
@@ -163,9 +135,7 @@ process.on("unhandledRejection", (reason) => {
 
 function shutdown(signal: string): void {
   log("info", "worker_integrations_shutdown", { signal });
-  server.close(() => {
-    void offCache.close().finally(() => process.exit(0));
-  });
+  server.close(() => process.exit(0));
 }
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));

@@ -27,7 +27,7 @@ import {
   PostgresCatalogLookupRepository,
 } from "./catalog/postgres.js";
 import { CatalogController } from "./catalog/controller.js";
-import { HttpExternalBarcodeLookupClient } from "./catalog/external-barcode-client.js";
+import { HttpOffLookupClient } from "./catalog/external-barcode-client.js";
 import { ShoppingService } from "./shopping/service.js";
 import { PostgresShoppingRepository } from "./shopping/postgres.js";
 import { ShoppingController } from "./shopping/controller.js";
@@ -116,15 +116,15 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
       };
 
       const catalogService = new CatalogService(new PostgresCatalogRepository(postgres), idGenerator, clock);
-      // Optional on purpose: with BARCODE_WORKER_URL unset (or the worker unreachable at request
-      // time), resolveBarcode simply falls back to "UNKNOWN" for unrecognized barcodes instead of
-      // failing to start or failing the request -- see CatalogWorkflowService.resolveBarcode.
-      const barcodeWorkerUrl = process.env.BARCODE_WORKER_URL;
+      // Optional on purpose: with OFF_LOOKUP_BASE_URL unset (or off-lookup unreachable at request
+      // time), resolveBarcode degrades to "UNKNOWN" for unrecognized barcodes instead of failing
+      // to start or failing the HTTP request — see CatalogWorkflowService.resolveBarcode.
+      const offLookupBaseUrl = process.env.OFF_LOOKUP_BASE_URL;
       const externalBarcodeLookup =
-        barcodeWorkerUrl !== undefined && barcodeWorkerUrl.trim().length > 0
-          ? new HttpExternalBarcodeLookupClient({
-              baseUrl: barcodeWorkerUrl,
-              timeoutMs: Number(process.env.BARCODE_WORKER_TIMEOUT_MS ?? 3000),
+        offLookupBaseUrl !== undefined && offLookupBaseUrl.trim().length > 0
+          ? new HttpOffLookupClient({
+              baseUrl: offLookupBaseUrl,
+              timeoutMs: Number(process.env.OFF_LOOKUP_TIMEOUT_MS ?? 5000),
             })
           : undefined;
       const catalogWorkflow = new CatalogWorkflowService(
@@ -162,7 +162,12 @@ async function buildServerOptions(): Promise<ApiServerOptions> {
         const runExpiryScan = (): void => {
           expiryScan
             .scan()
-            .then((result) => expiryScanLog.info("expiry_scan_completed", result))
+            .then((result) =>
+              expiryScanLog.info("expiry_scan_completed", {
+                scanned: result.scanned,
+                notified: result.notified,
+              }),
+            )
             .catch((error: unknown) =>
               expiryScanLog.error("expiry_scan_failed", {
                 error: error instanceof Error ? error.message : "unknown",

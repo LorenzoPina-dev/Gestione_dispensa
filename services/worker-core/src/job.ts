@@ -34,11 +34,11 @@ export interface JobAttempt {
   readonly jobId: string;
   readonly attempt: number;
   readonly startedAt: number;
-  finishedAt?: number;
+  finishedAt?: number | undefined;
   status: JobStatus;
-  errorCode?: string;
-  errorClass?: ErrorClass;
-  durationMs?: number;
+  errorCode?: string | undefined;
+  errorClass?: ErrorClass | undefined;
+  durationMs?: number | undefined;
 }
 
 export interface DeadLetter {
@@ -46,8 +46,8 @@ export interface DeadLetter {
   readonly jobId: string;
   readonly queue: string;
   readonly reason: string;
-  readonly errorCode?: string;
-  readonly errorClass?: ErrorClass;
+  readonly errorCode?: string | undefined;
+  readonly errorClass?: ErrorClass | undefined;
   readonly attempts: number;
   readonly replayCount: number;
   readonly failedAt: number;

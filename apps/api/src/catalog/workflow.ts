@@ -33,10 +33,11 @@ export interface ExternalProductMatch {
 }
 
 /**
- * Talks to the external worker-integrations service. Implementations MUST NEVER throw and MUST
- * NEVER hang indefinitely -- every failure mode (network error, timeout, malformed response)
- * should resolve to `undefined` so a barcode lookup can always degrade gracefully instead of
- * failing the whole HTTP request. See apps/api/src/catalog/external-barcode-client.ts.
+ * Talks to the off-lookup microservice (services/off-lookup) for barcode resolution.
+ * Implementations MUST NEVER throw and MUST NEVER hang indefinitely — every failure mode
+ * (network error, timeout, malformed response) must resolve to `undefined` so a barcode
+ * lookup degrades gracefully instead of failing the HTTP request.
+ * See apps/api/src/catalog/external-barcode-client.ts.
  */
 export interface ExternalBarcodeLookupClient {
   lookup(input: {
@@ -100,65 +101,46 @@ export class CatalogWorkflowService {
   /**
    * Local-first, external-fallback barcode resolution:
    *  1. Check our own catalog (fast, free, works offline).
-   *  2. Only if unknown locally, ask the external worker (Open Food Facts) for it.
-   *  3. If the external provider has it, persist it permanently -- so this exact barcode is a
-   *     local (step 1) hit forever after, and the external API is called at most once per product.
-   * Every external-path failure is caught here and turned into a DEGRADED result: a third-party
-   * outage or a bug in the enrichment path must never surface as a 500 to someone scanning a
-   * barcode -- it should just fall back to manual entry.
+   *  2. Only if unknown locally, ask off-lookup (which itself checks local MongoDB dump first,
+   *     then falls back to the live OFF API v3).
+   *  3. If the external provider has it, persist it permanently — so this exact barcode is a
+   *     local (step 1) hit forever after, and off-lookup is called at most once per product.
+   * Every external-path failure is caught here and turned into a DEGRADED result: a dependency
+   * outage or a bug in the enrichment path must never surface as a 500 to the user — it should
+   * just fall back to manual entry.
    */
   public async resolveBarcode(
-  identifierType: IdentifierType,
-  value: string,
-  traceId: string,
-): Promise<BarcodeResolution> {
-  const normalizedValue = normalizeIdentifier(identifierType, value);
-  console.log("[catalog] resolveBarcode START", { identifierType, normalizedValue, traceId });
+    identifierType: IdentifierType,
+    value: string,
+    traceId: string,
+  ): Promise<BarcodeResolution> {
+    const normalizedValue = normalizeIdentifier(identifierType, value);
 
-  const local = await this.lookup.findByIdentifier({ identifierType, normalizedValue });
-  console.log("[catalog] local lookup:", local ? `HIT ${local.id}` : "miss");
+    const local = await this.lookup.findByIdentifier({ identifierType, normalizedValue });
+    if (local !== undefined) {
+      return { status: "MATCHED", identifierType, normalizedValue, product: local };
+    }
 
-  if (local !== undefined) {
-    return { status: "MATCHED", identifierType, normalizedValue, product: local };
-  }
-
-  if (this.externalLookup === undefined) {
-    console.log("[catalog] externalLookup NOT configured (undefined)");
-    return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
-  }
-
-  try {
-    console.log("[catalog] calling externalLookup...");
-    const match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
-    console.log("[catalog] externalLookup returned:", match ? `MATCH name=${match.canonicalName}` : "undefined");
-
-    if (match === undefined) {
-      console.log("[catalog] external match is undefined → UNKNOWN");
+    if (this.externalLookup === undefined) {
       return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
     }
 
-    console.log("[catalog] calling persistExternalMatch...");
-    const product = await this.lookup.persistExternalMatch({
-      identifierType,
-      normalizedValue,
-      match,
-      traceId,
-    });
-    console.log("[catalog] persistExternalMatch OK, productId =", product.id);
-    return { status: "MATCHED", identifierType, normalizedValue, product };
-  } catch (error) {
-    console.error("[catalog] persistExternalMatch failed", {
-      identifierType,
-      normalizedValue,
-      traceId,
-      error:
-        error instanceof Error
-          ? { name: error.name, message: error.message, stack: error.stack }
-          : String(error),
-    });
-    return { status: "DEGRADED", identifierType, normalizedValue, product: undefined };
+    try {
+      const match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
+      if (match === undefined) {
+        return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
+      }
+      const product = await this.lookup.persistExternalMatch({
+        identifierType,
+        normalizedValue,
+        match,
+        traceId,
+      });
+      return { status: "MATCHED", identifierType, normalizedValue, product };
+    } catch {
+      return { status: "DEGRADED", identifierType, normalizedValue, product: undefined };
+    }
   }
-}
 
   public async submitImportedCandidate(
     candidate: Omit<ProductCandidate, "requiresReview">,

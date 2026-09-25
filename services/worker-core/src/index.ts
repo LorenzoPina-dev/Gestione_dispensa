@@ -6,6 +6,10 @@ export * from "./redis-queue.js";
 export * from "./redis-client.js";
 export * from "./repository.js";
 export * from "./postgres.js";
-export * from "./postgres-client.js";
+export {
+  PostgresClient,
+  resolveDatabaseUrl,
+  type PostgresClientOptions,
+} from "./postgres-client.js";
 export * from "./worker.js";
 export * from "./process.js";

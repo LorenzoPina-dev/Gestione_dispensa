@@ -69,14 +69,6 @@ export class OidcTokenVerifier {
       throw new Error(`OIDC discovery failed with status ${response.status}.`);
     }
     const discovery = (await response.json()) as Partial<OidcDiscoveryDocument>;
-    console.log("[OIDC DEBUG]", {
-      expectedIssuer: issuer,
-      discoveryIssuer: discovery.issuer,
-      jwksUri: discovery.jwks_uri,
-      issuerEqual: discovery.issuer === issuer,
-      jwksIsString: typeof discovery.jwks_uri === "string",
-      discoveryUrl: discoveryUrl.toString(),
-    });
     const discoveryIssuer = discovery.issuer?.replace(/\/+$/, "");
     const expectedIssuer = issuer.replace(/\/+$/, "");
 

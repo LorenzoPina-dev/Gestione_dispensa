@@ -8,21 +8,33 @@ services:
       APP_VERSION: ${APP_VERSION:-0.1.0-local}
       PORT: 3000
       NODE_OPTIONS: --enable-source-maps
+      # server.ts risolve la connessione da DATABASE_URL (vedi
+      # apps/api/src/db/postgres-client.ts -> resolveDatabaseUrl): senza di essa
+      # PostgresClient.create() lancia, l'api logga "postgres_not_configured" e monta rotte
+      # autenticate come "disabled" (family/inventory/catalog/... risponderebbero sempre 401).
+      # Deve puntare al servizio `postgres` sulla rete compose e usare le stesse credenziali
+      # del container postgres qui sotto (stessi default).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dispensa}:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       # Senza queste due, server.ts salta la creazione dell'OidcTokenVerifier e monta le rotte
       # autenticate come "disabled": /auth/me (e tutto il resto) risponde sempre 401, anche con
       # un token valido. Devono corrispondere a quanto configurato nel client Keycloak
       # dispensa-app (vedi infra/identity/keycloak/realm-dispensa.json -> protocolMappers).
       OIDC_ISSUER: ${OIDC_ISSUER}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE}
-      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-http://keycloak:8080/realms/dispensa}
-      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs}
+      # Dentro la rete compose discovery/JWKS devono usare il nome servizio `keycloak`, NON i
+      # valori host-local di .env: `127.0.0.1:8080` dentro un container punta al container stesso,
+      # quindi il fetch falliva ("oidc_not_configured: fetch failed") e ogni rotta autenticata
+      # restava montata come "disabled". OIDC_ISSUER (.env, URL pubblico https) resta invece
+      # quello giusto: serve a validare il claim `iss` del token, non a fare rete.
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
       KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
-      # Talks to worker-integrations for barcode enrichment. Deliberately NOT a `depends_on`
-      # health-gate: the api must start and keep serving everything else even if this worker is
-      # unhealthy or absent -- resolve-barcode just degrades to manual entry (see
-      # apps/api/src/catalog/external-barcode-client.ts).
-      BARCODE_WORKER_URL: ${BARCODE_WORKER_URL:-http://worker-integrations:3100}
-      BARCODE_WORKER_TIMEOUT_MS: ${BARCODE_WORKER_TIMEOUT_MS:-3000}
+      # Talks to off-lookup for barcode enrichment (Read-Through cache: local MongoDB dump → live
+      # OFF API v3). Deliberately NOT a `depends_on` health-gate: the api must start and keep
+      # serving everything else even if off-lookup is unhealthy or absent — resolveBarcode just
+      # degrades to UNKNOWN (manual entry). See apps/api/src/catalog/external-barcode-client.ts.
+      OFF_LOOKUP_BASE_URL: ${OFF_LOOKUP_BASE_URL:-http://off-lookup:3200}
+      OFF_LOOKUP_TIMEOUT_MS: ${OFF_LOOKUP_TIMEOUT_MS:-5000}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
@@ -47,6 +59,28 @@ services:
         reservations:
           cpus: "0.25"
           memory: 256M
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
   nginx:
     image: nginx:1.27-alpine
     volumes:
@@ -56,39 +90,64 @@ services:
       - "${NGINX_HTTPS_PORT:-8443}:8443"
       - "${NGINX_HTTP_PORT:-8081}:8080"
     extra_hosts:
-      # Necessario per raggiungere Vite e API che girano sull'host (fuori Docker)
-      # tramite il nome `host.docker.internal`. Docker Desktop su Windows/Mac lo
-      # fornisce già, ma lo dichiariamo esplicitamente per non dipendere da quel
-      # comportamento implicito (utile anche su Linux con Docker Engine).
+      # Disponibile per fallback su host se necessario
       - "host.docker.internal:host-gateway"
     depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
       keycloak:
+        condition: service_healthy
+      off-lookup:
         condition: service_healthy
     profiles: [family-local]
     restart: unless-stopped
 
-  worker-integrations:
+  worker-core:
     build:
       context: ../..
-      dockerfile: services/worker-integrations/Dockerfile
+      dockerfile: services/worker-core/Dockerfile
     environment:
-      WORKER_INTEGRATIONS_PORT: 3100
-      OPEN_FOOD_FACTS_BASE_URL: ${OPEN_FOOD_FACTS_BASE_URL:-https://world.openfoodfacts.org}
-      OPEN_FOOD_FACTS_TIMEOUT_MS: ${OPEN_FOOD_FACTS_TIMEOUT_MS:-4000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dispensa}:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      REDIS_URL: redis://redis:6379
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-1000}
+      NODE_OPTIONS: --enable-source-maps
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  off-lookup:
+    build:
+      context: ../..
+      dockerfile: services/off-lookup/Dockerfile
+    environment:
+      OFF_LOOKUP_PORT: 3200
+      OFF_LOOKUP_MONGO_URL: ${OFF_LOOKUP_MONGO_URL:-}
+      OFF_LOOKUP_API_BASE_URL: ${OFF_LOOKUP_API_BASE_URL:-https://world.openfoodfacts.org}
       NODE_OPTIONS: --enable-source-maps
     ports:
-      - "${WORKER_INTEGRATIONS_PORT:-3100}:3100"
+      - "${OFF_LOOKUP_PORT:-3200}:3200"
     profiles: [core, family-local]
-    # Isolated on purpose: this is the only service that calls third-party APIs (Open Food
-    # Facts today). If it crashes or the third party is down/slow, it must never take the api
-    # down with it -- the api calls it over HTTP with its own timeout + circuit breaker and
-    # falls back to manual product entry. `restart: unless-stopped` brings it back automatically
-    # after any crash.
     restart: unless-stopped
     init: true
     stop_grace_period: 10s
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3100/health/live"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -159,8 +218,8 @@ services:
       - "start-dev"
       - "--import-realm"
       - "--http-host=0.0.0.0"
-      - "--hostname=https://192.168.1.24:8443"
-      - "--hostname-strict=true"
+      - "--hostname=${KEYCLOAK_HOSTNAME:-https://192.168.1.24:8443}"
+      - "--hostname-strict=false"
       - "--hostname-backchannel-dynamic=false"
       - "--proxy-headers=xforwarded"
       - "--http-enabled=true"
@@ -213,7 +272,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    profiles: [family-local]
+    profiles: [storage]
     restart: unless-stopped
     deploy:
       resources:
@@ -238,7 +297,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    profiles: [family-local]
+    profiles: [storage]
     restart: "no"
 
   otel-collector:
@@ -257,7 +316,7 @@ services:
         condition: service_started
       tempo:
         condition: service_started
-    profiles: [observability-full, family-local]
+    profiles: [observability-full]
     restart: unless-stopped
     deploy:
       resources:
@@ -282,7 +341,7 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
-    profiles: [observability-small, observability-full, family-local]
+    profiles: [observability-small, observability-full]
     restart: unless-stopped
     deploy:
       resources:
@@ -304,7 +363,7 @@ services:
     depends_on:
       prometheus:
         condition: service_started
-    profiles: [observability-small, observability-full, family-local]
+    profiles: [observability-small, observability-full]
     restart: unless-stopped
     deploy:
       resources:
@@ -334,7 +393,7 @@ services:
         condition: service_started
       tempo:
         condition: service_started
-    profiles: [observability-small, observability-full, family-local]
+    profiles: [observability-small, observability-full]
     restart: unless-stopped
     deploy:
       resources:
@@ -353,7 +412,7 @@ services:
       - loki-data:/loki
     ports:
       - "${LOKI_PORT:-3100}:3100"
-    profiles: [observability-full, family-local]
+    profiles: [observability-full]
     restart: unless-stopped
     deploy:
       resources:
@@ -373,7 +432,7 @@ services:
     ports:
       - "${TEMPO_PORT:-3200}:3200"
       - "4319:4317"
-    profiles: [observability-full, family-local]
+    profiles: [observability-full]
     restart: unless-stopped
     deploy:
       resources:
