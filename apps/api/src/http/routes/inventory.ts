@@ -30,7 +30,19 @@ export function buildInventoryRouter(deps: InventoryRouteDependencies): Router {
           sendFailure(res, 400, "VALIDATION_ERROR", "Query parameter familyId is required.", req.meta);
           return;
         }
-        await respond(res, req.meta, controller.listStockItems(principal, familyId, req.meta), toInventoryHttpError);
+        const status = req.query.status;
+        if (status !== undefined && status !== "ACTIVE" && status !== "DEPLETED") {
+          sendFailure(res, 400, "VALIDATION_ERROR", "status must be ACTIVE or DEPLETED.", req.meta);
+          return;
+        }
+        // status=DEPLETED backs the shopping list's "prodotti finiti" picker (see
+        // InventoryController.listDepletedStockItems); the default (omitted, or ACTIVE) is the
+        // ordinary pantry view.
+        const result =
+          status === "DEPLETED"
+            ? controller.listDepletedStockItems(principal, familyId, req.meta)
+            : controller.listStockItems(principal, familyId, req.meta);
+        await respond(res, req.meta, result, toInventoryHttpError);
       }),
     )
     .post(

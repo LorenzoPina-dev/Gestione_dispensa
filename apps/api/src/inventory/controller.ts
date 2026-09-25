@@ -120,6 +120,24 @@ export class InventoryController {
     return success({ items }, meta);
   }
 
+  /**
+   * Backs `GET /api/v1/inventory/stock-items?familyId=...&status=DEPLETED`: products that ran
+   * out (see recordMovementAtomic's DEPLETED transition), for the shopping list's "prodotti
+   * finiti" picker -- restocking one of these reuses its stockItemId in a RECEIPT movement
+   * rather than creating a new stock item.
+   */
+  public async listDepletedStockItems(
+    principal: Principal | undefined,
+    familyId: string,
+    meta: InventoryHttpMeta,
+  ): Promise<InventoryHttpSuccess<{ items: StockItem[] }>> {
+    if (principal === undefined)
+      throw new InventoryHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    await this.assertRead(principal, familyId);
+    const items = await this.inventory.listDepletedStockItems(familyId);
+    return success({ items }, meta);
+  }
+
   private async assertWrite(principal: Principal, familyId: string): Promise<void> {
     const membership = await this.memberships.getMembership(familyId, principal.subject);
     const decision =

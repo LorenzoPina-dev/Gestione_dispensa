@@ -36,7 +36,7 @@ export interface StockItem {
   unit: InventoryUnit;
   reorderPoint: number | undefined;
   version: number;
-  status: "ACTIVE";
+  status: "ACTIVE" | "DEPLETED";
   productName?: string;
   brand?: string;
   category?: string;
@@ -60,6 +60,12 @@ export interface InventoryRepository {
    * `GET /api/v1/inventory/stock-items` HTTP surface (InventoryController.listStockItems).
    */
   listByFamily(familyId: string): Promise<StockItem[]>;
+  /**
+   * Lists stock items in a specific status (currently only 'DEPLETED' is used, by
+   * InventoryService.listDepletedStockItems) -- backs the "prodotti finiti" picker the shopping
+   * list uses to offer restocking a known product instead of only searching for a new one.
+   */
+  listByFamilyAndStatus(familyId: string, status: "ACTIVE" | "DEPLETED"): Promise<StockItem[]>;
   getById(stockItemId: string): Promise<StockItem | undefined>;
   listMovements(stockItemId: string, familyId: string): Promise<readonly Record<string, unknown>[]>;
 }
@@ -118,6 +124,16 @@ export class InventoryService {
   public async listStockItems(familyId: string): Promise<StockItem[]> {
     if (!familyId.trim()) throw new InventoryValidationError(["familyId is required"]);
     return this.repository.listByFamily(familyId);
+  }
+
+  /**
+   * Backs the shopping list's "prodotti finiti" picker: products whose last stock item ran out
+   * (see recordMovementAtomic's DEPLETED transition) and that a person can restock with one tap
+   * instead of searching from scratch. See AddShoppingItemCommand.sourceType = 'REORDER'.
+   */
+  public async listDepletedStockItems(familyId: string): Promise<StockItem[]> {
+    if (!familyId.trim()) throw new InventoryValidationError(["familyId is required"]);
+    return this.repository.listByFamilyAndStatus(familyId, "DEPLETED");
   }
 }
 

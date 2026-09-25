@@ -35,7 +35,7 @@ interface StockRow {
   unit: StockItem["unit"];
   reorder_point: string | number | null;
   version: number;
-  status: "ACTIVE";
+  status: "ACTIVE" | "DEPLETED";
   product_name?: string | null;
   brand?: string | null;
   category?: string | null;
@@ -64,7 +64,10 @@ export class PostgresInventoryRepository implements InventoryRepository {
   }
 
   public async getById(stockItemId: string): Promise<StockItem | undefined> {
-    const tx=await this.database.transaction(); try { const r=await tx.query<StockRow>(`SELECT s.id, s.family_id, s.product_id, s.current_quantity, s.unit, s.reorder_point, s.version, s.status, p.canonical_name AS product_name, b.name AS brand, p.category, p.provenance_quality, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, l.name AS location_name, (SELECT jsonb_agg(jsonb_build_object('quantity', sl.quantity_snapshot, 'expiryDate', sl.expires_at) ORDER BY sl.expires_at NULLS LAST) FROM stock_lots sl WHERE sl.stock_item_id = s.id) AS batches FROM stock_items s JOIN products p ON p.id=s.product_id LEFT JOIN brands b ON b.id=p.brand_id LEFT JOIN locations l ON l.id=s.location_id WHERE s.id=$1 AND s.status='ACTIVE'`,[stockItemId]); await tx.commit(); const row=r.rows[0]; return row===undefined?undefined:mapStock(row); } catch(e){await tx.rollback();throw e;}
+    // Deliberately matches ACTIVE and DEPLETED (not ARCHIVED): a depleted stock item stays
+    // individually addressable so it can be restocked (see recordMovementAtomic) and shown in
+    // the shopping list's "prodotti finiti" picker. See migration 0015_stock-depletion.sql.
+    const tx=await this.database.transaction(); try { const r=await tx.query<StockRow>(`SELECT s.id, s.family_id, s.product_id, s.current_quantity, s.unit, s.reorder_point, s.version, s.status, p.canonical_name AS product_name, b.name AS brand, p.category, p.provenance_quality, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, l.name AS location_name, (SELECT jsonb_agg(jsonb_build_object('quantity', sl.quantity_snapshot, 'expiryDate', sl.expires_at) ORDER BY sl.expires_at NULLS LAST) FROM stock_lots sl WHERE sl.stock_item_id = s.id) AS batches FROM stock_items s JOIN products p ON p.id=s.product_id LEFT JOIN brands b ON b.id=p.brand_id LEFT JOIN locations l ON l.id=s.location_id WHERE s.id=$1 AND s.status IN ('ACTIVE','DEPLETED')`,[stockItemId]); await tx.commit(); const row=r.rows[0]; return row===undefined?undefined:mapStock(row); } catch(e){await tx.rollback();throw e;}
   }
 
   public async listMovements(stockItemId: string, familyId: string): Promise<readonly Record<string, unknown>[]> {
@@ -187,9 +190,12 @@ export class PostgresInventoryRepository implements InventoryRepository {
         };
       }
 
+      // Matches ACTIVE and DEPLETED: a RECEIPT on an already-depleted item must be able to find
+      // and reactivate that SAME row (see nextStatus below) instead of failing with "not
+      // visible". ARCHIVED items stay excluded -- those are soft-deleted, not restockable.
       const locked = await transaction.query<StockRow>(
         `SELECT id, family_id, product_id, current_quantity, unit, reorder_point, version, status
-         FROM stock_items WHERE id = $1 AND family_id = $2 AND status = 'ACTIVE' FOR UPDATE`,
+         FROM stock_items WHERE id = $1 AND family_id = $2 AND status IN ('ACTIVE', 'DEPLETED') FOR UPDATE`,
         [input.stockItemId, input.familyId],
       );
       const row = locked.rows[0];
@@ -197,13 +203,18 @@ export class PostgresInventoryRepository implements InventoryRepository {
       const currentQuantity = numberValue(row.current_quantity);
       const nextQuantity = currentQuantity + movementDelta(input);
       if (nextQuantity < 0) throw new Error("Stock quantity cannot become negative.");
+      // A CONSUMPTION/WASTE movement that empties the item marks it DEPLETED, so it disappears
+      // from the pantry view (listByFamily filters status = 'ACTIVE') without deleting any
+      // history; a RECEIPT that brings a depleted item back above zero reactivates the SAME row.
+      // See infra/postgres/migrations/0015_stock-depletion.sql.
+      const nextStatus: StockRow["status"] = nextQuantity > 0 ? "ACTIVE" : "DEPLETED";
 
       const updated = await transaction.query<StockRow>(
         `UPDATE stock_items
-         SET current_quantity = $1, version = version + 1, updated_at = now()
-         WHERE id = $2 AND family_id = $3
+         SET current_quantity = $1, status = $2, version = version + 1, updated_at = now()
+         WHERE id = $3 AND family_id = $4
          RETURNING id, family_id, product_id, current_quantity, unit, reorder_point, version, status`,
-        [nextQuantity, input.stockItemId, input.familyId],
+        [nextQuantity, nextStatus, input.stockItemId, input.familyId],
       );
       const updatedRow = updated.rows[0];
       if (updatedRow === undefined) throw new Error("Stock item update returned no row.");
@@ -304,6 +315,51 @@ export class PostgresInventoryRepository implements InventoryRepository {
       throw error;
     }
   }
+
+  /**
+   * Same shape as listByFamily but for an explicit status -- used with 'DEPLETED' to back the
+   * shopping list's "prodotti finiti" picker (InventoryService.listDepletedStockItems).
+   */
+  public async listByFamilyAndStatus(
+    familyId: string,
+    status: "ACTIVE" | "DEPLETED",
+  ): Promise<StockItem[]> {
+    const transaction = await this.database.transaction();
+    try {
+      const result = await transaction.query<StockRow>(
+        `SELECT
+          s.id, s.family_id, s.product_id, s.current_quantity, s.unit,
+          s.reorder_point, s.version, s.status,
+          p.canonical_name AS product_name,
+          b.name AS brand,
+          p.category,
+          p.provenance_quality,
+          p.calories_per_100, p.protein_per_100, p.carbs_per_100,
+          p.fat_per_100, p.fiber_per_100,
+          l.name AS location_name,
+          (SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'quantity', sl.quantity_snapshot,
+                      'expiryDate', sl.expires_at
+                    ) ORDER BY sl.expires_at NULLS LAST
+                  )
+            FROM stock_lots sl
+            WHERE sl.stock_item_id = s.id) AS batches
+        FROM stock_items s
+        JOIN products p ON p.id = s.product_id
+        LEFT JOIN brands b ON b.id = p.brand_id
+        LEFT JOIN locations l ON l.id = s.location_id
+        WHERE s.family_id = $1 AND s.status = $2
+        ORDER BY s.updated_at DESC`,
+        [familyId, status],
+      );
+      await transaction.commit();
+      return result.rows.map(mapStock);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
 }
 
 function movementDelta(input: RecordMovementCommand): number {
@@ -374,7 +430,9 @@ export class PostgresInventoryReader {
     const transaction = await this.database.transaction();
     try {
       const result = await transaction.query<{ family_id: string; version: number }>(
-        `SELECT family_id, version FROM stock_items WHERE id = $1 AND status = 'ACTIVE'`,
+        // Matches ACTIVE and DEPLETED so InventoryController's If-Match check still finds a
+        // depleted item (needed for the RECEIPT that restocks it) -- only ARCHIVED is excluded.
+        `SELECT family_id, version FROM stock_items WHERE id = $1 AND status IN ('ACTIVE', 'DEPLETED')`,
         [stockItemId],
       );
       await transaction.commit();
