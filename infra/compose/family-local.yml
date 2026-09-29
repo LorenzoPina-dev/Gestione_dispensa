@@ -4,7 +4,7 @@ services:
     environment:
       LAN_HOST: ${LAN_HOST:-192.168.1.24}
     volumes:
-      - nginx-certs:/certs
+      - ../../certs:/certs
     entrypoint:
       - /bin/sh
       - -ec
@@ -428,7 +428,7 @@ services:
     image: nginx:1.27-alpine
     volumes:
       - ../nginx/local.conf:/etc/nginx/nginx.conf:ro
-      - nginx-certs:/etc/nginx/certs:ro
+      - ../../certs:/etc/nginx/certs:ro
     ports:
       - "${NGINX_HTTPS_PORT:-8443}:8443"
       - "${NGINX_HTTP_PORT:-8081}:8080"
@@ -862,4 +862,3 @@ volumes:
   grafana-data:
   loki-data:
   tempo-data:
-  nginx-certs:
