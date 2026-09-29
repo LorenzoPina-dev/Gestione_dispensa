@@ -6,6 +6,7 @@ import { Input } from "../../components/ui/Input";
 import { KEYCLOAK_REALM_URL, KEYCLOAK_CLIENT_ID } from "../../api/config";
 import { useAuthStore } from "../../store/auth";
 import { registerUser, getCurrentUser, listFamilies } from "../../api/endpoints";
+import { ApiError } from "../../api/client";
 
 type Step = "form" | "submitting" | "done";
 interface Props { onRegistered: (user: AuthUser) => void; onLogin: () => void; }
@@ -36,7 +37,15 @@ export default function Register({ onRegistered, onLogin }: Props) {
     setErrors({}); setStep("submitting");
     const cleanEmail = email.trim().toLowerCase(); const cleanName = name.trim();
     try {
-      await registerUser({ name: cleanName, email: cleanEmail, password });
+      // Registration is intentionally idempotent from the browser perspective: a previous
+      // attempt may have created the Keycloak account but failed while bootstrapping the local
+      // profile. If Keycloak reports 409, continue with the supplied credentials and let the
+      // normal token/bootstrap flow decide whether this is the same account.
+      try {
+        await registerUser({ name: cleanName, email: cleanEmail, password });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.code !== "USER_ALREADY_EXISTS") throw error;
+      }
       if (!KEYCLOAK_REALM_URL || !KEYCLOAK_CLIENT_ID) throw new Error("Configurazione OIDC non disponibile. Contatta l'amministratore.");
       // offline_access is optional. Requesting it caused Keycloak 400 on clients where that
       // scope was not enabled, after the Admin API had already created the user.
