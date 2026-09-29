@@ -76,17 +76,14 @@ export function planMigrations(migrations, appliedRows) {
 }
 
 export function migrationTransactionSql(migration) {
+  return migration.sql.trimEnd();
+}
+
+export function migrationRecordSql(migration) {
   const version = escapeLiteral(migration.version);
   const name = escapeLiteral(migration.name);
   const digest = escapeLiteral(migration.checksum);
-  return [
-    "BEGIN;",
-    "SET LOCAL lock_timeout = '5s';",
-    migration.sql.trimEnd(),
-    "",
-    `INSERT INTO schema_migrations (version, name, checksum) VALUES (${version}, ${name}, ${digest});`,
-    "COMMIT;",
-  ].join("\n");
+  return `INSERT INTO schema_migrations (version, name, checksum) VALUES (${version}, ${name}, ${digest});`;
 }
 
 /**
@@ -148,6 +145,7 @@ export async function migrate({ directory, executor }) {
     }
     for (const migration of pending) {
       await executor.query(migrationTransactionSql(migration));
+      await executor.query(migrationRecordSql(migration));
     }
     return { applied: pending.map((migration) => migration.version), pending: pending.length };
   } finally {
