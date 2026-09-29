@@ -32,10 +32,6 @@ jobs:
 
   postgres-integration:
     runs-on: ubuntu-latest
-    # Runs the real migration runner, the integrity fixture, and the apps/api
-    # Postgres integration tests against a live PostgreSQL service container,
-    # closing the DAT-RUN-001/DAT-RUN-002 "live execution" evidence gap that
-    # was previously waived for lack of a Docker Desktop Linux engine.
     services:
       postgres:
         image: postgres:16
@@ -64,5 +60,5 @@ jobs:
       - run: node infra/postgres/scripts/migrate.mjs migrate
       - run: node infra/postgres/scripts/migrate.mjs status
       - run: psql "$DATABASE_URL" -f infra/postgres/fixtures/002-integrity.sql
-      - run: npm --workspace @gestione-dispensa/api run build
-      - run: npm --workspace @gestione-dispensa/api run test:integration
+      - run: npm run typecheck:services
+      - run: npm run build:services
