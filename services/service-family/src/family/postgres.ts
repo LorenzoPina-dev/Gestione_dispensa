@@ -93,6 +93,14 @@ export class PostgresFamilyRepository implements FamilyRepository {
           input.membership.version,
         ],
       );
+      // The family row is the tenant root. The request starts with only app.user_id,
+      // so the RLS policies for audit/outbox (which are family-scoped) cannot see the
+      // newly-created family yet. Bind the new family to this transaction before writing
+      // those records. SET LOCAL semantics keep the context isolated to this transaction.
+      await transaction.query(
+        "SELECT set_config('app.family_id', $1, true)",
+        [input.family.id],
+      );
       await transaction.query(
         `INSERT INTO audit_events
           (family_id, actor_id, action, resource_type, resource_id, outcome, trace_id)
