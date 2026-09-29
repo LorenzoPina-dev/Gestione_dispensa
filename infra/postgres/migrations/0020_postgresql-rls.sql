@@ -123,13 +123,9 @@ CREATE POLICY stock_movements_family_or_service ON public.stock_movements
   USING (public.app_is_service() OR public.app_family_visible(family_id))
   WITH CHECK (public.app_is_service() OR public.app_family_visible(family_id));
 
-ALTER TABLE public.stock_thresholds ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.stock_thresholds FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS stock_thresholds_family_or_service ON public.stock_thresholds;
-CREATE POLICY stock_thresholds_family_or_service ON public.stock_thresholds
-  USING (public.app_is_service() OR public.app_family_visible(family_id))
-  WITH CHECK (public.app_is_service() OR public.app_family_visible(family_id));
-
+-- stock_thresholds is a compatibility VIEW created by migration 0017.
+-- PostgreSQL does not support ALTER TABLE ... ENABLE ROW LEVEL SECURITY on views,
+-- so tenant isolation is inherited from the underlying stock_items rows.
 -- Shopping. shopping_items/sources inherit tenant ownership from shopping_lists.
 ALTER TABLE public.shopping_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shopping_lists FORCE ROW LEVEL SECURITY;
