@@ -3,7 +3,7 @@
 | Termine | Definizione normativa |
 |---|---|
 | **User** | Identita applicativa di una persona autenticata, collegata a uno o piu profili famigliari. |
-| **Family** | Gruppo condiviso creato da un creator; contiene membership, scorte, liste e impostazioni condivise. Nel codice puo essere `family`; `household` e alias storico da migrare. |
+| **Family** | Gruppo condiviso creato da un creator; contiene membership, scorte, liste e impostazioni condivise. Nel codice e nei contratti correnti il termine canonico e `family`. |
 | **Tenant** | Confine organizzativo superiore per installazioni retailer o B2B; una famiglia puo appartenere a un tenant. |
 | **Store** | Punto vendita fisico o virtuale associato a un retailer e a un'area geografica. |
 | **Membership** | Relazione tra user e family con ruolo, stato, timestamp e policy. |
@@ -42,7 +42,7 @@
 
 ## Regole terminologiche
 
-- usare `familyId` nei contratti nuovi; mantenere `householdId` solo come alias versionato durante migrazione;
+- usare `familyId` come identificatore canonico nei contratti, eventi e query tenant-scoped;
 - usare `productId` per il prodotto canonico e `stockItemId` per cio che e posseduto;
 - distinguere sempre `suggested`, `accepted`, `completed` e `cancelled`;
 - distinguere `estimated` da `confirmed` per consumo e nutrizione;

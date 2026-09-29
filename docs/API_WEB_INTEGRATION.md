@@ -1,30 +1,35 @@
 # API ↔ Web integration
 
-The web application now consumes the API for domain data and no longer imports the prototype `mockData` dataset.
+La Web UI è un deployable autonomo (`services/web`) e comunica esclusivamente con Nginx. Tutte le API applicative passano dal Gateway.
 
-## Implemented web-facing API surface
+## Browser boundary
 
-- Auth: `GET /api/v1/auth/me`, `POST /api/v1/auth/register`, `POST /api/v1/auth/reset-password`, `POST /api/v1/auth/logout`.
-- Families: create/list/read families, members, role/status changes, removal, invites, invite resolution and acceptance.
-- Inventory: list/create/read stock items, record movements with `If-Match`, movement history, product/brand/category/nutrition/lot/location read model.
-- Catalog: product list/read/create and barcode resolution.
-- Shopping: active list, create list, add item, item state changes and batch actions.
-- Recipes: list, suggestions, detail, add missing ingredients and cook/consume.
-- Nutrition: today/week summaries with consumption rows and nutrient totals.
-- Notifications: list and mark-read.
-- Privacy: erasure, consent, export and download routes remain available.
+```text
+Browser → Nginx /api/v1/* → Gateway → owning service
+Browser → Nginx /        → Web container
+Browser → Nginx /realms/ → Keycloak
+```
 
-## Important persistence changes
+## Screen reads
 
-Migration `0012_web-read-model.sql` adds user profile fields and catalog metadata used by the web read model.
+Le schermate principali usano le Composite Views:
 
-Inventory creation now accepts optional `location` and `expiresAt`, persists locations/lots, and movement recording updates lot quantities so the UI does not display stale batches after consumption/waste.
+- dashboard → `/api/v1/views/dashboard-today`;
+- pantry → `/api/v1/views/pantry-screen`;
+- shopping → `/api/v1/views/shopping-screen`;
+- recipes → `/api/v1/views/recipes-screen`;
+- nutrition → `/api/v1/views/nutrition-screen`;
+- family → `/api/v1/views/family-screen`;
+- notifications → `/api/v1/views/notifications-screen`.
 
-## Removed prototype behavior
+## Mutations
 
-- No bundled `mockData.ts` import remains in `apps/web/src`.
-- Login no longer accepts local demo accounts.
-- Onboarding no longer accepts hard-coded invitation codes or fabricates family IDs.
-- Barcode lookup uses the catalog API instead of a hard-coded barcode map.
-- Photo mode no longer fabricates Vision-AI candidates; it explicitly falls back to manual entry until a real image-recognition service is connected.
-- Notifications, recipes and nutrition are loaded from API endpoints.
+Le mutation passano al dominio owner attraverso il Gateway e usano, quando applicabile, `If-Match` e `X-Idempotency-Key`.
+
+## Client state
+
+TanStack Query gestisce cache, stale-while-revalidate, invalidazione e prefetch. Le mutation offline-safe vengono serializzate nella queue locale e riconciliate con idempotency + optimistic concurrency.
+
+## UI contract
+
+La UI distingue loading, refreshing, offline, conflict, error e degraded. Nessun componente inventa dati quando un endpoint non è disponibile.

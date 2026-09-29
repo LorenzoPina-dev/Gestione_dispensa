@@ -1,23 +1,11 @@
 import express, { type Request, type Response } from "express";
 
 /**
- * Entry point for the worker-integrations service.
+ * Operational integration worker.
  *
- * Barcode resolution used to live here (BarcodeCatalogAdapter + OffLookupProvider, calling the
- * off-lookup microservice) but was removed: apps/api talks to off-lookup DIRECTLY (see
- * apps/api/src/catalog/external-barcode-client.ts, HttpOffLookupClient, wired via
- * OFF_LOOKUP_BASE_URL in server.ts) and always did once off-lookup existed, so this service's
- * `/internal/v1/barcode/lookup` route had no caller left in the deployed stack -- it wasn't even
- * present in infra/compose/family-local.yml anymore. The removed source (barcode.ts,
- * barcode-runtime.ts, providers/off-lookup-provider.ts) and its tests were moved to
- * services/worker-integrations/_deprecated/ for reference; see that folder's README for the
- * exact `git rm` command to drop them for good.
- *
- * What's left -- offers.ts/offers-runtime.ts, recipes-nutrition.ts/recipes-runtime.ts,
- * recognition.ts/recognition-runtime.ts -- is kept as-is on purpose: none of it is wired into
- * this file yet (no routes below reference them), and it is expected to be replaced by
- * dedicated microservices later, the same way barcode resolution was replaced by off-lookup.
- * Until then this process only serves health checks.
+ * Domain capabilities are owned by their dedicated microservices. This process only exposes
+ * health endpoints and hosts asynchronous provider adapters that have not yet been promoted to
+ * a dedicated domain service. It must not contain catalog/inventory/domain persistence logic.
  */
 
 const PORT = Number(process.env.WORKER_INTEGRATIONS_PORT ?? 3100);

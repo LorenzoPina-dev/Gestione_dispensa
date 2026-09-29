@@ -19,7 +19,7 @@
 
 ## 2. Regole di coerenza
 
-- `familyId` nei nuovi contratti; `householdId` solo alias/migrazione;
+- `familyId` è il termine canonico in contratti, eventi, UI e DB tenant-scoped;
 - stessi enum tra requisiti, API, eventi, UI e DB;
 - ogni endpoint presente nel catalogo deve avere OpenAPI o issue di materializzazione;
 - ogni evento del catalogo deve avere schema e producer/consumer;

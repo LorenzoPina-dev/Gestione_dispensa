@@ -1,123 +1,169 @@
-# Catalogo endpoint e use case API
+# API endpoint catalog
 
-Questo catalogo completa il contratto OpenAPI baseline. Ogni endpoint deve essere materializzato nello schema OpenAPI prima del rilascio; i nomi e gli scope sono normativi.
+All browser APIs are exposed under `https://<host>:8443/api/v1`. The Gateway is the public API boundary.
 
-## Convenzioni
+## Identity
 
-- base `/api/v1`;
-- response envelope `data/meta` e error envelope stabile;
-- `familyId` dal contesto attivo o path esplicito;
-- `Idempotency-Key` su mutazioni ripetibili;
-- `If-Match` su risorse concorrenti;
-- `202 + jobId` per lavori lunghi;
-- `404 NOT_FOUND_OR_NOT_VISIBLE` per evitare enumeration.
+```text
+GET  /me
+GET  /meta
+POST /auth/register
+POST /auth/login
+POST /auth/logout
+POST /auth/password-reset
+```
 
-## Identity/family
+## Family
 
-| Metodo/path | Use case | Scope |
-|---|---|---|
-| `GET /me` | principal, famiglie, consensi sintetici | authenticated |
-| `GET /families` | famiglie dell'utente | authenticated |
-| `POST /families` | crea famiglia e membership creator | authenticated |
-| `GET /families/{familyId}` | dettaglio famiglia | family.read |
-| `POST /families/{familyId}/activate` | cambia contesto attivo | membership |
-| `GET /families/{familyId}/members` | membri visibili | family.read |
-| `PATCH /families/{familyId}/members/{membershipId}` | ruolo/stato | family.admin |
-| `DELETE /families/{familyId}/members/{membershipId}` | rimuovi membro | family.admin |
-| `POST /families/{familyId}/invites` | crea QR invite | family.admin |
-| `GET /families/{familyId}/invites` | stati inviti senza token | family.admin |
-| `POST /families/{familyId}/invites/{inviteId}/revoke` | revoca invite | family.admin |
-| `POST /family-invites/resolve` | risolve QR/fallback rate-limited | public limited |
-| `GET /family-invites/{attemptId}/review` | preview limitata | join owner |
-| `POST /family-invites/{attemptId}/accept` | membership atomica | join owner |
-| `POST /family-invites/{attemptId}/reject` | rifiuto auditato | join owner |
+```text
+GET    /families
+POST   /families
+GET    /families/:familyId
+GET    /families/:familyId/members
+PATCH  /families/:familyId/members/:membershipId
+DELETE /families/:familyId/members/:membershipId
+GET    /families/:familyId/invites
+POST   /families/:familyId/invites
+POST   /family-invites/resolve
+POST   /family-invites/resolve-code
+POST   /invites/:inviteId/accept
+```
 
-## Catalog/product
+## Inventory
 
-| Metodo/path | Use case | Scope |
-|---|---|---|
-| `GET /products` | ricerca/filtro catalogo | family.read |
-| `POST /products` | crea prodotto manuale | family.write/catalog |
-| `GET /products/{productId}` | dettaglio provenance/nutrizione | family.read |
-| `PATCH /products/{productId}` | correzione confermata | family.write/catalog |
-| `POST /products/resolve-barcode` | lookup sincrono/cache | family.read |
-| `POST /catalog/import` | import provider asincrono | operator |
-| `GET /catalog/conflicts` | review conflitti | catalog |
-| `POST /catalog/conflicts/{id}/resolve` | accetta/reject merge | catalog |
+```text
+GET    /inventory/locations
+POST   /inventory/locations
+PATCH  /inventory/locations/:id
+DELETE /inventory/locations/:id
+GET    /inventory/stock-items
+GET    /inventory/stock-items/:id
+POST   /inventory/stock-items
+PATCH  /inventory/stock-items/:id
+DELETE /inventory/stock-items/:id
+POST   /inventory/stock-items/:id/consume
+POST   /inventory/stock-items/:id/discard
+POST   /inventory/stock-items/:id/restore
+GET    /inventory/movements
+```
 
-## Recognition/media
+Mutazioni concorrenti usano `If-Match` quando il resource contract richiede optimistic locking. Offline mutations devono fornire `X-Idempotency-Key`.
 
-| Metodo/path | Use case | Scope |
-|---|---|---|
-| `POST /media/upload-intent` | URL prefirmato | family.write |
-| `POST /recognition/jobs` | crea OCR/vision job | recognition.write |
-| `GET /recognition/jobs/{jobId}` | stato/candidati | family/job |
-| `POST /recognition/jobs/{jobId}/confirm` | conferma candidati | family.write |
-| `POST /recognition/jobs/{jobId}/cancel` | cancella job | job owner |
+## Catalog
 
-## Inventory/consumption
+```text
+GET  /products
+GET  /products/:id
+POST /products
+PATCH /products/:id
+GET  /products/:barcode/lookup
+POST /products/resolve-barcode
+```
 
-| Metodo/path | Use case | Scope |
-|---|---|---|
-| `GET /inventory` | lista con filtri/cursor | inventory.read |
-| `POST /inventory/items` | crea stock | inventory.write |
-| `GET /inventory/items/{stockItemId}` | dettaglio lotto/movimenti | inventory.read |
-| `PATCH /inventory/items/{stockItemId}` | soglia/posizione/metadati | inventory.write |
-| `POST /inventory/items/{stockItemId}/movements` | receipt/consume/waste/adjust | inventory.write |
-| `GET /inventory/items/{stockItemId}/movements` | storico | inventory.read |
-| `POST /consumption/estimate` | stima da ricetta/diario | nutrition/consumption |
-| `POST /consumption/{id}/correct` | corregge stima | inventory.write |
-| `GET /expiry` | scaduti/in scadenza | inventory.read |
+La risoluzione barcode può usare prima la cache OFF locale e poi il fallback remoto secondo il contratto del Catalog service.
 
 ## Shopping
 
-| Metodo/path | Use case | Scope |
-|---|---|---|
-| `GET /shopping-lists` | liste famiglia | shopping.read |
-| `POST /shopping-lists` | nuova lista | shopping.write |
-| `GET /shopping-lists/{listId}` | lista dettagliata | shopping.read |
-| `POST /shopping-lists/{listId}/items` | aggiunta manuale | shopping.write |
-| `PATCH /shopping-lists/{listId}/items/{itemId}` | modifica/snooze/accept | shopping.write |
-| `POST /shopping-lists/{listId}/items/{itemId}/complete` | acquisto completato | shopping.write |
-| `POST /shopping-lists/{listId}/items/{itemId}/load-to-inventory` | carica stock confermato | inventory.write |
-| `POST /shopping-lists/{listId}/batch-action` | accept/reject batch | shopping.write |
-| `POST /shopping-lists/{listId}/archive` | archivia lista | shopping.write |
+```text
+GET    /shopping-lists
+GET    /shopping-lists/active
+POST   /shopping-lists
+GET    /shopping-lists/:id/items
+POST   /shopping-lists/:id/items
+PATCH  /shopping-lists/:id/items/:itemId
+DELETE /shopping-lists/:id/items/:itemId
+POST   /shopping-lists/:id/items/:itemId/complete
+POST   /shopping-lists/:id/items/batch
+```
 
-## Recipes/nutrition/offers
+## Recipes
 
-| Metodo/path | Use case | Scope |
-|---|---|---|
-| `GET /recipes/suggestions` | ranking asincrono/cacheable | recipe.read |
-| `POST /recipes/jobs` | genera ranking/AI | recipe.write + consent |
-| `GET /recipes/{recipeId}` | dettaglio/fonte | recipe.read |
-| `POST /recipes/{recipeId}/plan` | pianifica porzioni | recipe.write |
-| `POST /recipes/{recipeId}/add-missing` | aggiunge mancanti lista | shopping.write |
-| `POST /recipes/{recipeId}/cook` | conferma cucina/consumo | inventory.write |
-| `GET /nutrition/summary` | aggregato calorie/macro | nutrition.read |
-| `GET /nutrition/products/{productId}` | valori/source | nutrition.read |
-| `GET /offers` | offerte pertinenti | offers.read |
-| `POST /offers/import-jobs` | import retailer | operator/tenant |
-| `GET /offers/{offerId}` | dettaglio condizioni | offers.read |
+```text
+GET    /recipes
+GET    /recipes/:id
+POST   /recipes
+PUT    /recipes/:id
+DELETE /recipes/:id
+POST   /recipes/:id/photo
+POST   /recipes/:id/cook
+POST   /recipes/:id/missing-to-shopping
+GET    /recipes/suggestions
+```
 
-## Notifications/privacy/admin
+## Nutrition
 
-| Metodo/path | Use case | Scope |
-|---|---|---|
-| `GET /notifications` | centro notifiche | user |
-| `PATCH /notification-preferences` | canali/quiet hours | user |
-| `POST /privacy/export` | export asincrono | owner/user |
-| `POST /privacy/erasure` | richiesta cancellazione | owner/user |
-| `GET /privacy/consents` | consensi | user |
-| `POST /privacy/consents/{purpose}` | grant/revoke | user |
-| `GET /admin/jobs/{jobId}` | diagnosi job | operator scoped |
-| `POST /admin/jobs/{jobId}/replay` | replay DLQ auditato | operator scoped |
-| `GET /admin/audit` | audit filtrato | operator |
-| `GET /health/live` | liveness | internal |
-| `GET /health/ready` | readiness | internal |
-| `GET /metrics` | Prometheus | internal |
+```text
+GET /nutrition/today
+GET /nutrition/history
+POST /nutrition/log
+GET /nutrition/targets
+PUT /nutrition/targets
+GET /nutrition/summary
+```
 
-## Errori comuni
+## Stores and prices
 
-`UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND_OR_NOT_VISIBLE`, `VALIDATION_ERROR`, `CONFLICT`, `IDEMPOTENCY_KEY_REUSED`, `VERSION_CONFLICT`, `RATE_LIMITED`, `CAPABILITY_UNAVAILABLE`, `JOB_PENDING`, `PROVIDER_TIMEOUT`, `PROVIDER_RATE_LIMITED`, `CONSENT_REQUIRED`, `DATA_STALE`, `QUOTA_EXCEEDED`.
+```text
+GET  /stores
+POST /stores
+GET  /stores/:storeId/products
+POST /stores/:storeId/prices
+GET  /stores/price-history
+```
 
-Ogni endpoint deve definire status code, esempio success/error, scope, family isolation, idempotenza, rate limit, metriche e audit.
+## Shelf-life
+
+```text
+GET  /shelf-life/predict
+POST /shelf-life/predict
+GET  /shelf-life/foodkeeper/categories
+GET  /shelf-life/foodkeeper/items/:id
+POST /shelf-life/custom-rule
+```
+
+## OCR
+
+```text
+POST /ocr-jobs
+GET  /ocr-jobs
+GET  /ocr-jobs/:id
+GET  /ocr-jobs/:id/drafts
+POST /ocr-jobs/:id/confirm
+POST /ocr/barcode-extract
+```
+
+`POST /ocr-jobs` è asincrono e restituisce un job identifier. La conferma della revisione è un comando separato.
+
+## Notifications, privacy and jobs
+
+```text
+GET  /notifications
+POST /notifications/:id/read
+GET  /privacy/consents
+PUT  /privacy/consents
+POST /privacy/export
+POST /privacy/erasure
+GET  /jobs
+GET  /jobs/:id
+POST /jobs/:id/retry
+```
+
+## Composite views
+
+```text
+GET /views/dashboard-today
+GET /views/pantry-screen
+GET /views/shopping-screen
+GET /views/recipes-screen
+GET /views/nutrition-screen
+GET /views/family-screen
+GET /views/notifications-screen
+```
+
+## Common headers
+
+- `Authorization: Bearer <JWT>`
+- `If-Match: <etag>` per optimistic concurrency
+- `X-Idempotency-Key: <stable-key>` per retry-safe mutation
+- `traceparent` per distributed tracing
+- `X-Request-Id` per request correlation

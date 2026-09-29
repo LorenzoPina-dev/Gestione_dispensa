@@ -4,7 +4,7 @@ import {
   acceptInvite,
   resolveJoinEntry,
   reviewInvite,
-} from "../apps/web/dist/src/family-journey.js";
+} from "../services/web/dist/src/family-journey.js";
 
 test("family-local synthetic journey preserves safe invite and welcome redirects", () => {
   assert.equal(resolveJoinEntry("invite-token").state, "PENDING_AUTHENTICATION");

@@ -50,7 +50,7 @@ interface JobRow {
  * row's `updated_at`/`current_attempt` reflecting the real state after the
  * run (see run.ts / the worker-core integration test).
  *
- * `job.payload`/`result` are stored as jsonb; unlike apps/api's SqlClient
+ * `job.payload`/`result` are stored as jsonb; unlike the former core service's SqlClient
  * contract (which passes raw query params straight to `pg`), this repository
  * does its own JSON.stringify/parse at the boundary since JobRecord's
  * `payload`/`result` fields are already parsed objects by the time they
@@ -386,7 +386,7 @@ export class PostgresInboxRepository implements InboxRepository {
 
 /**
  * Backs the "inventory.reconcile" capability seen elsewhere in this session
- * (apps/api's jobs admin routes use the same capability name for a seeded
+ * (the former core service's jobs admin routes use the same capability name for a seeded
  * test job). Drift is defined as: the stock_items.current_quantity value
  * diverging from the net effect of its stock_movements (RECEIPT adds,
  * CONSUMPTION/WASTE subtract, ADJUSTMENT/TRANSFER are treated as

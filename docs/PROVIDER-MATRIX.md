@@ -1,5 +1,10 @@
 # Matrice provider e integrazioni
 
+> **Nota di allineamento (2026-09-26):** questa matrice descrive categorie di provider generiche e
+> non ancora vincolate a un'implementazione concreta, con un'eccezione: la capability "catalogo"
+> ha oggi un adapter reale e cablato, `services/off-lookup`, descritto nella sezione 1bis sotto.
+> Le altre righe restano pianificazione.
+
 ## 1. Regola
 
 Ogni provider e un adapter sostituibile. La scelta definitiva richiede verifica di paese, licenza, DPA, costi, SLA e dati trasferiti. I default sotto sono categorie, non contratti firmati.
@@ -16,6 +21,29 @@ Ogni provider e un adapter sostituibile. La scelta definitiva richiede verifica 
 | offerte | import manuale/feed autorizzato | API/feed retailer | retailer/area | valid offers | stale/none |
 | notifications | in-app/email | email/push provider | event/preferences | delivery status | in-app |
 | object storage | MinIO locale Docker | managed S3 with versioning | bytes + metadata | object ref | no upload |
+
+## 1bis. Adapter concreto gia implementato: `services/off-lookup`
+
+A differenza delle altre capability in tabella, la risoluzione barcode/catalogo tramite Open Food
+Facts non e piu solo una categoria pianificata: esiste un microservizio standalone dedicato,
+`services/off-lookup` (Express + MongoDB), gia cablato in `docker-compose.yml`.
+
+- **Pattern**: read-through cache. Ordine di risoluzione: (1) dump MongoDB locale di Open Food
+  Facts (`openfoodfacts-mongodbdump` alla radice del repo, importato in locale), (2) fallback su
+  API live Open Food Facts v3 (`OFF_LOOKUP_API_BASE_URL`, default `https://world.openfoodfacts.org`)
+  quando il dump locale non ha il barcode, con auto-healing della cache locale sui risultati
+  live.
+- **Consumo**: `service proprietario` chiama `off-lookup` via HTTP (`OFF_LOOKUP_BASE_URL`,
+  `OFF_LOOKUP_TIMEOUT_MS`) da `services/catalog/external-barcode-client.ts` per l'arricchimento
+  catalogo durante il lookup barcode.
+- **Degradazione**: deliberatamente **non** un health-gate Compose (`off-lookup` non e in
+  `depends_on` dell'api) — se il servizio e assente o non risponde entro il timeout, la
+  risoluzione barcode degrada semplicemente a inserimento manuale, senza bloccare il resto
+  dell'API.
+- **Cosa manca ancora rispetto alla scheda obbligatoria sotto**: nessuna scheda formale di
+  legal entity/licenza/DPA e stata ancora compilata per questo adapter; Open Food Facts e un
+  dataset con licenza Open Database License (ODbL), da verificare esplicitamente prima di un uso
+  in produzione con utenti reali al di fuori del contesto family-local.
 
 ## 2. Scheda obbligatoria per provider
 

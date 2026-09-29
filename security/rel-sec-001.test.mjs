@@ -9,7 +9,7 @@ async function source(path) {
 }
 
 test("authorization policy is deny-by-default and enforces family scope", async () => {
-  const policy = await source("apps/api/src/identity/authorization.ts");
+  const policy = await source("services/service-family/src/identity/authorization.ts");
 
   assert.match(policy, /principal === undefined/);
   assert.match(policy, /membership\.status !== "ACTIVE"/);

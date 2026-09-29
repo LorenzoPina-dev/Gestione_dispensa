@@ -1,0 +1,3 @@
+import { JobAdminError } from "../jobs/admin.js";
+import type { HttpErrorBody,HttpMeta } from "./envelope.js";
+export function toJobAdminHttpError(error: unknown,meta: HttpMeta): {status:number;body:HttpErrorBody} { if(error instanceof JobAdminError){ const status=error.code==="UNAUTHENTICATED"?401:error.code==="FORBIDDEN"?403:error.code==="NOT_FOUND_OR_NOT_VISIBLE"?404:error.code==="APPROVAL_REQUIRED"?422:500; return {status,body:{error:{code:error.code,message:error.message,retryable:false},meta}};} return {status:500,body:{error:{code:"INTERNAL_ERROR",message:"The request could not be completed.",retryable:false},meta}}; }

@@ -6,7 +6,7 @@
 
 ## Contesto
 
-Il dominio combina membership famigliare, ruoli, inviti QR, inventario con ledger, liste, catalogo, nutrizione, offerte, ricerca, job e profilazione. Il deployment iniziale usa un vecchio PC, mentre il target futuro include Kubernetes e catene di supermercati.
+Il dominio combina membership famigliare, ruoli, inviti QR, inventario con ledger, liste, catalogo, nutrizione, offerte, ricerca, job e profilazione. Il deployment iniziale usa un host locale, mentre il target futuro include Kubernetes e catene di supermercati.
 
 ## Opzioni
 

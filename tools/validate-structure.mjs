@@ -1,14 +1,21 @@
 import { existsSync } from "node:fs";
 
 const requiredPaths = [
-  "apps/web",
-  "apps/api",
+  "services/web",
   "services/gateway",
   "services/worker-core",
   "services/worker-integrations",
   "services/worker-notifications",
   "services/scheduler",
   "services/search-indexer",
+  "services/service-identity",
+  "services/service-family",
+  "services/service-inventory",
+  "services/service-shopping",
+  "services/service-catalog",
+  "services/service-notifications",
+  "services/service-privacy",
+  "services/service-jobs",
   "packages/contracts",
   "packages/config",
   "packages/observability",
@@ -17,7 +24,6 @@ const requiredPaths = [
   "infra/kubernetes",
   "infra/postgres",
   "infra/observability",
-  ".github/workflows",
 ];
 
 const missing = requiredPaths.filter((path) => !existsSync(path));

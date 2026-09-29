@@ -3,9 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@gestione-dispensa/observability": "0.1.0",
+    "@gestione-dispensa/worker-core": "0.1.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/run.js",
+    "dev": "node --watch --experimental-strip-types src/run.ts",
     "test": "npm run build && node --test dist/notifications.test.js"
   }
 }

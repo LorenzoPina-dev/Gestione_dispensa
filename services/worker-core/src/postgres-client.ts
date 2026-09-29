@@ -35,7 +35,7 @@ export interface PostgresClientOptions {
  * Throws if neither is sufficiently specified, so the process fails fast at
  * startup rather than degrading silently into an unconfigured state.
  *
- * Duplicated from apps/api/src/db/postgres-client.ts rather than shared via
+ * Duplicated from services/db/postgres-client.ts rather than shared via
  * a package: this repo's convention (see every domain's own postgres.ts) is
  * that each app/service defines its own local SqlClient/SqlTransaction/
  * SqlTransactionFactory boundary rather than sharing one across workspaces,
@@ -86,8 +86,13 @@ export class PostgresClient implements SqlClient, SqlTransactionFactory {
     text: string,
     values: readonly unknown[] = [],
   ): Promise<SqlResult<Row>> {
-    const result = await this.pool.query(text, values as unknown[]);
-    return { rows: result.rows as Row[] };
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(text, values as unknown[]);
+      return { rows: result.rows as Row[] };
+    } finally {
+      client.release();
+    }
   }
 
   public async transaction(): Promise<SqlTransaction> {

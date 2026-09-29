@@ -7,7 +7,7 @@
 --
 -- `category` here uses the SAME canonical vocabulary that
 -- services/worker-integrations/src/providers/open-food-facts-provider.ts derives from OFF's
--- `categories_tags`, and that apps/api/src/catalog persists onto products.category -- so a
+-- `categories_tags`, and that services/catalog persists onto products.category -- so a
 -- barcode-scanned product and a manually-picked category both resolve through this one table.
 -- The special category '__default__' is the fallback used when a product has no category (or an
 -- unrecognized one) for a given storage location.
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS shelf_life_rules (
 CREATE INDEX IF NOT EXISTS shelf_life_rules_lookup_idx ON shelf_life_rules (category, storage_kind);
 
 -- Tracks which lot an EXPIRY notification has already been raised for, so the periodic scan
--- (apps/api/src/shelf-life/expiry-scan.ts) never double-notifies the same lot on every tick.
+-- (services/worker-shelf-life/src/index.ts) never double-notifies the same lot on every tick.
 ALTER TABLE stock_lots
   ADD COLUMN IF NOT EXISTS expiry_notified_at timestamptz;
 
@@ -38,7 +38,7 @@ ALTER TABLE stock_lots
   ADD COLUMN IF NOT EXISTS expiry_source text NOT NULL DEFAULT 'MANUAL'
     CHECK (expiry_source IN ('MANUAL', 'ESTIMATED'));
 
--- Widen the notifications category CHECK to add EXPIRY (see apps/api/src/notifications/service.ts
+-- Widen the notifications category CHECK to add EXPIRY (see services/notifications/service.ts
 -- NotificationService.notifyExpiringStock and services/worker-notifications for delivery).
 ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_category_check;
 ALTER TABLE notifications

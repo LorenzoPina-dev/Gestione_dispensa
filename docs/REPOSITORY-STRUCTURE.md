@@ -1,47 +1,81 @@
 # Repository structure
 
-## Application deployables
+```text
+.
+├── services/
+│   ├── gateway/
+│   ├── web/
+│   ├── service-identity/
+│   ├── service-family/
+│   ├── service-inventory/
+│   ├── service-shopping/
+│   ├── service-catalog/
+│   ├── service-notifications/
+│   ├── service-privacy/
+│   ├── service-jobs/
+│   ├── service-recipes/
+│   ├── service-nutrition/
+│   ├── service-stores/
+│   ├── service-shelf-life/
+│   ├── service-ocr/
+│   ├── off-lookup/
+│   ├── worker-core/
+│   ├── worker-ocr/
+│   ├── worker-shelf-life/
+│   ├── worker-off-sync/
+│   ├── worker-notifications/
+│   ├── worker-integrations/
+│   ├── scheduler/
+│   └── search-indexer/
+│
+├── packages/
+│   ├── contracts/
+│   ├── config/
+│   ├── domain/
+│   ├── observability/
+│   ├── testkit/
+│   └── ui/
+│
+├── infra/
+│   ├── nginx/
+│   ├── compose/
+│   ├── postgres/
+│   ├── identity/
+│   ├── storage/
+│   ├── observability/
+│   └── kubernetes/
+│
+├── docs/
+├── e2e/
+├── ops/
+├── security/
+└── tools/
+```
 
-| Path | Responsibility | Release stage |
-|---|---|---|
-| `apps/web` | Next.js PWA and family workflows | family-local |
-| `apps/api` | synchronous API and transactional use cases | family-local |
-| `services/gateway` | ingress, auth context, limits, routing | family-local |
-| `services/worker-core` | inventory, reorder, shopping, reconciliation | family-local |
-| `services/worker-integrations` | barcode, OCR, recipes, nutrition, offers | optional |
-| `services/worker-notifications` | opt-in notification delivery | optional |
-| `services/scheduler` | scheduled maintenance and imports | family-local |
-| `services/search-indexer` | rebuildable search projection | optional |
+## Service layout
 
-## Shared packages
+Un servizio applicativo segue, dove applicabile:
 
-- `packages/contracts`: OpenAPI, JSON Schema events, jobs, generated types;
-- `packages/config`: typed profile and secret-reference configuration;
-- `packages/domain`: framework-independent primitives only;
-- `packages/observability`: propagation, redaction, metrics, logs, and traces;
-- `packages/testkit`: synthetic fixtures and integration harnesses;
-- `packages/ui`: accessible UI primitives.
+```text
+services/<service>/
+├── src/
+│   ├── <domain>/        # dominio e persistence boundary
+│   ├── http/            # router/controller
+│   ├── server.ts        # bootstrap HTTP
+│   └── tests/            # test del servizio
+├── Dockerfile
+├── package.json
+├── tsconfig.json
+└── README.md
+```
 
-## Infrastructure
+I worker separano `queue`, `handler`, `repository` e `run` per rendere testabile il ciclo consume → effect → ack.
 
-- `infra/compose`: local profiles and resource-aware startup;
-- `infra/kubernetes`: portable base and environment overlays;
-- `infra/postgres`: migrations, bootstrap, and synthetic seeds;
-- `infra/identity`: Keycloak realm and client policy;
-- `infra/storage`: MinIO buckets and lifecycle;
-- `infra/observability`: dashboards, rules, collectors, logs, and traces.
+## Navigation rules
 
-This layout defines boundaries and ownership. Empty source folders are intentional until the
-corresponding contract and implementation milestone is approved.
-
-## Current implementation markers
-
-- `apps/api/src/identity/`: OIDC verification and authorization policy are implemented and tested;
-- `packages/contracts/`: HTTP types, event/job schemas, registries, and envelope validation exist;
-- `packages/config/`: typed profile loader and secret-reference validation exist;
-- `packages/observability/`: redaction, context, metrics, trace parsing, and readiness primitives exist;
-- `infra/postgres/scripts/`: external migration runner with lock/checksum/status exists;
-- `infra/identity/keycloak/`: local realm export exists;
-- `infra/storage/minio/`: local private-bucket bootstrap exists;
-- `infra/observability/`: local telemetry backend provisioning exists;
-- domain source folders and non-implemented deployables remain intentionally empty.
+- leggere `README.md` per il runtime globale;
+- leggere `docs/SERVICE-CATALOG.md` per trovare un servizio;
+- leggere `docs/API-ENDPOINT-CATALOG.md` per trovare una route;
+- leggere `docs/DATABASE-ARCHITECTURE.md` per capire ownership e storage;
+- leggere `docs/DATA-FLOWS-UI-CONTRACTS.md` per un flusso end-to-end;
+- leggere `docs/CURRENT-IMPLEMENTATION-STATUS.md` prima di assumere che una capability sia completa.

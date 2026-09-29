@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -v app_password="$POSTGRES_APP_PASSWORD" \
+  -v worker_password="$POSTGRES_WORKER_PASSWORD" <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dispensa_app') THEN
+    CREATE ROLE dispensa_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD :'app_password';
+  ELSE
+    ALTER ROLE dispensa_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD :'app_password';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dispensa_worker') THEN
+    CREATE ROLE dispensa_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD :'worker_password';
+  ELSE
+    ALTER ROLE dispensa_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD :'worker_password';
+  END IF;
+END
+$$;
+SQL

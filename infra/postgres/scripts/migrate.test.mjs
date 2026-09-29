@@ -39,6 +39,23 @@ test("discoverMigrations sorts versions and computes SHA-256 checksums", async (
   });
 });
 
+test("planMigrations accepts only the known legacy manual marker for 0017-0019", async () => {
+  const migrations = [
+    { version: "0017", name: "pantry", checksum: checksum("SELECT 17;"), sql: "SELECT 17;" },
+    { version: "0018", name: "domains", checksum: checksum("SELECT 18;"), sql: "SELECT 18;" },
+    { version: "0019", name: "cleanup", checksum: checksum("SELECT 19;"), sql: "SELECT 19;" },
+  ];
+  assert.deepEqual(planMigrations(migrations, [
+    { version: "0017", checksum: "manual" },
+    { version: "0018", checksum: "manual" },
+    { version: "0019", checksum: "manual" },
+  ]), []);
+  assert.throws(
+    () => planMigrations([migrations[0]], [{ version: "0017", checksum: "wrong" }]),
+    /Checksum drift/,
+  );
+});
+
 test("planMigrations rejects checksum drift and returns only pending migrations", async () => {
   await withMigrationDirectory(async (directory) => {
     await writeFile(join(directory, "0001_first.sql"), "SELECT 1;\n");
@@ -147,7 +164,7 @@ test("repository migrations are ordered and synthetic seed is separate", async (
   const migrations = await discoverMigrations(join(root, "migrations"));
   assert.deepEqual(
     migrations.map((migration) => migration.version),
-    ["0001", "0002", "0003", "0004", "0005", "0006", "0007"],
+    ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020", "0021"],
   );
 
   const seed = await readFile(new URL("../seeds/001_family-local.sql", import.meta.url), "utf8");

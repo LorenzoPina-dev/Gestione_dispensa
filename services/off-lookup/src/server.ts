@@ -13,7 +13,7 @@ import { ProductLookupService, isValidBarcode } from "./product-lookup-service.j
  *  - it is the only service that talks to the local Open Food Facts MongoDB dump (potentially
  *    tens of GB) and to the public Open Food Facts API;
  *  - worker-integrations calls it over HTTP with its own timeout + circuit breaker (see
- *    services/worker-integrations/src/providers/off-lookup-provider.ts) and simply degrades to
+ *    the former worker integration adapter) and simply degrades to
  *    "manual entry" if this container is absent, unhealthy, or still restoring the dump;
  *  - the local database is entirely optional (see mongo-product-repository.ts): with
  *    OFF_LOOKUP_MONGO_URL unset, or unreachable, every lookup transparently falls through to the

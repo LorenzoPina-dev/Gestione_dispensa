@@ -1,0 +1,4 @@
+import { createClient } from "redis"; import { Pool } from "pg";
+const redis=createClient({url:process.env.REDIS_URL??"redis://redis:6379"}); const pool=new Pool({connectionString:process.env.DATABASE_URL});
+await redis.connect(); console.log(JSON.stringify({worker:"worker-ocr",queue:"q:ocr-processing"}));
+while(true){const item=await redis.brPop("q:ocr-processing",0);if(!item)continue;try{const e=JSON.parse(item.element);const id=e.data.jobId;await pool.query(`update ocr_domain.jobs set status='NEEDS_REVIEW',updated_at=now() where id=$1`,[id]);await pool.query(`insert into ocr_domain.drafts(job_id,raw_text,suggested_name,quantity,unit,confidence) select $1,'OCR_PENDING','Da verificare',1,'piece',0 where not exists(select 1 from ocr_domain.drafts where job_id=$1)`,[id]);}catch(err){console.error("ocr_worker_error",err)}}

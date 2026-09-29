@@ -11,14 +11,13 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "build:api": "npm --workspace @gestione-dispensa/api run build",
-    "start:api": "npm --workspace @gestione-dispensa/api run start",
-    "dev:api": "node --watch --experimental-strip-types apps/api/src/server.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "test": "npm run test --workspaces --if-present",
-    "validate:structure": "node tools/validate-structure.mjs"
+    "validate:structure": "node tools/validate-structure.mjs",
+    "build:services": "npm run build --workspaces --if-present",
+    "typecheck:services": "npm run typecheck --workspaces --if-present"
   },
   "engines": {
     "node": ">=22"

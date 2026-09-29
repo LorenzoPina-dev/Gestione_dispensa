@@ -44,15 +44,35 @@ export function checksum(sql) {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
 
+const LEGACY_MIGRATION_ALIASES = new Map([
+  ["0017", "0017_pantry-optimization-and-new-features"],
+  ["0018", "0018-domain-microservices"],
+  ["0019", "0019-remove-monolith-domain-tables"],
+]);
+const LEGACY_MANUAL_CHECKSUM_VERSIONS = new Set(LEGACY_MIGRATION_ALIASES.keys());
+
 export function planMigrations(migrations, appliedRows) {
   const applied = new Map(appliedRows.map((row) => [row.version, row.checksum]));
   for (const migration of migrations) {
-    const appliedChecksum = applied.get(migration.version);
+    const legacyVersion = LEGACY_MIGRATION_ALIASES.get(migration.version);
+    const appliedChecksum = applied.get(migration.version) ?? (legacyVersion ? applied.get(legacyVersion) : undefined);
     if (appliedChecksum !== undefined && appliedChecksum !== migration.checksum) {
+      // Migrations 0017-0019 historically wrote the literal checksum "manual"
+      // from inside their SQL. The migration runner subsequently records the
+      // real SHA-256, but ON CONFLICT preserved the legacy value on databases
+      // created with those files. Accept only this known historical marker; any
+      // other mismatch remains a hard checksum-drift failure.
+      if (appliedChecksum === "manual" && LEGACY_MANUAL_CHECKSUM_VERSIONS.has(migration.version)) {
+        continue;
+      }
       throw new Error(`Checksum drift detected for migration ${migration.version}.`);
     }
   }
-  return migrations.filter((migration) => !applied.has(migration.version));
+  return migrations.filter((migration) => {
+    if (applied.has(migration.version)) return false;
+    const legacyVersion = LEGACY_MIGRATION_ALIASES.get(migration.version);
+    return !(legacyVersion && applied.has(legacyVersion));
+  });
 }
 
 export function migrationTransactionSql(migration) {
@@ -118,6 +138,14 @@ export async function migrate({ directory, executor }) {
     );
     const appliedRows = parseRows(rawRows.stdout);
     const pending = planMigrations(migrations, appliedRows);
+    const legacyManualRepairs = migrations.filter((migration) =>
+      appliedRows.some((row) => row.version === migration.version && row.checksum === "manual" && LEGACY_MANUAL_CHECKSUM_VERSIONS.has(migration.version)),
+    );
+    for (const migration of legacyManualRepairs) {
+      await executor.query(
+        `UPDATE schema_migrations SET name = ${escapeLiteral(migration.name)}, checksum = ${escapeLiteral(migration.checksum)} WHERE version = ${escapeLiteral(migration.version)} AND checksum = 'manual';`,
+      );
+    }
     for (const migration of pending) {
       await executor.query(migrationTransactionSql(migration));
     }

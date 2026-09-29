@@ -1,42 +1,175 @@
 services:
-  api:
+  service-identity:
     build:
       context: ../..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: services/service-identity/Dockerfile
     environment:
-      APP_ENV: ${APP_ENV:-family-local}
-      APP_VERSION: ${APP_VERSION:-0.1.0-local}
-      PORT: 3000
-      NODE_OPTIONS: --enable-source-maps
-      # server.ts risolve la connessione da DATABASE_URL (vedi
-      # apps/api/src/db/postgres-client.ts -> resolveDatabaseUrl): senza di essa
-      # PostgresClient.create() lancia, l'api logga "postgres_not_configured" e monta rotte
-      # autenticate come "disabled" (family/inventory/catalog/... risponderebbero sempre 401).
-      # Deve puntare al servizio `postgres` sulla rete compose e usare le stesse credenziali
-      # del container postgres qui sotto (stessi default).
-      DATABASE_URL: postgresql://${POSTGRES_USER:-dispensa}:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      # Senza queste due, server.ts salta la creazione dell'OidcTokenVerifier e monta le rotte
-      # autenticate come "disabled": /auth/me (e tutto il resto) risponde sempre 401, anche con
-      # un token valido. Devono corrispondere a quanto configurato nel client Keycloak
-      # dispensa-app (vedi infra/identity/keycloak/realm-dispensa.json -> protocolMappers).
+      PORT: 3310
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE}
-      # Dentro la rete compose discovery/JWKS devono usare il nome servizio `keycloak`, NON i
-      # valori host-local di .env: `127.0.0.1:8080` dentro un container punta al container stesso,
-      # quindi il fetch falliva ("oidc_not_configured: fetch failed") e ogni rotta autenticata
-      # restava montata come "disabled". OIDC_ISSUER (.env, URL pubblico https) resta invece
-      # quello giusto: serve a validare il claim `iss` del token, non a fare rete.
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
-      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
-      # Talks to off-lookup for barcode enrichment (Read-Through cache: local MongoDB dump → live
-      # OFF API v3). Deliberately NOT a `depends_on` health-gate: the api must start and keep
-      # serving everything else even if off-lookup is unhealthy or absent — resolveBarcode just
-      # degrades to UNKNOWN (manual entry). See apps/api/src/catalog/external-barcode-client.ts.
-      OFF_LOOKUP_BASE_URL: ${OFF_LOOKUP_BASE_URL:-http://off-lookup:3200}
-      OFF_LOOKUP_TIMEOUT_MS: ${OFF_LOOKUP_TIMEOUT_MS:-5000}
-    ports:
-      - "${API_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3310/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-family:
+    build:
+      context: ../..
+      dockerfile: services/service-family/Dockerfile
+    environment:
+      PORT: 3311
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3311/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-inventory:
+    build:
+      context: ../..
+      dockerfile: services/service-inventory/Dockerfile
+    environment:
+      PORT: 3312
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+      SHELF_LIFE_SERVICE_BASE_URL: http://service-shelf-life:3404/api/v1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3312/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-shopping:
+    build:
+      context: ../..
+      dockerfile: services/service-shopping/Dockerfile
+    environment:
+      PORT: 3313
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+      INVENTORY_SERVICE_BASE_URL: http://service-inventory:3312/api/v1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3313/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-catalog:
+    build:
+      context: ../..
+      dockerfile: services/service-catalog/Dockerfile
+    environment:
+      PORT: 3314
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+      OFF_LOOKUP_BASE_URL: http://off-lookup:3200
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3314/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-notifications:
+    build:
+      context: ../..
+      dockerfile: services/service-notifications/Dockerfile
+    environment:
+      PORT: 3315
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3315/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-privacy:
+    build:
+      context: ../..
+      dockerfile: services/service-privacy/Dockerfile
+    environment:
+      PORT: 3316
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3316/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-jobs:
+    build:
+      context: ../..
+      dockerfile: services/service-jobs/Dockerfile
+    environment:
+      PORT: 3317
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+      REDIS_URL: redis://redis:6379
+      INVENTORY_SERVICE_BASE_URL: http://service-inventory:3312/api/v1
+      SHOPPING_SERVICE_BASE_URL: http://service-shopping:3313/api/v1
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,27 +177,169 @@ services:
         condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
-    init: true
-    stop_grace_period: 10s
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3000/health/live"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3317/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      PORT: 3300
+      IDENTITY_SERVICE_BASE_URL: http://service-identity:3310/api/v1
+      FAMILY_SERVICE_BASE_URL: http://service-family:3311/api/v1
+      INVENTORY_SERVICE_BASE_URL: http://service-inventory:3312/api/v1
+      SHOPPING_SERVICE_BASE_URL: http://service-shopping:3313/api/v1
+      CATALOG_SERVICE_BASE_URL: http://service-catalog:3314/api/v1
+      NOTIFICATIONS_SERVICE_BASE_URL: http://service-notifications:3315/api/v1
+      PRIVACY_SERVICE_BASE_URL: http://service-privacy:3316/api/v1
+      JOBS_SERVICE_BASE_URL: http://service-jobs:3317/api/v1
+      RECIPES_SERVICE_BASE_URL: http://service-recipes:3401/api/v1
+      NUTRITION_SERVICE_BASE_URL: http://service-nutrition:3402/api/v1
+      STORES_SERVICE_BASE_URL: http://service-stores:3403/api/v1
+      SHELF_LIFE_SERVICE_BASE_URL: http://service-shelf-life:3404/api/v1
+      OCR_SERVICE_BASE_URL: http://service-ocr:3405/api/v1
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+      GATEWAY_TIMEOUT_MS: ${GATEWAY_TIMEOUT_MS:-5000}
+    depends_on:
+      service-identity:
+        condition: service_healthy
+      service-family:
+        condition: service_healthy
+      service-inventory:
+        condition: service_healthy
+      service-shopping:
+        condition: service_healthy
+      service-catalog:
+        condition: service_healthy
+      service-notifications:
+        condition: service_healthy
+      service-privacy:
+        condition: service_healthy
+      service-jobs:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3300/health/live"]
       interval: 10s
       timeout: 3s
       retries: 5
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 512M
-        reservations:
-          cpus: "0.25"
+          cpus: "0.5"
           memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  service-recipes:
+    build:
+      context: ../..
+      dockerfile: services/service-recipes/Dockerfile
+    environment:
+      PORT: 3401
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3401/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-nutrition:
+    build:
+      context: ../..
+      dockerfile: services/service-nutrition/Dockerfile
+    environment:
+      PORT: 3402
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3402/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-stores:
+    build:
+      context: ../..
+      dockerfile: services/service-stores/Dockerfile
+    environment:
+      PORT: 3403
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3403/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-shelf-life:
+    build:
+      context: ../..
+      dockerfile: services/service-shelf-life/Dockerfile
+    environment:
+      PORT: 3404
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3404/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  service-ocr:
+    build:
+      context: ../..
+      dockerfile: services/service-ocr/Dockerfile
+    environment:
+      PORT: 3405
+      DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3405/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   web:
     build:
       context: ../..
-      dockerfile: apps/web/Dockerfile
-    ports:
-      - "${WEB_PORT:-5173}:80"
+      dockerfile: services/web/Dockerfile
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
@@ -95,7 +370,33 @@ services:
     depends_on:
       web:
         condition: service_healthy
-      api:
+      service-recipes:
+        condition: service_healthy
+      service-nutrition:
+        condition: service_healthy
+      service-stores:
+        condition: service_healthy
+      service-shelf-life:
+        condition: service_healthy
+      service-ocr:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      service-identity:
+        condition: service_healthy
+      service-family:
+        condition: service_healthy
+      service-inventory:
+        condition: service_healthy
+      service-shopping:
+        condition: service_healthy
+      service-catalog:
+        condition: service_healthy
+      service-notifications:
+        condition: service_healthy
+      service-privacy:
+        condition: service_healthy
+      service-jobs:
         condition: service_healthy
       keycloak:
         condition: service_healthy
@@ -104,12 +405,57 @@ services:
     profiles: [family-local]
     restart: unless-stopped
 
+  worker-ocr:
+    build:
+      context: ../..
+      dockerfile: services/worker-ocr/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://dispensa_worker:${POSTGRES_WORKER_PASSWORD:-change-me-worker-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+
+  worker-shelf-life:
+    build:
+      context: ../..
+      dockerfile: services/worker-shelf-life/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://dispensa_worker:${POSTGRES_WORKER_PASSWORD:-change-me-worker-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+
+  worker-off-sync:
+    build:
+      context: ../..
+      dockerfile: services/worker-off-sync/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379
+      OFF_LOOKUP_BASE_URL: http://off-lookup:3200
+    depends_on:
+      redis:
+        condition: service_healthy
+      off-lookup:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: unless-stopped
+
   worker-core:
     build:
       context: ../..
       dockerfile: services/worker-core/Dockerfile
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-dispensa}:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+      DATABASE_URL: postgresql://dispensa_worker:${POSTGRES_WORKER_PASSWORD:-change-me-worker-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       REDIS_URL: redis://redis:6379
       WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-1000}
       NODE_OPTIONS: --enable-source-maps
@@ -140,8 +486,6 @@ services:
       OFF_LOOKUP_MONGO_URL: ${OFF_LOOKUP_MONGO_URL:-}
       OFF_LOOKUP_API_BASE_URL: ${OFF_LOOKUP_API_BASE_URL:-https://world.openfoodfacts.org}
       NODE_OPTIONS: --enable-source-maps
-    ports:
-      - "${OFF_LOOKUP_PORT:-3200}:3200"
     profiles: [core, family-local]
     restart: unless-stopped
     init: true
@@ -166,8 +510,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-dispensa}
       POSTGRES_USER: ${POSTGRES_USER:-dispensa}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
-    ports:
-      - "5432:5432"
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-change-me-app-local-only}
+      POSTGRES_WORKER_PASSWORD: ${POSTGRES_WORKER_PASSWORD:-change-me-worker-local-only}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ../postgres/init:/docker-entrypoint-initdb.d:ro
@@ -191,8 +535,6 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -227,8 +569,6 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
-    ports:
-      - "${KEYCLOAK_PORT:-8080}:8080"
     volumes:
       - ../identity/keycloak/realm-dispensa.json:/opt/keycloak/data/import/realm-dispensa.json:ro
       - keycloak-data:/opt/keycloak/data
@@ -262,9 +602,6 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio-local}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-local-only}
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:

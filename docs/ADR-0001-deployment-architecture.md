@@ -6,7 +6,7 @@
 
 ## Contesto
 
-Il prodotto deve crescere con moduli per catalogo e barcode, riconoscimento fotografico, ricette, nutrizione, offerte, ricerca e notifiche. Il primo ambiente di esecuzione sara probabilmente un vecchio PC con memoria, CPU, disco e affidabilita limitati.
+Il prodotto deve crescere con moduli per catalogo e barcode, riconoscimento fotografico, ricette, nutrizione, offerte, ricerca e notifiche. Il primo ambiente di esecuzione sara probabilmente un host locale con memoria, CPU, disco e affidabilita limitati.
 
 Serve quindi separare i carichi senza introdurre subito il costo operativo di un cluster Kubernetes completo. In particolare OCR/vision, import offerte, indicizzazione e generazione ricette possono essere intermittenti e piu costosi dell'API e dell'inventario.
 
@@ -18,7 +18,7 @@ Semplice da installare, ma impedisce di spegnere o scalare selettivamente i cari
 
 ### Microservizi Kubernetes dal primo giorno
 
-Offrono isolamento e scaling, ma su un solo vecchio PC aggiungono costi fissi: control plane, ingress, networking, registry, monitoraggio e manutenzione. Il database e lo storage rimangono comunque dipendenze stateful difficili da rendere realmente resilienti su un singolo nodo.
+Offrono isolamento e scaling, ma su un solo host locale aggiungono costi fissi: control plane, ingress, networking, registry, monitoraggio e manutenzione. Il database e lo storage rimangono comunque dipendenze stateful difficili da rendere realmente resilienti su un singolo nodo.
 
 ### Servizi modulari con deployment progressivo
 

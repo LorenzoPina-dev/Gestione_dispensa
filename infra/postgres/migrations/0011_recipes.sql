@@ -1,5 +1,5 @@
 -- Recipes are shared reference data (not family-scoped), matching the demo recipe catalog's
--- structure in apps/web/src/mockData.ts.
+-- structure in services/web/src/mockData.ts.
 CREATE TABLE IF NOT EXISTS recipes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 200),

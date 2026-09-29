@@ -57,7 +57,7 @@ Lo stack osservabile e non funzionale: se Grafana, Loki o Tempo sono indisponibi
 - stesso modello operativo su Compose, k3s e Kubernetes;
 - alert affidabili anche durante un problema della dashboard;
 - integrazione naturale con SLO, error budget e postmortem;
-- possibilità di ridurre il profilo sul vecchio PC senza cambiare il codice applicativo.
+- possibilità di ridurre il profilo sul host locale senza cambiare il codice applicativo.
 
 ### Negative
 

@@ -1,13 +1,25 @@
 # Integration worker
 
-Isolated consumer for OCR, recipes, nutrition, and offers providers. Every provider is an
-adapter and every automatic result remains reviewable.
+Provider adapter worker for external capabilities that are intentionally asynchronous.
 
-Barcode/catalog resolution used to live here but was removed: `apps/api` talks to the
-`off-lookup` microservice directly (see `apps/api/src/catalog/external-barcode-client.ts`).
-The removed code is kept for reference in `_deprecated/` until it's dropped for good — see
-`_deprecated/README.md`.
+## Current responsibilities
 
-`offers`, `recipes-nutrition`, and `recognition` are kept as-is for now; they are expected to be
-replaced by dedicated microservices later, the same way barcode resolution was replaced by
-`off-lookup`. None of them is wired into `src/server.ts` yet (it only serves health checks).
+- receipt/OCR provider adapters;
+- recognition adapters;
+- external offers/provider integrations when enabled;
+- recipe/nutrition provider adapters when enabled.
+
+Barcode lookup is owned by `service-catalog` through `off-lookup`; it is not implemented as a
+hidden catalog domain inside this worker.
+
+Each provider is isolated behind an adapter. Automatic results must remain attributable to a
+source and, where the product contract requires it, reviewable before becoming authoritative data.
+
+The worker exposes only operational health endpoints and consumes its configured queues/jobs.
+It does not own transactional domain tables.
+
+## Repository hygiene
+
+Legacy barcode/catalog implementation is no longer retained in this service. Historical source
+files under `_deprecated/` were removed from the repository; the dedicated `service-catalog` and
+`off-lookup` services are the only owners of barcode/catalog behavior.

@@ -11,3 +11,4 @@ name: gestione-dispensa
 # infra/compose/family-local.yml be the single source of truth.
 include:
   - ./infra/compose/family-local.yml
+  - ./infra/compose/off-cache.yml

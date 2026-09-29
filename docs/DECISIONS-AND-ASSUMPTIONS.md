@@ -7,7 +7,7 @@
 | D-001 | lingua iniziale italiana, locale `it-IT` | contesto utente e dominio | alta |
 | D-002 | unita metriche come default | Italia/UE; supporto imperial come opzione | alta |
 | D-003 | PWA responsive prima di app native | costo e superficie ridotti | alta |
-| D-004 | family come termine UI; `householdId` migrato verso `familyId` nei nuovi contratti | chiarezza utente e coerenza dominio | media |
+| D-004 | `family` e `familyId` sono i termini canonici di prodotto e API | chiarezza e coerenza del dominio | alta |
 | D-005 | PostgreSQL fonte autorevole | invarianti, ledger, outbox e server domestico | media, ADR richiesta |
 | D-006 | Redis solo cache/code/lock | nessun dato core dipende da Redis | alta |
 | D-007 | QR invite default 10 minuti e monouso | sicurezza e semplicità | alta |
@@ -39,7 +39,7 @@ Queste sono le sole domande bloccanti per congelare i contratti di release; in a
 - base giuridica per dati nutrizionali e profilazione;
 - soglia confidence che richiede revisione umana;
 - limiti di famiglie per utente e membri per famiglia;
-- nomenclatura definitiva `family`/`household` durante migrazione;
+- nomenclatura canonica `family`/`familyId`;
 - SLA e supporto per il futuro retailer;
 - residenza dati e subprocessor;
 - policy per minori e account condivisi.

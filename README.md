@@ -1,82 +1,175 @@
-# Gestione_dispensa
+# Gestione Dispensa
 
-Un gestionale intelligente per tracciare il cibo in dispensa e aiutare a fare la spesa in modo più intelligente.
+Monorepo professionale per una piattaforma family-first di gestione della dispensa, spesa, ricette, nutrizione, scadenze, barcode e scontrini.
 
-## Stato del progetto
+## Architettura corrente
 
-La documentazione costituisce il pacchetto di handoff per il team di sviluppo. L'implementazione ha
-completato la fondazione tecnica, i contratti, la configurazione, l'osservabilità, il migration
-runner e i confini identity/authorization. Lo stato puntuale è in [docs/IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md).
+La piattaforma è composta esclusivamente da deployable indipendenti. Non esiste un'applicazione API monolitica: ogni bounded context possiede il proprio processo, le proprie route e la propria ownership applicativa.
 
-## Documentazione
+```text
+Browser
+  │ HTTPS :8443
+  ▼
+Nginx
+  ├── /              → services/web
+  ├── /api/v1/*      → services/gateway
+  └── /realms/*      → Keycloak
 
-- [Blueprint tecnico](docs/BLUEPRINT.md)
-- [Requisiti di prodotto e sistema](docs/REQUIREMENTS.md)
-- [Product brief e metriche di successo](docs/PRODUCT-BRIEF.md)
-- [Glossario di dominio](docs/DOMAIN-GLOSSARY.md)
-- [Decisioni e assunzioni](docs/DECISIONS-AND-ASSUMPTIONS.md)
-- [User journeys e requisiti di esperienza](docs/USER-JOURNEYS-AND-UX.md)
-- [Specifiche tecniche dei componenti](docs/COMPONENT-SPECIFICATIONS.md)
-- [Contratti API ed eventi](docs/CONTRACTS.md)
-- [OpenAPI versionata](docs/openapi.yaml)
-- [Catalogo completo degli endpoint](docs/API-ENDPOINT-CATALOG.md)
-- [JSON Schema eventi e job](docs/EVENT-SCHEMAS.md)
-- [ERD e ownership dati](docs/DATA-MODEL-ERD.md)
-- [Matrice di autorizzazione](docs/AUTHORIZATION-MATRIX.md)
-- [Configuration contract](docs/CONFIGURATION-CONTRACT.md)
-- [Retention e ciclo di vita dati](docs/RETENTION-AND-DATA-LIFECYCLE.md)
-- [SLO, SLI ed error budget](docs/SLO-ERROR-BUDGET.md)
-- [Runbook operativi](docs/RUNBOOKS.md)
-- [Deployment contract](docs/DEPLOYMENT-CONTRACT.md)
-- [Policy migrazioni e seed](docs/MIGRATION-AND-SEED-POLICY.md)
-- [Quality gate documentale](docs/DOCUMENTATION-QUALITY-GATE.md)
-- [UI screen specifications](docs/UI-SCREEN-SPECIFICATIONS.md)
-- [Provider matrix](docs/PROVIDER-MATRIX.md)
-- [Test strategy](docs/TEST-STRATEGY.md)
-- [Architettura dati e strategia database](docs/DATABASE-ARCHITECTURE.md)
-- [Profili famigliari e inviti QR](docs/FAMILY-PROFILES-AND-QR-INVITES.md)
-- [Flussi dati, UI e contratti operativi](docs/DATA-FLOWS-UI-CONTRACTS.md)
-- [Privacy, profilazione e analytics](docs/PRIVACY-PROFILING-AND-ANALYTICS.md)
-- [Engineering handoff e prossimi passi](docs/ENGINEERING-HANDOFF-AND-NEXT-STEPS.md)
-- [Gap analysis e rischi residui](docs/GAP-ANALYSIS.md)
-- [Readiness audit: cosa manca](docs/READINESS-AUDIT.md)
-- [Implementation status: stato corrente](docs/IMPLEMENTATION-STATUS.md)
-- [Threat model e security architecture](docs/THREAT-MODEL.md)
-- [Matrice di tracciabilità](docs/TRACEABILITY.md)
-- [ADR-0001: architettura a servizi e deployment progressivo](docs/ADR-0001-deployment-architecture.md)
-- [ADR-0002: piattaforma unificata di osservabilità](docs/ADR-0002-observability-stack.md)
-- [ADR-0003: strategia database polyglot controllata](docs/ADR-0003-database-strategy.md)
-- [ADR-0004: local-first e family-first release](docs/ADR-0004-local-first-family-release.md)
-- [Operazioni, resilienza e osservabilità](docs/OPERATIONS-AND-RESILIENCE.md)
+services/gateway
+  │
+  ├── service-identity       :3310
+  ├── service-family         :3311
+  ├── service-inventory      :3312
+  ├── service-shopping       :3313
+  ├── service-catalog        :3314
+  ├── service-notifications  :3315
+  ├── service-privacy        :3316
+  ├── service-jobs           :3317
+  ├── service-recipes        :3401
+  ├── service-nutrition      :3402
+  ├── service-stores         :3403
+  ├── service-shelf-life     :3404
+  └── service-ocr            :3405
 
-## Direzione tecnica
+Async
+  ├── worker-core
+  ├── worker-ocr
+  ├── worker-shelf-life
+  ├── worker-off-sync
+  ├── worker-notifications
+  ├── worker-integrations
+  └── scheduler
 
-- Next.js + React + TypeScript per la web app e la PWA;
-- NestJS per API REST versionate e worker applicativi;
-- PostgreSQL come database principale;
-- Redis + BullMQ per cache e job asincroni;
-- storage S3-compatible per immagini e allegati;
-- OIDC/OAuth2 per autenticazione, RBAC/ABAC per autorizzazione;
-- OpenTelemetry Collector, Prometheus, Grafana, Alertmanager, Loki e Tempo per monitoring, alerting, log e tracing end-to-end;
-- servizi modulari indipendenti, eseguibili con Docker Compose e separabili in deploy distinti;
-- k3s/Kubernetes come percorso di crescita, introdotto quando scaling e operatività ne giustificano il costo.
-- primo rilascio `family-local` completamente locale via Docker Compose, con PostgreSQL, Redis, MinIO, Keycloak, Grafana, Prometheus, Alertmanager, Loki, Tempo e OpenTelemetry.
+Data
+  ├── PostgreSQL: transactional domain schemas
+  ├── MongoDB: OpenFoodFacts cache
+  └── MinIO: images and attachments
+```
 
-## Stato dell'implementazione
+## Regola di rete
 
-- Fondazione API disponibile in `apps/api` con `/health/live`, `/health/ready` e `/api/v1/meta`;
-- profilo Compose iniziale disponibile con API, PostgreSQL e Redis;
-- policy Compose iniziale disponibile con health check, rete dedicata, graceful shutdown e limiti di risorse;
-- migration foundation PostgreSQL disponibile in `infra/postgres/init`;
-- le funzionalità di famiglia, QR, catalogo, inventario, shopping e osservabilità completa restano i prossimi incrementi;
-- avvio locale: `npm.cmd install`, `npm.cmd run build`, `npm.cmd start` oppure `docker compose --profile family-local up --build`.
+```text
+Browser → Nginx → Gateway → owning service
+```
 
-## Struttura della repository
+I servizi applicativi non devono essere raggiunti direttamente dal browser. Le porte interne sono accessibili esclusivamente sulla rete Docker/cluster prevista dal deployment.
 
-La repository è organizzata come monorepo npm. La mappa completa di ownership e dei deployable è
-in [docs/REPOSITORY-STRUCTURE.md](docs/REPOSITORY-STRUCTURE.md). Le cartelle vuote rappresentano
-confini architetturali pianificati e non implementazioni simulate.
+## Composite Views
 
-La pipeline completa di implementazione e il protocollo per il lavoro parallelo degli agenti sono
-in [docs/IMPLEMENTATION-PIPELINE.md](docs/IMPLEMENTATION-PIPELINE.md) e
-[docs/AGENT-WORK-PACKAGES.md](docs/AGENT-WORK-PACKAGES.md).
+La UI usa una richiesta per schermata. Il Gateway compone server-side i dati dei servizi proprietari:
+
+```text
+GET /api/v1/views/dashboard-today
+GET /api/v1/views/pantry-screen
+GET /api/v1/views/shopping-screen
+GET /api/v1/views/recipes-screen
+GET /api/v1/views/nutrition-screen
+GET /api/v1/views/family-screen
+GET /api/v1/views/notifications-screen
+```
+
+Il browser mantiene la cache TanStack Query e può prefetchare una view. Le mutazioni usano invece l'endpoint del dominio proprietario attraverso il Gateway.
+
+## Repository
+
+```text
+services/
+  gateway/                 # routing, auth verification, BFF/composite views
+  web/                     # React/Vite SPA, deployable UI
+  service-identity/        # identità e profilo
+  service-family/          # famiglie, membership, inviti
+  service-inventory/       # posizioni, stock, lotti, movimenti
+  service-shopping/       # liste e articoli
+  service-catalog/         # prodotti e barcode
+  service-notifications/  # notifiche e stato di lettura
+  service-privacy/         # export, erasure, consensi
+  service-jobs/            # stato e amministrazione job
+  service-recipes/         # ricette e suggerimenti
+  service-nutrition/       # diario e target nutrizionali
+  service-stores/          # negozi e prezzi
+  service-shelf-life/      # regole e predizioni shelf-life
+  service-ocr/             # scontrini, job OCR e draft di revisione
+  off-lookup/              # cache OpenFoodFacts
+  worker-*/                # pipeline asincrone
+  scheduler/               # pianificazione periodica
+  search-indexer/          # proiezioni di ricerca ricostruibili
+
+packages/
+  contracts/               # contratti wire condivisi
+  config/                  # configurazione tipizzata
+  domain/                  # primitive realmente condivise
+  observability/           # logging, tracing, metriche
+  testkit/                 # fixture e harness di test
+  ui/                      # primitive UI accessibili
+
+infra/
+  nginx/
+  compose/
+  postgres/
+  identity/
+  storage/
+  observability/
+  kubernetes/
+
+docs/
+  architecture/
+  contracts/
+  data/
+  operations/
+  security/
+```
+
+## Storage ownership
+
+| Storage/schema | Owner | Contenuto |
+|---|---|---|
+| `public` | Identity/Family/Inventory/Shopping/Catalog/Notifications/Privacy/Jobs | dati transazionali core condivisi per chiavi e relazioni |
+| `recipes_domain` | Recipes | ricette e ingredienti |
+| `nutrition_domain` | Nutrition | diario, target e aggregazioni nutrizionali |
+| `stores_domain` | Stores | negozi, prezzi e storico |
+| `shelf_life_domain` | Shelf-Life | regole e predizioni |
+| `ocr_domain` | OCR | job, righe estratte e draft di revisione |
+| MongoDB | OFF Lookup | cache/read-through OpenFoodFacts |
+| MinIO | Storage boundary | immagini, scontrini e allegati |
+
+La source of truth transazionale rimane PostgreSQL. MongoDB non contiene giacenze familiari.
+
+## Avvio locale
+
+```bash
+npm install
+npm run validate:structure
+npm run typecheck
+npm run build
+
+docker compose --profile family-local up --build
+```
+
+Ingresso ufficiale:
+
+```text
+https://<host-lan>:8443/
+```
+
+## Quality gates
+
+```bash
+npm run validate:structure
+npm run typecheck
+npm run build
+npm test
+```
+
+I test end-to-end richiedono PostgreSQL, Redis e Keycloak disponibili.
+
+## Documentazione canonica
+
+- `docs/ARCHITECTURE.md` — architettura runtime e confini
+- `docs/SERVICE-CATALOG.md` — catalogo dei servizi e ownership
+- `docs/API-ENDPOINT-CATALOG.md` — API canoniche
+- `docs/COMPOSITE-VIEWS.md` — BFF e contratti delle schermate
+- `docs/DATABASE-ARCHITECTURE.md` — storage e ownership dati
+- `docs/DATA-FLOWS-UI-CONTRACTS.md` — flussi applicativi
+- `docs/EVENT-SCHEMAS.md` — eventi e code
+- `docs/CURRENT-IMPLEMENTATION-STATUS.md` — stato reale dell'implementazione
+- `docs/REPOSITORY-STRUCTURE.md` — struttura della codebase

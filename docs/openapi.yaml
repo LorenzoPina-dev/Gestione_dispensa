@@ -1,1338 +1,245 @@
 openapi: 3.1.0
 info:
-  title: Dispensa API
-  version: 1.0.0
-  description: Versioned public contract for family, inventory and shopping flows.
-  license: {name: Internal engineering contract}
+  title: Gestione Dispensa Public API
+  version: 2.0.0
+  description: Canonical browser-facing API exposed by the Gateway. Domain services remain internal network boundaries.
 servers:
-  - url: https://api.example.invalid/api/v1
+  - url: https://<host>:8443/api/v1
 security:
-  - oidc: []
+  - bearerAuth: []
 tags:
-  - {name: Identity, description: "Authenticated principal and identity context"}
-  - {name: Families, description: "Family membership and active-family context"}
-  - {name: Invites, description: "Secure family invitation lifecycle"}
-  - {name: Catalog, description: "Canonical products and provenance"}
-  - {name: Recognition, description: "Media and reviewable recognition jobs"}
-  - {name: Inventory, description: "Stock items, movements, expiry and consumption"}
-  - {name: Shopping, description: "Shared lists and reorder suggestions"}
-  - {name: Recipes, description: "Recipe suggestions and planning"}
-  - {name: Nutrition, description: "Source-qualified nutrition summaries"}
-  - {name: Offers, description: "Authorized retailer offer data"}
-  - {name: Notifications, description: "User notifications and preferences"}
-  - {name: Privacy, description: "Export, erasure and consent controls"}
-  - {name: Admin, description: "Restricted operations and audit access"}
-  - {name: Jobs, description: "Asynchronous job status"}
-  - {name: Platform, description: "Internal health and telemetry endpoints"}
+  - name: Identity
+  - name: Family
+  - name: Inventory
+  - name: Shopping
+  - name: Catalog
+  - name: Notifications
+  - name: Privacy
+  - name: Jobs
+  - name: Recipes
+  - name: Nutrition
+  - name: Stores
+  - name: Shelf-Life
+  - name: OCR
+  - name: Views
 paths:
-  /families:
-    get:
-      tags: [Families]
-      operationId: listFamilies
-      summary: List families
-      x-scope: authenticated
-      responses: {'200': {$ref: '#/components/responses/FamilyList'}}
-    post:
-      tags: [Families]
-      operationId: createFamily
-      summary: Create a family
-      security: [{oidc: []}]
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/CreateFamilyRequest'}
-      responses:
-        '201':
-          description: Family created
-          content: {application/json: {schema: {$ref: '#/components/schemas/FamilyResponse'}}}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '422': {$ref: '#/components/responses/ValidationError'}
-  /families/{familyId}/invites:
-    get:
-      tags: [Invites]
-      operationId: listFamilyInvites
-      summary: List family invites
-      x-scope: family.admin
-      parameters: [{$ref: '#/components/parameters/FamilyId'}]
-      responses: {'200': {$ref: '#/components/responses/InviteList'}, '403': {$ref: '#/components/responses/Forbidden'}}
-    post:
-      tags: [Invites]
-      operationId: createFamilyInvite
-      summary: Create a family invite
-      parameters:
-        - {$ref: '#/components/parameters/FamilyId'}
-        - {$ref: '#/components/parameters/IdempotencyKey'}
-      requestBody:
-        required: true
-        content: {application/json: {schema: {$ref: '#/components/schemas/CreateInviteRequest'}}}
-      responses:
-        '201':
-          description: One-time invite created. Raw QR payload is returned only here.
-          content: {application/json: {schema: {$ref: '#/components/schemas/InviteCreatedResponse'}}}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '429': {$ref: '#/components/responses/RateLimited'}
-  /family-invites/resolve:
-    post:
-      tags: [Invites]
-      operationId: resolveFamilyInvite
-      summary: Resolve a family invite
-      security: []
-      requestBody:
-        required: true
-        content: {application/json: {schema: {$ref: '#/components/schemas/ResolveInviteRequest'}}}
-      responses:
-        '200':
-          description: Generic result; invalid tokens must not reveal details.
-          content: {application/json: {schema: {$ref: '#/components/schemas/JoinAttemptResponse'}}}
-        '429': {$ref: '#/components/responses/RateLimited'}
-  /family-invites/{joinAttemptId}/review:
-    get:
-      tags: [Invites]
-      operationId: reviewFamilyInvite
-      summary: Review a family invite
-      parameters: [{$ref: '#/components/parameters/JoinAttemptId'}]
-      responses:
-        '200':
-          description: Limited preview after authorization/context validation.
-          content: {application/json: {schema: {$ref: '#/components/schemas/InviteReviewResponse'}}}
-        '404': {$ref: '#/components/responses/NotFound'}
-  /family-invites/{joinAttemptId}/accept:
-    post:
-      tags: [Invites]
-      operationId: acceptFamilyInvite
-      summary: Accept a family invite
-      parameters:
-        - {$ref: '#/components/parameters/JoinAttemptId'}
-        - {$ref: '#/components/parameters/IdempotencyKey'}
-      requestBody:
-        required: true
-        content: {application/json: {schema: {$ref: '#/components/schemas/AcceptInviteRequest'}}}
-      responses:
-        '200':
-          description: Idempotent membership result.
-          content: {application/json: {schema: {$ref: '#/components/schemas/MembershipResponse'}}}
-        '409': {$ref: '#/components/responses/Conflict'}
-  /families/{familyId}/activate:
-    post:
-      tags: [Families]
-      operationId: activateFamily
-      summary: Activate a family
-      parameters: [{$ref: '#/components/parameters/FamilyId'}]
-      responses:
-        '200':
-          description: Active family changed.
-          content: {application/json: {schema: {$ref: '#/components/schemas/ActiveFamilyResponse'}}}
-  /inventory/items:
-    post:
-      tags: [Inventory]
-      operationId: createStockItem
-      summary: Create a stock item
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody:
-        required: true
-        content: {application/json: {schema: {$ref: '#/components/schemas/CreateStockItemRequest'}}}
-      responses:
-        '201':
-          description: Stock item created.
-          content: {application/json: {schema: {$ref: '#/components/schemas/StockItemResponse'}}}
-        '409': {$ref: '#/components/responses/Conflict'}
-  /inventory/items/{stockItemId}/movements:
-    get:
-      tags: [Inventory]
-      operationId: listStockMovements
-      summary: List stock movements
-      x-scope: inventory.read
-      parameters: [{$ref: '#/components/parameters/StockItemId'}, {$ref: '#/components/parameters/Cursor'}]
-      responses: {'200': {$ref: '#/components/responses/StockMovementList'}}
-    post:
-      tags: [Inventory]
-      operationId: recordStockMovement
-      summary: Record a stock movement
-      parameters:
-        - {$ref: '#/components/parameters/StockItemId'}
-        - {$ref: '#/components/parameters/IdempotencyKey'}
-      requestBody:
-        required: true
-        content: {application/json: {schema: {$ref: '#/components/schemas/MovementRequest'}}}
-      responses:
-        '201':
-          description: Immutable movement applied.
-          content: {application/json: {schema: {$ref: '#/components/schemas/StockItemResponse'}}}
-        '409': {$ref: '#/components/responses/Conflict'}
-  /shopping-lists/active:
-    get:
-      tags: [Shopping]
-      operationId: getActiveShoppingList
-      summary: Get the active shopping list
-      responses:
-        '200':
-          description: Active list for active family.
-          content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingListResponse'}}}
-  /jobs/{jobId}:
-    get:
-      tags: [Jobs]
-      operationId: getJob
-      summary: Get a job
-      parameters: [{$ref: '#/components/parameters/JobId'}]
-      responses:
-        '200':
-          description: Authorized job status.
-          content: {application/json: {schema: {$ref: '#/components/schemas/JobResponse'}}}
-        '404': {$ref: '#/components/responses/NotFound'}
   /me:
-    get:
-      tags: [Identity]
-      operationId: getCurrentPrincipal
-      summary: Get the current principal
-      x-scope: authenticated
-      responses: {'200': {$ref: '#/components/responses/Principal'}}
+    get: {tags: [Identity], operationId: getMe, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /meta:
+    get: {tags: [Identity], operationId: getMeta, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /auth/register:
+    post: {tags: [Identity], operationId: register, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /auth/login:
+    post: {tags: [Identity], operationId: login, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /auth/logout:
+    post: {tags: [Identity], operationId: logout, responses: {'204': {description: Logged out}}}
+  /families:
+    get: {tags: [Family], operationId: listFamilies, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Family], operationId: createFamily, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
   /families/{familyId}:
-    get:
-      tags: [Families]
-      operationId: getFamily
-      summary: Get a family
-      x-scope: family.read
-      parameters: [{$ref: '#/components/parameters/FamilyId'}]
-      responses: {'200': {$ref: '#/components/responses/Family'}, '404': {$ref: '#/components/responses/NotFound'}}
+    parameters: [{$ref: '#/components/parameters/FamilyId'}]
+    get: {tags: [Family], operationId: getFamily, responses: {'200': {$ref: '#/components/responses/Data'}}}
   /families/{familyId}/members:
-    get:
-      tags: [Families]
-      operationId: listFamilyMembers
-      summary: List family members
-      x-scope: family.read
-      parameters: [{$ref: '#/components/parameters/FamilyId'}]
-      responses: {'200': {$ref: '#/components/responses/MembershipList'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /families/{familyId}/members/{membershipId}:
-    patch:
-      tags: [Families]
-      operationId: updateFamilyMembership
-      summary: Update a family membership
-      x-scope: family.admin
-      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/MembershipId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/UpdateMembershipRequest'}
-      responses: {'200': {$ref: '#/components/responses/Membership'}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {$ref: '#/components/responses/Conflict'}}
-    delete:
-      tags: [Families]
-      operationId: removeFamilyMembership
-      summary: Remove a family membership
-      x-scope: family.admin
-      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/MembershipId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      responses: {'204': {description: Membership removed}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /families/{familyId}/invites/{inviteId}/revoke:
-    post:
-      tags: [Invites]
-      operationId: revokeFamilyInvite
-      summary: Revoke a family invite
-      x-scope: family.admin
-      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/InviteId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      responses: {'200': {$ref: '#/components/responses/InviteRevoked'}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /family-invites/{joinAttemptId}/reject:
-    post:
-      tags: [Invites]
-      operationId: rejectFamilyInvite
-      summary: Reject a family invite
-      x-scope: join.owner
-      parameters: [{$ref: '#/components/parameters/JoinAttemptId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      responses: {'200': {$ref: '#/components/responses/InviteRejected'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /products:
-    get:
-      tags: [Catalog]
-      operationId: searchProducts
-      summary: Search products
-      x-scope: family.read
-      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/SearchQuery'}]
-      responses: {'200': {$ref: '#/components/responses/ProductList'}}
-    post:
-      tags: [Catalog]
-      operationId: createProduct
-      summary: Create a product
-      x-scope: family.write
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/CreateProductRequest'}
-      responses: {'201': {$ref: '#/components/responses/Product'}, '422': {$ref: '#/components/responses/ValidationError'}}
-  /products/{productId}:
-    get:
-      tags: [Catalog]
-      operationId: getProduct
-      summary: Get a product
-      x-scope: family.read
-      parameters: [{$ref: '#/components/parameters/ProductId'}]
-      responses: {'200': {$ref: '#/components/responses/Product'}, '404': {$ref: '#/components/responses/NotFound'}}
-    patch:
-      tags: [Catalog]
-      operationId: updateProduct
-      summary: Update a product
-      x-scope: family.write
-      parameters: [{$ref: '#/components/parameters/ProductId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
-      requestBody: {$ref: '#/components/requestBodies/UpdateProductRequest'}
-      responses: {'200': {$ref: '#/components/responses/Product'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /products/resolve-barcode:
-    post:
-      tags: [Catalog]
-      operationId: resolveProductBarcode
-      summary: Resolve a product barcode
-      x-scope: family.read
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/ResolveBarcodeRequest'}
-      responses: {'200': {$ref: '#/components/responses/BarcodeResolution'}, '422': {$ref: '#/components/responses/ValidationError'}}
-  /catalog/import:
-    post:
-      tags: [Catalog]
-      operationId: createCatalogImport
-      summary: Create a catalog import
-      x-scope: operator
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/CatalogImportRequest'}
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
-  /catalog/conflicts:
-    get:
-      tags: [Catalog]
-      operationId: listCatalogConflicts
-      summary: List catalog conflicts
-      x-scope: catalog
-      responses: {'200': {$ref: '#/components/responses/CatalogConflictList'}}
-  /catalog/conflicts/{conflictId}/resolve:
-    post:
-      tags: [Catalog]
-      operationId: resolveCatalogConflict
-      summary: Resolve a catalog conflict
-      x-scope: catalog
-      parameters: [{$ref: '#/components/parameters/ConflictId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/ResolveCatalogConflictRequest'}
-      responses: {'200': {$ref: '#/components/responses/CatalogConflict'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /media/upload-intent:
-    post:
-      tags: [Recognition]
-      operationId: createMediaUploadIntent
-      summary: Create a media upload intent
-      x-scope: family.write
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/MediaUploadIntentRequest'}
-      responses: {'201': {$ref: '#/components/responses/MediaUploadIntent'}, '413': {$ref: '#/components/responses/QuotaExceeded'}}
-  /recognition/jobs:
-    post:
-      tags: [Recognition]
-      operationId: createRecognitionJob
-      summary: Create a recognition job
-      x-scope: recognition.write
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/CreateRecognitionJobRequest'}
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '503': {$ref: '#/components/responses/CapabilityUnavailable'}}
-  /recognition/jobs/{jobId}:
-    get:
-      tags: [Recognition]
-      operationId: getRecognitionJob
-      summary: Get a recognition job
-      x-scope: family.job
-      parameters: [{$ref: '#/components/parameters/JobId'}]
-      responses: {'200': {$ref: '#/components/responses/RecognitionJob'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /recognition/jobs/{jobId}/confirm:
-    post:
-      tags: [Recognition]
-      operationId: confirmRecognitionJob
-      summary: Confirm a recognition job
-      x-scope: family.write
-      parameters: [{$ref: '#/components/parameters/JobId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/ConfirmRecognitionRequest'}
-      responses: {'200': {$ref: '#/components/responses/RecognitionJob'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /recognition/jobs/{jobId}/cancel:
-    post:
-      tags: [Recognition]
-      operationId: cancelRecognitionJob
-      summary: Cancel a recognition job
-      x-scope: job.owner
-      parameters: [{$ref: '#/components/parameters/JobId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      responses: {'200': {$ref: '#/components/responses/RecognitionCancelled'}}
-  /inventory:
-    get:
-      tags: [Inventory]
-      operationId: listInventory
-      summary: List inventory
-      x-scope: inventory.read
-      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/SearchQuery'}]
-      responses: {'200': {$ref: '#/components/responses/InventoryList'}}
-  /inventory/items/{stockItemId}:
-    get:
-      tags: [Inventory]
-      operationId: getStockItem
-      summary: Get a stock item
-      x-scope: inventory.read
-      parameters: [{$ref: '#/components/parameters/StockItemId'}]
-      responses: {'200': {$ref: '#/components/responses/StockItem'}, '404': {$ref: '#/components/responses/NotFound'}}
-    patch:
-      tags: [Inventory]
-      operationId: updateStockItem
-      summary: Update a stock item
-      x-scope: inventory.write
-      parameters: [{$ref: '#/components/parameters/StockItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
-      requestBody: {$ref: '#/components/requestBodies/UpdateStockItemRequest'}
-      responses: {'200': {$ref: '#/components/responses/StockItem'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /expiry:
-    get:
-      tags: [Inventory]
-      operationId: listExpiringStock
-      summary: List expiring stock
-      x-scope: inventory.read
-      responses: {'200': {$ref: '#/components/responses/ExpiryList'}}
-  /consumption/estimate:
-    post:
-      tags: [Inventory]
-      operationId: estimateConsumption
-      summary: Estimate consumption
-      x-scope: nutrition.consumption
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/EstimateConsumptionRequest'}
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
-  /consumption/{consumptionId}/correct:
-    post:
-      tags: [Inventory]
-      operationId: correctConsumption
-      summary: Correct consumption
-      x-scope: inventory.write
-      parameters: [{$ref: '#/components/parameters/ConsumptionId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/CorrectConsumptionRequest'}
-      responses: {'200': {$ref: '#/components/responses/ConsumptionCorrection'}, '409': {$ref: '#/components/responses/Conflict'}}
+    parameters: [{$ref: '#/components/parameters/FamilyId'}]
+    get: {tags: [Family], operationId: listMembers, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /families/{familyId}/invites:
+    parameters: [{$ref: '#/components/parameters/FamilyId'}]
+    get: {tags: [Family], operationId: listInvites, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Family], operationId: createInvite, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /family-invites/resolve:
+    post: {tags: [Family], operationId: resolveInvite, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /family-invites/resolve-code:
+    post: {tags: [Family], operationId: resolveInviteCode, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /invites/{inviteId}/accept:
+    parameters: [{$ref: '#/components/parameters/InviteId'}]
+    post: {tags: [Family], operationId: acceptInvite, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /inventory/locations:
+    get: {tags: [Inventory], operationId: listLocations, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Inventory], operationId: createLocation, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /inventory/stock-items:
+    get: {tags: [Inventory], operationId: listStockItems, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Inventory], operationId: createStockItem, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /inventory/stock-items/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [Inventory], operationId: getStockItem, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    patch: {tags: [Inventory], operationId: updateStockItem, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}, '409': {$ref: '#/components/responses/Error'}}
+    delete: {tags: [Inventory], operationId: deleteStockItem, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], responses: {'204': {description: Deleted}}}
+  /inventory/stock-items/{id}/consume:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [Inventory], operationId: consumeStock, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /inventory/stock-items/{id}/discard:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [Inventory], operationId: discardStock, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /inventory/stock-items/{id}/restore:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [Inventory], operationId: restoreStock, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
   /shopping-lists:
-    get:
-      tags: [Shopping]
-      operationId: listShoppingLists
-      summary: List shopping lists
-      x-scope: shopping.read
-      responses: {'200': {$ref: '#/components/responses/ShoppingListCollection'}}
-    post:
-      tags: [Shopping]
-      operationId: createShoppingList
-      summary: Create a shopping list
-      x-scope: shopping.write
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/CreateShoppingListRequest'}
-      responses: {'201': {$ref: '#/components/responses/ShoppingList'}}
-  /shopping-lists/{listId}:
-    get:
-      tags: [Shopping]
-      operationId: getShoppingList
-      summary: Get a shopping list
-      x-scope: shopping.read
-      parameters: [{$ref: '#/components/parameters/ListId'}]
-      responses: {'200': {$ref: '#/components/responses/ShoppingList'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /shopping-lists/{listId}/items:
-    post:
-      tags: [Shopping]
-      operationId: addShoppingItem
-      summary: Add a shopping item
-      x-scope: shopping.write
-      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/AddShoppingItemRequest'}
-      responses: {'201': {$ref: '#/components/responses/ShoppingItem'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /shopping-lists/{listId}/items/{itemId}:
-    patch:
-      tags: [Shopping]
-      operationId: updateShoppingItem
-      summary: Update a shopping item
-      x-scope: shopping.write
-      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
-      requestBody: {$ref: '#/components/requestBodies/UpdateShoppingItemRequest'}
-      responses: {'200': {$ref: '#/components/responses/ShoppingItem'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /shopping-lists/{listId}/items/{itemId}/complete:
-    post:
-      tags: [Shopping]
-      operationId: completeShoppingItem
-      summary: Complete a shopping item
-      x-scope: shopping.write
-      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/CompleteShoppingItemRequest'}
-      responses: {'200': {$ref: '#/components/responses/ShoppingItem'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /shopping-lists/{listId}/items/{itemId}/load-to-inventory:
-    post:
-      tags: [Shopping]
-      operationId: loadShoppingItemToInventory
-      summary: Load a shopping item into inventory
-      x-scope: inventory.write
-      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/LoadShoppingItemRequest'}
-      responses: {'201': {$ref: '#/components/responses/InventoryLoad'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /shopping-lists/{listId}/batch-action:
-    post:
-      tags: [Shopping]
-      operationId: applyShoppingBatchAction
-      summary: Apply a shopping batch action
-      x-scope: shopping.write
-      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/ShoppingBatchActionRequest'}
-      responses: {'200': {$ref: '#/components/responses/ShoppingBatchAction'}, '409': {$ref: '#/components/responses/Conflict'}}
-  /shopping-lists/{listId}/archive:
-    post:
-      tags: [Shopping]
-      operationId: archiveShoppingList
-      summary: Archive a shopping list
-      x-scope: shopping.write
-      parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      responses: {'200': {$ref: '#/components/responses/ShoppingListArchived'}}
+    get: {tags: [Shopping], operationId: listShoppingLists, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Shopping], operationId: createShoppingList, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /shopping-lists/active:
+    get: {tags: [Shopping], operationId: getActiveShoppingList, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /shopping-lists/{id}/items:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [Shopping], operationId: listShoppingItems, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Shopping], operationId: addShoppingItem, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /products:
+    get: {tags: [Catalog], operationId: listProducts, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Catalog], operationId: createProduct, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /products/resolve-barcode:
+    post: {tags: [Catalog], operationId: resolveBarcode, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /products/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [Catalog], operationId: getProduct, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    patch: {tags: [Catalog], operationId: updateProduct, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /recipes:
+    get: {tags: [Recipes], operationId: listRecipes, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Recipes], operationId: createRecipe, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
   /recipes/suggestions:
-    get:
-      tags: [Recipes]
-      operationId: getRecipeSuggestions
-      summary: Get recipe suggestions
-      x-scope: recipe.read
-      responses: {'200': {$ref: '#/components/responses/RecipeSuggestionList'}, '503': {$ref: '#/components/responses/CapabilityUnavailable'}}
-  /recipes/jobs:
-    post:
-      tags: [Recipes]
-      operationId: createRecipeJob
-      summary: Create a recipe job
-      x-scope: recipe.write
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/CreateRecipeJobRequest'}
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '428': {$ref: '#/components/responses/ConsentRequired'}}
-  /recipes/{recipeId}:
-    get:
-      tags: [Recipes]
-      operationId: getRecipe
-      summary: Get a recipe
-      x-scope: recipe.read
-      parameters: [{$ref: '#/components/parameters/RecipeId'}]
-      responses: {'200': {$ref: '#/components/responses/Recipe'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /recipes/{recipeId}/plan:
-    post:
-      tags: [Recipes]
-      operationId: planRecipe
-      summary: Plan a recipe
-      x-scope: recipe.write
-      parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/PlanRecipeRequest'}
-      responses: {'200': {$ref: '#/components/responses/RecipePlan'}}
-  /recipes/{recipeId}/add-missing:
-    post:
-      tags: [Recipes]
-      operationId: addMissingRecipeIngredients
-      summary: Add missing recipe ingredients
-      x-scope: shopping.write
-      parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      responses: {'201': {$ref: '#/components/responses/ShoppingAdditions'}}
-  /recipes/{recipeId}/cook:
-    post:
-      tags: [Recipes]
-      operationId: confirmRecipeCooked
-      summary: Confirm a recipe was cooked
-      x-scope: inventory.write
-      parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/ConfirmRecipeCookedRequest'}
-      responses: {'200': {$ref: '#/components/responses/RecipeCooked'}}
+    get: {tags: [Recipes], operationId: recipeSuggestions, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /recipes/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [Recipes], operationId: getRecipe, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    put: {tags: [Recipes], operationId: updateRecipe, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    delete: {tags: [Recipes], operationId: deleteRecipe, responses: {'204': {description: Deleted}}}
+  /recipes/{id}/cook:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [Recipes], operationId: cookRecipe, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /recipes/{id}/missing-to-shopping:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [Recipes], operationId: addMissingIngredients, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /nutrition/today:
+    get: {tags: [Nutrition], operationId: nutritionToday, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /nutrition/history:
+    get: {tags: [Nutrition], operationId: nutritionHistory, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /nutrition/log:
+    post: {tags: [Nutrition], operationId: nutritionLog, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /nutrition/targets:
+    get: {tags: [Nutrition], operationId: nutritionTargets, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    put: {tags: [Nutrition], operationId: updateNutritionTargets, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
   /nutrition/summary:
-    get:
-      tags: [Nutrition]
-      operationId: getNutritionSummary
-      summary: Get a nutrition summary
-      x-scope: nutrition.read
-      responses: {'200': {$ref: '#/components/responses/NutritionSummary'}}
-  /nutrition/products/{productId}:
-    get:
-      tags: [Nutrition]
-      operationId: getProductNutrition
-      summary: Get product nutrition
-      x-scope: nutrition.read
-      parameters: [{$ref: '#/components/parameters/ProductId'}]
-      responses: {'200': {$ref: '#/components/responses/ProductNutrition'}, '404': {$ref: '#/components/responses/NotFound'}}
-  /offers:
-    get:
-      tags: [Offers]
-      operationId: listOffers
-      summary: List offers
-      x-scope: offers.read
-      responses: {'200': {$ref: '#/components/responses/OfferList'}, '503': {$ref: '#/components/responses/CapabilityUnavailable'}}
-  /offers/import-jobs:
-    post:
-      tags: [Offers]
-      operationId: createOffersImportJob
-      summary: Create an offers import job
-      x-scope: operator
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/OffersImportRequest'}
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
-  /offers/{offerId}:
-    get:
-      tags: [Offers]
-      operationId: getOffer
-      summary: Get an offer
-      x-scope: offers.read
-      parameters: [{$ref: '#/components/parameters/OfferId'}]
-      responses: {'200': {$ref: '#/components/responses/Offer'}, '404': {$ref: '#/components/responses/NotFound'}}
+    get: {tags: [Nutrition], operationId: nutritionSummary, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /stores:
+    get: {tags: [Stores], operationId: listStores, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Stores], operationId: createStore, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /stores/{storeId}/products:
+    parameters: [{$ref: '#/components/parameters/StoreId'}]
+    get: {tags: [Stores], operationId: storeProducts, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /stores/{storeId}/prices:
+    parameters: [{$ref: '#/components/parameters/StoreId'}]
+    post: {tags: [Stores], operationId: recordPrice, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /stores/price-history:
+    get: {tags: [Stores], operationId: priceHistory, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /shelf-life/predict:
+    get: {tags: [Shelf-Life], operationId: predictShelfLife, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [Shelf-Life], operationId: predictShelfLifePost, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /shelf-life/custom-rule:
+    post: {tags: [Shelf-Life], operationId: createShelfLifeRule, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
+  /ocr-jobs:
+    get: {tags: [OCR], operationId: listOcrJobs, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    post: {tags: [OCR], operationId: createOcrJob, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'202': {$ref: '#/components/responses/Data'}}}
+  /ocr-jobs/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [OCR], operationId: getOcrJob, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /ocr-jobs/{id}/drafts:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [OCR], operationId: getOcrDrafts, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /ocr-jobs/{id}/confirm:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [OCR], operationId: confirmOcr, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /ocr/barcode-extract:
+    post: {tags: [OCR], operationId: extractBarcode, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
   /notifications:
-    get:
-      tags: [Notifications]
-      operationId: listNotifications
-      summary: List notifications
-      x-scope: user
-      responses: {'200': {$ref: '#/components/responses/NotificationList'}}
-  /notification-preferences:
-    patch:
-      tags: [Notifications]
-      operationId: updateNotificationPreferences
-      summary: Update notification preferences
-      x-scope: user
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/NotificationPreferencesRequest'}
-      responses: {'200': {$ref: '#/components/responses/NotificationPreferences'}}
-  /privacy/export:
-    post:
-      tags: [Privacy]
-      operationId: createPrivacyExport
-      summary: Create a privacy export
-      x-scope: owner
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/PrivacyExportRequest'}
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
-  /privacy/erasure:
-    post:
-      tags: [Privacy]
-      operationId: createPrivacyErasure
-      summary: Create a privacy erasure request
-      x-scope: owner
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/PrivacyErasureRequest'}
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
+    get: {tags: [Notifications], operationId: listNotifications, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /notifications/{id}/read:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [Notifications], operationId: markNotificationRead, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
   /privacy/consents:
-    get:
-      tags: [Privacy]
-      operationId: getPrivacyConsents
-      summary: Get privacy consents
-      x-scope: user
-      responses: {'200': {$ref: '#/components/responses/PrivacyConsents'}}
-  /privacy/consents/{purpose}:
-    post:
-      tags: [Privacy]
-      operationId: updatePrivacyConsent
-      summary: Update a privacy consent
-      x-scope: user
-      parameters: [{$ref: '#/components/parameters/Purpose'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {$ref: '#/components/requestBodies/PrivacyConsentRequest'}
-      responses: {'200': {$ref: '#/components/responses/PrivacyConsent'}}
-  /admin/jobs/{jobId}:
-    get:
-      tags: [Admin]
-      operationId: inspectJob
-      summary: Inspect a job
-      x-scope: operator
-      parameters: [{$ref: '#/components/parameters/JobId'}]
-      responses: {'200': {$ref: '#/components/responses/JobInspection'}, '403': {$ref: '#/components/responses/Forbidden'}}
-  /admin/jobs/{jobId}/replay:
-    post:
-      tags: [Admin]
-      operationId: replayJob
-      summary: Replay a job
-      x-scope: operator
-      parameters: [{$ref: '#/components/parameters/JobId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      responses: {'202': {$ref: '#/components/responses/JobAccepted'}, '403': {$ref: '#/components/responses/Forbidden'}}
-  /admin/audit:
-    get:
-      tags: [Admin]
-      operationId: searchAudit
-      summary: Search audit events
-      x-scope: operator
-      responses: {'200': {$ref: '#/components/responses/AuditSearch'}, '403': {$ref: '#/components/responses/Forbidden'}}
-  /metrics:
-    get:
-      tags: [Platform]
-      operationId: getMetrics
-      summary: Get Prometheus metrics
-      security: []
-      x-scope: internal
-      responses: {'200': {description: Prometheus metrics, content: {text/plain: {schema: {type: string}}}}}
-  /health/live:
-    get:
-      tags: [Platform]
-      operationId: getLiveness
-      summary: Get liveness status
-      security: []
-      x-scope: internal
-      responses: {'200': {$ref: '#/components/responses/Liveness'}}
-  /health/ready:
-    get:
-      tags: [Platform]
-      operationId: getReadiness
-      summary: Get readiness status
-      security: []
-      x-scope: internal
-      responses: {'200': {$ref: '#/components/responses/Readiness'}, '503': {$ref: '#/components/responses/DependencyUnavailable'}}
+    get: {tags: [Privacy], operationId: getConsents, responses: {'200': {$ref: '#/components/responses/Data'}}}
+    put: {tags: [Privacy], operationId: updateConsents, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /privacy/export:
+    post: {tags: [Privacy], operationId: requestExport, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'202': {$ref: '#/components/responses/Data'}}}
+  /privacy/erasure:
+    post: {tags: [Privacy], operationId: requestErasure, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'202': {$ref: '#/components/responses/Data'}}}
+  /jobs:
+    get: {tags: [Jobs], operationId: listJobs, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /jobs/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [Jobs], operationId: getJob, responses: {'200': {$ref: '#/components/responses/Data'}}}
+  /jobs/{id}/retry:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [Jobs], operationId: retryJob, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'202': {$ref: '#/components/responses/Data'}}}
+  /views/dashboard-today:
+    get: {tags: [Views], operationId: dashboardToday, responses: {'200': {$ref: '#/components/responses/View'}}}
+  /views/pantry-screen:
+    get: {tags: [Views], operationId: pantryScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
+  /views/shopping-screen:
+    get: {tags: [Views], operationId: shoppingScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
+  /views/recipes-screen:
+    get: {tags: [Views], operationId: recipesScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
+  /views/nutrition-screen:
+    get: {tags: [Views], operationId: nutritionScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
+  /views/family-screen:
+    get: {tags: [Views], operationId: familyScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
+  /views/notifications-screen:
+    get: {tags: [Views], operationId: notificationsScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
 components:
   securitySchemes:
-    oidc:
-      type: openIdConnect
-      openIdConnectUrl: https://id.example.invalid/.well-known/openid-configuration
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
   parameters:
-    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 128}}
+    Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
     FamilyId: {name: familyId, in: path, required: true, schema: {type: string, format: uuid}}
-    JoinAttemptId: {name: joinAttemptId, in: path, required: true, schema: {type: string, format: uuid}}
-    StockItemId: {name: stockItemId, in: path, required: true, schema: {type: string, format: uuid}}
-    JobId: {name: jobId, in: path, required: true, schema: {type: string, format: uuid}}
-    MembershipId: {name: membershipId, in: path, required: true, schema: {type: string, format: uuid}}
     InviteId: {name: inviteId, in: path, required: true, schema: {type: string, format: uuid}}
-    ProductId: {name: productId, in: path, required: true, schema: {type: string, format: uuid}}
-    ConflictId: {name: conflictId, in: path, required: true, schema: {type: string, format: uuid}}
-    ConsumptionId: {name: consumptionId, in: path, required: true, schema: {type: string, format: uuid}}
-    ListId: {name: listId, in: path, required: true, schema: {type: string, format: uuid}}
-    ItemId: {name: itemId, in: path, required: true, schema: {type: string, format: uuid}}
-    RecipeId: {name: recipeId, in: path, required: true, schema: {type: string, format: uuid}}
-    OfferId: {name: offerId, in: path, required: true, schema: {type: string, format: uuid}}
-    Purpose: {name: purpose, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 80}}
-    Cursor: {name: cursor, in: query, required: false, schema: {type: string, maxLength: 512}}
-    SearchQuery: {name: q, in: query, required: false, schema: {type: string, maxLength: 200}}
-    IfMatch: {name: If-Match, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 128}}
+    StoreId: {name: storeId, in: path, required: true, schema: {type: string, format: uuid}}
+    IfMatch: {name: If-Match, in: header, required: false, schema: {type: string}}
+    IdempotencyKey: {name: X-Idempotency-Key, in: header, required: false, schema: {type: string, minLength: 8, maxLength: 256}}
   requestBodies:
-    UpdateMembershipRequest:
+    Json:
       required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/UpdateMembershipRequest'}}}
-    CreateProductRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/CreateProductRequest'}}}
-    UpdateProductRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/UpdateProductRequest'}}}
-    ResolveBarcodeRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/ResolveBarcodeRequest'}}}
-    CatalogImportRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/CatalogImportRequest'}}}
-    ResolveCatalogConflictRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/ResolveCatalogConflictRequest'}}}
-    MediaUploadIntentRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/MediaUploadIntentRequest'}}}
-    CreateRecognitionJobRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/CreateRecognitionJobRequest'}}}
-    ConfirmRecognitionRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/ConfirmRecognitionRequest'}}}
-    UpdateStockItemRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/UpdateStockItemRequest'}}}
-    EstimateConsumptionRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/EstimateConsumptionRequest'}}}
-    CorrectConsumptionRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/CorrectConsumptionRequest'}}}
-    CreateShoppingListRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/CreateShoppingListRequest'}}}
-    AddShoppingItemRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/AddShoppingItemRequest'}}}
-    UpdateShoppingItemRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/UpdateShoppingItemRequest'}}}
-    CompleteShoppingItemRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/CompleteShoppingItemRequest'}}}
-    LoadShoppingItemRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/LoadShoppingItemRequest'}}}
-    ShoppingBatchActionRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingBatchActionRequest'}}}
-    CreateRecipeJobRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/CreateRecipeJobRequest'}}}
-    PlanRecipeRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/PlanRecipeRequest'}}}
-    ConfirmRecipeCookedRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/ConfirmRecipeCookedRequest'}}}
-    OffersImportRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/OffersImportRequest'}}}
-    NotificationPreferencesRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPreferencesRequest'}}}
-    PrivacyExportRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyExportRequest'}}}
-    PrivacyErasureRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyErasureRequest'}}}
-    PrivacyConsentRequest:
-      required: true
-      content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyConsentRequest'}}}
+      content:
+        application/json:
+          schema: {type: object, additionalProperties: true}
   responses:
-    Forbidden:
-      description: Forbidden
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    NotFound:
-      description: Not found or not visible to caller
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    Conflict:
-      description: Conflict or idempotency mismatch
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    ValidationError:
-      description: Validation error
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    RateLimited:
-      description: Rate limit exceeded
-      headers: {Retry-After: {schema: {type: integer}}}
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    JobAccepted:
-      description: Job accepted for asynchronous processing
-      content: {application/json: {schema: {$ref: '#/components/schemas/JobResponse'}}}
-    CapabilityUnavailable:
-      description: Optional capability is unavailable
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    ConsentRequired:
-      description: Required consent is missing
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    QuotaExceeded:
-      description: Request exceeds configured quota
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    DependencyUnavailable:
-      description: Required dependency is unavailable
-      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
-    FamilyList:
-      description: Families visible to the authenticated principal
-      content: {application/json: {schema: {$ref: '#/components/schemas/FamilyListResponse'}}}
-    InviteList:
-      description: Family invites without raw token material
-      content: {application/json: {schema: {$ref: '#/components/schemas/InviteListResponse'}}}
-    StockMovementList:
-      description: Immutable stock movement page
-      content: {application/json: {schema: {$ref: '#/components/schemas/StockMovementListResponse'}}}
-    Principal:
-      description: Current authenticated principal
-      content: {application/json: {schema: {$ref: '#/components/schemas/PrincipalResponse'}}}
-    Family:
-      description: Family visible to the caller
-      content: {application/json: {schema: {$ref: '#/components/schemas/FamilyDetailResponse'}}}
-    MembershipList:
-      description: Visible family memberships
-      content: {application/json: {schema: {$ref: '#/components/schemas/MembershipListResponse'}}}
-    Membership:
-      description: Updated family membership
-      content: {application/json: {schema: {$ref: '#/components/schemas/MembershipResponse'}}}
-    InviteRevoked:
-      description: Invite revocation result
-      content: {application/json: {schema: {$ref: '#/components/schemas/InviteStatusResponse'}}}
-    InviteRejected:
-      description: Invite rejection result
-      content: {application/json: {schema: {$ref: '#/components/schemas/InviteStatusResponse'}}}
-    ProductList:
-      description: Product search page
-      content: {application/json: {schema: {$ref: '#/components/schemas/ProductListResponse'}}}
-    Product:
-      description: Canonical product
-      content: {application/json: {schema: {$ref: '#/components/schemas/ProductResponse'}}}
-    BarcodeResolution:
-      description: Barcode resolution result
-      content: {application/json: {schema: {$ref: '#/components/schemas/BarcodeResolutionResponse'}}}
-    CatalogConflictList:
-      description: Catalog conflict page
-      content: {application/json: {schema: {$ref: '#/components/schemas/CatalogConflictListResponse'}}}
-    CatalogConflict:
-      description: Catalog conflict resolution result
-      content: {application/json: {schema: {$ref: '#/components/schemas/CatalogConflictResponse'}}}
-    MediaUploadIntent:
-      description: Quarantined media upload intent
-      content: {application/json: {schema: {$ref: '#/components/schemas/MediaUploadIntentResponse'}}}
-    RecognitionJob:
-      description: Recognition job status and reviewable candidates
-      content: {application/json: {schema: {$ref: '#/components/schemas/RecognitionJobResponse'}}}
-    RecognitionCancelled:
-      description: Recognition cancellation result
-      content: {application/json: {schema: {$ref: '#/components/schemas/RecognitionCancelledResponse'}}}
-    InventoryList:
-      description: Inventory page
-      content: {application/json: {schema: {$ref: '#/components/schemas/InventoryListResponse'}}}
-    StockItem:
-      description: Stock item
-      content: {application/json: {schema: {$ref: '#/components/schemas/StockItemResponse'}}}
-    ExpiryList:
-      description: Expiring stock page
-      content: {application/json: {schema: {$ref: '#/components/schemas/ExpiryListResponse'}}}
-    ConsumptionCorrection:
-      description: Corrected consumption
-      content: {application/json: {schema: {$ref: '#/components/schemas/ConsumptionCorrectionResponse'}}}
-    ShoppingListCollection:
-      description: Shopping list collection
-      content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingListCollectionResponse'}}}
-    ShoppingList:
-      description: Shopping list
-      content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingListResponse'}}}
-    ShoppingItem:
-      description: Shopping item
-      content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingItemResponse'}}}
-    InventoryLoad:
-      description: Confirmed inventory load
-      content: {application/json: {schema: {$ref: '#/components/schemas/InventoryLoadResponse'}}}
-    ShoppingBatchAction:
-      description: Batch action result
-      content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingBatchActionResponse'}}}
-    ShoppingListArchived:
-      description: Archived shopping list
-      content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingListResponse'}}}
-    RecipeSuggestionList:
-      description: Recipe suggestions
-      content: {application/json: {schema: {$ref: '#/components/schemas/RecipeSuggestionListResponse'}}}
-    Recipe:
-      description: Recipe detail
-      content: {application/json: {schema: {$ref: '#/components/schemas/RecipeResponse'}}}
-    RecipePlan:
-      description: Planned recipe
-      content: {application/json: {schema: {$ref: '#/components/schemas/RecipePlanResponse'}}}
-    ShoppingAdditions:
-      description: Missing recipe ingredients added to shopping
-      content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingAdditionsResponse'}}}
-    RecipeCooked:
-      description: Confirmed recipe consumption
-      content: {application/json: {schema: {$ref: '#/components/schemas/RecipeCookedResponse'}}}
-    NutritionSummary:
-      description: Nutrition summary
-      content: {application/json: {schema: {$ref: '#/components/schemas/NutritionSummaryResponse'}}}
-    ProductNutrition:
-      description: Product nutrition profile
-      content: {application/json: {schema: {$ref: '#/components/schemas/ProductNutritionResponse'}}}
-    OfferList:
-      description: Fresh authorized offers
-      content: {application/json: {schema: {$ref: '#/components/schemas/OfferListResponse'}}}
-    Offer:
-      description: Offer detail
-      content: {application/json: {schema: {$ref: '#/components/schemas/OfferResponse'}}}
-    NotificationList:
-      description: User notifications
-      content: {application/json: {schema: {$ref: '#/components/schemas/NotificationListResponse'}}}
-    NotificationPreferences:
-      description: Updated notification preferences
-      content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPreferencesResponse'}}}
-    JobInspection:
-      description: Operator job inspection
-      content: {application/json: {schema: {$ref: '#/components/schemas/JobInspectionResponse'}}}
-    AuditSearch:
-      description: Filtered audit events
-      content: {application/json: {schema: {$ref: '#/components/schemas/AuditSearchResponse'}}}
-    Liveness:
-      description: Liveness status
-      content: {application/json: {schema: {$ref: '#/components/schemas/LivenessResponse'}}}
-    Readiness:
-      description: Dependency readiness status
-      content: {application/json: {schema: {$ref: '#/components/schemas/ReadinessResponse'}}}
+    Data:
+      description: Successful response
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/DataEnvelope'}
+    View:
+      description: Composite screen response
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ViewEnvelope'}
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
   schemas:
-    Meta:
+    DataEnvelope:
       type: object
-      required: [requestId, traceId, schemaVersion]
+      required: [data]
       properties:
-        requestId: {type: string, format: uuid}
-        traceId: {type: string}
-        schemaVersion: {type: string}
-    UpdateMembershipRequest:
-      type: object
-      additionalProperties: false
-      required: [role, status]
-      properties:
-        role: {type: string, enum: [ADMIN, MEMBER, VIEWER]}
-        status: {type: string, enum: [ACTIVE, SUSPENDED]}
-    CreateProductRequest:
-      type: object
-      additionalProperties: false
-      required: [name, defaultUnit]
-      properties:
-        name: {type: string, minLength: 1, maxLength: 200}
-        brand: {type: [string, 'null'], maxLength: 120}
-        defaultUnit: {type: string, enum: [g, kg, ml, l, piece, pack]}
-        identifiers: {type: array, items: {type: object, required: [type, value], properties: {type: {type: string}, value: {type: string}}}}
-    UpdateProductRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        name: {type: string, minLength: 1, maxLength: 200}
-        brand: {type: [string, 'null'], maxLength: 120}
-        defaultUnit: {type: string, enum: [g, kg, ml, l, piece, pack]}
-    ResolveBarcodeRequest:
-      type: object
-      additionalProperties: false
-      required: [barcode]
-      properties: {barcode: {type: string, minLength: 8, maxLength: 18}}
-    CatalogImportRequest:
-      type: object
-      additionalProperties: false
-      required: [sourceId, identifiers]
-      properties:
-        sourceId: {type: string, format: uuid}
-        identifiers: {type: array, minItems: 1, items: {type: string}}
-    ResolveCatalogConflictRequest:
-      type: object
-      additionalProperties: false
-      required: [decision]
-      properties: {decision: {type: string, enum: [ACCEPT_EXTERNAL, KEEP_MANUAL, MERGE]}}
-    MediaUploadIntentRequest:
-      type: object
-      additionalProperties: false
-      required: [contentType, sizeBytes, checksum]
-      properties:
-        contentType: {type: string}
-        sizeBytes: {type: integer, minimum: 1}
-        checksum: {type: string, minLength: 16}
-    CreateRecognitionJobRequest:
-      type: object
-      additionalProperties: false
-      required: [mediaId]
-      properties: {mediaId: {type: string, format: uuid}}
-    ConfirmRecognitionRequest:
-      type: object
-      additionalProperties: false
-      required: [candidateIds]
-      properties: {candidateIds: {type: array, items: {type: string}, minItems: 1}}
-    UpdateStockItemRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        reorderPoint: {type: [number, 'null'], minimum: 0}
-        locationId: {type: [string, 'null'], format: uuid}
-        expiresAt: {type: [string, 'null'], format: date-time}
-    EstimateConsumptionRequest:
-      type: object
-      additionalProperties: false
-      required: [source]
-      properties: {source: {type: string, enum: [RECIPE, DIARY]}, referenceId: {type: [string, 'null'], format: uuid}}
-    CorrectConsumptionRequest:
-      type: object
-      additionalProperties: false
-      required: [quantity, unit]
-      properties: {quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string}, reason: {type: string, minLength: 1, maxLength: 500}}
-    CreateShoppingListRequest:
-      type: object
-      additionalProperties: false
-      required: [name]
-      properties: {name: {type: string, minLength: 1, maxLength: 120}}
-    AddShoppingItemRequest:
-      type: object
-      additionalProperties: false
-      required: [displayName, quantity, unit]
-      properties:
-        productId: {type: [string, 'null'], format: uuid}
-        displayName: {type: string, minLength: 1, maxLength: 200}
-        quantity: {type: number, exclusiveMinimum: 0}
-        unit: {type: string}
-    UpdateShoppingItemRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        quantity: {type: number, exclusiveMinimum: 0}
-        state: {type: string, enum: [PROPOSED, ACCEPTED, SNOOZED, IGNORED, COMPLETED]}
-    CompleteShoppingItemRequest:
-      type: object
-      additionalProperties: false
-      required: [completedQuantity]
-      properties: {completedQuantity: {type: number, exclusiveMinimum: 0}}
-    LoadShoppingItemRequest:
-      type: object
-      additionalProperties: false
-      required: [quantity, unit]
-      properties: {quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string}, locationId: {type: [string, 'null'], format: uuid}}
-    ShoppingBatchActionRequest:
-      type: object
-      additionalProperties: false
-      required: [itemIds, action]
-      properties:
-        itemIds: {type: array, minItems: 1, items: {type: string, format: uuid}}
-        action: {type: string, enum: [ACCEPT, REJECT, SNOOZE, COMPLETE]}
-    CreateRecipeJobRequest:
-      type: object
-      additionalProperties: false
-      required: [consentVersion]
-      properties: {consentVersion: {type: string, minLength: 1}}
-    PlanRecipeRequest:
-      type: object
-      additionalProperties: false
-      required: [servings]
-      properties: {servings: {type: number, exclusiveMinimum: 0}}
-    ConfirmRecipeCookedRequest:
-      type: object
-      additionalProperties: false
-      required: [servings]
-      properties: {servings: {type: number, exclusiveMinimum: 0}}
-    OffersImportRequest:
-      type: object
-      additionalProperties: false
-      required: [sourceId, areaCode]
-      properties: {sourceId: {type: string, format: uuid}, areaCode: {type: string, minLength: 1}}
-    NotificationPreferencesRequest:
-      type: object
-      additionalProperties: false
-      required: [enabledCategories, quietHours]
-      properties:
-        enabledCategories: {type: array, items: {type: string}}
-        quietHours: {type: object, required: [from, to], properties: {from: {type: string, pattern: '^[0-2][0-9]:[0-5][0-9]$'}, to: {type: string, pattern: '^[0-2][0-9]:[0-5][0-9]$'}}}
-    CreateFamilyRequest:
-      type: object
-      required: [displayName, locale, timezone, unitSystem]
-      properties:
-        displayName: {type: string, minLength: 1, maxLength: 120}
-        locale: {type: string, example: it-IT}
-        timezone: {type: string, example: Europe/Rome}
-        unitSystem: {type: string, enum: [METRIC, IMPERIAL]}
-    FamilyResponse:
+        data: {}
+        meta: {type: object, additionalProperties: true}
+    ViewEnvelope:
       type: object
       required: [data, meta]
       properties:
-        data: {type: object, required: [familyId, membershipId, role, redirect], properties: {familyId: {type: string, format: uuid}, membershipId: {type: string, format: uuid}, role: {type: string, enum: [CREATOR]}, redirect: {type: string}}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    CreateInviteRequest:
-      type: object
-      required: [role, expiresInSeconds]
-      properties:
-        role: {type: string, enum: [ADMIN, MEMBER, VIEWER]}
-        expiresInSeconds: {type: integer, minimum: 60, maximum: 86400}
-        replaceActiveInvite: {type: boolean, default: false}
-    InviteCreatedResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: {type: object, required: [inviteId, role, status, expiresAt, qrPayload, fallbackCode], properties: {inviteId: {type: string, format: uuid}, role: {type: string}, status: {type: string, enum: [CREATED]}, expiresAt: {type: string, format: date-time}, qrPayload: {type: string, writeOnly: true}, fallbackCode: {type: string, writeOnly: true}}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    ResolveInviteRequest:
-      type: object
-      required: [token, clientNonce]
-      properties: {token: {type: string, minLength: 32}, clientNonce: {type: string, format: uuid}}
-    JoinAttemptResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: {type: object, required: [joinAttemptId, status, expiresAt], properties: {joinAttemptId: {type: string, format: uuid}, status: {type: string, enum: [PENDING_AUTHENTICATION, PENDING_REVIEW, UNAVAILABLE]}, expiresAt: {type: string, format: date-time}}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    InviteReviewResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: {type: object, required: [familyPreview, proposedRole, expiresAt], properties: {familyPreview: {type: object, properties: {displayName: {type: string}}}, proposedRole: {type: string}, expiresAt: {type: string, format: date-time}, requiresConsent: {type: boolean}}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    AcceptInviteRequest:
-      type: object
-      required: [accepted, consentVersion]
-      properties: {accepted: {type: boolean, const: true}, consentVersion: {type: string}}
-    MembershipResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: {type: object, required: [familyId, membershipId, role, status, redirect], properties: {familyId: {type: string, format: uuid}, membershipId: {type: string, format: uuid}, role: {type: string}, status: {type: string, enum: [ACTIVE]}, redirect: {type: string}}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    ActiveFamilyResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: {type: object, required: [familyId], properties: {familyId: {type: string, format: uuid}}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    CreateStockItemRequest:
-      type: object
-      required: [productId, quantity, unit]
-      properties: {productId: {type: string, format: uuid}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string, enum: [g, kg, ml, l, piece, pack]}, expiresAt: {type: [string, 'null'], format: date-time}, reorderPoint: {type: [number, 'null'], minimum: 0}, locationId: {type: [string, 'null'], format: uuid}}
-    MovementRequest:
-      type: object
-      required: [kind, quantity, unit, clientOperationId]
-      properties: {kind: {type: string, enum: [RECEIPT, CONSUMPTION, WASTE, ADJUSTMENT, TRANSFER]}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string}, reason: {type: [string, 'null'], maxLength: 500}, occurredAt: {type: string, format: date-time}, clientOperationId: {type: string, format: uuid}}
-    StockItemResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, properties: {stockItemId: {type: string, format: uuid}, familyId: {type: string, format: uuid}, productId: {type: string, format: uuid}, quantity: {type: number}, unit: {type: string}, version: {type: integer}, updatedAt: {type: string, format: date-time}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ShoppingListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, properties: {listId: {type: string, format: uuid}, familyId: {type: string, format: uuid}, items: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    JobResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [jobId, status], properties: {jobId: {type: string, format: uuid}, status: {type: string, enum: [PENDING, PROCESSING, PENDING_REVIEW, COMPLETED, FAILED, CANCELLED, DEGRADED]}, retryable: {type: boolean}, traceId: {type: string}, error: {type: [object, 'null']}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ErrorResponse:
-      type: object
-      required: [error, meta]
-      properties:
-        error: {type: object, required: [code, message, retryable], properties: {code: {type: string}, message: {type: string}, retryable: {type: boolean}, details: {type: array, items: {type: object}}}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    PrivacyExportRequest:
-      type: object
-      additionalProperties: false
-      description: Empty command body; the authenticated owner selects the export scope from the active family context.
-    PrivacyErasureRequest:
-      type: object
-      additionalProperties: false
-      required: [confirmed]
-      properties:
-        confirmed: {type: boolean, const: true}
-    PrivacyConsentRequest:
-      type: object
-      additionalProperties: false
-      required: [granted, consentVersion]
-      properties:
-        granted: {type: boolean}
-        consentVersion: {type: string, minLength: 1, maxLength: 64}
-    PrivacyConsent:
-      type: object
-      required: [purpose, granted, consentVersion, updatedAt]
-      properties:
-        purpose: {type: string, minLength: 1, maxLength: 100}
-        granted: {type: boolean}
-        consentVersion: {type: string, minLength: 1, maxLength: 64}
-        updatedAt: {type: string, format: date-time}
-    PrivacyConsentResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: {$ref: '#/components/schemas/PrivacyConsent'}
-        meta: {$ref: '#/components/schemas/Meta'}
-    PrivacyConsentsResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data:
+        data: {type: object, additionalProperties: true}
+        meta:
           type: object
-          required: [consents]
+          required: [schemaVersion]
           properties:
-            consents: {type: array, items: {$ref: '#/components/schemas/PrivacyConsent'}}
-        meta: {$ref: '#/components/schemas/Meta'}
-    FamilyListResponse:
+            schemaVersion: {type: string}
+    ErrorEnvelope:
       type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [families], properties: {families: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    InviteListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [invites], properties: {invites: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    StockMovementListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [movements], properties: {movements: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    PrincipalResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [userId], properties: {userId: {type: string, format: uuid}, familyIds: {type: array, items: {type: string, format: uuid}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    FamilyDetailResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [familyId], properties: {familyId: {type: string, format: uuid}, displayName: {type: string}, version: {type: integer}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    MembershipListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [memberships], properties: {memberships: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    InviteStatusResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [status], properties: {status: {type: string, enum: [REVOKED, REJECTED]}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ProductListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [products], properties: {products: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ProductResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [productId, name], properties: {productId: {type: string, format: uuid}, name: {type: string}, version: {type: integer}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    BarcodeResolutionResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [status], properties: {status: {type: string, enum: [MATCHED, UNKNOWN, REVIEW_REQUIRED]}, productId: {type: [string, 'null'], format: uuid}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    CatalogConflictListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [conflicts], properties: {conflicts: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    CatalogConflictResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [conflictId, decision], properties: {conflictId: {type: string, format: uuid}, decision: {type: string}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    MediaUploadIntentResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [mediaId, uploadUrl, expiresAt], properties: {mediaId: {type: string, format: uuid}, uploadUrl: {type: string, format: uri}, expiresAt: {type: string, format: date-time}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    RecognitionJobResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [jobId, status, candidates], properties: {jobId: {type: string, format: uuid}, status: {type: string}, candidates: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    RecognitionCancelledResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [jobId, status], properties: {jobId: {type: string, format: uuid}, status: {const: CANCELLED}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    InventoryListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [items], properties: {items: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ExpiryListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [items], properties: {items: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ConsumptionCorrectionResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [consumptionId, status], properties: {consumptionId: {type: string, format: uuid}, status: {type: string}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ShoppingListCollectionResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [lists], properties: {lists: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ShoppingItemResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [itemId, state], properties: {itemId: {type: string, format: uuid}, state: {type: string}, version: {type: integer}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    InventoryLoadResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [stockItemId], properties: {stockItemId: {type: string, format: uuid}, quantity: {type: number}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ShoppingBatchActionResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [updatedItemIds], properties: {updatedItemIds: {type: array, items: {type: string, format: uuid}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    RecipeSuggestionListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [suggestions], properties: {suggestions: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    RecipeResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [recipeId, title], properties: {recipeId: {type: string, format: uuid}, title: {type: string}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    RecipePlanResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [recipeId, servings], properties: {recipeId: {type: string, format: uuid}, servings: {type: number}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ShoppingAdditionsResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [itemIds], properties: {itemIds: {type: array, items: {type: string, format: uuid}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    RecipeCookedResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [movementIds], properties: {movementIds: {type: array, items: {type: string, format: uuid}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    NutritionSummaryResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [quality], properties: {quality: {type: string, enum: [VERIFIED, IMPORTED, ESTIMATED, UNKNOWN]}, nutrients: {type: object}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ProductNutritionResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [productId, quality], properties: {productId: {type: string, format: uuid}, quality: {type: string}, nutrients: {type: object}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    OfferListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [offers], properties: {offers: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    OfferResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [offerId, price, currency], properties: {offerId: {type: string, format: uuid}, price: {type: number}, currency: {type: string}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    NotificationListResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [notifications], properties: {notifications: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    NotificationPreferencesResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [enabledCategories, quietHours], properties: {enabledCategories: {type: array, items: {type: string}}, quietHours: {type: object}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    JobInspectionResponse:
-      allOf: [{$ref: '#/components/schemas/JobResponse'}]
-    AuditSearchResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [events], properties: {events: {type: array, items: {type: object}}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    LivenessResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [status], properties: {status: {const: ok}}}, meta: {$ref: '#/components/schemas/Meta'}}
-    ReadinessResponse:
-      type: object
-      required: [data, meta]
-      properties: {data: {type: object, required: [status, dependencies], properties: {status: {const: ready}, dependencies: {type: object}}}, meta: {$ref: '#/components/schemas/Meta'}}
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, retryable]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            retryable: {type: boolean}
+        meta: {type: object, additionalProperties: true}
