@@ -1,4 +1,16 @@
 services:
+  db-migrate:
+    build:
+      context: ../..
+      dockerfile: infra/postgres/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://dispensa:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [core, family-local]
+    restart: "no"
+
   service-identity:
     build:
       context: ../..
@@ -17,6 +29,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
     profiles: [core, family-local]
@@ -42,6 +56,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
     profiles: [core, family-local]
@@ -68,6 +84,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
     profiles: [core, family-local]
@@ -94,6 +112,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
     profiles: [core, family-local]
@@ -120,6 +140,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
     profiles: [core, family-local]
@@ -145,6 +167,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
     profiles: [core, family-local]
@@ -170,6 +194,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
     profiles: [core, family-local]
@@ -198,6 +224,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       keycloak:
@@ -279,6 +307,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     profiles: [core, family-local]
@@ -299,6 +329,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
@@ -317,6 +349,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
@@ -335,6 +369,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
@@ -354,6 +390,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     profiles: [core, family-local]
@@ -443,6 +481,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     profiles: [core, family-local]
@@ -458,6 +498,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     profiles: [core, family-local]
@@ -490,6 +532,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     profiles: [core, family-local]
