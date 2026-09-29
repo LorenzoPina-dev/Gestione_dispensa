@@ -472,7 +472,6 @@ services:
         condition: service_healthy
       off-lookup:
         condition: service_healthy
-    profiles: [family-local]
     restart: unless-stopped
 
   worker-ocr:
