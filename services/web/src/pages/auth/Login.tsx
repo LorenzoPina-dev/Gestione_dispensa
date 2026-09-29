@@ -8,7 +8,6 @@ import { useAuthStore } from "../../store/auth";
 import { getCurrentUser, listFamilies } from "../../api/endpoints";
 
 type LoginState = "IDLE" | "SUBMITTING" | "ERROR";
-
 function mapRealmRole(roles: string[] | undefined): AuthUser["role"] {
   const allowed: AuthUser["role"][] = ["OWNER", "MANAGER", "MEMBER", "VIEWER"];
   const match = roles?.find((role): role is AuthUser["role"] => allowed.includes(role as AuthUser["role"]));
