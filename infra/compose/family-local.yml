@@ -35,8 +35,8 @@ services:
     environment:
       PORT: 3310
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
       # Admin API di Keycloak per la registrazione utenti: rete Docker interna, non l'issuer pubblico HTTPS.
@@ -65,8 +65,8 @@ services:
     environment:
       PORT: 3311
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
     depends_on:
@@ -91,8 +91,8 @@ services:
     environment:
       PORT: 3312
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
       SHELF_LIFE_SERVICE_BASE_URL: http://service-shelf-life:3404/api/v1
@@ -118,8 +118,8 @@ services:
     environment:
       PORT: 3313
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
       INVENTORY_SERVICE_BASE_URL: http://service-inventory:3312/api/v1
@@ -145,8 +145,8 @@ services:
     environment:
       PORT: 3314
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
       OFF_LOOKUP_BASE_URL: http://off-lookup:3200
@@ -172,8 +172,8 @@ services:
     environment:
       PORT: 3315
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
     depends_on:
@@ -198,8 +198,8 @@ services:
     environment:
       PORT: 3316
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
     depends_on:
@@ -224,8 +224,8 @@ services:
     environment:
       PORT: 3317
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
       REDIS_URL: redis://redis:6379
@@ -267,8 +267,8 @@ services:
       STORES_SERVICE_BASE_URL: http://service-stores:3403/api/v1
       SHELF_LIFE_SERVICE_BASE_URL: http://service-shelf-life:3404/api/v1
       OCR_SERVICE_BASE_URL: http://service-ocr:3405/api/v1
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${LAN_HOST:-192.168.1.24}:8443/realms/dispensa}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
       GATEWAY_TIMEOUT_MS: ${GATEWAY_TIMEOUT_MS:-5000}
     depends_on:
@@ -629,7 +629,7 @@ services:
       - "start-dev"
       - "--import-realm"
       - "--http-host=0.0.0.0"
-      - "--hostname=${KEYCLOAK_HOSTNAME:-https://192.168.1.24:8443}"
+      - "--hostname=${KEYCLOAK_HOSTNAME:-https://${LAN_HOST:-192.168.1.24}:8443}"
       - "--hostname-strict=false"
       - "--hostname-backchannel-dynamic=false"
       - "--proxy-headers=xforwarded"
