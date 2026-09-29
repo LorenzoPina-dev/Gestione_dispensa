@@ -107,6 +107,8 @@ export function buildPsqlQueryArgs(databaseUrl, sql) {
     "--no-align",
     "--field-separator",
     "\t",
+    "--set",
+    "ON_ERROR_STOP=1",
     "--dbname",
     databaseUrl,
     "--command",
