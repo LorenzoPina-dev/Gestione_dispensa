@@ -20,5 +20,16 @@ const invites=new InviteService(new PostgresInviteRepository(pg),{next:randomUUI
 const controller=new FamilyController(families,invites,new PostgresFamilyMembershipReader(pg),memberships,new PostgresUserFamiliesReader(pg));
 app.get('/health/live',(_req,res)=>res.json({status:'ok',service:'service-family'})); app.get('/health/ready',async(_req,res)=>{try{await pg.ping();res.json({status:'ready',service:'service-family'})}catch{res.status(503).json({status:'not_ready'})}});
 app.use('/api/v1',buildFamilyRouter({controller,verifier}));
+
+// Never let an unexpected domain/database exception fall through to Express's HTML 500.
+// The gateway/web contract is JSON, and a structured 5xx is essential for diagnosing
+// bootstrap failures such as a missing profile or an unapplied migration.
+app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[service-family] unhandled request error", error);
+  if (res.headersSent) return;
+  const message = error instanceof Error ? error.message : "Internal server error.";
+  sendFailure(res, 500, "INTERNAL_ERROR", message, req.meta ?? buildMeta(req));
+});
+
 app.use((req,res)=>sendFailure(res,404,'NOT_FOUND_OR_NOT_VISIBLE','The resource is not available.',req.meta??buildMeta(req)));
 app.listen(port,'0.0.0.0',()=>console.log(JSON.stringify({service:'service-family',port})));
