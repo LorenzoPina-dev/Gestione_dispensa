@@ -134,22 +134,31 @@ docs/
 
 La source of truth transazionale rimane PostgreSQL. MongoDB non contiene giacenze familiari.
 
-## Avvio locale
+## Avvio locale — zero setup manuale
+
+Il percorso locale è progettato per essere avviato direttamente con Docker. Non è necessario eseguire manualmente `npm install`, creare lo schema PostgreSQL o applicare le migrazioni.
 
 ```bash
-npm install
-npm run validate:structure
-npm run typecheck
-npm run build
-
-docker compose --profile family-local up --build
+docker compose up --build -d
 ```
+
+Al primo avvio Compose:
+1. avvia PostgreSQL e Redis;
+2. avvia Keycloak e importa automaticamente il realm `dispensa`;
+3. avvia il container one-shot `db-migrate`, che applica tutte le migrazioni pendenti in ordine;
+4. prepara automaticamente un certificato HTTPS locale se non esiste già;
+5. avvia i servizi solo dopo che database, migrazioni e dipendenze richieste sono pronti;
+6. espone la SPA e tutte le API esclusivamente tramite Nginx.
+
+Le migrazioni sono idempotenti e il runner usa un advisory lock PostgreSQL, quindi un riavvio non riesegue le migrazioni già applicate.
 
 Ingresso ufficiale:
 
 ```text
 https://<host-lan>:8443/
 ```
+
+Il default del repository è `https://192.168.1.24:8443/`. Per un altro indirizzo LAN è sufficiente impostare `LAN_HOST` e le eventuali variabili OIDC nel proprio ambiente prima di avviare Compose.
 
 ## Quality gates
 
