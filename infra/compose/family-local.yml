@@ -1,4 +1,23 @@
 services:
+  cert-init:
+    image: alpine:3.20
+    environment:
+      LAN_HOST: ${LAN_HOST:-192.168.1.24}
+    volumes:
+  nginx-certs:
+      - nginx-certs:/certs
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        apk add --no-cache openssl >/dev/null
+        if [ ! -s /certs/local.pem ] || [ ! -s /certs/local-key.pem ]; then
+          openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 825             -keyout /certs/local-key.pem             -out /certs/local.pem             -subj "/CN=$LAN_HOST"             -addext "subjectAltName=DNS:localhost,DNS:127.0.0.1,IP:127.0.0.1,IP:$LAN_HOST"
+          chmod 644 /certs/local.pem
+          chmod 600 /certs/local-key.pem
+        fi
+    restart: "no"
+
   db-migrate:
     build:
       context: ../..
@@ -8,7 +27,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: "no"
 
   service-identity:
@@ -33,7 +51,6 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3310/health/live"]
@@ -60,7 +77,6 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3311/health/live"]
@@ -88,7 +104,6 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3312/health/live"]
@@ -116,7 +131,6 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3313/health/live"]
@@ -144,7 +158,6 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3314/health/live"]
@@ -171,7 +184,6 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3315/health/live"]
@@ -198,7 +210,6 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3316/health/live"]
@@ -230,7 +241,6 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3317/health/live"]
@@ -279,7 +289,6 @@ services:
         condition: service_healthy
       service-jobs:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     init: true
     healthcheck:
@@ -311,7 +320,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3401/health/live"]
@@ -331,7 +339,6 @@ services:
         condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3402/health/live"]
@@ -351,7 +358,6 @@ services:
         condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3403/health/live"]
@@ -371,7 +377,6 @@ services:
         condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3404/health/live"]
@@ -394,7 +399,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3405/health/live"]
@@ -406,7 +410,6 @@ services:
     build:
       context: ../..
       dockerfile: services/web/Dockerfile
-    profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/healthz"]
@@ -426,7 +429,7 @@ services:
     image: nginx:1.27-alpine
     volumes:
       - ../nginx/local.conf:/etc/nginx/nginx.conf:ro
-      - ../../certs:/etc/nginx/certs:ro
+      - nginx-certs:/etc/nginx/certs:ro
     ports:
       - "${NGINX_HTTPS_PORT:-8443}:8443"
       - "${NGINX_HTTP_PORT:-8081}:8080"
@@ -434,6 +437,8 @@ services:
       # Disponibile per fallback su host se necessario
       - "host.docker.internal:host-gateway"
     depends_on:
+      cert-init:
+        condition: service_completed_successfully
       web:
         condition: service_healthy
       service-recipes:
@@ -485,7 +490,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
 
   worker-shelf-life:
@@ -502,7 +506,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
 
   worker-off-sync:
@@ -517,7 +520,6 @@ services:
         condition: service_healthy
       off-lookup:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
 
   worker-core:
@@ -536,7 +538,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    profiles: [core, family-local]
     restart: unless-stopped
     init: true
     stop_grace_period: 10s
@@ -558,7 +559,6 @@ services:
       OFF_LOOKUP_MONGO_URL: ${OFF_LOOKUP_MONGO_URL:-}
       OFF_LOOKUP_API_BASE_URL: ${OFF_LOOKUP_API_BASE_URL:-https://world.openfoodfacts.org}
       NODE_OPTIONS: --enable-source-maps
-    profiles: [core, family-local]
     restart: unless-stopped
     init: true
     stop_grace_period: 10s
@@ -592,7 +592,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    profiles: [core, family-local]
     restart: unless-stopped
     stop_grace_period: 30s
     deploy:
@@ -614,7 +613,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    profiles: [core, family-local]
     restart: unless-stopped
     stop_grace_period: 10s
     deploy:
@@ -657,7 +655,6 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
-    profiles: [core, family-local]
     restart: unless-stopped
     deploy:
       resources:
