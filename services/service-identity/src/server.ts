@@ -41,7 +41,36 @@ app.get("/api/v1/me", async (req, res) => {
 app.get("/api/v1/auth/me", async (req, res) => {
   const p = await resolvePrincipal(req, verifier);
   if (!p) return sendFailure(res, 401, "UNAUTHENTICATED", "Authentication is required.", req.meta);
-  return sendSuccess(res, 200, { id: p.subject, subject: p.subject, email: p.email, name: p.name, roles: p.roles, scopes: p.scopes }, req.meta);
+
+  // /auth/me is the bootstrap endpoint used by the web client immediately after login/register.
+  // It must synchronize the OIDC subject into PostgreSQL before family operations run. Previously
+  // only the legacy /me endpoint did this, so a freshly registered Keycloak user had no local
+  // users row and the following family bootstrap could fail (and, more importantly, creating a
+  // family would violate the family.creator_user_id FK).
+  try {
+    await profiles.upsertFromOidc({
+      id: p.subject,
+      ...(p.email ? { email: p.email } : {}),
+      ...(p.name ? { displayName: p.name } : {}),
+    });
+    const familyId = await profiles.getActiveFamilyId(p.subject);
+    return sendSuccess(
+      res,
+      200,
+      {
+        id: p.subject,
+        subject: p.subject,
+        email: p.email,
+        name: p.name,
+        roles: p.roles,
+        scopes: p.scopes,
+        ...(familyId ? { activeFamilyId: familyId } : {}),
+      },
+      req.meta,
+    );
+  } catch {
+    return sendFailure(res, 503, "PROFILE_SYNC_FAILED", "Unable to synchronize the user profile.", req.meta);
+  }
 });
 
 app.post("/api/v1/auth/register", async (req, res) => {
