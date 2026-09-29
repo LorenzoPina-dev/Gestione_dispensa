@@ -12,8 +12,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_email_ci_unique
   ON public.users (lower(email))
   WHERE email IS NOT NULL AND status <> 'ERASED';
 
-INSERT INTO public.schema_migrations(version,name,checksum)
-VALUES('0022-user-profile-fields','user-profile-fields','manual')
-ON CONFLICT(version) DO NOTHING;
 
 COMMIT;
