@@ -13,7 +13,7 @@ import { useFamilyMembers } from "./hooks/useFamily";
 import { useNotifications } from "./hooks/useNotifications";
 import { useAuthStore } from "./store/auth";
 import { getCurrentUser, listFamilies } from "./api/endpoints";
-import { isBackendUnreachable } from "./api/client";
+import { ApiError, isBackendUnreachable } from "./api/client";
 import { useScreenView } from "./hooks/useScreenView";
 import { mapStockItemDtoToUi, mapActiveShoppingListDtoToUi } from "./api/mappers";
 
@@ -85,21 +85,21 @@ export default function App() {
       } catch (err) {
         if (!cancelled) {
           if (isBackendUnreachable(err)) {
-            // Backend momentaneamente irraggiungibile: NON e' un segnale che il token sia
-            // invalido. Manteniamo la sessione (e il token) cosi' com'e' e lasciamo che l'utente
-            // riprovi/rimanga sulla schermata corrente; gli hook dei dati (useInventory, ecc.)
-            // gestiscono gia' la modalita' demo/offline per i singoli pannelli.
+            // Network failure is not an authentication failure: keep the session.
             setSessionChecked(true);
             return;
           }
-          // Il token persistito non e' (piu') valido: svuotiamo lo store. Il middleware
-          // `persist` aggiorna anche localStorage, così un token rotto non resta salvato
-          // e non causa un loop di re-render.
-          useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, isAuthenticated: false });
-          setCurrentUser(null);
-          setScreen("login");
-          setSessionChecked(true);
-        }
+          if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+            // Only an explicit authentication/authorization response can invalidate a
+            // persisted session. A 5xx from /families must never kick the user to login.
+            useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, isAuthenticated: false });
+            setCurrentUser(null);
+            setScreen("login");
+            setSessionChecked(true);
+            return;
+          }
+          // Keep authenticated state on domain/upstream 5xx responses.
+          setSessionChecked(true);        }
       }
     })();
     return () => { cancelled = true; };
