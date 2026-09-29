@@ -64,10 +64,7 @@ export class OidcTokenVerifier {
     const discoveryUrl = options.discoveryUrl
       ? new URL(options.discoveryUrl)
       : new URL(".well-known/openid-configuration", ensureTrailingSlash(issuer));
-    const response = await fetchImpl(discoveryUrl);
-    if (!response.ok) {
-      throw new Error(`OIDC discovery failed with status ${response.status}.`);
-    }
+    const response = await fetchDiscoveryWithRetry(fetchImpl, discoveryUrl);
     const discovery = (await response.json()) as Partial<OidcDiscoveryDocument>;
     const discoveryIssuer = discovery.issuer?.replace(/\/+$/, "");
     const expectedIssuer = issuer.replace(/\/+$/, "");
@@ -155,4 +152,32 @@ function normalizeStringArray(value: string | string[] | undefined): readonly st
 
 function ensureTrailingSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+/**
+ * Keycloak can take tens of seconds to become reachable after `docker compose up`.
+ * Retrying here avoids crashing at startup (top-level await) when the IdP is not ready yet.
+ */
+async function fetchDiscoveryWithRetry(
+  fetchImpl: FetchLike,
+  url: URL,
+  attempts = 30,
+  delayMs = 2_000,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetchImpl(url);
+      if (response.ok) {
+        return response;
+      }
+      lastError = new Error(`OIDC discovery failed with status ${response.status}.`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("OIDC discovery failed.");
 }

@@ -10,13 +10,20 @@ services:
       OIDC_AUDIENCE: ${OIDC_AUDIENCE}
       OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dispensa/.well-known/openid-configuration
       OIDC_JWKS_URL: http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs
+      # Admin API di Keycloak per la registrazione utenti: rete Docker interna, non l'issuer pubblico HTTPS.
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     depends_on:
       postgres:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3310/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -35,10 +42,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3311/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -58,10 +68,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3312/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -81,10 +94,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3313/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -104,10 +120,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3314/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -126,10 +145,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3315/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -148,10 +170,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3316/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -175,10 +200,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     profiles: [core, family-local]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3317/health/live"]
+      start_period: 30s
       interval: 10s
       timeout: 3s
       retries: 5
@@ -585,7 +613,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
-    profiles: [family-local]
+    profiles: [core, family-local]
     restart: unless-stopped
     deploy:
       resources:

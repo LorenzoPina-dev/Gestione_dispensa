@@ -26,6 +26,12 @@ app.use(express.json({ limit: "2mb" }));
 app.get("/health/live", (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/metrics", (_req, res) => { res.type("text/plain").send(`# HELP process_uptime_seconds Gateway process uptime.\n# TYPE process_uptime_seconds gauge\nprocess_uptime_seconds ${process.uptime()}\n`); });
 app.use("/api/v1/views", requireGatewayAuth);
+// Rotte pubbliche: chi si registra o recupera la password non ha ancora un token.
+// Devono stare PRIMA del ciclo sottostante, che impone requireGatewayAuth su /api/v1/auth.
+app.post("/api/v1/auth/register", serviceProxy(identityBaseUrl));
+app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
+app.post("/api/v1/auth/logout", serviceProxy(identityBaseUrl));
+app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
 for (const [prefix, base] of [
   ["/api/v1/auth", identityBaseUrl], ["/api/v1/me", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
   ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
