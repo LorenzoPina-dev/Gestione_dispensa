@@ -73,6 +73,7 @@ services:
     command: --config.file=/etc/prometheus/prometheus.yml
     volumes:
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     networks: [backend, data]
 
   grafana:
