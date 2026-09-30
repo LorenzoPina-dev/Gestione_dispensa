@@ -11,30 +11,8 @@
     "test": "npm run test --workspaces --if-present"
   },
   "workspaces": [
-    "packages/*",
-    "services/analytics",
-    "services/barcode",
-    "services/expiration",
-    "services/families",
-    "services/gateway",
-    "services/identity",
-    "services/inventory",
-    "services/media",
-    "services/notifications",
-    "services/nutrition",
-    "services/off-lookup",
-    "services/offers",
-    "services/products",
-    "services/recipes",
-    "services/scheduler",
-    "services/search",
-    "services/shopping",
-    "services/stores",
-    "services/users",
-    "services/vision",
-    "services/web",
-    "services/worker-core",
-    "services/worker-integrations"
+    "services/*",
+    "packages/*"
   ],
   "engines": {
     "node": ">=22"
