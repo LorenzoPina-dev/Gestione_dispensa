@@ -17,7 +17,24 @@ services:
     environment:
       PORT: 3000
       SERVICE_NAME: gateway
+      IDENTITY_URL: http://identity:3010
     networks: [backend]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks: [backend, data]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    depends_on: [prometheus]
+    ports: ["3007:3000"]
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks: [backend, data]
 
   postgres:
     image: postgres:16-alpine
@@ -70,10 +87,13 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
-    command: start-dev --http-port=8080
+    command: start-dev --http-port=8080 --import-realm
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: dev-file
+    volumes:
+      - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
     networks: [backend]
 
   identity:
@@ -150,6 +170,7 @@ volumes:
   mongo_data:
   kafka_data:
   minio_data:
+  grafana_data:
   opensearch_data:
 
 networks:
