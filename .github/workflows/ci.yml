@@ -29,7 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose --profile family-local config --quiet
+      - name: Validate Compose model
+        run: docker compose --profile family-local config --quiet
+      - name: Validate rendered services
+        run: |
+          test "$(docker compose config --services | wc -l)" -ge 20
+          docker compose config --images
+      - name: Build every application image
+        run: docker compose build --pull --parallel
 
   postgres-integration:
     runs-on: ubuntu-latest
