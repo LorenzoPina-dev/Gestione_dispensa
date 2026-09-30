@@ -18,6 +18,7 @@ services:
       PORT: 3000
       SERVICE_NAME: gateway
       IDENTITY_URL: http://identity:3010
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     networks: [backend]
 
   loki:
@@ -28,12 +29,21 @@ services:
       - ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro
     networks: [data]
 
+  tempo:
+    image: grafana/tempo:2.8.2
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - tempo_data:/var/tempo
+      - ./infrastructure/tempo/tempo.yml:/etc/tempo.yml:ro
+    networks: [data]
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.132.0
     command: ["--config=/etc/otel-collector.yml"]
     volumes:
       - ./infrastructure/otel/otel-collector.yml:/etc/otel-collector.yml:ro
     networks: [backend, data]
+    depends_on: [tempo]
 
   prometheus:
     image: prom/prometheus:v3.5.0
@@ -187,6 +197,7 @@ volumes:
   minio_data:
   grafana_data:
   loki_data:
+  tempo_data:
   opensearch_data:
 
 networks:
