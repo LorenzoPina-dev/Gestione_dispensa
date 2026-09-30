@@ -280,7 +280,7 @@ services:
     environment:
       OFF_LOOKUP_PORT: 3200
       OFF_LOOKUP_MONGO_URL: "mongodb://mongodb:27017"
-      OFF_LOOKUP_MONGO_DB: off
+      OFF_LOOKUP_MONGO_DB: off_lookup_db
       OFF_LOOKUP_MONGO_COLLECTION: products
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on: { mongodb: { condition: service_healthy } }
