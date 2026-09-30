@@ -1,20 +1,645 @@
-# API
+# API Contract — Gateway + Internal HTTP
 
-Browser -> Nginx -> Gateway. Il Gateway non contiene business logic di dominio.
+Versione contrattuale: **2.0**. Questo documento è normativo: implementazione e test devono rispettare esattamente path, metodo, header, status code, body, enum e regole di idempotenza qui definite.
 
-Header standard: Authorization, X-Request-Id, X-Correlation-Id, X-Idempotency-Key e If-Match.
+## 1. Regole globali
 
-Route ownership:
-- /api/families -> Family
-- /api/inventory -> Inventory
-- /api/shopping -> Shopping
-- /api/catalog -> Catalog
-- /api/recipes -> Recipes
-- /api/nutrition -> Nutrition
-- /api/stores -> Stores
-- /api/notifications -> Notifications
-- /api/privacy -> Privacy
-- /api/ocr -> OCR
-- /api/shelf-life -> Shelf-Life
+### Base URL
 
-Composite Views sono GET aggregate ottenute chiamando i service owner in parallelo. Timeout/partial failure devono essere espliciti. Le mutation non vengono duplicate nel Gateway.
+Browser:
+`https://<host>:8443/api`
+
+Il browser non chiama direttamente i microservizi. Il Gateway inoltra alle porte interne definite in `SERVICES.md`.
+
+### Header
+
+| Header | Direzione | Obbligatorio | Regola |
+|---|---|---:|---|
+| Authorization | client -> gateway | sì per endpoint autenticati | `Bearer <OIDC access token>` |
+| X-Request-Id | client/gateway | no | se assente il Gateway lo genera; viene propagato invariato |
+| X-Correlation-Id | client/gateway | no | se assente viene generato; stesso workflow distribuito |
+| X-Idempotency-Key | client -> gateway | per POST/PATCH/DELETE non-safe | chiave unica per la mutazione; TTL minimo 24h |
+| If-Match | client -> gateway | per PATCH/DELETE concorrenti | ETag della versione letta |
+| Content-Type | client -> gateway | per body | `application/json`, oppure `multipart/form-data` per upload |
+
+Il Gateway non può modificare `sub`, `familyId` o altri claim di sicurezza. Il contesto autenticato viene propagato internamente con credenziali/service identity non falsificabili dal browser.
+
+### ID e timestamp
+
+- ID: UUID v4 in formato stringa.
+- Date/time: ISO-8601 UTC, es. `2026-09-30T15:30:00Z`.
+- Quantità: numero decimale non negativo.
+- Denaro: intero in minor units + currency ISO 4217; mai float.
+- Barcode: stringa numerica, senza normalizzare zeri iniziali.
+- Paginazione: cursor-based, `limit` 1..100, risposta con `nextCursor`.
+- Nessun campo sconosciuto è accettato nei request body salvo dove esplicitamente indicato.
+
+### Risposta standard di successo
+
+Le risposte sono JSON e contengono esclusivamente i campi documentati.
+
+Lista:
+```json
+{
+  "items": [],
+  "nextCursor": null
+}
+```
+
+Mutazione:
+```json
+{
+  "data": {},
+  "version": 1
+}
+```
+
+### Errore standard
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "details": [
+      {"field": "quantity", "reason": "must_be_positive"}
+    ],
+    "requestId": "uuid"
+  }
+}
+```
+
+Codici minimi:
+
+| HTTP | code | Uso |
+|---:|---|---|
+| 400 | VALIDATION_ERROR | body/query/path/header non valido |
+| 401 | UNAUTHENTICATED | token mancante/non valido |
+| 403 | FORBIDDEN | identità autenticata ma non autorizzata |
+| 404 | NOT_FOUND | risorsa inesistente |
+| 409 | CONFLICT | vincolo di dominio o idempotency conflict |
+| 412 | PRECONDITION_FAILED | ETag/If-Match non più valido |
+| 422 | BUSINESS_RULE_VIOLATION | input sintatticamente valido ma dominio invalido |
+| 429 | RATE_LIMITED | rate limit |
+| 502 | UPSTREAM_ERROR | provider/servizio downstream fallito |
+| 503 | SERVICE_UNAVAILABLE | servizio temporaneamente non disponibile |
+| 504 | UPSTREAM_TIMEOUT | timeout downstream |
+
+Un endpoint non può inventare un diverso formato errore.
+
+## 2. Identity
+
+### GET /identity/me
+
+Response 200:
+```json
+{
+  "data": {
+    "userId": "uuid",
+    "subject": "oidc-sub",
+    "email": "user@example.com",
+    "displayName": "Mario Rossi",
+    "avatarUrl": null,
+    "locale": "it-IT",
+    "timezone": "Europe/Rome",
+    "createdAt": "2026-09-30T15:30:00Z",
+    "updatedAt": "2026-09-30T15:30:00Z"
+  }
+}
+```
+
+### PATCH /identity/me
+
+Request:
+```json
+{
+  "displayName": "Mario Rossi",
+  "avatarUrl": null,
+  "locale": "it-IT",
+  "timezone": "Europe/Rome"
+}
+```
+
+Tutti i campi sono opzionali; almeno uno deve essere presente. Response 200 come GET.
+
+## 3. Families
+
+### GET /families
+
+Query: `limit`, `cursor`.
+
+Response 200:
+```json
+{"items":[{"familyId":"uuid","name":"Casa","role":"owner","memberCount":3,"createdAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
+```
+
+### POST /families
+
+Request:
+```json
+{"name":"Casa"}
+```
+Response 201:
+```json
+{"data":{"familyId":"uuid","name":"Casa","role":"owner","createdAt":"2026-09-30T15:30:00Z"},"version":1}
+```
+
+### GET /families/{familyId}
+
+Response 200:
+```json
+{"data":{"familyId":"uuid","name":"Casa","members":[{"userId":"uuid","displayName":"Mario","role":"owner","joinedAt":"2026-09-30T15:30:00Z"}],"version":3}}
+```
+
+### PATCH /families/{familyId}
+
+Request:
+```json
+{"name":"Casa nuova"}
+```
+Response 200: family object + version.
+
+### DELETE /families/{familyId}
+
+Response 204. L'operazione richiede ruolo owner e avvia eventuali workflow privacy/erasure definiti in `SECURITY.md`.
+
+### POST /families/{familyId}/invites
+
+Request:
+```json
+{"email":"invitee@example.com","role":"member","expiresInSeconds":86400}
+```
+`role` = `member` oppure `admin`. `expiresInSeconds`: 3600..604800.
+
+Response 201:
+```json
+{"data":{"inviteId":"uuid","email":"invitee@example.com","role":"member","status":"pending","expiresAt":"2026-10-01T15:30:00Z"},"version":1}
+```
+
+### GET /families/{familyId}/invites
+
+Response 200:
+```json
+{"items":[{"inviteId":"uuid","email":"invitee@example.com","role":"member","status":"pending","expiresAt":"2026-10-01T15:30:00Z","createdAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
+```
+
+### DELETE /families/{familyId}/invites/{inviteId}
+
+Response 204. Revoca il token; non modifica membership esistenti.
+
+### GET /family-invites/{token}
+
+Response 200:
+```json
+{"data":{"inviteId":"uuid","familyName":"Casa","role":"member","status":"pending","expiresAt":"2026-10-01T15:30:00Z"}}
+```
+Non concede membership.
+
+### POST /family-invites/{token}/accept
+
+Body `{}`. Response 201:
+```json
+{"data":{"familyId":"uuid","userId":"uuid","role":"member","joinedAt":"2026-09-30T15:30:00Z"},"version":1}
+```
+Richiede autenticazione. Token consumato atomicamente.
+
+## 4. Inventory
+
+### GET /inventory
+
+Query: `familyId`, `status=current`, `limit`, `cursor`.
+
+Response 200:
+```json
+{"items":[{"itemId":"uuid","productId":"uuid","lotId":"uuid","name":"Latte","quantity":2,"unit":"L","expiresAt":"2026-10-05T00:00:00Z","expirationSource":"declared","location":"fridge","version":4}],"nextCursor":null}
+```
+
+### GET /inventory/{itemId}
+
+Response 200: item completo come sopra, includendo `addedAt`, `openedAt`, `updatedAt`.
+
+### POST /inventory/items
+
+Request:
+```json
+{
+  "productId":"uuid",
+  "quantity":2,
+  "unit":"L",
+  "expiresAt":"2026-10-05T00:00:00Z",
+  "location":"fridge",
+  "lotCode":"LOT-123"
+}
+```
+`productId` è Catalog ID. Se `expiresAt` è omesso il sistema può avviare Shelf-Life; non è lecito creare direttamente una data stimata nel client.
+
+Response 201: item + version.
+
+### PATCH /inventory/{itemId}
+
+Request: almeno uno tra `quantity`, `location`, `expiresAt`, `lotCode`.
+Response 200: item + version.
+
+### POST /inventory/{itemId}/consume
+
+Request:
+```json
+{"quantity":1,"reason":"used"}
+```
+`reason`: `used` | `expired` | `damaged` | `other`.
+
+Response 200:
+```json
+{"data":{"itemId":"uuid","consumedQuantity":1,"remainingQuantity":1,"removed":false},"version":5}
+```
+Se `remainingQuantity=0`, `removed=true` e la riga corrente viene eliminata. Il movimento storico resta.
+
+### POST /inventory/{itemId}/waste
+
+Request:
+```json
+{"quantity":2,"reason":"spoiled"}
+```
+Response 200:
+```json
+{"data":{"itemId":"uuid","wastedQuantity":2,"remainingQuantity":0,"removed":true},"version":6}
+```
+
+### GET /inventory/{itemId}/movements
+
+Query: `limit`, `cursor`.
+
+Response 200:
+```json
+{"items":[{"movementId":"uuid","type":"waste","quantity":2,"reason":"spoiled","occurredAt":"2026-09-30T15:30:00Z","actorUserId":"uuid"}],"nextCursor":null}
+```
+
+### POST /inventory/{itemId}/expiration/confirm
+
+Request:
+```json
+{"expiresAt":"2026-10-05T00:00:00Z","source":"declared"}
+```
+Response 200: item aggiornato. Una data dichiarata ha priorità sulla prediction.
+
+## 5. Catalog / barcode
+
+### GET /catalog/products/{productId}
+
+Response 200:
+```json
+{"data":{"productId":"uuid","name":"Latte intero","brand":"Marca","category":"milk","barcodes":["8000000000000"],"imageObjectKey":null,"nutrition":{"kcalPer100g":62},"source":{"type":"openfoodfacts","id":"123"},"version":2}}
+```
+
+### GET /catalog/barcodes/{barcode}
+
+Query opzionale: `refresh=false`.
+
+Response 200:
+```json
+{"data":{"resolution":"cache","product":{"productId":"uuid","name":"Latte intero","brand":"Marca","barcodes":["8000000000000"],"source":{"type":"openfoodfacts","id":"123"}}}}
+```
+404 se nessun provider trova il barcode.
+
+### POST /catalog/products
+
+Request:
+```json
+{"name":"Latte intero","brand":"Marca","barcodes":["8000000000000"],"category":"milk"}
+```
+Response 201: product + version.
+
+### PATCH /catalog/products/{productId}
+
+Aggiorna dati canonici; response 200.
+
+### POST /catalog/barcodes/resolve
+
+Request:
+```json
+{"barcode":"8000000000000"}
+```
+Response 200 come GET barcode.
+
+## 6. Shopping
+
+### GET /shopping/lists
+Query: `familyId`, `limit`, `cursor`.
+
+Response 200:
+```json
+{"items":[{"listId":"uuid","name":"Spesa","status":"open","itemCount":4,"version":2}],"nextCursor":null}
+```
+
+### POST /shopping/lists
+
+Request: `{"name":"Spesa"}`. Response 201 list + version.
+
+### GET /shopping/lists/{listId}
+
+Response 200:
+```json
+{"data":{"listId":"uuid","name":"Spesa","status":"open","items":[{"itemId":"uuid","productId":"uuid","label":"Latte","quantity":2,"unit":"L","checked":false}],"version":2}}
+```
+
+### POST /shopping/lists/{listId}/items
+
+Request:
+```json
+{"productId":"uuid","label":"Latte","quantity":2,"unit":"L"}
+```
+Response 201 item + version.
+
+### PATCH /shopping/lists/{listId}/items/{itemId}
+
+Request: any of `label`, `quantity`, `unit`, `checked`. Response 200.
+
+### DELETE /shopping/lists/{listId}/items/{itemId}
+
+Response 204.
+
+### POST /shopping/lists/{listId}/close
+
+Body `{}`. Response 200 with status `closed`.
+
+## 7. Recipes
+
+### GET /recipes
+Query: `limit`, `cursor`, `q`.
+
+Response 200:
+```json
+{"items":[{"recipeId":"uuid","title":"Pasta al pomodoro","servings":2,"ingredients":[{"productId":"uuid","name":"Pomodoro","quantity":300,"unit":"g"}]}],"nextCursor":null}
+```
+
+### POST /recipes
+
+Request:
+```json
+{"title":"Pasta al pomodoro","servings":2,"ingredients":[{"productId":"uuid","name":"Pomodoro","quantity":300,"unit":"g"}],"steps":["..."]}
+```
+Response 201 recipe + version.
+
+### GET /recipes/{recipeId}
+
+Response 200 recipe completo.
+
+### PATCH /recipes/{recipeId}
+
+Request: campi recipe modificabili. Response 200.
+
+### DELETE /recipes/{recipeId}
+
+Response 204.
+
+### GET /recipes/suggestions
+
+Query: `familyId`, `limit`.
+Response 200:
+```json
+{"items":[{"recipeId":"uuid","score":0.87,"missingIngredients":[{"productId":"uuid","name":"Basilico"}]}]}
+```
+Lo `score` è un valore tecnico del ranking, non una garanzia.
+
+## 8. Nutrition
+
+### GET /nutrition/targets
+Response 200:
+```json
+{"data":{"caloriesKcal":2200,"proteinG":120,"carbsG":250,"fatG":70,"version":1}}
+```
+
+### PUT /nutrition/targets
+
+Request: stessi campi numerici, tutti obbligatori. Response 200.
+
+### GET /nutrition/diary
+
+Query: `from`, `to`, `limit`, `cursor`.
+
+Response 200:
+```json
+{"items":[{"entryId":"uuid","date":"2026-09-30","meal":"lunch","productId":"uuid","quantity":250,"unit":"g","source":"inventory"}],"nextCursor":null}
+```
+
+### POST /nutrition/diary
+
+Request:
+```json
+{"date":"2026-09-30","meal":"lunch","productId":"uuid","quantity":250,"unit":"g"}
+```
+Response 201 entry + version.
+
+## 9. Stores / offers
+
+### GET /stores
+Query: `q`, `limit`, `cursor`.
+Response 200:
+```json
+{"items":[{"storeId":"uuid","name":"Supermercato","address":"...","chain":"..."}],"nextCursor":null}
+```
+
+### POST /stores
+
+Request: `{"name":"Supermercato","chain":"..." ,"address":"..." }`. Response 201.
+
+### GET /stores/{storeId}/prices
+
+Query: `productId`, `limit`, `cursor`.
+Response 200:
+```json
+{"items":[{"priceId":"uuid","productId":"uuid","storeId":"uuid","amountMinor":199,"currency":"EUR","observedAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
+```
+
+### GET /stores/{storeId}/offers
+
+Query: `active=true`, `productId`, `limit`, `cursor`.
+Response 200:
+```json
+{"items":[{"offerId":"uuid","productId":"uuid","storeId":"uuid","type":"percentage","value":20,"validFrom":"2026-09-30T00:00:00Z","validTo":"2026-10-05T23:59:59Z"}],"nextCursor":null}
+```
+
+### POST /stores/{storeId}/offers
+
+Request:
+```json
+{"productId":"uuid","type":"percentage","value":20,"validFrom":"2026-09-30T00:00:00Z","validTo":"2026-10-05T23:59:59Z"}
+``
+Response 201 offer + version.
+
+## 10. Notifications
+
+### GET /notifications
+Query: `unreadOnly`, `limit`, `cursor`.
+Response 200:
+```json
+{"items":[{"notificationId":"uuid","type":"expiration","title":"Scadenza vicina","body":"Latte scade tra 2 giorni","readAt":null,"createdAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
+```
+
+### POST /notifications/{notificationId}/read
+
+Body `{}`. Response 200 notification + version.
+
+### GET /notifications/preferences
+Response 200:
+```json
+{"data":{"expiration":true,"lowStock":true,"offers":false,"family":true,"system":true,"channels":{"inApp":true,"email":false,"push":false},"version":1}}
+```
+
+### PUT /notifications/preferences
+
+Request: stesso schema. Response 200.
+
+## 11. OCR e scansione immagini
+
+### POST /ocr/jobs
+
+Multipart: campo `file` obbligatorio; `type` = `receipt` | `pantry_image`.
+Response 202:
+```json
+{"data":{"jobId":"uuid","status":"queued","type":"receipt","objectKey":"ocr/..."}}
+```
+
+### GET /ocr/jobs/{jobId}
+
+Response 200:
+```json
+{"data":{"jobId":"uuid","status":"completed","type":"receipt","progress":100,"draftId":"uuid","error":null}}
+```
+Status: `queued` | `processing` | `completed` | `failed` | `cancelled`.
+
+### GET /ocr/drafts/{draftId}
+
+Response 200:
+```json
+{"data":{"draftId":"uuid","jobId":"uuid","type":"receipt","confidence":0.94,"items":[{"name":"Latte","barcode":null,"quantity":1,"unit":"L","priceMinor":159,"currency":"EUR","confidence":0.91}]}}
+```
+
+### POST /ocr/drafts/{draftId}/confirm
+
+Request:
+```json
+{"items":[{"name":"Latte","productId":"uuid","quantity":1,"unit":"L","priceMinor":159,"currency":"EUR"}]}
+```
+Response 200:
+```json
+{"data":{"draftId":"uuid","status":"confirmed","applied":true}}
+```
+La conferma non concede all'OCR ownership di Inventory/Stores: chi applica la mutazione chiama il service owner.
+
+## 12. Shelf-Life
+
+### POST /shelf-life/predictions
+
+Request:
+```json
+{"itemId":"uuid","productId":"uuid","storedAt":"fridge","opened":false}
+```
+Response 202:
+```json
+{"data":{"predictionId":"uuid","status":"queued"}}
+```
+
+### GET /shelf-life/predictions/{predictionId}
+
+Response 200:
+```json
+{"data":{"predictionId":"uuid","itemId":"uuid","estimatedExpiresAt":"2026-10-05T00:00:00Z","confidence":0.81,"basis":"product_category+storage","status":"completed"}}
+```
+Una prediction non sostituisce una data dichiarata.
+
+### POST /shelf-life/predictions/{predictionId}/apply
+
+Body `{}`. Response 200 con prediction applicata. Il service Inventory resta owner della current pantry state.
+
+## 13. Privacy
+
+### GET /privacy/consents
+Response 200:
+```json
+{"data":{"analytics":false,"personalization":false,"notifications":true,"version":3}}
+```
+
+### PUT /privacy/consents
+
+Request: stesso schema. Response 200.
+
+### POST /privacy/export
+
+Body `{}`. Response 202:
+```json
+{"data":{"jobId":"uuid","status":"queued"}}
+```
+
+### POST /privacy/erase
+
+Request:
+```json
+{"confirm":true}
+```
+Response 202:
+```json
+{"data":{"jobId":"uuid","status":"queued"}}
+```
+La cancellazione è orchestrata senza query cross-DB.
+
+## 14. Jobs
+
+Gli endpoint Jobs sono interni al piano backend e non esposti al browser.
+
+### POST /internal/jobs
+
+Request:
+```json
+{"type":"shelf_life_prediction","payload":{"itemId":"uuid"},"deduplicationKey":"inventory-item-uuid"}
+```
+Response 202: job.
+
+### GET /internal/jobs/{jobId}
+
+Response 200:
+```json
+{"data":{"jobId":"uuid","type":"shelf_life_prediction","status":"queued","attempt":0,"maxAttempts":5,"createdAt":"2026-09-30T15:30:00Z"}}
+```
+
+## 15. Composite Views
+
+Sono esclusivamente GET e non sono source of truth.
+
+### GET /dashboard
+
+Response 200:
+```json
+{
+  "data":{
+    "family":{"familyId":"uuid","name":"Casa"},
+    "inventory":{"items":[],"nextCursor":null},
+    "shopping":{"items":[],"nextCursor":null},
+    "recipes":{"items":[]},
+    "notifications":{"items":[],"nextCursor":null}
+  },
+  "partialFailures":[]
+}
+```
+
+Se un downstream fallisce, il Gateway non finge dati vuoti: `partialFailures` identifica `service`, `code` e `requestId`. HTTP 200 è ammesso per una Composite View parziale solo se il contratto UI supporta esplicitamente la degradazione; altrimenti 503/504.
+
+## 16. Health
+
+Ogni servizio espone internamente:
+
+- `GET /health/live` -> 200 se il processo è vivo.
+- `GET /health/ready` -> 200 solo se il servizio può operare con le proprie dipendenze obbligatorie.
+
+Questi endpoint non richiedono OIDC e non sono esposti al browser.
+
+## 17. Regole di implementazione
+
+1. Ogni endpoint ha request schema, response schema e codici errore definiti prima del codice.
+2. Nessun endpoint usa `any` nel contratto pubblico.
+3. I client generano solo richieste conformi a OpenAPI.
+4. Il server valida sempre body, query, path e header.
+5. Le mutation che possono essere ritentate richiedono `X-Idempotency-Key`.
+6. Le mutation concorrenti che supportano optimistic locking richiedono `If-Match`.
+7. Un service non può restituire dati appartenenti a un altro owner come se fossero propri.
+8. I contratti interni seguono le stesse regole di versioning, errori, tracing e idempotenza.
