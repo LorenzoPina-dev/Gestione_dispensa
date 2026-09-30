@@ -57,8 +57,10 @@ Mai ACK prima del commit locale.
 Ogni consumer deve mantenere una deduplication record, oppure una chiave equivalente nel proprio DB:
 
 ```text
-consumer_event_id UUID PK
+event_id UUID PK
 event_type varchar
+schema_version integer
+producer varchar
 processed_at timestamptz
 ```
 
@@ -339,3 +341,58 @@ event.causationId -> id evento/job causale
 ```
 
 Questo permette di ricostruire un workflow senza condividere database.
+
+
+## 9. Complete event coverage
+
+The following events are part of the canonical event vocabulary. A producer may add fields only according to compatibility rules.
+
+### FamilyCreated v1
+Producer: Family. Payload: familyId, name, createdByUserId.
+
+### FamilyInviteRevoked v1
+Producer: Family. Payload: inviteId, familyId, revokedAt.
+
+### PantryItemAdjusted v1
+Producer: Inventory. Payload: itemId, productId, previousQuantity, newQuantity, unit, movementId.
+
+### LotAdded v1
+Producer: Inventory. Payload: lotId, familyId, productId, lotCode, receivedAt.
+
+### PriceObserved v1
+Producer: Stores. Payload: priceId, storeId, productId, amountMinor, currency, observedAt, source.
+
+### StoreUpdated v1
+Producer: Stores. Payload: storeId, changedFields.
+
+### RecipeCreated v1
+Producer: Recipes. Payload: recipeId, familyId/user owner, title.
+
+### RecipeUpdated v1
+Producer: Recipes. Payload: recipeId, changedFields.
+
+### NutritionEntryRecorded v1
+Producer: Nutrition. Payload: entryId, userId, date, meal, productId, quantity, unit, source.
+
+### NutritionTargetUpdated v1
+Producer: Nutrition. Payload: userId, changedFields.
+
+### OcrDraftConfirmed v1
+Producer: OCR. Payload: draftId, jobId, type, confirmedAt, itemCount.
+
+### OcrDraftRejected v1
+Producer: OCR. Payload: draftId, jobId, rejectedAt.
+
+### PrivacyExportRequested v1
+Producer: Privacy. Payload: jobId, userId, requestedAt.
+
+### PrivacyErasureCompleted v1
+Producer: Privacy. Payload: requestId, userId, completedAt, serviceResults.
+
+### JobQueued v1
+Producer: Jobs. Payload: jobId, type, deduplicationKey.
+
+### JobCompleted v1
+Producer: Jobs/worker. Payload: jobId, type, completedAt.
+
+Event names are stable identifiers. Internal implementation may use different class names, but emitted contracts must use these eventType values.
