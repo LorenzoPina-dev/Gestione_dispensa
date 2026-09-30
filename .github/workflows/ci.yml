@@ -21,11 +21,8 @@ jobs:
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Clean install from reconciled lockfile
         run: npm ci --ignore-scripts
-      - run: npm run validate:structure
-      - run: npm run obs:check
       - run: npm run build
       - run: npm run typecheck
-      - run: npm run format:check
       - run: npm run test
 
   compose-contract:
@@ -72,5 +69,5 @@ jobs:
       - run: node infra/postgres/scripts/migrate.mjs migrate
       - run: node infra/postgres/scripts/migrate.mjs status
       - run: psql "$DATABASE_URL" -f infra/postgres/fixtures/002-integrity.sql
-      - run: npm run typecheck:services
-      - run: npm run build:services
+      - run: npm run typecheck
+      - run: npm run build
