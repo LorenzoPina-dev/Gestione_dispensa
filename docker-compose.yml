@@ -16,13 +16,11 @@ services:
       web: { condition: service_healthy }
     restart: unless-stopped
     networks: [edge, backend]
-
   web:
     build: { context: ., dockerfile: services/web/Dockerfile }
     healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/healthz"], interval: 10s, timeout: 3s, retries: 5, start_period: 5s }
     restart: unless-stopped
     networks: [edge]
-
   gateway:
     build: ./services/gateway
     environment:
@@ -34,30 +32,24 @@ services:
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend]
-
   alloy:
     image: grafana/alloy:latest
     command: run /etc/alloy/config.alloy
-    volumes:
-      - ./infrastructure/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+    volumes: [./infrastructure/alloy/config.alloy:/etc/alloy/config.alloy:ro, /var/run/docker.sock:/var/run/docker.sock:ro]
     restart: unless-stopped
     networks: [data]
-
   loki:
     image: grafana/loki:3.5.0
     command: -config.file=/etc/loki/loki.yml
     volumes: [loki_data:/loki, ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro]
     restart: unless-stopped
     networks: [data]
-
   tempo:
     image: grafana/tempo:2.8.2
     command: ["-config.file=/etc/tempo.yml"]
     volumes: [tempo_data:/var/tempo, ./infrastructure/tempo/tempo.yml:/etc/tempo.yml:ro]
     restart: unless-stopped
     networks: [data]
-
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.132.0
     command: ["--config=/etc/otel-collector.yml"]
@@ -65,14 +57,12 @@ services:
     depends_on: { tempo: { condition: service_started } }
     restart: unless-stopped
     networks: [backend, data]
-
   prometheus:
     image: prom/prometheus:v3.5.0
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes: [./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro, ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro]
     restart: unless-stopped
     networks: [backend, data]
-
   grafana:
     image: grafana/grafana:12.1.1
     environment:
@@ -85,14 +75,12 @@ services:
     volumes: [grafana_data:/var/lib/grafana, ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro, ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro]
     restart: unless-stopped
     networks: [backend, data]
-
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.52.1
     privileged: true
     volumes: [/:/rootfs:ro, /var/run:/var/run:ro, /sys:/sys:ro, /var/lib/docker:/var/lib/docker:ro, /dev/disk:/dev/disk:ro]
     restart: unless-stopped
     networks: [data]
-
   postgres:
     image: postgres:16-alpine
     environment: { POSTGRES_USER: dispensa, POSTGRES_PASSWORD: dispensa, POSTGRES_DB: postgres }
@@ -100,7 +88,6 @@ services:
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U dispensa -d postgres"], interval: 5s, timeout: 5s, retries: 10, start_period: 5s }
     restart: unless-stopped
     networks: [data]
-
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
     environment:
@@ -108,27 +95,23 @@ services:
     depends_on: { postgres: { condition: service_healthy } }
     restart: unless-stopped
     networks: [data]
-
   mongodb:
     image: mongo:8
     volumes: [mongo_data:/data/db]
     healthcheck: { test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"], interval: 10s, timeout: 5s, retries: 10, start_period: 10s }
     restart: unless-stopped
     networks: [data]
-
   redis:
     image: redis:7-alpine
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10 }
     restart: unless-stopped
     networks: [data]
-
   redis-exporter:
     image: oliver006/redis_exporter:v1.75.0
     environment: { REDIS_ADDR: "redis://redis:6379" }
     depends_on: { redis: { condition: service_healthy } }
     restart: unless-stopped
     networks: [data]
-
   kafka:
     image: apache/kafka:4.2.1
     environment:
@@ -149,14 +132,12 @@ services:
     volumes: [kafka_data:/tmp/kraft-combined-logs]
     restart: unless-stopped
     networks: [messaging]
-
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.9.0
     command: ["--kafka.server=kafka:9092"]
     depends_on: { kafka: { condition: service_started } }
     restart: unless-stopped
     networks: [data, messaging]
-
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
@@ -164,7 +145,6 @@ services:
     volumes: [minio_data:/data]
     restart: unless-stopped
     networks: [data]
-
   opensearch:
     image: opensearchproject/opensearch:2.19.0
     environment: { discovery.type: single-node, DISABLE_SECURITY_PLUGIN: "true", OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m" }
@@ -172,7 +152,6 @@ services:
     healthcheck: { test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"], interval: 10s, timeout: 5s, retries: 15, start_period: 20s }
     restart: unless-stopped
     networks: [data]
-
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
     command: start-dev --http-port=8080 --import-realm --metrics-enabled=true --health-enabled=true
@@ -181,7 +160,6 @@ services:
     healthcheck: { test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"], interval: 10s, timeout: 5s, retries: 20, start_period: 20s }
     restart: unless-stopped
     networks: [backend]
-
   identity:
     build: ./services/identity
     environment:
@@ -194,7 +172,6 @@ services:
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
-
   users:
     build: ./services/users
     environment: { PORT: 3011, SERVICE_NAME: users, OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318" }
@@ -291,9 +268,10 @@ services:
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data, messaging]
-
   off-lookup:
-    build: ./services/off-lookup
+    build:
+      context: .
+      dockerfile: services/off-lookup/Dockerfile
     environment:
       OFF_LOOKUP_PORT: 3200
       OFF_LOOKUP_MONGO_URL: "mongodb://mongodb:27017"
