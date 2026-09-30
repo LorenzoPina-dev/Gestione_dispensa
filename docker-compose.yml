@@ -84,7 +84,7 @@ services:
   postgres:
     image: postgres:16-alpine
     environment: { POSTGRES_USER: dispensa, POSTGRES_PASSWORD: dispensa, POSTGRES_DB: postgres }
-    volumes: [postgres_data:/var/lib/postgresql/data]
+    volumes: [postgres_data:/var/lib/postgresql/data, ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U dispensa -d postgres"], interval: 5s, timeout: 5s, retries: 10, start_period: 5s }
     restart: unless-stopped
     networks: [data]
@@ -205,6 +205,17 @@ services:
   inventory:
     build: ./services/inventory
     environment: { PORT: 3016, SERVICE_NAME: inventory, OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318" }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
+    networks: [backend, data]
+  service-inventory:
+    build: ./services/inventory
+    environment:
+      PORT: 3312
+      SERVICE_NAME: service-inventory
+      DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+    depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
