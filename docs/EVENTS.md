@@ -1,24 +1,20 @@
-# Domain events
+# Eventi
 
-Events are versioned and include `eventId`, `eventType`, `version`, `occurredAt`, `producer`, `correlationId` and a domain payload.
+## Envelope
+Ogni evento contiene eventId, eventType versionato, occurredAt, producer, aggregateId, familyId quando applicabile, correlationId, causationId, schemaVersion e payload.
 
-Core events:
+## Outbox
+La mutazione e il record outbox vengono salvati nella stessa transazione del DB owner. Un publisher inoltra l'evento. I consumer sono idempotenti per eventId e fanno ack solo dopo il commit locale.
 
-- `family.invitation.created.v1`
-- `family.member.joined.v1`
-- `product.resolved.v1`
-- `vision.recognition.completed.v1`
-- `inventory.item.added.v1`
-- `inventory.item.consumed.v1`
-- `inventory.item.wasted.v1`
-- `inventory.item.deleted.v1`
-- `inventory.low_stock.v1`
-- `expiration.estimated.v1`
-- `expiration.threshold_reached.v1`
-- `shopping.item.created.v1`
-- `shopping.completed.v1`
-- `offer.updated.v1`
-- `notification.requested.v1`
-- `media.uploaded.v1`
+Retry con backoff e limite; poi DLQ.
 
-Consumers must be idempotent. Event processing must tolerate retries and out-of-order delivery where the domain permits it.
+## Eventi principali
+- ProductCreated/Enriched -> Catalog
+- PantryItemAdded/Consumed/Wasted/LowStock -> Inventory
+- ExpirationEstimated -> Shelf-Life
+- OcrDraftReady -> OCR
+- FamilyInviteCreated/MemberAdded -> Family
+- OfferUpdated -> Stores
+- JobFailed -> Jobs/worker
+
+Gli eventi descrivono cambiamenti di stato; non sono RPC mascherate.
