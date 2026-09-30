@@ -1,0 +1,14 @@
+CREATE DATABASE users_db;
+CREATE DATABASE families_db;
+CREATE DATABASE products_db;
+CREATE DATABASE barcode_db;
+CREATE DATABASE inventory_db;
+CREATE DATABASE expiration_db;
+CREATE DATABASE shopping_db;
+CREATE DATABASE stores_db;
+CREATE DATABASE offers_db;
+CREATE DATABASE recipes_db;
+CREATE DATABASE nutrition_db;
+CREATE DATABASE notifications_db;
+CREATE DATABASE media_db;
+CREATE DATABASE analytics_db;
