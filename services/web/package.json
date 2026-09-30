@@ -28,6 +28,6 @@
     "tailwindcss": "^4.0.0",
     "typescript": "^5.8.2",
     "vite": "^6.0.0",
-    "vite-plugin-mkcert": "^1.17.12"
+    "vite-plugin-mkcert": "^2.1.0"
   }
 }
