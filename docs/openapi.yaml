@@ -1,245 +1,30 @@
 openapi: 3.1.0
 info:
-  title: Gestione Dispensa Public API
+  title: Gestione Dispensa Gateway API
   version: 2.0.0
-  description: Canonical browser-facing API exposed by the Gateway. Domain services remain internal network boundaries.
 servers:
-  - url: https://<host>:8443/api/v1
-security:
-  - bearerAuth: []
-tags:
-  - name: Identity
-  - name: Family
-  - name: Inventory
-  - name: Shopping
-  - name: Catalog
-  - name: Notifications
-  - name: Privacy
-  - name: Jobs
-  - name: Recipes
-  - name: Nutrition
-  - name: Stores
-  - name: Shelf-Life
-  - name: OCR
-  - name: Views
+  - url: /api
 paths:
-  /me:
-    get: {tags: [Identity], operationId: getMe, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /meta:
-    get: {tags: [Identity], operationId: getMeta, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /auth/register:
-    post: {tags: [Identity], operationId: register, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /auth/login:
-    post: {tags: [Identity], operationId: login, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /auth/logout:
-    post: {tags: [Identity], operationId: logout, responses: {'204': {description: Logged out}}}
   /families:
-    get: {tags: [Family], operationId: listFamilies, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Family], operationId: createFamily, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /families/{familyId}:
-    parameters: [{$ref: '#/components/parameters/FamilyId'}]
-    get: {tags: [Family], operationId: getFamily, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /families/{familyId}/members:
-    parameters: [{$ref: '#/components/parameters/FamilyId'}]
-    get: {tags: [Family], operationId: listMembers, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /families/{familyId}/invites:
-    parameters: [{$ref: '#/components/parameters/FamilyId'}]
-    get: {tags: [Family], operationId: listInvites, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Family], operationId: createInvite, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /family-invites/resolve:
-    post: {tags: [Family], operationId: resolveInvite, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /family-invites/resolve-code:
-    post: {tags: [Family], operationId: resolveInviteCode, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /invites/{inviteId}/accept:
-    parameters: [{$ref: '#/components/parameters/InviteId'}]
-    post: {tags: [Family], operationId: acceptInvite, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /inventory/locations:
-    get: {tags: [Inventory], operationId: listLocations, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Inventory], operationId: createLocation, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /inventory/stock-items:
-    get: {tags: [Inventory], operationId: listStockItems, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Inventory], operationId: createStockItem, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /inventory/stock-items/{id}:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    get: {tags: [Inventory], operationId: getStockItem, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    patch: {tags: [Inventory], operationId: updateStockItem, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}, '409': {$ref: '#/components/responses/Error'}}
-    delete: {tags: [Inventory], operationId: deleteStockItem, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], responses: {'204': {description: Deleted}}}
-  /inventory/stock-items/{id}/consume:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [Inventory], operationId: consumeStock, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /inventory/stock-items/{id}/discard:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [Inventory], operationId: discardStock, parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /inventory/stock-items/{id}/restore:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [Inventory], operationId: restoreStock, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /shopping-lists:
-    get: {tags: [Shopping], operationId: listShoppingLists, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Shopping], operationId: createShoppingList, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /shopping-lists/active:
-    get: {tags: [Shopping], operationId: getActiveShoppingList, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /shopping-lists/{id}/items:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    get: {tags: [Shopping], operationId: listShoppingItems, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Shopping], operationId: addShoppingItem, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /products:
-    get: {tags: [Catalog], operationId: listProducts, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Catalog], operationId: createProduct, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /products/resolve-barcode:
-    post: {tags: [Catalog], operationId: resolveBarcode, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /products/{id}:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    get: {tags: [Catalog], operationId: getProduct, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    patch: {tags: [Catalog], operationId: updateProduct, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /recipes:
-    get: {tags: [Recipes], operationId: listRecipes, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Recipes], operationId: createRecipe, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /recipes/suggestions:
-    get: {tags: [Recipes], operationId: recipeSuggestions, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /recipes/{id}:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    get: {tags: [Recipes], operationId: getRecipe, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    put: {tags: [Recipes], operationId: updateRecipe, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    delete: {tags: [Recipes], operationId: deleteRecipe, responses: {'204': {description: Deleted}}}
-  /recipes/{id}/cook:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [Recipes], operationId: cookRecipe, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /recipes/{id}/missing-to-shopping:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [Recipes], operationId: addMissingIngredients, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /nutrition/today:
-    get: {tags: [Nutrition], operationId: nutritionToday, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /nutrition/history:
-    get: {tags: [Nutrition], operationId: nutritionHistory, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /nutrition/log:
-    post: {tags: [Nutrition], operationId: nutritionLog, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /nutrition/targets:
-    get: {tags: [Nutrition], operationId: nutritionTargets, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    put: {tags: [Nutrition], operationId: updateNutritionTargets, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /nutrition/summary:
-    get: {tags: [Nutrition], operationId: nutritionSummary, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /stores:
-    get: {tags: [Stores], operationId: listStores, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Stores], operationId: createStore, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /stores/{storeId}/products:
-    parameters: [{$ref: '#/components/parameters/StoreId'}]
-    get: {tags: [Stores], operationId: storeProducts, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /stores/{storeId}/prices:
-    parameters: [{$ref: '#/components/parameters/StoreId'}]
-    post: {tags: [Stores], operationId: recordPrice, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /stores/price-history:
-    get: {tags: [Stores], operationId: priceHistory, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /shelf-life/predict:
-    get: {tags: [Shelf-Life], operationId: predictShelfLife, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [Shelf-Life], operationId: predictShelfLifePost, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /shelf-life/custom-rule:
-    post: {tags: [Shelf-Life], operationId: createShelfLifeRule, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'201': {$ref: '#/components/responses/Data'}}}
-  /ocr-jobs:
-    get: {tags: [OCR], operationId: listOcrJobs, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    post: {tags: [OCR], operationId: createOcrJob, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'202': {$ref: '#/components/responses/Data'}}}
-  /ocr-jobs/{id}:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    get: {tags: [OCR], operationId: getOcrJob, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /ocr-jobs/{id}/drafts:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    get: {tags: [OCR], operationId: getOcrDrafts, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /ocr-jobs/{id}/confirm:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [OCR], operationId: confirmOcr, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /ocr/barcode-extract:
-    post: {tags: [OCR], operationId: extractBarcode, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /notifications:
-    get: {tags: [Notifications], operationId: listNotifications, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /notifications/{id}/read:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [Notifications], operationId: markNotificationRead, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /privacy/consents:
-    get: {tags: [Privacy], operationId: getConsents, responses: {'200': {$ref: '#/components/responses/Data'}}}
-    put: {tags: [Privacy], operationId: updateConsents, requestBody: {$ref: '#/components/requestBodies/Json'}, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /privacy/export:
-    post: {tags: [Privacy], operationId: requestExport, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'202': {$ref: '#/components/responses/Data'}}}
-  /privacy/erasure:
-    post: {tags: [Privacy], operationId: requestErasure, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'202': {$ref: '#/components/responses/Data'}}}
-  /jobs:
-    get: {tags: [Jobs], operationId: listJobs, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /jobs/{id}:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    get: {tags: [Jobs], operationId: getJob, responses: {'200': {$ref: '#/components/responses/Data'}}}
-  /jobs/{id}/retry:
-    parameters: [{$ref: '#/components/parameters/Id'}]
-    post: {tags: [Jobs], operationId: retryJob, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], responses: {'202': {$ref: '#/components/responses/Data'}}}
-  /views/dashboard-today:
-    get: {tags: [Views], operationId: dashboardToday, responses: {'200': {$ref: '#/components/responses/View'}}}
-  /views/pantry-screen:
-    get: {tags: [Views], operationId: pantryScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
-  /views/shopping-screen:
-    get: {tags: [Views], operationId: shoppingScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
-  /views/recipes-screen:
-    get: {tags: [Views], operationId: recipesScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
-  /views/nutrition-screen:
-    get: {tags: [Views], operationId: nutritionScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
-  /views/family-screen:
-    get: {tags: [Views], operationId: familyScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
-  /views/notifications-screen:
-    get: {tags: [Views], operationId: notificationsScreen, responses: {'200': {$ref: '#/components/responses/View'}}}
-components:
-  securitySchemes:
-    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
-  parameters:
-    Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
-    FamilyId: {name: familyId, in: path, required: true, schema: {type: string, format: uuid}}
-    InviteId: {name: inviteId, in: path, required: true, schema: {type: string, format: uuid}}
-    StoreId: {name: storeId, in: path, required: true, schema: {type: string, format: uuid}}
-    IfMatch: {name: If-Match, in: header, required: false, schema: {type: string}}
-    IdempotencyKey: {name: X-Idempotency-Key, in: header, required: false, schema: {type: string, minLength: 8, maxLength: 256}}
-  requestBodies:
-    Json:
-      required: true
-      content:
-        application/json:
-          schema: {type: object, additionalProperties: true}
-  responses:
-    Data:
-      description: Successful response
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/DataEnvelope'}
-    View:
-      description: Composite screen response
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/ViewEnvelope'}
-    Error:
-      description: Error response
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
-  schemas:
-    DataEnvelope:
-      type: object
-      required: [data]
-      properties:
-        data: {}
-        meta: {type: object, additionalProperties: true}
-    ViewEnvelope:
-      type: object
-      required: [data, meta]
-      properties:
-        data: {type: object, additionalProperties: true}
-        meta:
-          type: object
-          required: [schemaVersion]
-          properties:
-            schemaVersion: {type: string}
-    ErrorEnvelope:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: object
-          required: [code, message, retryable]
-          properties:
-            code: {type: string}
-            message: {type: string}
-            retryable: {type: boolean}
-        meta: {type: object, additionalProperties: true}
+    get:
+      summary: List families
+      responses:
+        '200': {description: OK}
+  /inventory:
+    get:
+      summary: Current pantry
+      responses:
+        '200': {description: OK}
+  /shopping:
+    get:
+      summary: Shopping lists
+      responses:
+        '200': {description: OK}
+  /catalog/barcodes/{barcode}:
+    get:
+      summary: Resolve barcode
+      parameters:
+        - {name: barcode, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Product}
+        '404': {description: Not found}
