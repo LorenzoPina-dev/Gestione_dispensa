@@ -1,42 +1,80 @@
 # Data architecture
 
-## Database per microservizio
+## Database-per-service (obbligatorio)
+
+Ogni microservizio applicativo possiede un database dedicato, con:
+
+- ownership esclusiva del servizio;
+- credenziali dedicate;
+- migration dedicate;
+- backup/restore indipendenti;
+- nessun accesso SQL da parte di altri servizi;
+- nessuna FK, JOIN o transazione distribuita cross-service.
+
+In sviluppo Docker è ammesso un singolo **server/container PostgreSQL** che ospita più database fisicamente/logicamente distinti:
+
 ```
-identity_db
-family_db
-inventory_db
-shopping_db
-catalog_db
-notifications_db
-privacy_db
-jobs_db
-recipes_db
-nutrition_db
-stores_db
-shelf_life_db
-ocr_db
-off_lookup_db
+postgres-server
+├── identity_db
+├── family_db
+├── inventory_db
+├── shopping_db
+├── catalog_db
+├── notifications_db
+├── privacy_db
+├── jobs_db
+├── recipes_db
+├── nutrition_db
+├── stores_db
+├── shelf_life_db
+└── ocr_db
 ```
 
-Ogni DB ha owner, credenziali e migration propri. Un server PostgreSQL condiviso in Docker è ammesso solo come hosting locale di database distinti. In produzione possono diventare istanze separate senza modificare i contratti.
+Questo è database-per-service, non schema-per-service. In produzione ogni DB può essere spostato su un'istanza PostgreSQL separata senza cambiare i contratti applicativi.
 
-### Ownership
-**Inventory:** stato corrente della dispensa + ledger movimenti. Quantità zero o spreco rimuovono l'elemento dallo stato corrente; lo storico può restare.
+## Ownership
 
-**Catalog:** prodotto canonico e provenance, non pantry utente.
+| DB | Owner | Contenuto |
+|---|---|---|
+| identity_db | Identity | profilo e linkage OIDC |
+| family_db | Family | famiglie, membri, inviti |
+| inventory_db | Inventory | stato corrente, lotti, movimenti |
+| shopping_db | Shopping | liste e articoli |
+| catalog_db | Catalog | prodotti canonici, barcode, provenance |
+| notifications_db | Notifications | notifiche/preferenze |
+| privacy_db | Privacy | consensi, export, erasure |
+| jobs_db | Jobs | lifecycle job, retry, DLQ metadata |
+| recipes_db | Recipes | ricette e suggerimenti |
+| nutrition_db | Nutrition | diario e target |
+| stores_db | Stores | negozi, prezzi, offerte |
+| shelf_life_db | Shelf-Life | regole e predizioni |
+| ocr_db | OCR | job OCR, draft e confidence |
+| off_lookup_db | OFF Lookup | cache/read-through OpenFoodFacts |
 
-**OFF Lookup:** MongoDB separato con dump/cache OpenFoodFacts; non è source of truth della dispensa.
+## Inventory
 
-**OCR:** job, confidence e draft; un draft non muta Inventory senza conferma.
+Inventory conserva solo la vista corrente della dispensa e il ledger storico necessario. Se una quantità arriva a zero o un prodotto viene scartato, l'elemento viene rimosso dallo stato corrente; la movimentazione può rimanere nello storico.
 
-**Shelf-Life:** regole e predizioni; una scadenza dichiarata prevale su una stimata.
+## Catalog e OpenFoodFacts
 
-**Stores:** negozi, prezzi, offerte.
+Catalog è il proprietario del prodotto canonico. OFF Lookup è un servizio separato con MongoDB dedicato al dump/cache OpenFoodFacts. Il catalogo OFF non è la dispensa dell'utente.
 
-**Shopping:** liste/articoli; low-stock può essere suggerito da Inventory ma Shopping non scrive Inventory.
+Flusso barcode:
 
-**MinIO:** immagini/ricevute/attachment. PostgreSQL del servizio proprietario conserva metadata, ownership, object key e checksum.
+`scan -> Catalog -> OFF Lookup -> MongoDB cache -> remote OFF fallback -> cache -> Catalog -> user confirmation -> Inventory`
 
-**Redis:** cache, lock e trasporto transient; la verità durevole resta nei DB dei servizi.
+## Blob e infrastruttura
 
-Per dati di un altro dominio: API, evento/projection locale o Composite View. Mai JOIN/accesso al DB remoto.
+MinIO contiene immagini prodotto, ricevute e allegati. Il servizio owner conserva nel proprio DB metadata, ownership, checksum e object key.
+
+Redis può fornire cache, lock e trasporto transient dei job/eventi. Non è source of truth per dati che devono sopravvivere a restart.
+
+## Cross-service data
+
+Per leggere dati di un altro dominio si usa:
+
+1. API del service owner;
+2. evento + projection locale;
+3. Composite View nel Gateway.
+
+Mai accesso diretto al DB remoto.
