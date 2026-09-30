@@ -151,6 +151,23 @@ Response 200:
 {"data":{"familyId":"uuid","name":"Casa","members":[{"userId":"uuid","displayName":"Mario","role":"owner","joinedAt":"2026-09-30T15:30:00Z"}],"version":3}}
 ```
 
+### GET /families/{familyId}/members
+
+Response 200:
+```json
+{"items":[{"userId":"uuid","role":"member","joinedAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
+```
+
+### PATCH /families/{familyId}/members/{userId}
+
+Request: `{"role":"member"}`. Allowed role values: `admin` | `member`. Owner transfer is a dedicated future contract so ownership cannot be accidentally removed.
+
+Response 200: membership + version.
+
+### DELETE /families/{familyId}/members/{userId}
+
+Response 204. Owner cannot be removed unless another owner is established by a dedicated ownership-transfer operation.
+
 ### PATCH /families/{familyId}
 
 Request:
@@ -459,6 +476,14 @@ Response 200:
 {"items":[{"offerId":"uuid","productId":"uuid","storeId":"uuid","type":"percentage","value":20,"validFrom":"2026-09-30T00:00:00Z","validTo":"2026-10-05T23:59:59Z"}],"nextCursor":null}
 ```
 
+### POST /stores/{storeId}/prices
+
+Request:
+```json
+{"productId":"uuid","amountMinor":199,"currency":"EUR","observedAt":"2026-09-30T15:30:00Z","source":"receipt"}
+```
+Response 201: price record + version.
+
 ### POST /stores/{storeId}/offers
 
 Request:
@@ -514,6 +539,10 @@ Response 200:
 ```json
 {"data":{"draftId":"uuid","jobId":"uuid","type":"receipt","confidence":0.94,"items":[{"name":"Latte","barcode":null,"quantity":1,"unit":"L","priceMinor":159,"currency":"EUR","confidence":0.91}]}}
 ```
+
+### POST /ocr/drafts/{draftId}/reject
+
+Body `{}`. Response 200: draft with status `rejected`.
 
 ### POST /ocr/drafts/{draftId}/confirm
 
