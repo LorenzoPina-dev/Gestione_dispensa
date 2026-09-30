@@ -4,9 +4,12 @@ receivers:
       grpc:
       http:
 exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
   debug:
+    verbosity: basic
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [debug]
+      exporters: [otlphttp/tempo, debug]
