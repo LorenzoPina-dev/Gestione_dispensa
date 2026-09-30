@@ -37,3 +37,34 @@ Workers are asynchronous consumers/producers. They must not own business data th
 ## Independence rule
 
 Each service has its own Dockerfile, package manifest, TypeScript project, tests and migration set. Shared packages may contain contracts/telemetry only; business logic and repositories are never shared across domains.
+
+## Observability contract
+
+Observability is a platform requirement, not an optional feature of individual services.
+
+Every HTTP service must expose:
+
+- `/health/live` for process liveness
+- `/health/ready` for dependency readiness
+- `/metrics` in Prometheus text format
+- structured JSON logs to stdout/stderr
+- `x-request-id` propagation
+- W3C `traceparent` propagation
+- request duration and status metrics
+- outbound-call duration/error metrics
+- database query duration/error metrics when the service owns a database
+- uncaught exception/unhandled rejection logging
+
+### Traceability
+
+A request receives one request ID and one trace ID at the edge. The same trace context is propagated through gateway -> service -> downstream service -> database/worker boundary where technically applicable.
+
+Grafana is the operational UI. Prometheus stores metrics, Loki stores container logs, Tempo stores distributed traces, and the OpenTelemetry Collector is the OTLP ingestion boundary.
+
+The minimum investigation workflow is:
+
+`requestId/traceId -> Gateway access log -> downstream service spans/logs -> outbound dependency -> database query -> response latency`.
+
+Sensitive values such as bearer tokens, passwords and secrets must never be logged. Metric labels must remain bounded-cardinality; user IDs, barcodes, product names and request IDs are not metric labels.
+
+A service is not considered production-ready until its business operations are instrumented at the same granularity as its HTTP boundary.
