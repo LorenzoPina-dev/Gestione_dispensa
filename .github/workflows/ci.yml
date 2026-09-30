@@ -65,9 +65,10 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - run: npm ci --ignore-scripts
-      - run: psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-      - run: node infra/postgres/scripts/migrate.mjs migrate
-      - run: node infra/postgres/scripts/migrate.mjs status
-      - run: psql "$DATABASE_URL" -f infra/postgres/fixtures/002-integrity.sql
+      - name: Prepare inventory database
+        run: |
+          psql "$DATABASE_URL" -c "CREATE DATABASE inventory_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/inventory_db" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/inventory_db" -f services/inventory/migrations/001_initial.sql
       - run: npm run typecheck
       - run: npm run build
