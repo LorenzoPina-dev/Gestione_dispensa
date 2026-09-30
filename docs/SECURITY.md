@@ -1,13 +1,35 @@
-# Security
+# Security model
 
-Keycloak/OIDC gestisce l'identità. Gateway e servizi verificano il contesto e l'autorizzazione sul proprio dominio.
+## Identity e authorization
 
-Tenant isolation: familyId/subject viene verificato lato server; un ID fornito dal client non è autorizzazione.
+Keycloak/OIDC autentica l'utente. Il Gateway costruisce il contesto della richiesta, ma ogni service verifica l'autorizzazione necessaria al proprio dominio.
 
-Ogni servizio usa credenziali DB dedicate e privilegio minimo. Nessuna credenziale cross-service.
+Per le risorse familiari, `familyId` e subject devono essere derivati/verificati server-side. Un ID fornito dal client non costituisce autorizzazione.
 
-Inviti: token temporanei/revocabili/consumabili; il token non sostituisce autenticazione e la membership nasce solo durante accept autorizzato.
+## Database isolation
 
-Secret, password, token e DB credentials non vanno nei log. Correlation/trace IDs sì quando appropriato.
+Ogni service riceve solo le credenziali del proprio DB:
 
-Blob privati in MinIO sono protetti da policy/bucket e non da URL pubblici permanenti.
+```
+service-inventory -> inventory_db
+service-family    -> family_db
+service-shopping  -> shopping_db
+```
+
+Nessun secret DB viene condiviso tra servizi.
+
+## Invite security
+
+Gli inviti famiglia usano token temporanei, revocabili/consumabili. La risoluzione del token non concede membership. La membership nasce solo durante una operazione accept autenticata e autorizzata.
+
+## Data minimization
+
+I servizi conservano solo i dati necessari al proprio bounded context. Export/erasure sono coordinati tramite Privacy e contratti/eventi, non tramite accesso diretto ai database.
+
+## Secrets e logging
+
+OIDC secret, password, token e credenziali DB non devono apparire nei log. Request/correlation/trace ID possono essere propagati.
+
+## Object storage
+
+Gli oggetti privati in MinIO sono accessibili tramite policy/URL temporanei coerenti con il service owner; non si usano URL pubblici permanenti per dati privati.
