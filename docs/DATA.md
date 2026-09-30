@@ -158,6 +158,7 @@ Il token raw non viene persistito.
 id UUID PK
 family_id UUID NOT NULL
 product_id UUID NOT NULL
+lot_id UUID NULL REFERENCES pantry_lots(id)
 quantity numeric(14,3) NOT NULL CHECK(quantity > 0)
 unit varchar(16) NOT NULL
 location varchar(32) NULL
@@ -204,7 +205,7 @@ metadata JSONB NULL
 created_at timestamptz NOT NULL
 ```
 
-Il movimento storico può riferirsi a un pantry_item_id non più presente.
+Il movimento storico può riferirsi a un pantry_item_id non più presente. `lot_id`, quando valorizzato, è FK locale a `pantry_lots`.
 
 ## 7. catalog_db
 
@@ -637,3 +638,139 @@ Il DB owner conserva object key, checksum, content type, size e ownership.
 - Una projection persa deve poter essere ricostruita.
 - Inventory non conserva prodotti a quantità zero nello stato corrente.
 - Catalog è owner del prodotto canonico; OFF Lookup è solo cache/provider data.
+
+
+## 20. Consumer event deduplication
+
+Ogni database di un servizio che consuma eventi deve avere una tabella locale equivalente a:
+
+```text
+processed_events
+- event_id UUID PK
+- event_type varchar(128) NOT NULL
+- schema_version integer NOT NULL
+- producer varchar(128) NOT NULL
+- processed_at timestamptz NOT NULL
+```
+
+Non è una tabella condivisa: appartiene esclusivamente al consumer DB.
+
+La transazione consumer è:
+
+```text
+BEGIN
+  INSERT processed_events(event_id, ...)
+  -- se duplicate: nessun effetto e ACK
+  APPLY local mutation/projection
+COMMIT
+ACK
+```
+
+## 21. Local foreign keys
+
+Le FK sono ammesse solo nello stesso DB:
+
+- family_db: members.family_id -> families.id; invites.family_id -> families.id.
+- inventory_db: pantry_items.lot_id -> pantry_lots.id.
+- shopping_db: shopping_items.list_id -> shopping_lists.id.
+- catalog_db: product_barcodes.product_id -> products.id; product_sources.product_id -> products.id.
+- privacy_db: privacy_jobs/erasure_requests possono usare solo PK locali.
+- jobs_db: job_attempts.job_id -> jobs.id; dead_letters.job_id -> jobs.id quando valorizzato.
+- recipes_db: recipe_ingredients.recipe_id -> recipes.id; recipe_steps.recipe_id -> recipes.id.
+- ocr_db: ocr_drafts.job_id -> ocr_jobs.id; ocr_draft_items.draft_id -> ocr_drafts.id.
+
+Ogni FK non elencata deve essere considerata cross-domain vietata fino a esplicita documentazione.
+
+## 22. Required indexes
+
+Ogni migration deve creare almeno:
+
+- tutte le PK/UNIQUE;
+- family-scoped indexes per `family_id`;
+- temporal indexes per `created_at`/event timestamps quando usati in retention o pagination;
+- Inventory: `(family_id, product_id)`, `(family_id, expires_at)`, `(family_id, lot_id)`;
+- Catalog: `barcode`, `provider+external_id`;
+- Shopping: `(family_id, status)` e `list_id`;
+- Notifications: `(user_id, read_at, created_at)`;
+- Jobs: `(status, available_at)`, `deduplication_key`;
+- OCR: `(status, created_at)`, `job_id`;
+- Shelf-Life: `(item_id, status)`;
+- Stores: `(store_id, product_id, observed_at)`, `(store_id, valid_from, valid_to)`.
+
+Gli indici possono essere aggiunti se il benchmark lo dimostra, ma non devono alterare la semantica.
+
+## 23. Domain invariants
+
+### Family
+- una coppia `(family_id,user_id)` identifica una sola membership;
+- role ∈ owner|admin|member;
+- una family deve avere almeno un owner;
+- invite token raw non è persistito;
+- accepted/revoked/expired invite non può essere riutilizzato.
+
+### Inventory
+- quantity corrente > 0;
+- quantity consumata/wasted > 0;
+- remaining quantity >= 0;
+- non si può consumare/scartare più della quantità disponibile;
+- unità incompatibili non vengono convertite implicitamente;
+- zero => delete current row + append movement;
+- movement è immutabile.
+
+### Catalog
+- barcode non ambiguo: uno stesso barcode non può riferirsi contemporaneamente a due prodotti canonici senza un conflitto esplicito;
+- provider provenance è tracciata;
+- raw provider payload non è source of truth.
+
+### Shopping
+- quantity > 0;
+- item appartiene a una lista locale;
+- closed list non accetta mutation salvo endpoint esplicito di riapertura futura.
+
+### OCR
+- confidence ∈ [0,1];
+- draft appartiene a un job locale;
+- conferma è idempotente;
+- draft confermato non viene modificato distruttivamente.
+
+### Shelf-Life
+- confidence ∈ [0,1];
+- min_days <= max_days per ogni rule;
+- prediction contiene modelVersion;
+- prediction non modifica Inventory direttamente.
+
+### Stores
+- amount_minor >= 0;
+- currency ISO 4217;
+- valid_from < valid_to;
+- percentage value è limitato a [0,100].
+
+## 24. Retention and deletion
+
+Ogni table deve dichiarare, in migration o retention policy, se è:
+
+- current state;
+- historical ledger;
+- cache;
+- audit;
+- temporary job;
+- projection.
+
+La cancellazione privacy non può eliminare dati di un altro DB direttamente. Il service owner riceve un workflow di erasure e registra il proprio esito.
+
+## 25. Future schema evolution
+
+Sono consentiti:
+- nuove colonne nullable/default;
+- nuove tabelle nello stesso bounded context;
+- nuove projection;
+- nuovi provider/source;
+- nuovi modelVersion;
+- nuovi eventi/versioni.
+
+Sono breaking:
+- modifica semantica di una colonna;
+- cambio tipo incompatibile;
+- rimozione di una colonna ancora usata da un contratto;
+- trasferimento di ownership senza migration plan.
+
