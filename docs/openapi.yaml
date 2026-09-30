@@ -55,6 +55,39 @@ paths:
         '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '400': {$ref: '#/components/responses/ValidationError'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /families/{familyId}/members:
+    get:
+      operationId: getFamiliesFamilyIdMembers
+      tags: [Families]
+      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses:
+        '200': {description: Members, content: {application/json: {schema: {$ref: '#/components/schemas/MemberList'}}}}
+  /families/{familyId}/members/{userId}:
+    patch:
+      operationId: patchFamiliesFamilyIdMembersUserId
+      tags: [Families]
+      parameters:
+        - {$ref: '#/components/parameters/FamilyId'}
+        - {name: userId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+        - {$ref: '#/components/parameters/IfMatch'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateMemberRole'}}}}
+      responses:
+        '200': {description: Membership updated, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '412': {$ref: '#/components/responses/PreconditionFailed'}
+    delete:
+      operationId: deleteFamiliesFamilyIdMembersUserId
+      tags: [Families]
+      parameters:
+        - {$ref: '#/components/parameters/FamilyId'}
+        - {name: userId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+        - {$ref: '#/components/parameters/IfMatch'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      responses:
+        '204': {description: Removed}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '412': {$ref: '#/components/responses/PreconditionFailed'}
   /families/{familyId}:
     get:
       operationId: getFamiliesFamilyId
@@ -382,6 +415,20 @@ paths:
       parameters: [{$ref: '#/components/parameters/StoreId'}, {name: productId, in: query, schema: {$ref: '#/components/schemas/Uuid'}}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Prices, content: {application/json: {schema: {$ref: '#/components/schemas/PriceList'}}}}
+  /stores/{storeId}/prices:
+    get:
+      operationId: getStoresStoreIdPrices
+      tags: [Stores]
+      parameters: [{$ref: '#/components/parameters/StoreId'}, {name: productId, in: query, schema: {$ref: '#/components/schemas/Uuid'}}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses:
+        '200': {description: Prices, content: {application/json: {schema: {$ref: '#/components/schemas/PriceList'}}}}
+    post:
+      operationId: postStoresStoreIdPrices
+      tags: [Stores]
+      parameters: [{$ref: '#/components/parameters/StoreId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreatePrice'}}}}
+      responses:
+        '201': {description: Price, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /stores/{storeId}/offers:
     get:
       operationId: getStoresStoreIdOffers
@@ -445,6 +492,14 @@ paths:
       parameters: [{$ref: '#/components/parameters/DraftId'}]
       responses:
         '200': {description: OCR draft, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /ocr/drafts/{draftId}/reject:
+    post:
+      operationId: postOcrDraftsDraftIdReject
+      tags: [OCR]
+      parameters: [{$ref: '#/components/parameters/DraftId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EmptyObject'}}}}
+      responses:
+        '200': {description: Rejected, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /ocr/drafts/{draftId}/confirm:
     post:
       operationId: postOcrDraftsDraftIdConfirm
@@ -526,6 +581,7 @@ components:
     InviteId: {name: inviteId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
     Token: {name: token, in: path, required: true, schema: {type: string, minLength: 32, maxLength: 512}}
     ItemId: {name: itemId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+    UserId: {name: userId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
     ProductId: {name: productId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
     ListId: {name: listId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
     ShoppingItemId: {name: itemId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
@@ -579,6 +635,265 @@ components:
       additionalProperties: false
       properties:
         name: {type: string, minLength: 1, maxLength: 120}
+    UpdateMemberRole:
+      type: object
+      required: [role]
+      additionalProperties: false
+      properties:
+        role: {type: string, enum: [admin, member]}
+    CreatePrice:
+      type: object
+      required: [productId, amountMinor, currency, observedAt, source]
+      additionalProperties: false
+      properties:
+        productId: {$ref: '#/components/schemas/Uuid'}
+        amountMinor: {type: integer, minimum: 0}
+        currency: {type: string, pattern: '^[A-Z]{3}
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+    CreateInvite:
+      type: object
+      required: [email, role, expiresInSeconds]
+      additionalProperties: false
+      properties:
+        email: {type: string, format: email}
+        role: {type: string, enum: [member, admin]}
+        expiresInSeconds: {type: integer, minimum: 3600, maximum: 604800}
+    CreatePantryItem:
+      type: object
+      required: [productId, quantity, unit]
+      additionalProperties: false
+      properties:
+        productId: {$ref: '#/components/schemas/Uuid'}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: string, maxLength: 16}
+        expiresAt: {type: [string, 'null'], format: date-time}
+        location: {type: [string, 'null'], maxLength: 32}
+        lotCode: {type: [string, 'null'], maxLength: 100}
+    PatchPantryItem:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        quantity: {type: number, exclusiveMinimum: 0}
+        location: {type: [string, 'null'], maxLength: 32}
+        expiresAt: {type: [string, 'null'], format: date-time}
+        lotCode: {type: [string, 'null'], maxLength: 100}
+    ConsumeRequest:
+      type: object
+      required: [quantity, reason]
+      additionalProperties: false
+      properties:
+        quantity: {type: number, exclusiveMinimum: 0}
+        reason: {type: string, enum: [used, expired, damaged, other]}
+    WasteRequest:
+      type: object
+      required: [quantity, reason]
+      additionalProperties: false
+      properties:
+        quantity: {type: number, exclusiveMinimum: 0}
+        reason: {type: string, enum: [spoiled, expired, damaged, other]}
+    CreateProduct:
+      type: object
+      required: [name, barcodes]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 300}
+        brand: {type: [string, 'null'], maxLength: 200}
+        category: {type: [string, 'null'], maxLength: 120}
+        barcodes: {type: array, items: {type: string, pattern: '^[0-9]+$'}}
+    PatchProduct:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 300}
+        brand: {type: [string, 'null'], maxLength: 200}
+        category: {type: [string, 'null'], maxLength: 120}
+        imageObjectKey: {type: [string, 'null'], maxLength: 500}
+        nutrition: {type: [object, 'null']}
+    BarcodeRequest:
+      type: object
+      required: [barcode]
+      additionalProperties: false
+      properties:
+        barcode: {type: string, pattern: '^[0-9]+$'}
+    CreateShoppingList:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties: {name: {type: string, minLength: 1, maxLength: 120}}
+    CreateShoppingItem:
+      type: object
+      required: [label, quantity]
+      additionalProperties: false
+      properties:
+        productId: {type: [string, 'null'], format: uuid}
+        label: {type: string, minLength: 1, maxLength: 300}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: [string, 'null'], maxLength: 16}
+    PatchShoppingItem:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        label: {type: string, minLength: 1, maxLength: 300}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: [string, 'null'], maxLength: 16}
+        checked: {type: boolean}
+    CreateRecipe:
+      type: object
+      required: [title, servings, ingredients, steps]
+      additionalProperties: false
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        servings: {type: number, exclusiveMinimum: 0}
+        ingredients: {type: array, items: {type: object, required: [name, quantity, unit], additionalProperties: false, properties: {productId: {type: [string, 'null'], format: uuid}, name: {type: string}, quantity: {type: number, exclusiveMinimum: 0}, unit: {type: string}}}}
+        steps: {type: array, items: {type: string}}
+    PatchRecipe:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        title: {type: string, maxLength: 300}
+        servings: {type: number, exclusiveMinimum: 0}
+        ingredients: {type: array}
+        steps: {type: array, items: {type: string}}
+    NutritionTargets:
+      type: object
+      required: [caloriesKcal, proteinG, carbsG, fatG]
+      additionalProperties: false
+      properties:
+        caloriesKcal: {type: number, minimum: 0}
+        proteinG: {type: number, minimum: 0}
+        carbsG: {type: number, minimum: 0}
+        fatG: {type: number, minimum: 0}
+    CreateDiaryEntry:
+      type: object
+      required: [date, meal, productId, quantity, unit]
+      additionalProperties: false
+      properties:
+        date: {type: string, format: date}
+        meal: {type: string, enum: [breakfast, snack, lunch, dinner, other]}
+        productId: {$ref: '#/components/schemas/Uuid'}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: string, maxLength: 16}
+    CreateStore:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 300}
+        chain: {type: [string, 'null'], maxLength: 200}
+        address: {type: [string, 'null'], maxLength: 1000}
+    CreateOffer:
+      type: object
+      required: [productId, type, value, validFrom, validTo]
+      additionalProperties: false
+      properties:
+        productId: {$ref: '#/components/schemas/Uuid'}
+        type: {type: string, enum: [percentage, fixed]}
+        value: {type: number, exclusiveMinimum: 0}
+        validFrom: {type: string, format: date-time}
+        validTo: {type: string, format: date-time}
+    NotificationPreferences:
+      type: object
+      required: [expiration, lowStock, offers, family, system, channels]
+      additionalProperties: false
+      properties:
+        expiration: {type: boolean}
+        lowStock: {type: boolean}
+        offers: {type: boolean}
+        family: {type: boolean}
+        system: {type: boolean}
+        channels:
+          type: object
+          required: [inApp, email, push]
+          additionalProperties: false
+          properties:
+            inApp: {type: boolean}
+            email: {type: boolean}
+            push: {type: boolean}
+    OcrConfirm:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [name, quantity, unit]
+            additionalProperties: false
+            properties:
+              name: {type: string}
+              productId: {type: [string, 'null'], format: uuid}
+              quantity: {type: number, exclusiveMinimum: 0}
+              unit: {type: string}
+              priceMinor: {type: [integer, 'null'], minimum: 0}
+              currency: {type: [string, 'null'], pattern: '^[A-Z]{3}$'}
+    ExpirationConfirm:
+      type: object
+      required: [expiresAt, source]
+      additionalProperties: false
+      properties:
+        expiresAt: {type: string, format: date-time}
+        source: {type: string, enum: [declared]}
+    ShelfLifeRequest:
+      type: object
+      required: [itemId, productId, storedAt, opened]
+      additionalProperties: false
+      properties:
+        itemId: {$ref: '#/components/schemas/Uuid'}
+        productId: {$ref: '#/components/schemas/Uuid'}
+        storedAt: {type: string, maxLength: 32}
+        opened: {type: boolean}
+    PrivacyConsents:
+      type: object
+      required: [analytics, personalization, notifications]
+      additionalProperties: false
+      properties:
+        analytics: {type: boolean}
+        personalization: {type: boolean}
+        notifications: {type: boolean}
+    EraseRequest:
+      type: object
+      required: [confirm]
+      additionalProperties: false
+      properties:
+        confirm: {type: boolean, const: true}
+    MemberList: {type: object, required: [items, nextCursor], properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    FamilyList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    InviteList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    InventoryList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    MovementList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    ShoppingListResponse: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    RecipeList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    RecipeSuggestionList: {type: object, properties: {items: {type: array, items: {type: object}}}}
+    DiaryList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    StoreList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    PriceList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    OfferList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    NotificationList: {type: object, properties: {items: {type: array, items: {type: object}}, nextCursor: {type: [string, 'null']}}}
+    DashboardResponse: {type: object, properties: {data: {type: object}, partialFailures: {type: array, items: {type: object}}}}
+  responses:
+    ValidationError: {description: Validation error, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Unauthorized: {description: Unauthorized, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Forbidden: {description: Forbidden, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Conflict: {description: Conflict, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    PreconditionFailed: {description: Precondition failed, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    BusinessRule: {description: Business rule violation, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    ServiceUnavailable: {description: Service unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+}
+        observedAt: {type: string, format: date-time}
+        source: {type: string, minLength: 1, maxLength: 64}
+    EmptyObject:
+      type: object
+      additionalProperties: false
     PatchFamily:
       type: object
       minProperties: 1
