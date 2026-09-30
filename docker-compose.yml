@@ -71,6 +71,34 @@ services:
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
     networks: [backend, data]
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks: [data]
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://dispensa:dispensa@postgres:5432/postgres?sslmode=disable
+    networks: [data]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.75.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    networks: [data]
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    command: ["--kafka.server=kafka:9092"]
+    networks: [data, messaging]
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -108,6 +136,7 @@ services:
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: miniochange
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     volumes: [minio_data:/data]
     networks: [data]
 
@@ -122,7 +151,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
-    command: start-dev --http-port=8080 --import-realm
+    command: start-dev --http-port=8080 --import-realm --metrics-enabled=true --health-enabled=true
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
