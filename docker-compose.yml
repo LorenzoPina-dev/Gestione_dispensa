@@ -62,6 +62,9 @@ services:
 
   grafana:
     image: grafana/grafana:12.1.1
+    environment:
+      GF_SERVER_ROOT_URL: https://localhost:8443/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     depends_on: [prometheus, loki]
     volumes:
       - grafana_data:/var/lib/grafana
