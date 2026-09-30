@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
+import { recordError } from "../observability.js";
 
 /** The envelope's `meta` shape is shared by every domain controller (see FamilyHttpMeta). */
 export interface HttpMeta { requestId: string; traceId: string; schemaVersion: "1.0"; }
@@ -31,7 +32,8 @@ function readTraceId(req: Request): string {
 /** Sets the correlation-id response headers every route (including 404s) must carry. */
 export function applyCorrelationHeaders(res: Response, meta: HttpMeta): void {
   res.setHeader("x-request-id", meta.requestId);
-  res.setHeader("traceparent", `00-${meta.traceId}-0000000000000001-01`);
+  // requestObservability() already sets a traceparent carrying this hop's real spanId; only fall back when it is absent.
+  if (res.getHeader("traceparent") === undefined) res.setHeader("traceparent", `00-${meta.traceId}-0000000000000001-01`);
 }
 
 export function failure(code: string, message: string, meta: HttpMeta): HttpErrorBody {
@@ -62,6 +64,8 @@ export async function respond<T>(
     sendSuccess(res, 200, result.data, result.meta);
   } catch (error) {
     const { status, body } = toHttpError(error, meta);
+    // Attach the underlying failure (SQLSTATE, cause chain, stack for 5xx) to this request's access-log line.
+    recordError(error, { status });
     res.status(status).json(body);
   }
 }

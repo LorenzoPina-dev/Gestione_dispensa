@@ -1,3 +1,14 @@
+# Shared observability settings read by packages/observability (service-runtime.ts).
+# OTEL_EXPORTER_OTLP_ENDPOINT is empty by default (spans off). To enable traces run the
+# `observability-full` profile and set OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 in .env.
+x-obs-env: &obs-env
+  APP_ENV: ${APP_ENV:-family-local}
+  APP_VERSION: ${APP_VERSION:-dev}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OBS_SLOW_REQUEST_MS: ${OBS_SLOW_REQUEST_MS:-2000}
+  OBS_SLOW_QUERY_MS: ${OBS_SLOW_QUERY_MS:-500}
+
 services:
   cert-init:
     image: alpine:3.20
@@ -34,6 +45,7 @@ services:
       dockerfile: services/service-identity/Dockerfile
     environment:
       PORT: 3310
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -64,6 +76,7 @@ services:
       dockerfile: services/service-family/Dockerfile
     environment:
       PORT: 3311
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -90,6 +103,7 @@ services:
       dockerfile: services/service-inventory/Dockerfile
     environment:
       PORT: 3312
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -117,6 +131,7 @@ services:
       dockerfile: services/service-shopping/Dockerfile
     environment:
       PORT: 3313
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -144,6 +159,7 @@ services:
       dockerfile: services/service-catalog/Dockerfile
     environment:
       PORT: 3314
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -171,6 +187,7 @@ services:
       dockerfile: services/service-notifications/Dockerfile
     environment:
       PORT: 3315
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -197,6 +214,7 @@ services:
       dockerfile: services/service-privacy/Dockerfile
     environment:
       PORT: 3316
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -223,6 +241,7 @@ services:
       dockerfile: services/service-jobs/Dockerfile
     environment:
       PORT: 3317
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       OIDC_ISSUER: ${OIDC_ISSUER:-https://192.168.1.24:8443/realms/dispensa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-account}
@@ -254,6 +273,7 @@ services:
       dockerfile: services/gateway/Dockerfile
     environment:
       PORT: 3300
+      <<: *obs-env
       IDENTITY_SERVICE_BASE_URL: http://service-identity:3310/api/v1
       FAMILY_SERVICE_BASE_URL: http://service-family:3311/api/v1
       INVENTORY_SERVICE_BASE_URL: http://service-inventory:3312/api/v1
@@ -310,6 +330,7 @@ services:
       dockerfile: services/service-recipes/Dockerfile
     environment:
       PORT: 3401
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       REDIS_URL: redis://redis:6379
     depends_on:
@@ -332,6 +353,7 @@ services:
       dockerfile: services/service-nutrition/Dockerfile
     environment:
       PORT: 3402
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
     depends_on:
       postgres:
@@ -351,6 +373,7 @@ services:
       dockerfile: services/service-stores/Dockerfile
     environment:
       PORT: 3403
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
     depends_on:
       postgres:
@@ -370,6 +393,7 @@ services:
       dockerfile: services/service-shelf-life/Dockerfile
     environment:
       PORT: 3404
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
     depends_on:
       postgres:
@@ -389,6 +413,7 @@ services:
       dockerfile: services/service-ocr/Dockerfile
     environment:
       PORT: 3405
+      <<: *obs-env
       DATABASE_URL: postgresql://dispensa_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/${POSTGRES_DB:-dispensa}
       REDIS_URL: redis://redis:6379
     depends_on:
@@ -847,6 +872,35 @@ services:
           cpus: "0.1"
           memory: 64M
 
+  # Log shipper: container stdout (JSON) -> Loki. Without it Loki stays empty.
+  # SECURITY: mounting docker.sock (even read-only) gives this container API access to the
+  # Docker daemon. Acceptable for the family-local profile; for production replace it with a
+  # node-level agent or the OTel Collector filelog receiver.
+  alloy:
+    image: grafana/alloy:v1.5.1
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+    volumes:
+      - ../observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      loki:
+        condition: service_started
+    profiles: [observability-full]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
 networks:
   default:
     name: gestione-dispensa-family-local
@@ -862,3 +916,4 @@ volumes:
   grafana-data:
   loki-data:
   tempo-data:
+  alloy-data:

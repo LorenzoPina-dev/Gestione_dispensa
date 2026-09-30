@@ -1,5 +1,9 @@
 import express, { type Request, type Response } from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { annotate, currentContext, errorMiddleware, log, metrics, metricsHandler, noteUpstreamError, rebindContext, recordError, requestObservability, startObservability } from "./observability.js";
+
+// Must run before anything else: installs structured logging, outbound fetch tracing and crash handlers.
+startObservability("gateway");
 
 const app = express();
 const port = Number(process.env.PORT ?? 3300);
@@ -21,10 +25,49 @@ const oidcJwksUrl = process.env.OIDC_JWKS_URL ?? "http://keycloak:8080/realms/di
 const jwks = createRemoteJWKSet(new URL(oidcJwksUrl));
 
 app.disable("x-powered-by");
+// First middleware: assigns requestId/traceId (or continues the ones sent by nginx/browser) and writes one access-log line per request.
+app.use(requestObservability());
 app.use(express.json({ limit: "2mb" }));
+app.use(rebindContext());
+
+const clientErrors = metrics.counter("web_client_errors_total", "Errors reported by the browser app.", ["kind"]);
+const CLIENT_ERROR_KINDS = new Set(["js_error", "unhandled_rejection", "react_render", "api_error", "network_error"]);
+const beaconHits = new Map<string, { count: number; resetAt: number }>();
+const short = (value: unknown, max: number): string | undefined => (typeof value === "string" && value ? value.slice(0, max) : undefined);
+
+/**
+ * Browser error beacon. Public on purpose (a broken login must still be reportable), so it is
+ * size-limited and capped per IP. The browser sends the requestId/traceId of the failing call,
+ * which lets you jump from a UI error straight to the backend trace (Grafana > Tempo / Loki).
+ */
+app.post("/api/v1/client-errors", (req, res) => {
+  const ip = req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+  const now = Date.now();
+  const hit = beaconHits.get(ip);
+  if (!hit || hit.resetAt < now) beaconHits.set(ip, { count: 1, resetAt: now + 60_000 });
+  else if (++hit.count > 30) { res.status(429).end(); return; }
+  if (beaconHits.size > 5000) beaconHits.clear();
+  const body = (typeof req.body === "object" && req.body !== null ? req.body : {}) as Record<string, unknown>;
+  const kind = CLIENT_ERROR_KINDS.has(String(body.kind)) ? String(body.kind) : "other";
+  clientErrors.inc({ kind });
+  log.warn("web.client_error", {
+    kind,
+    message: short(body.message, 500),
+    stack: short(body.stack, 3000),
+    page: short(body.page, 200),
+    apiPath: short(body.apiPath, 200),
+    apiStatus: typeof body.status === "number" ? body.status : undefined,
+    apiCode: short(body.code, 64),
+    webRequestId: short(body.requestId, 128),
+    webTraceId: short(body.traceId, 32),
+    appVersion: short(body.appVersion, 32),
+    userAgent: short(req.header("user-agent"), 200),
+  });
+  res.status(204).end();
+});
 
 app.get("/health/live", (_req, res) => res.status(200).json({ status: "ok" }));
-app.get("/metrics", (_req, res) => { res.type("text/plain").send(`# HELP process_uptime_seconds Gateway process uptime.\n# TYPE process_uptime_seconds gauge\nprocess_uptime_seconds ${process.uptime()}\n`); });
+app.get("/metrics", metricsHandler);
 app.use("/api/v1/views", requireGatewayAuth);
 // Rotte pubbliche: chi si registra o recupera la password non ha ancora un token.
 // Devono stare PRIMA del ciclo sottostante, che impone requireGatewayAuth su /api/v1/auth.
@@ -76,8 +119,16 @@ async function requireGatewayAuth(req: Request, res: Response, next: express.Nex
   const header = req.header("authorization");
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: { code: "UNAUTHENTICATED", message: "Authentication is required.", retryable: false } });
   if (!oidcIssuer || !oidcAudience) return res.status(503).json({ error: { code: "AUTH_NOT_CONFIGURED", message: "Gateway identity verification is not configured.", retryable: true } });
-  try { await jwtVerify(header.slice(7), jwks, { issuer: oidcIssuer, audience: oidcAudience }); next(); }
-  catch { res.status(401).json({ error: { code: "UNAUTHENTICATED", message: "Invalid access token.", retryable: false } }); }
+  try {
+    const { payload } = await jwtVerify(header.slice(7), jwks, { issuer: oidcIssuer, audience: oidcAudience });
+    if (payload.sub) annotate({ userId: payload.sub });
+  } catch (error) {
+    // The reason (expired, bad signature, wrong issuer/audience, JWKS unreachable) tells a client bug from a config bug.
+    recordError(error, { status: 401 });
+    res.status(401).json(withMeta({ error: { code: "UNAUTHENTICATED", message: "Invalid access token.", retryable: false } }));
+    return;
+  }
+  next();
 }
 
 function serviceProxy(baseUrl: string): express.RequestHandler {
@@ -90,6 +141,11 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     const authorization = req.header("authorization"); if (authorization) headers.Authorization = authorization;
     const hasBody = !["GET", "HEAD"].includes(req.method);
     if (hasBody) headers["Content-Type"] = "application/json";
+    // Headers the domain services depend on: RLS family context, idempotency and optimistic locking.
+    // traceparent / x-request-id are added automatically by the instrumented fetch.
+    for (const name of ["x-family-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    const target = `${url.host}${url.pathname}`;
+    annotate({ upstream: target });
     try {
       const upstream = await fetch(url, {
         method: req.method,
@@ -98,11 +154,17 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
         signal: AbortSignal.timeout(requestTimeoutMs),
       });
       const text = await upstream.text();
+      if (upstream.status >= 400) {
+        // Copy the upstream error code/message into this hop's access-log line: one log line tells who failed and why.
+        try { noteUpstreamFailure(JSON.parse(text), target); } catch { noteUpstreamFailure(undefined, target); }
+      }
       res.status(upstream.status);
       const contentType = upstream.headers.get("content-type"); if (contentType) res.setHeader("content-type",contentType);
       res.send(text);
     } catch (error) {
-      res.status(502).json({ error:{ code:"UPSTREAM_UNAVAILABLE", message:error instanceof Error?error.message:"Service unavailable", retryable:true } });
+      recordError(error, { status: 502 });
+      noteUpstreamError("UPSTREAM_UNAVAILABLE", error instanceof Error ? error.message : "Service unavailable");
+      res.status(502).json(withMeta({ error:{ code:"UPSTREAM_UNAVAILABLE", message:error instanceof Error?error.message:"Service unavailable", retryable:true } }));
     }
   };
 }
@@ -117,13 +179,16 @@ async function composite(
     res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "familyId is required", retryable: false } });
     return;
   }
+  if (/^[A-Za-z0-9._:-]{8,128}$/.test(familyId)) annotate({ familyId }); // log correlation only; user input, so shape-checked
   try {
     const data = await builder(familyId, req.header("authorization") ?? undefined);
     res.status(200).json({ data, meta: { schemaVersion: "view.v1" } });
   } catch (error) {
     const status = error instanceof GatewayError ? error.status : 502;
     const body = error instanceof GatewayError ? error.body : undefined;
-    res.status(status).json(body ?? { error: { code: "UPSTREAM_UNAVAILABLE", message: "Core API unavailable", retryable: true } });
+    recordError(error, { status });
+    if (error instanceof GatewayError) noteUpstreamFailure(error.body, error.target);
+    res.status(status).json(withMeta(body ?? { error: { code: "UPSTREAM_UNAVAILABLE", message: "Core API unavailable", retryable: true } }));
   }
 }
 
@@ -267,13 +332,13 @@ async function coreGet(path: string, authorization?: string, query?: Record<stri
   ];
   const entry = table.find(([prefix]) => normalized === prefix || normalized.startsWith(`${prefix}/`));
   const result = entry ? await callBase(entry[1], normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
-  if (!result.ok) throw new GatewayError(result.status, result.body);
+  if (!result.ok) throw new GatewayError(result.status, result.body, result.target);
   return (result.body?.data ?? result.body) as Record<string, any>;
 }
 
 async function serviceGet(baseUrl: string, path: string, authorization?: string, query?: Record<string, string>): Promise<Record<string, any>> {
   const result = await callBase(baseUrl, path, authorization, query);
-  if (!result.ok) throw new GatewayError(result.status, result.body);
+  if (!result.ok) throw new GatewayError(result.status, result.body, result.target);
   return (result.body?.data ?? result.body) as Record<string, any>;
 }
 
@@ -291,7 +356,7 @@ async function callBase(baseUrl: string, path: string, authorization?: string, q
       signal: controller.signal,
     });
     const body = await response.json().catch(() => ({}));
-    return { ok: response.ok, status: response.status, body };
+    return { ok: response.ok, status: response.status, body, target: `${url.host}${url.pathname}` };
   } catch (error) {
     throw new GatewayError(502, {
       error: {
@@ -299,18 +364,38 @@ async function callBase(baseUrl: string, path: string, authorization?: string, q
         message: error instanceof Error ? error.message : "Core API unavailable",
         retryable: true,
       },
-    });
+    }, `${url.host}${url.pathname}`, error);
   } finally {
     clearTimeout(timer);
   }
 }
 
 class GatewayError extends Error {
-  public constructor(public readonly status: number, public readonly body: unknown) {
-    super("Gateway upstream error");
+  public constructor(public readonly status: number, public readonly body: unknown, public readonly target = "unknown", cause?: unknown) {
+    super(`Upstream ${target} answered ${status}`);
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
   }
 }
 
+/** Names the failing service and copies its error code/message into this hop's access-log line. */
+function noteUpstreamFailure(body: unknown, target?: string): void {
+  if (target) annotate({ upstream: target });
+  if (typeof body !== "object" || body === null) return;
+  const error = (body as { error?: unknown }).error;
+  if (typeof error === "string") noteUpstreamError(error, (body as { message?: unknown }).message);
+  else if (typeof error === "object" && error !== null) noteUpstreamError((error as { code?: unknown }).code, (error as { message?: unknown }).message);
+}
+
+/** Gateway-generated errors carry requestId/traceId so a user-visible failure can be quoted and found in Grafana. */
+function withMeta(body: unknown): unknown {
+  const ctx = currentContext();
+  if (!ctx || typeof body !== "object" || body === null || "meta" in body) return body;
+  return { ...body, meta: { requestId: ctx.requestId, traceId: ctx.traceId, schemaVersion: "1.0" } };
+}
+
+// Last middleware: turns thrown errors into the JSON envelope with requestId/traceId and records the cause.
+app.use(errorMiddleware());
+
 app.listen(port, "0.0.0.0", () => {
-  process.stdout.write(JSON.stringify({ service: "gateway", port, identityBaseUrl, familyBaseUrl, inventoryBaseUrl, shoppingBaseUrl, catalogBaseUrl, notificationsBaseUrl }) + "\n");
+  log.info("service.listening", { port, identityBaseUrl, familyBaseUrl, inventoryBaseUrl, shoppingBaseUrl, catalogBaseUrl, notificationsBaseUrl });
 });

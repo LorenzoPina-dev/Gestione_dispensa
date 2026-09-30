@@ -2,6 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { OidcTokenVerifier, Principal } from "../identity/oidc.js";
 import { applyCorrelationHeaders, buildMeta, sendFailure, type HttpMeta } from "./envelope.js";
 import { setDbRequestContext } from "../db/request-context.js";
+import { annotate, log } from "../observability.js";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -42,7 +43,6 @@ export function requestMetaMiddleware(): RequestHandler {
     const meta = buildMeta(req);
     req.meta = meta;
     applyCorrelationHeaders(res, meta);
-    console.log("[req]", req.method, req.url, "origin=", req.headers.origin ?? "-");
     next();
   };
 }
@@ -59,6 +59,7 @@ export async function resolvePrincipal(
   try {
     const principal = await verifier.verifyAuthorizationHeader(req.headers.authorization);
     const familyId = req.header("x-family-id")?.trim();
+    annotate({ userId: principal.subject });
     setDbRequestContext({
       userId: principal.subject,
       ...(familyId ? { familyId } : {}),
@@ -66,9 +67,8 @@ export async function resolvePrincipal(
     return principal;
   } catch (error) {
     setDbRequestContext({});
-    console.error("[auth] token verification failed:", 
-      error instanceof Error ? `${error.name}: ${error.message}` : error
-    );
+    // Expired vs bad signature vs JWKS unreachable are told apart by err.name / err.code in the log.
+    log.warn("auth.token_verification_failed", {}, error);
     return undefined;
   }
 }

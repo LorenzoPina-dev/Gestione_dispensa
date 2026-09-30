@@ -1,21 +1,117 @@
+# Alert rules evaluated by Prometheus/Alertmanager (independent from Grafana, see ADR-0002).
+# Validate before shipping:  promtool check rules infra/observability/prometheus/rules/core.yml
+# Runbooks: docs/OBSERVABILITY-DEBUGGING.md
 groups:
-  - name: dispensa-core
+  - name: dispensa-availability
     rules:
-      - alert: ApiDown
-        expr: up{job="api"} == 0
+      - alert: ServiceDown
+        expr: up{job="dispensa", instrumented="true"} == 0
         for: 2m
         labels:
           severity: critical
           owner: platform
         annotations:
-          summary: API service is unavailable
-          runbook: docs/RUNBOOKS.md#api-unavailable
-      - alert: ApiHighErrorRate
-        expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{job="api"}[5m])), 1) > 0.05
+          summary: "{{ $labels.service }} is not answering /metrics"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-servicedown
+
+      - alert: ServiceRestarted
+        # process_cpu_seconds_total is monotonic, so a counter reset means the process restarted.
+        # (process_start_time_seconds is derived from Date.now()-uptime and can jitter by 1s: not usable with changes().)
+        expr: resets(process_cpu_seconds_total{job="dispensa"}[15m]) > 0
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: "{{ $labels.service }} restarted (crash loop or deploy)"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-servicerestarted
+
+  - name: dispensa-errors
+    rules:
+      - alert: HighServerErrorRate
+        expr: |
+          sum by (service) (rate(http_requests_total{job="dispensa", status=~"5.."}[5m]))
+            / clamp_min(sum by (service) (rate(http_requests_total{job="dispensa"}[5m])), 0.001) > 0.05
+          and sum by (service) (rate(http_requests_total{job="dispensa"}[5m])) > 0.05
         for: 5m
         labels:
           severity: warning
           owner: platform
         annotations:
-          summary: API server error rate exceeds five percent
-          runbook: docs/RUNBOOKS.md#api-unavailable
+          summary: "{{ $labels.service }}: more than 5% of requests fail with 5xx"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-highservererrorrate
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket{job="dispensa"}[5m]))) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: "{{ $labels.service }}: p95 latency above 1.5s"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-highlatencyp95
+
+      - alert: UpstreamCallsFailing
+        # outcome is error | timeout | 5xx (see outbound_requests_total in service-runtime.ts)
+        expr: |
+          sum by (service, target) (rate(outbound_requests_total{job="dispensa", outcome=~"error|timeout|5xx"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: "{{ $labels.service }} -> {{ $labels.target }}: outbound calls failing"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-upstreamcallsfailing
+
+      - alert: WebClientErrorsSpike
+        expr: sum(increase(web_client_errors_total{job="dispensa"}[10m])) > 10
+        labels:
+          severity: warning
+          owner: web
+        annotations:
+          summary: "Browser app reported more than 10 errors in 10 minutes"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-webclienterrorsspike
+
+  - name: dispensa-database
+    rules:
+      - alert: DatabaseErrors
+        # SQLSTATE class 23 (duplicate key, FK) is an expected business outcome, not an outage.
+        expr: sum by (service, code) (rate(db_errors_total{job="dispensa", code!~"23.*"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: "{{ $labels.service }}: PostgreSQL errors with SQLSTATE {{ $labels.code }}"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-databaseerrors
+
+      - alert: DatabasePoolSaturated
+        expr: max by (service) (db_pool_connections{job="dispensa", state="waiting"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: "{{ $labels.service }}: requests are waiting for a database connection"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-databasepoolsaturated
+
+  - name: dispensa-runtime
+    rules:
+      - alert: EventLoopLag
+        expr: max by (service) (nodejs_eventloop_lag_p99_seconds{job="dispensa"}) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: "{{ $labels.service }}: Node event loop p99 delay above 200ms"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-eventlooplag
+
+      - alert: TracesBeingDropped
+        expr: sum by (service, reason) (increase(otel_spans_dropped_total{job="dispensa"}[10m])) > 0
+        labels:
+          severity: info
+          owner: platform
+        annotations:
+          summary: "{{ $labels.service }}: spans dropped ({{ $labels.reason }}); traces are incomplete"
+          runbook: docs/OBSERVABILITY-DEBUGGING.md#alert-tracesbeingdropped

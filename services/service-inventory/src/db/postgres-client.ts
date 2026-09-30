@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import { getDbRequestContext } from "./request-context.js";
+import { log, registerPool, traceDb } from "../observability.js";
 
 export interface SqlResult<Row> {
   readonly rows: readonly Row[];
@@ -88,6 +89,9 @@ export class PostgresClient implements SqlClient, SqlTransactionFactory {
       idleTimeoutMillis: options.idleTimeoutMs ?? 30_000,
       ssl: options.ssl ? { rejectUnauthorized: true } : undefined,
     });
+    // An idle client dropping (Postgres restart, network cut) emits 'error'; unhandled it would crash the process.
+    pool.on("error", (error) => log.error("db.pool_error", {}, error));
+    registerPool(() => ({ total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount }));
     return new PostgresClient(pool);
   }
 
@@ -98,7 +102,7 @@ export class PostgresClient implements SqlClient, SqlTransactionFactory {
     const client = await this.pool.connect();
     try {
       await applyRequestContext(client, true);
-      const result = await client.query(text, values as unknown[]);
+      const result = await traceDb(text, () => client.query(text, values as unknown[]));
       return { rows: result.rows as Row[] };
     } finally {
       client.release();
@@ -122,7 +126,8 @@ export class PostgresClient implements SqlClient, SqlTransactionFactory {
     try {
       await this.pool.query("SELECT 1");
       return true;
-    } catch {
+    } catch (error) {
+      log.warn("db.ping_failed", {}, error);
       return false;
     }
   }
@@ -152,7 +157,7 @@ class PostgresTransaction implements SqlTransaction {
     text: string,
     values: readonly unknown[] = [],
   ): Promise<SqlResult<Row>> {
-    const result = await this.client.query(text, values as unknown[]);
+    const result = await traceDb(text, () => this.client.query(text, values as unknown[]));
     return { rows: result.rows as Row[] };
   }
 

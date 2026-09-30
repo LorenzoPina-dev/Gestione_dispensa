@@ -31,7 +31,8 @@ app.get("/api/v1/me", async (req, res) => {
   if (!p) return sendFailure(res, 401, "UNAUTHENTICATED", "Authentication is required.", req.meta);
   try {
     await profiles.upsertFromOidc({ id: p.subject, ...(p.email ? { email: p.email } : {}), ...(p.name ? { displayName: p.name } : {}) });
-  } catch {
+  } catch (error) {
+    console.error("[identity] /me profile sync failed", error);
     return sendFailure(res, 503, "PROFILE_SYNC_FAILED", "Unable to synchronize the user profile.", req.meta);
   }
   const familyId = await profiles.getActiveFamilyId(p.subject).catch(() => undefined);
@@ -68,7 +69,8 @@ app.get("/api/v1/auth/me", async (req, res) => {
       },
       req.meta,
     );
-  } catch {
+  } catch (error) {
+    console.error("[identity] /auth/me profile sync failed", error);
     return sendFailure(res, 503, "PROFILE_SYNC_FAILED", "Unable to synchronize the user profile.", req.meta);
   }
 });

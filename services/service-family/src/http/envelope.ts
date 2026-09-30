@@ -62,6 +62,9 @@ export async function respond<T>(
     sendSuccess(res, 200, result.data, result.meta);
   } catch (error) {
     const { status, body } = toHttpError(error, meta);
+    if (status >= 500) {
+      console.error("[respond] unhandled error", { requestId: meta.requestId, status }, error);
+    }
     res.status(status).json(body);
   }
 }

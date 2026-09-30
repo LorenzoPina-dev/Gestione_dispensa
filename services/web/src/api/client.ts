@@ -6,6 +6,7 @@ import {
   KEYCLOAK_CLIENT_ID,
 } from "./config.js";
 import type { Envelope, ErrorEnvelope } from "./types.js";
+import { describeError, reportClientError } from "../lib/errorReporter.js";
 
 /**
  * Thrown for any request that reached the server and came back as a documented error envelope
@@ -17,6 +18,9 @@ export class ApiError extends Error {
   readonly status: number;
   readonly retryable: boolean;
   readonly details?: Array<Record<string, unknown>>;
+  /** Correlation ids of the failing call: quote them to find the backend logs/trace (Grafana). */
+  requestId?: string;
+  traceId?: string;
 
   constructor(status: number, body: ErrorEnvelope) {
     super(body.error?.message || `Request failed with status ${status}`);
@@ -34,6 +38,9 @@ export class ApiError extends Error {
  * The UI must surface it or retry; it must not manufacture domain data.
  */
 export class NetworkUnavailableError extends Error {
+  requestId?: string;
+  traceId?: string;
+
   constructor(cause?: unknown) {
     super("The Dispensa API is not reachable.");
     this.name = "NetworkUnavailableError";
@@ -50,6 +57,21 @@ export interface RequestOptions {
   ifMatch?: string | number;
   query?: Record<string, string | number | undefined>;
   signal?: AbortSignal;
+}
+
+/**
+ * Correlation ids for one API call. The same ids travel in `traceparent` / `X-Request-Id` through
+ * nginx -> gateway -> domain services -> Postgres/outbound calls, and appear in every log line and
+ * span, so a single id reconstructs the full path of a request (and of its failure).
+ */
+function newTraceContext(): { requestId: string; traceId: string; spanId: string } {
+  const hex = (bytes: number): string => {
+    const buffer = new Uint8Array(bytes);
+    if (typeof crypto !== "undefined" && "getRandomValues" in crypto) crypto.getRandomValues(buffer);
+    else for (let i = 0; i < bytes; i += 1) buffer[i] = Math.floor(Math.random() * 256);
+    return Array.from(buffer, (b) => b.toString(16).padStart(2, "0")).join("");
+  };
+  return { requestId: newIdempotencyKey(), traceId: hex(16), spanId: hex(8) };
 }
 
 /** Generates a client-side idempotency key / clientOperationId (UUID v4-ish, no backend dependency). */
@@ -240,6 +262,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  const trace = newTraceContext();
+  headers.traceparent = `00-${trace.traceId}-${trace.spanId}-01`;
+  headers["X-Request-Id"] = trace.requestId;
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (ifMatch !== undefined) headers["If-Match"] = String(ifMatch);
 
@@ -261,7 +286,21 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       signal: combinedSignal,
     });
   } catch (cause) {
-    throw new NetworkUnavailableError(cause);
+    const failure = new NetworkUnavailableError(cause);
+    failure.requestId = trace.requestId;
+    failure.traceId = trace.traceId;
+    // A request that never reached the gateway leaves no backend trace: this report is the only record.
+    // Aborts requested by the caller (component unmounted, navigation) are normal, not failures.
+    if (!signal?.aborted) {
+      reportClientError({
+        kind: "network_error",
+        message: describeError(cause),
+        apiPath: path,
+        requestId: trace.requestId,
+        traceId: trace.traceId,
+      });
+    }
+    throw failure;
   } finally {
     clearTimeout(timeout);
   }
@@ -287,7 +326,22 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, payload as ErrorEnvelope);
+    const failure = new ApiError(response.status, payload as ErrorEnvelope);
+    failure.requestId = trace.requestId;
+    failure.traceId = trace.traceId;
+    // 4xx are expected outcomes (validation, 401, 404, version conflict) and stay in the backend access log only.
+    if (response.status >= 500) {
+      reportClientError({
+        kind: "api_error",
+        message: failure.message,
+        apiPath: path,
+        status: response.status,
+        code: failure.code,
+        requestId: trace.requestId,
+        traceId: trace.traceId,
+      });
+    }
+    throw failure;
   }
 
   return (payload as Envelope<T>).data;

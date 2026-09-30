@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const MIGRATION_PATTERN = /^(\d{4})_([a-z0-9-]+)\.sql$/;
+const MIGRATION_PATTERN = /^(\d{4})[_-]([a-z0-9-]+)\.sql$/;
 const LOCK_KEY = "gestione_dispensa_migrations_v1";
 
 export async function discoverMigrations(directory) {

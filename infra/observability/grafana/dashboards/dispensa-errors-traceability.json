@@ -1,0 +1,179 @@
+{
+  "uid": "dispensa-errors",
+  "title": "Dispensa - Errors & Traceability",
+  "tags": ["dispensa", "errors", "tracing"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "description": "Where errors come from (service, route, domain code, upstream, SQLSTATE) and how to follow one request end to end. Paste a requestId or traceId in the 'id' box to see every log line of that request.",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(up{job=\"dispensa\"}, service)", "refId": "svc" },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "id",
+        "label": "requestId / traceId",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Requests / s",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum(rate(http_requests_total{service=~\"$service\"}[5m]))" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "5xx ratio",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit", "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 0.01 },
+            { "color": "red", "value": 0.05 }
+          ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(http_requests_total{service=~\"$service\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{service=~\"$service\"}[5m])), 0.001)" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "p95 latency",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3 }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Instrumented services up",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "sum(up{job=\"dispensa\",instrumented=\"true\"})" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Request rate by service",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}}", "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\"}[5m]))" }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "5xx by service and route (where it fails)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}} {{route}} ({{status}})", "expr": "sum by (service, route, status) (rate(http_requests_total{service=~\"$service\",status=~\"5..\"}[5m]))" }]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Errors by domain error code (why it fails)",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}} {{code}} ({{status}})", "expr": "sum by (service, code, status) (rate(http_errors_total{service=~\"$service\"}[5m]))" }]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "p95 latency by service",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}}", "expr": "histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))" }]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Failing outbound calls (caller -> target)",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}} -> {{target}} ({{outcome}})", "expr": "sum by (service, target, outcome) (rate(outbound_requests_total{service=~\"$service\",outcome=~\"error|timeout|5xx\"}[5m]))" }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Outbound p95 latency by target",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}} -> {{target}}", "expr": "histogram_quantile(0.95, sum by (service, target, le) (rate(outbound_request_duration_seconds_bucket{service=~\"$service\"}[5m])))" }]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Database errors by SQLSTATE",
+      "gridPos": { "x": 0, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}} {{operation}} {{code}}", "expr": "sum by (service, operation, code) (rate(db_errors_total{service=~\"$service\"}[5m]))" }]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Database query p95 by operation",
+      "gridPos": { "x": 8, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}} {{operation}}", "expr": "histogram_quantile(0.95, sum by (service, operation, le) (rate(db_query_duration_seconds_bucket{service=~\"$service\"}[5m])))" }]
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "Database pool connections",
+      "gridPos": { "x": 16, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}} {{state}}", "expr": "max by (service, state) (db_pool_connections{service=~\"$service\"})" }]
+    },
+    {
+      "id": 14, "type": "timeseries", "title": "Event loop lag p99",
+      "gridPos": { "x": 0, "y": 36, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}}", "expr": "max by (service) (nodejs_eventloop_lag_p99_seconds{service=~\"$service\"})" }]
+    },
+    {
+      "id": 15, "type": "timeseries", "title": "Resident memory",
+      "gridPos": { "x": 8, "y": 36, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{service}}", "expr": "max by (service) (process_resident_memory_bytes{service=~\"$service\"})" }]
+    },
+    {
+      "id": 16, "type": "timeseries", "title": "Browser-reported errors by kind",
+      "gridPos": { "x": 16, "y": 36, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [{ "refId": "A", "legendFormat": "{{kind}}", "expr": "sum by (kind) (rate(web_client_errors_total[5m]))" }]
+    },
+    {
+      "id": 17, "type": "logs", "title": "Warnings and errors (click a traceId to open the trace)",
+      "gridPos": { "x": 0, "y": 44, "w": 24, "h": 11 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true },
+      "targets": [{ "refId": "A", "expr": "{service=~\"$service\"} | json | level=~\"warn|error\"" }]
+    },
+    {
+      "id": 18, "type": "logs", "title": "Request explorer: every log line of one requestId / traceId (fill the 'id' box)",
+      "gridPos": { "x": 0, "y": 55, "w": 24, "h": 11 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Ascending", "enableLogDetails": true },
+      "targets": [{ "refId": "A", "expr": "{service=~\".+\"} | json | traceId=~\".*$id.*\" or requestId=~\".*$id.*\"" }]
+    }
+  ]
+}

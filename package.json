@@ -16,6 +16,8 @@
     "format:check": "prettier --check .",
     "test": "npm run test --workspaces --if-present",
     "validate:structure": "node tools/validate-structure.mjs",
+    "obs:sync": "node tools/sync-observability.mjs",
+    "obs:check": "node tools/sync-observability.mjs --check",
     "build:services": "npm run build --workspaces --if-present",
     "typecheck:services": "npm run typecheck --workspaces --if-present"
   },
