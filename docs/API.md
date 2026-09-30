@@ -1,29 +1,20 @@
-# API contract
+# API
 
-External API version: `/api/v1`.
+Browser -> Nginx -> Gateway. Il Gateway non contiene business logic di dominio.
 
-Gateway responsibilities: routing, authentication context propagation, request IDs, rate limiting and bounded aggregation. It contains no domain business logic.
+Header standard: Authorization, X-Request-Id, X-Correlation-Id, X-Idempotency-Key e If-Match.
 
-Planned endpoint groups:
+Route ownership:
+- /api/families -> Family
+- /api/inventory -> Inventory
+- /api/shopping -> Shopping
+- /api/catalog -> Catalog
+- /api/recipes -> Recipes
+- /api/nutrition -> Nutrition
+- /api/stores -> Stores
+- /api/notifications -> Notifications
+- /api/privacy -> Privacy
+- /api/ocr -> OCR
+- /api/shelf-life -> Shelf-Life
 
-- `/auth/*`
-- `/users/*`
-- `/families/*` including invitations
-- `/products/*`
-- `/barcodes/*`
-- `/vision/*`
-- `/inventory/*`
-- `/expiration/*`
-- `/shopping/*`
-- `/stores/*`
-- `/offers/*`
-- `/recipes/*`
-- `/nutrition/*`
-- `/notifications/*`
-- `/media/*`
-- `/search/*`
-- `/analytics/*`
-
-Every service also exposes `/health/live` and `/health/ready`.
-
-Compatibility with the existing web UI must be implemented at the gateway/domain boundary; UI code is preserved during the reset rather than silently changed to match a broken backend.
+Composite Views sono GET aggregate ottenute chiamando i service owner in parallelo. Timeout/partial failure devono essere espliciti. Le mutation non vengono duplicate nel Gateway.
