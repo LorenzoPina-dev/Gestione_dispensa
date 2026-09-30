@@ -26,11 +26,13 @@ tags:
 paths:
   /identity/me:
     get:
+      operationId: getIdentityMe
       tags: [Identity]
       responses:
         '200': {description: Current profile, content: {application/json: {schema: {$ref: '#/components/schemas/ProfileResponse'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
     patch:
+      operationId: patchIdentityMe
       tags: [Identity]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProfilePatch'}}}}
       responses:
@@ -39,11 +41,13 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
   /families:
     get:
+      operationId: getFamilies
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Families, content: {application/json: {schema: {$ref: '#/components/schemas/FamilyList'}}}}
     post:
+      operationId: postFamilies
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateFamily'}}}}
@@ -53,12 +57,14 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
   /families/{familyId}:
     get:
+      operationId: getFamiliesFamilyId
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/FamilyId'}]
       responses:
         '200': {description: Family, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
+      operationId: patchFamiliesFamilyId
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PatchFamily'}}}}
@@ -66,6 +72,7 @@ paths:
         '200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '412': {$ref: '#/components/responses/PreconditionFailed'}
     delete:
+      operationId: deleteFamiliesFamilyId
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses:
@@ -74,11 +81,13 @@ paths:
         '412': {$ref: '#/components/responses/PreconditionFailed'}
   /families/{familyId}/invites:
     get:
+      operationId: getFamiliesFamilyIdInvites
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Invites, content: {application/json: {schema: {$ref: '#/components/schemas/InviteList'}}}}
     post:
+      operationId: postFamiliesFamilyIdInvites
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateInvite'}}}}
@@ -87,6 +96,7 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
   /families/{familyId}/invites/{inviteId}:
     delete:
+      operationId: deleteFamiliesFamilyIdInvitesInviteId
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/InviteId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses:
@@ -94,6 +104,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
   /family-invites/{token}:
     get:
+      operationId: getFamilyInvitesToken
       security: []
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/Token'}]
@@ -102,6 +113,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
   /family-invites/{token}/accept:
     post:
+      operationId: postFamilyInvitesTokenAccept
       tags: [Families]
       parameters: [{$ref: '#/components/parameters/Token'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
@@ -111,6 +123,7 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
   /inventory:
     get:
+      operationId: getInventory
       tags: [Inventory]
       parameters:
         - {$ref: '#/components/parameters/FamilyQuery'}
@@ -120,6 +133,7 @@ paths:
         '200': {description: Current pantry, content: {application/json: {schema: {$ref: '#/components/schemas/InventoryList'}}}}
   /inventory/items:
     post:
+      operationId: postInventoryItems
       tags: [Inventory]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreatePantryItem'}}}}
@@ -129,12 +143,14 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
   /inventory/{itemId}:
     get:
+      operationId: getInventoryItemId
       tags: [Inventory]
       parameters: [{$ref: '#/components/parameters/ItemId'}]
       responses:
         '200': {description: Pantry item, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
+      operationId: patchInventoryItemId
       tags: [Inventory]
       parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PatchPantryItem'}}}}
@@ -143,6 +159,7 @@ paths:
         '412': {$ref: '#/components/responses/PreconditionFailed'}
   /inventory/{itemId}/consume:
     post:
+      operationId: postInventoryItemIdConsume
       tags: [Inventory]
       parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ConsumeRequest'}}}}
@@ -151,6 +168,7 @@ paths:
         '422': {$ref: '#/components/responses/BusinessRule'}
   /inventory/{itemId}/waste:
     post:
+      operationId: postInventoryItemIdWaste
       tags: [Inventory]
       parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WasteRequest'}}}}
@@ -159,6 +177,7 @@ paths:
         '422': {$ref: '#/components/responses/BusinessRule'}
   /inventory/{itemId}/expiration/confirm:
     post:
+      operationId: postInventoryItemIdExpirationConfirm
       tags: [Inventory]
       parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody:
@@ -171,12 +190,14 @@ paths:
         '422': {$ref: '#/components/responses/BusinessRule'}
   /inventory/{itemId}/movements:
     get:
+      operationId: getInventoryItemIdMovements
       tags: [Inventory]
       parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Movements, content: {application/json: {schema: {$ref: '#/components/schemas/MovementList'}}}}
   /catalog/products/{productId}:
     get:
+      operationId: getCatalogProductsProductId
       tags: [Catalog]
       parameters: [{$ref: '#/components/parameters/ProductId'}]
       responses:
@@ -184,6 +205,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
   /catalog/products:
     post:
+      operationId: postCatalogProducts
       tags: [Catalog]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateProduct'}}}}
@@ -191,12 +213,14 @@ paths:
         '201': {description: Product, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /catalog/products/{productId}:
     get:
+      operationId: getCatalogProductsProductId
       tags: [Catalog]
       parameters: [{$ref: '#/components/parameters/ProductId'}]
       responses:
         '200': {description: Product, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
+      operationId: patchCatalogProductsProductId
       tags: [Catalog]
       parameters: [{$ref: '#/components/parameters/ProductId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PatchProduct'}}}}
@@ -205,6 +229,7 @@ paths:
         '412': {$ref: '#/components/responses/PreconditionFailed'}
   /catalog/barcodes/{barcode}:
     get:
+      operationId: getCatalogBarcodesBarcode
       tags: [Catalog]
       parameters:
         - {name: barcode, in: path, required: true, schema: {type: string, pattern: '^[0-9]+$'}}
@@ -214,6 +239,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
   /catalog/barcodes/resolve:
     post:
+      operationId: postCatalogBarcodesResolve
       tags: [Catalog]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/BarcodeRequest'}}}}
@@ -222,11 +248,13 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
   /shopping/lists:
     get:
+      operationId: getShoppingLists
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/FamilyQuery'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Lists, content: {application/json: {schema: {$ref: '#/components/schemas/ShoppingListResponse'}}}}
     post:
+      operationId: postShoppingLists
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateShoppingList'}}}}
@@ -234,12 +262,14 @@ paths:
         '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /shopping/lists/{listId}:
     get:
+      operationId: getShoppingListsListId
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/ListId'}]
       responses:
         '200': {description: List, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /shopping/lists/{listId}/items:
     post:
+      operationId: postShoppingListsListIdItems
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateShoppingItem'}}}}
@@ -247,18 +277,21 @@ paths:
         '201': {description: Item, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /shopping/lists/{listId}/items/{itemId}:
     patch:
+      operationId: patchShoppingListsListIdItemsItemId
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ShoppingItemId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PatchShoppingItem'}}}}
       responses:
         '200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
     delete:
+      operationId: deleteShoppingListsListIdItemsItemId
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/ShoppingItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses:
         '204': {description: Deleted}
   /shopping/lists/{listId}/close:
     post:
+      operationId: postShoppingListsListIdClose
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
@@ -266,11 +299,13 @@ paths:
         '200': {description: Closed, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /recipes:
     get:
+      operationId: getRecipes
       tags: [Recipes]
       parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}, {name: q, in: query, schema: {type: string, maxLength: 200}}]
       responses:
         '200': {description: Recipes, content: {application/json: {schema: {$ref: '#/components/schemas/RecipeList'}}}}
     post:
+      operationId: postRecipes
       tags: [Recipes]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateRecipe'}}}}
@@ -278,33 +313,39 @@ paths:
         '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /recipes/{recipeId}:
     get:
+      operationId: getRecipesRecipeId
       tags: [Recipes]
       parameters: [{$ref: '#/components/parameters/RecipeId'}]
       responses:
         '200': {description: Recipe, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
     patch:
+      operationId: patchRecipesRecipeId
       tags: [Recipes]
       parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PatchRecipe'}}}}
       responses:
         '200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
     delete:
+      operationId: deleteRecipesRecipeId
       tags: [Recipes]
       parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses:
         '204': {description: Deleted}
   /recipes/suggestions:
     get:
+      operationId: getRecipesSuggestions
       tags: [Recipes]
       parameters: [{$ref: '#/components/parameters/FamilyQuery'}, {$ref: '#/components/parameters/Limit'}]
       responses:
         '200': {description: Suggestions, content: {application/json: {schema: {$ref: '#/components/schemas/RecipeSuggestionList'}}}}
   /nutrition/targets:
     get:
+      operationId: getNutritionTargets
       tags: [Nutrition]
       responses:
         '200': {description: Targets, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
     put:
+      operationId: putNutritionTargets
       tags: [Nutrition]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NutritionTargets'}}}}
@@ -312,6 +353,7 @@ paths:
         '200': {description: Targets, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /nutrition/diary:
     get:
+      operationId: getNutritionDiary
       tags: [Nutrition]
       parameters:
         - {name: from, in: query, schema: {type: string, format: date}}
@@ -321,6 +363,7 @@ paths:
       responses:
         '200': {description: Diary, content: {application/json: {schema: {$ref: '#/components/schemas/DiaryList'}}}}
     post:
+      operationId: postNutritionDiary
       tags: [Nutrition]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateDiaryEntry'}}}}
@@ -328,11 +371,13 @@ paths:
         '201': {description: Entry, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /stores:
     get:
+      operationId: getStores
       tags: [Stores]
       parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}, {name: q, in: query, schema: {type: string}}]
       responses:
         '200': {description: Stores, content: {application/json: {schema: {$ref: '#/components/schemas/StoreList'}}}}
     post:
+      operationId: postStores
       tags: [Stores]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateStore'}}}}
@@ -340,17 +385,20 @@ paths:
         '201': {description: Store, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /stores/{storeId}/prices:
     get:
+      operationId: getStoresStoreIdPrices
       tags: [Stores]
       parameters: [{$ref: '#/components/parameters/StoreId'}, {name: productId, in: query, schema: {$ref: '#/components/schemas/Uuid'}}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Prices, content: {application/json: {schema: {$ref: '#/components/schemas/PriceList'}}}}
   /stores/{storeId}/offers:
     get:
+      operationId: getStoresStoreIdOffers
       tags: [Stores]
       parameters: [{$ref: '#/components/parameters/StoreId'}, {name: active, in: query, schema: {type: boolean, default: true}}, {name: productId, in: query, schema: {$ref: '#/components/schemas/Uuid'}}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Offers, content: {application/json: {schema: {$ref: '#/components/schemas/OfferList'}}}}
     post:
+      operationId: postStoresStoreIdOffers
       tags: [Stores]
       parameters: [{$ref: '#/components/parameters/StoreId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateOffer'}}}}
@@ -358,12 +406,14 @@ paths:
         '201': {description: Offer, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /notifications:
     get:
+      operationId: getNotifications
       tags: [Notifications]
       parameters: [{name: unreadOnly, in: query, schema: {type: boolean, default: false}}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
       responses:
         '200': {description: Notifications, content: {application/json: {schema: {$ref: '#/components/schemas/NotificationList'}}}}
   /notifications/{notificationId}/read:
     post:
+      operationId: postNotificationsNotificationIdRead
       tags: [Notifications]
       parameters: [{$ref: '#/components/parameters/NotificationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
@@ -371,10 +421,12 @@ paths:
         '200': {description: Notification, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /notifications/preferences:
     get:
+      operationId: getNotificationsPreferences
       tags: [Notifications]
       responses:
         '200': {description: Preferences, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
     put:
+      operationId: putNotificationsPreferences
       tags: [Notifications]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPreferences'}}}}
@@ -382,24 +434,28 @@ paths:
         '200': {description: Preferences, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /ocr/jobs:
     post:
+      operationId: postOcrJobs
       tags: [OCR]
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file, type], properties: {file: {type: string, format: binary}, type: {type: string, enum: [receipt, pantry_image]}}}}}}
       responses:
         '202': {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /ocr/jobs/{jobId}:
     get:
+      operationId: getOcrJobsJobId
       tags: [OCR]
       parameters: [{$ref: '#/components/parameters/JobId'}]
       responses:
         '200': {description: Job status, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /ocr/drafts/{draftId}:
     get:
+      operationId: getOcrDraftsDraftId
       tags: [OCR]
       parameters: [{$ref: '#/components/parameters/DraftId'}]
       responses:
         '200': {description: OCR draft, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /ocr/drafts/{draftId}/confirm:
     post:
+      operationId: postOcrDraftsDraftIdConfirm
       tags: [OCR]
       parameters: [{$ref: '#/components/parameters/DraftId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OcrConfirm'}}}}
@@ -407,6 +463,7 @@ paths:
         '200': {description: Confirmed, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /shelf-life/predictions:
     post:
+      operationId: postShelfLifePredictions
       tags: [Shelf-Life]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ShelfLifeRequest'}}}}
@@ -414,12 +471,14 @@ paths:
         '202': {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /shelf-life/predictions/{predictionId}:
     get:
+      operationId: getShelfLifePredictionsPredictionId
       tags: [Shelf-Life]
       parameters: [{$ref: '#/components/parameters/PredictionId'}]
       responses:
         '200': {description: Prediction, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /shelf-life/predictions/{predictionId}/apply:
     post:
+      operationId: postShelfLifePredictionsPredictionIdApply
       tags: [Shelf-Life]
       parameters: [{$ref: '#/components/parameters/PredictionId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
@@ -427,10 +486,12 @@ paths:
         '200': {description: Applied, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /privacy/consents:
     get:
+      operationId: getPrivacyConsents
       tags: [Privacy]
       responses:
         '200': {description: Consents, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
     put:
+      operationId: putPrivacyConsents
       tags: [Privacy]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyConsents'}}}}
@@ -438,6 +499,7 @@ paths:
         '200': {description: Consents, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /privacy/export:
     post:
+      operationId: postPrivacyExport
       tags: [Privacy]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
@@ -445,6 +507,7 @@ paths:
         '202': {description: Export job, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /privacy/erase:
     post:
+      operationId: postPrivacyErase
       tags: [Privacy]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EraseRequest'}}}}
@@ -452,6 +515,7 @@ paths:
         '202': {description: Erasure job, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /dashboard:
     get:
+      operationId: getDashboard
       tags: [Composite]
       responses:
         '200': {description: Dashboard, content: {application/json: {schema: {$ref: '#/components/schemas/DashboardResponse'}}}}
