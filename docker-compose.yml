@@ -1,4 +1,4 @@
-x-app-healthcheck: &app-healthcheck
+x-node-healthcheck: &node-healthcheck
   test:
     - CMD
     - node
@@ -11,18 +11,34 @@ x-app-healthcheck: &app-healthcheck
 
 services:
   nginx:
-    image: nginx:1.27-alpine
-    ports: ["8443:8443"]
+    build:
+      context: ./infrastructure/nginx
+    ports:
+      - "8443:8443"
+    environment:
+      TLS_CERT_DAYS: "825"
+      TLS_SAN: "DNS:localhost,IP:127.0.0.1"
     volumes:
-      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./infrastructure/nginx/certs:/etc/nginx/certs:ro
-    depends_on: [gateway, web]
+      - ./certs:/etc/nginx/certs
+    depends_on:
+      gateway:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: unless-stopped
     networks: [edge, backend]
 
   web:
     build:
       context: .
       dockerfile: services/web/Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks: [edge]
 
   gateway:
@@ -35,7 +51,8 @@ services:
     depends_on:
       identity:
         condition: service_healthy
-    healthcheck: *app-healthcheck
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend]
 
   alloy:
@@ -44,6 +61,7 @@ services:
     volumes:
       - ./infrastructure/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
     networks: [data]
 
   loki:
@@ -52,6 +70,7 @@ services:
     volumes:
       - loki_data:/loki
       - ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro
+    restart: unless-stopped
     networks: [data]
 
   tempo:
@@ -60,6 +79,7 @@ services:
     volumes:
       - tempo_data:/var/tempo
       - ./infrastructure/tempo/tempo.yml:/etc/tempo.yml:ro
+    restart: unless-stopped
     networks: [data]
 
   otel-collector:
@@ -67,15 +87,19 @@ services:
     command: ["--config=/etc/otel-collector.yml"]
     volumes:
       - ./infrastructure/otel/otel-collector.yml:/etc/otel-collector.yml:ro
+    depends_on:
+      tempo:
+        condition: service_started
+    restart: unless-stopped
     networks: [backend, data]
-    depends_on: [tempo]
 
   prometheus:
     image: prom/prometheus:v3.5.0
-    command: --config.file=/etc/prometheus/prometheus.yml
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes:
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    restart: unless-stopped
     networks: [backend, data]
 
   grafana:
@@ -83,7 +107,13 @@ services:
     environment:
       GF_SERVER_ROOT_URL: https://localhost:8443/grafana/
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-    depends_on: [prometheus, loki]
+      GF_METRICS_ENABLED: "true"
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+    restart: unless-stopped
     volumes:
       - grafana_data:/var/lib/grafana
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -99,24 +129,8 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
+    restart: unless-stopped
     networks: [data]
-
-  postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.17.1
-    environment:
-      DATA_SOURCE_NAME: postgresql://dispensa:dispensa@postgres:5432/postgres?sslmode=disable
-    networks: [data]
-
-  redis-exporter:
-    image: oliver006/redis_exporter:v1.75.0
-    environment:
-      REDIS_ADDR: redis://redis:6379
-    networks: [data]
-
-  kafka-exporter:
-    image: danielqsj/kafka-exporter:v1.9.0
-    command: ["--kafka.server=kafka:9092"]
-    networks: [data, messaging]
 
   postgres:
     image: postgres:16-alpine
@@ -125,15 +139,55 @@ services:
       POSTGRES_PASSWORD: dispensa
       POSTGRES_DB: postgres
     volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dispensa -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    networks: [data]
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://dispensa:dispensa@postgres:5432/postgres?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
     networks: [data]
 
   mongodb:
     image: mongo:8
     volumes: [mongo_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
     networks: [data]
 
   redis:
     image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [data]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.75.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
     networks: [data]
 
   kafka:
@@ -156,7 +210,17 @@ services:
       KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
       CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
     volumes: [kafka_data:/tmp/kraft-combined-logs]
+    restart: unless-stopped
     networks: [messaging]
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    command: ["--kafka.server=kafka:9092"]
+    depends_on:
+      kafka:
+        condition: service_started
+    restart: unless-stopped
+    networks: [data, messaging]
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -166,6 +230,13 @@ services:
       MINIO_ROOT_PASSWORD: miniochange
       MINIO_PROMETHEUS_AUTH_TYPE: public
     volumes: [minio_data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
     networks: [data]
 
   opensearch:
@@ -175,6 +246,13 @@ services:
       DISABLE_SECURITY_PLUGIN: "true"
       OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
     volumes: [opensearch_data:/usr/share/opensearch/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    restart: unless-stopped
     networks: [data]
 
   keycloak:
@@ -186,6 +264,13 @@ services:
       KC_DB: dev-file
     volumes:
       - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
     networks: [backend]
 
   identity:
@@ -198,74 +283,127 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     depends_on:
       keycloak:
-        condition: service_started
-    healthcheck: *app-healthcheck
+        condition: service_healthy
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
 
   users:
     build: ./services/users
-    environment: { PORT: 3011, SERVICE_NAME: users }
+    environment: { PORT: 3011, SERVICE_NAME: users, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   families:
     build: ./services/families
-    environment: { PORT: 3012, SERVICE_NAME: families }
+    environment: { PORT: 3012, SERVICE_NAME: families, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   products:
     build: ./services/products
-    environment: { PORT: 3013, SERVICE_NAME: products }
+    environment: { PORT: 3013, SERVICE_NAME: products, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   barcode:
     build: ./services/barcode
-    environment: { PORT: 3014, SERVICE_NAME: barcode }
+    environment: { PORT: 3014, SERVICE_NAME: barcode, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   vision:
     build: ./services/vision
-    environment: { PORT: 3015, SERVICE_NAME: vision }
+    environment: { PORT: 3015, SERVICE_NAME: vision, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   inventory:
     build: ./services/inventory
-    environment: { PORT: 3016, SERVICE_NAME: inventory }
+    environment: { PORT: 3016, SERVICE_NAME: inventory, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   expiration:
     build: ./services/expiration
-    environment: { PORT: 3017, SERVICE_NAME: expiration }
+    environment: { PORT: 3017, SERVICE_NAME: expiration, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   shopping:
     build: ./services/shopping
-    environment: { PORT: 3018, SERVICE_NAME: shopping }
+    environment: { PORT: 3018, SERVICE_NAME: shopping, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   stores:
     build: ./services/stores
-    environment: { PORT: 3019, SERVICE_NAME: stores }
+    environment: { PORT: 3019, SERVICE_NAME: stores, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   offers:
     build: ./services/offers
-    environment: { PORT: 3020, SERVICE_NAME: offers }
+    environment: { PORT: 3020, SERVICE_NAME: offers, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   recipes:
     build: ./services/recipes
-    environment: { PORT: 3021, SERVICE_NAME: recipes }
+    environment: { PORT: 3021, SERVICE_NAME: recipes, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   nutrition:
     build: ./services/nutrition
-    environment: { PORT: 3022, SERVICE_NAME: nutrition }
+    environment: { PORT: 3022, SERVICE_NAME: nutrition, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   notifications:
     build: ./services/notifications
-    environment: { PORT: 3023, SERVICE_NAME: notifications }
+    environment: { PORT: 3023, SERVICE_NAME: notifications, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data, messaging]
   media:
     build: ./services/media
-    environment: { PORT: 3024, SERVICE_NAME: media }
+    environment: { PORT: 3024, SERVICE_NAME: media, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   search:
     build: ./services/search
-    environment: { PORT: 3025, SERVICE_NAME: search }
+    environment: { PORT: 3025, SERVICE_NAME: search, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data]
   analytics:
     build: ./services/analytics
-    environment: { PORT: 3026, SERVICE_NAME: analytics }
+    environment: { PORT: 3026, SERVICE_NAME: analytics, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
     networks: [backend, data, messaging]
+
+  off-lookup:
+    build: ./services/off-lookup
+    environment:
+      OFF_LOOKUP_PORT: 3200
+      OFF_LOOKUP_MONGO_URL: mongodb://mongodb:27017
+      OFF_LOOKUP_MONGO_DB: off
+      OFF_LOOKUP_MONGO_COLLECTION: products
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend, data]
 
 volumes:
   postgres_data:
