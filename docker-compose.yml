@@ -64,7 +64,6 @@ services:
     image: grafana/grafana:12.1.1
     depends_on: [prometheus, loki]
     volumes:
-    volumes:
       - grafana_data:/var/lib/grafana
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
     networks: [backend, data]
