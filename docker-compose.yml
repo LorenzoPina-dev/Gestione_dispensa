@@ -24,7 +24,7 @@ services:
   gateway:
     build: ./services/gateway
     environment:
-      PORT: 3000
+      PORT: 3300
       SERVICE_NAME: gateway
       IDENTITY_URL: "http://identity:3010"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
