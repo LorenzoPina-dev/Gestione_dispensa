@@ -24,3 +24,4 @@ CREATE DATABASE ocr_db;
 
 CREATE ROLE inventory LOGIN PASSWORD 'inventory';
 GRANT ALL PRIVILEGES ON DATABASE inventory_db TO inventory;
+ALTER DATABASE inventory_db OWNER TO inventory;
