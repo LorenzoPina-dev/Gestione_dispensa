@@ -1,45 +1,28 @@
-# Functional flows
-
-## Registration/login
-
-Browser -> Keycloak -> JWT -> Gateway -> identity -> users. Passwords are never stored by application services.
-
-## Family invitation
-
-Owner -> families creates invitation -> notification event -> notification sends it -> recipient authenticates -> families validates token -> membership is created.
+# Flussi
 
 ## Barcode
+Client -> Gateway -> Catalog -> OFF Lookup. OFF Lookup cerca MongoDB locale; se manca, provider OpenFoodFacts remoto e cache. Catalog normalizza; utente conferma; Inventory crea il prodotto e pubblica PantryItemAdded.
 
-Camera/scanner -> barcode -> local product lookup -> OFF MongoDB cache -> OFF upstream on miss -> products -> user confirmation -> inventory.
+## Immagine
+Upload -> MinIO -> job vision/OCR -> draft con confidence -> conferma utente -> service owner applica la mutazione.
 
-## Product image
+## Scontrino
+Upload MinIO -> OCR job -> OCR DB -> draft prodotti/prezzi -> conferma -> Catalog/Inventory/Stores.
 
-Image -> media/MinIO -> vision -> barcode/OCR/visual recognition -> product candidates -> user confirmation -> inventory.
+## Scadenza
+Inventory identifica il lotto -> Shelf-Life stima se manca la data reale -> prediction marcata estimated -> Notifications secondo policy. Una data dichiarata ha priorità.
 
-## Receipt scan
+## Consumo/scarto
+Inventory aggiorna atomicamente quantità e movimento. A zero rimuove la riga dallo stato corrente; il ledger storico resta.
 
-Receipt image -> media -> vision/OCR -> receipt parser -> product/barcode matching -> confirmation -> inventory batch add.
+## Spesa
+Inventory emette low-stock -> Shopping crea/suggerisce articolo. L'acquisto confermato non scrive direttamente Inventory: l'inserimento passa da Inventory.
 
-## Pantry add/consume/waste
+## Ricette/nutrizione
+Recipes/Nutrition leggono disponibilità/eventi; il consumo reale passa sempre da Inventory.
 
-Client -> gateway -> inventory. Inventory updates current `pantry_items` transactionally and emits an event. When quantity reaches zero or an item is discarded, the current row is removed; the event remains in history.
+## Inviti
+Family crea token temporaneo -> Notifications -> destinatario autenticato -> accept -> Family verifica e crea membership -> audit/outbox. La sola scansione del token non concede accesso.
 
-## Expiration
-
-Inventory item event -> expiration service -> known date or rule/model estimate -> prediction/confidence -> notification event when thresholds are reached.
-
-## Shopping/restock
-
-Inventory detects low stock -> `inventory.low_stock` event -> shopping creates/updates a list item -> offers can enrich the item with current promotions.
-
-## Offers
-
-Offer worker ingests sources -> normalization -> offers DB -> event -> search projection. Shopping queries offers by product/store/time validity.
-
-## Recipes
-
-Recipes indexes ingredients. Pantry matching considers availability, quantity, preferences and soon-to-expire products. Missing ingredients can be projected into a shopping list.
-
-## Analytics
-
-Domain events -> Kafka -> analytics consumers -> aggregate tables. Analytics never becomes the source of truth for domain state.
+## Dashboard
+Gateway può comporre in parallelo Family + Inventory + Shopping + Recipes + Notifications. È read-only composition; le mutation restano ai service owner.
