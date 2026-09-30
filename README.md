@@ -1,6 +1,6 @@
 # Gestione Dispensa
 
-Gestione Dispensa is a modular household food-management platform. The backend has been redesigned as independently buildable microservices; the existing `services/web` UI is intentionally preserved unchanged in this architectural reset.
+Gestione Dispensa is a modular household food-management platform. The backend has been redesigned as independently buildable microservices; the existing `apps/web` UI is intentionally preserved unchanged in this architectural reset.
 
 ## Target architecture
 
@@ -25,7 +25,7 @@ Workers handle OFF ingestion, image processing, offer synchronization, expiratio
 
 ## Incremental development
 
-Every service owns its Dockerfile, package manifest, TypeScript project and runtime. A change to `services/inventory` is built with:
+Every service owns its Dockerfile, package manifest, TypeScript project and runtime. A change to `services/service-inventory` is built with:
 
 ```bash
 docker compose build inventory
