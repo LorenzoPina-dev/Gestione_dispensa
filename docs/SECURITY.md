@@ -1,35 +1,28 @@
-# Security model
+# Security
 
-## Identity e authorization
+## Identity
+Keycloak/OIDC autentica gli utenti. Il Gateway propaga il contesto, ma ogni service autorizza le operazioni sul proprio dominio.
 
-Keycloak/OIDC autentica l'utente. Il Gateway costruisce il contesto della richiesta, ma ogni service verifica l'autorizzazione necessaria al proprio dominio.
-
-Per le risorse familiari, `familyId` e subject devono essere derivati/verificati server-side. Un ID fornito dal client non costituisce autorizzazione.
+## Tenant isolation
+Le risorse familiari sono autorizzate tramite subject/familyId verificati server-side. Un ID del client non è autorizzazione.
 
 ## Database isolation
+Ogni service possiede credenziali dedicate per il proprio DB. Nessun servizio può interrogare il DB di un altro servizio.
 
-Ogni service riceve solo le credenziali del proprio DB:
+## Inviti
+I token sono temporanei, revocabili e consumabili. Risolvere un token non concede membership; l'accept autenticato crea la membership tramite Family.
 
-```
-service-inventory -> inventory_db
-service-family    -> family_db
-service-shopping  -> shopping_db
-```
+## Privacy
+Privacy coordina consenso, export ed erasure tramite API/eventi. Non accede direttamente ai database degli altri servizi. Ogni owner applica le proprie operazioni sui propri dati.
 
-Nessun secret DB viene condiviso tra servizi.
+## Threat controls
+- validazione input e schema;
+- rate limiting sul Gateway;
+- timeout/circuit breaker inter-service;
+- secret management;
+- audit degli eventi sensibili;
+- redazione dei log;
+- MinIO con accesso privato e policy least privilege.
 
-## Invite security
-
-Gli inviti famiglia usano token temporanei, revocabili/consumabili. La risoluzione del token non concede membership. La membership nasce solo durante una operazione accept autenticata e autorizzata.
-
-## Data minimization
-
-I servizi conservano solo i dati necessari al proprio bounded context. Export/erasure sono coordinati tramite Privacy e contratti/eventi, non tramite accesso diretto ai database.
-
-## Secrets e logging
-
-OIDC secret, password, token e credenziali DB non devono apparire nei log. Request/correlation/trace ID possono essere propagati.
-
-## Object storage
-
-Gli oggetti privati in MinIO sono accessibili tramite policy/URL temporanei coerenti con il service owner; non si usano URL pubblici permanenti per dati privati.
+## Data retention
+I dati con retention specifica sono gestiti dal service owner. Le cancellazioni cross-service sono orchestrate tramite contratti, eventi e job; non tramite SQL cross-database.
