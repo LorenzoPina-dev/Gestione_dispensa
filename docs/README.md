@@ -32,10 +32,12 @@ Questa directory è la **specifica canonica e normativa** della branch `architec
 9. **NETWORK.md** — esposizione e rete.
 10. **OPERATIONS.md** — startup, migration, backup e resilienza.
 11. **TEST-STRATEGY.md** — test richiesti per dimostrare conformità.
+12. **IMPLEMENTATION-CONFORMANCE.md** — distinzione obbligatoria tra definito, rappresentato e implementato.
 
 ## Documenti
 
 - [CONTRACTS.md](./CONTRACTS.md) — governance e Definition of Done.
+- [IMPLEMENTATION-CONFORMANCE.md](./IMPLEMENTATION-CONFORMANCE.md) — audit tra specifica architetturale e stato repository.
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — architettura.
 - [SERVICES.md](./SERVICES.md) — microservizi, porte e ownership.
 - [DATA.md](./DATA.md) — database e schema logico.
