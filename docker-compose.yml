@@ -189,7 +189,7 @@ services:
     networks: [backend, data]
 
   service-inventory:
-    build: ./services/inventory
+    build: ./services/service-inventory
     environment:
       PORT: 3312
       SERVICE_NAME: service-inventory
