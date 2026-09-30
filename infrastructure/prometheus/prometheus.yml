@@ -1,81 +1,108 @@
 global:
   scrape_interval: 5s
   evaluation_interval: 5s
+
 scrape_configs:
   - job_name: gateway
     metrics_path: /metrics
     static_configs:
-      - targets: ["gateway:3000"]\n  - job_name: identity
+      - targets: ["gateway:3000"]
+  - job_name: identity
     metrics_path: /metrics
     static_configs:
-      - targets: ["identity:3010"]\n  - job_name: users
+      - targets: ["identity:3010"]
+  - job_name: users
     metrics_path: /metrics
     static_configs:
-      - targets: ["users:3011"]\n  - job_name: families
+      - targets: ["users:3011"]
+  - job_name: families
     metrics_path: /metrics
     static_configs:
-      - targets: ["families:3012"]\n  - job_name: products
+      - targets: ["families:3012"]
+  - job_name: products
     metrics_path: /metrics
     static_configs:
-      - targets: ["products:3013"]\n  - job_name: barcode
+      - targets: ["products:3013"]
+  - job_name: barcode
     metrics_path: /metrics
     static_configs:
-      - targets: ["barcode:3014"]\n  - job_name: vision
+      - targets: ["barcode:3014"]
+  - job_name: vision
     metrics_path: /metrics
     static_configs:
-      - targets: ["vision:3015"]\n  - job_name: inventory
+      - targets: ["vision:3015"]
+  - job_name: inventory
     metrics_path: /metrics
     static_configs:
-      - targets: ["inventory:3016"]\n  - job_name: expiration
+      - targets: ["inventory:3016"]
+  - job_name: expiration
     metrics_path: /metrics
     static_configs:
-      - targets: ["expiration:3017"]\n  - job_name: shopping
+      - targets: ["expiration:3017"]
+  - job_name: shopping
     metrics_path: /metrics
     static_configs:
-      - targets: ["shopping:3018"]\n  - job_name: stores
+      - targets: ["shopping:3018"]
+  - job_name: stores
     metrics_path: /metrics
     static_configs:
-      - targets: ["stores:3019"]\n  - job_name: offers
+      - targets: ["stores:3019"]
+  - job_name: offers
     metrics_path: /metrics
     static_configs:
-      - targets: ["offers:3020"]\n  - job_name: recipes
+      - targets: ["offers:3020"]
+  - job_name: recipes
     metrics_path: /metrics
     static_configs:
-      - targets: ["recipes:3021"]\n  - job_name: nutrition
+      - targets: ["recipes:3021"]
+  - job_name: nutrition
     metrics_path: /metrics
     static_configs:
-      - targets: ["nutrition:3022"]\n  - job_name: notifications
+      - targets: ["nutrition:3022"]
+  - job_name: notifications
     metrics_path: /metrics
     static_configs:
-      - targets: ["notifications:3023"]\n  - job_name: media
+      - targets: ["notifications:3023"]
+  - job_name: media
     metrics_path: /metrics
     static_configs:
-      - targets: ["media:3024"]\n  - job_name: search
+      - targets: ["media:3024"]
+  - job_name: search
     metrics_path: /metrics
     static_configs:
-      - targets: ["search:3025"]\n  - job_name: analytics
+      - targets: ["search:3025"]
+  - job_name: analytics
     metrics_path: /metrics
     static_configs:
       - targets: ["analytics:3026"]
-
   - job_name: prometheus
-    static_configs: [{targets: ["prometheus:9090"]}]
+    static_configs:
+      - targets: ["prometheus:9090"]
   - job_name: grafana
-    static_configs: [{targets: ["grafana:3000"]}]
+    static_configs:
+      - targets: ["grafana:3000"]
   - job_name: loki
-    static_configs: [{targets: ["loki:3100"]}]
+    static_configs:
+      - targets: ["loki:3100"]
   - job_name: tempo
-    static_configs: [{targets: ["tempo:3200"]}]
+    static_configs:
+      - targets: ["tempo:3200"]
   - job_name: keycloak
-    static_configs: [{targets: ["keycloak:9000"]}]
+    static_configs:
+      - targets: ["keycloak:9000"]
   - job_name: postgres
-    static_configs: [{targets: ["postgres-exporter:9187"]}]
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
   - job_name: redis
-    static_configs: [{targets: ["redis-exporter:9121"]}]
+    static_configs:
+      - targets: ["redis-exporter:9121"]
   - job_name: kafka
-    static_configs: [{targets: ["kafka-exporter:9308"]}]
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
   - job_name: containers
-    static_configs: [{targets: ["cadvisor:8080"]}]
+    static_configs:
+      - targets: ["cadvisor:8080"]
   - job_name: minio
     metrics_path: /minio/v2/metrics/cluster
-    static_configs: [{targets: ["minio:9000"]}]
+    static_configs:
+      - targets: ["minio:9000"]
