@@ -1,7 +1,59 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: 5s
+  evaluation_interval: 5s
 scrape_configs:
   - job_name: gateway
-    static_configs: [{targets: ["gateway:3000"]}]
-  - job_name: identity
-    static_configs: [{targets: ["identity:3010"]}]
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gateway:3000"]\n  - job_name: identity
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["identity:3010"]\n  - job_name: users
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["users:3011"]\n  - job_name: families
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["families:3012"]\n  - job_name: products
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["products:3013"]\n  - job_name: barcode
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["barcode:3014"]\n  - job_name: vision
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["vision:3015"]\n  - job_name: inventory
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["inventory:3016"]\n  - job_name: expiration
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["expiration:3017"]\n  - job_name: shopping
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["shopping:3018"]\n  - job_name: stores
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["stores:3019"]\n  - job_name: offers
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["offers:3020"]\n  - job_name: recipes
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["recipes:3021"]\n  - job_name: nutrition
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["nutrition:3022"]\n  - job_name: notifications
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["notifications:3023"]\n  - job_name: media
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["media:3024"]\n  - job_name: search
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["search:3025"]\n  - job_name: analytics
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["analytics:3026"]
