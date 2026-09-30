@@ -33,3 +33,17 @@ npm run dev
 ## Implementation order
 
 Foundation -> identity/users/families -> products/barcode -> inventory -> expiration -> shopping/stores/offers -> media/vision -> recipes/nutrition -> notifications -> search/analytics.
+
+## Observability while developing
+
+Start the platform with:
+
+```bash
+docker compose up -d
+```
+
+Operational endpoints are intentionally centralized behind the infrastructure. Grafana is the main dashboard, while Prometheus, Loki and Tempo are the backing stores. Every service exposes `/metrics` internally and Prometheus scrapes all service instances every 5 seconds in the local stack.
+
+When diagnosing a request, start from the response `x-request-id` or `traceparent`, search the corresponding structured logs in Loki, then inspect the same trace in Tempo and latency/error counters in Prometheus.
+
+Do not add ad-hoc `console.log` calls containing tokens, passwords, cookies, raw images or user PII. Use the service observability layer and structured fields instead.
