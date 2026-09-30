@@ -1,20 +1,57 @@
-# Eventi
+# Event architecture
 
-## Envelope
-Ogni evento contiene eventId, eventType versionato, occurredAt, producer, aggregateId, familyId quando applicabile, correlationId, causationId, schemaVersion e payload.
+## Event envelope
+
+Ogni evento deve avere:
+
+`eventId`, `eventType`, `schemaVersion`, `occurredAt`, `producer`, `aggregateId`, `familyId` quando applicabile, `correlationId`, `causationId`, `payload`.
+
+Gli schema sono versionati e compatibili in modo esplicito.
 
 ## Outbox
-La mutazione e il record outbox vengono salvati nella stessa transazione del DB owner. Un publisher inoltra l'evento. I consumer sono idempotenti per eventId e fanno ack solo dopo il commit locale.
 
-Retry con backoff e limite; poi DLQ.
+Una mutazione del service owner e il relativo record outbox vengono scritti nella **stessa transazione del database del service owner**.
+
+```
+service DB transaction
+  ├── domain mutation
+  └── outbox row
+          |
+          v
+     publisher
+          |
+          v
+      broker/Redis
+          |
+          v
+      consumer
+          |
+          v
+consumer's own DB transaction
+```
+
+Nessuna transazione distribuita tra database.
+
+## Idempotenza
+
+Il consumer deduplica tramite `eventId` o chiave equivalente. L'ack avviene solo dopo il commit locale.
+
+Retry con backoff e limite. Dopo il limite il messaggio passa in DLQ e il job/evento resta osservabile.
 
 ## Eventi principali
-- ProductCreated/Enriched -> Catalog
-- PantryItemAdded/Consumed/Wasted/LowStock -> Inventory
-- ExpirationEstimated -> Shelf-Life
-- OcrDraftReady -> OCR
-- FamilyInviteCreated/MemberAdded -> Family
-- OfferUpdated -> Stores
-- JobFailed -> Jobs/worker
 
-Gli eventi descrivono cambiamenti di stato; non sono RPC mascherate.
+| Evento | Owner | Utilizzatori |
+|---|---|---|
+| ProductCreated / ProductEnriched | Catalog | Inventory, Recipes |
+| PantryItemAdded | Inventory | Shopping, Notifications |
+| PantryItemConsumed | Inventory | Nutrition, Recipes |
+| PantryItemWasted | Inventory | Nutrition, analytics |
+| PantryLowStock | Inventory | Shopping, Notifications |
+| ExpirationEstimated | Shelf-Life | Inventory, Notifications |
+| OcrDraftReady | OCR | Gateway/UI workflow |
+| FamilyInviteCreated | Family | Notifications |
+| FamilyMemberAdded | Family | Notifications/projections |
+| OfferUpdated | Stores | Shopping |
+| JobFailed | Jobs/worker | Notifications/operations |
+
+Gli eventi notificano cambiamenti; non sono chiamate RPC nascoste.
