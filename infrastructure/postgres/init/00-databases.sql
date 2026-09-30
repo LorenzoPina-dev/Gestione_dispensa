@@ -1,27 +1,42 @@
--- Transitional database bootstrap. Legacy DBs remain until their services are migrated.
-CREATE DATABASE users_db;
-CREATE DATABASE families_db;
-CREATE DATABASE products_db;
-CREATE DATABASE barcode_db;
-CREATE DATABASE inventory_db;
-CREATE DATABASE expiration_db;
-CREATE DATABASE shopping_db;
-CREATE DATABASE stores_db;
-CREATE DATABASE offers_db;
-CREATE DATABASE recipes_db;
-CREATE DATABASE nutrition_db;
-CREATE DATABASE notifications_db;
-CREATE DATABASE media_db;
-CREATE DATABASE analytics_db;
-
+-- Canonical database-per-service bootstrap.
 CREATE DATABASE identity_db;
 CREATE DATABASE family_db;
+CREATE DATABASE inventory_db;
+CREATE DATABASE shopping_db;
 CREATE DATABASE catalog_db;
-CREATE DATABASE jobs_db;
+CREATE DATABASE notifications_db;
 CREATE DATABASE privacy_db;
+CREATE DATABASE jobs_db;
+CREATE DATABASE recipes_db;
+CREATE DATABASE nutrition_db;
+CREATE DATABASE stores_db;
 CREATE DATABASE shelf_life_db;
 CREATE DATABASE ocr_db;
 
+CREATE ROLE identity LOGIN PASSWORD 'identity';
+CREATE ROLE family LOGIN PASSWORD 'family';
 CREATE ROLE inventory LOGIN PASSWORD 'inventory';
-GRANT ALL PRIVILEGES ON DATABASE inventory_db TO inventory;
+CREATE ROLE shopping LOGIN PASSWORD 'shopping';
+CREATE ROLE catalog LOGIN PASSWORD 'catalog';
+CREATE ROLE notifications LOGIN PASSWORD 'notifications';
+CREATE ROLE privacy LOGIN PASSWORD 'privacy';
+CREATE ROLE jobs LOGIN PASSWORD 'jobs';
+CREATE ROLE recipes LOGIN PASSWORD 'recipes';
+CREATE ROLE nutrition LOGIN PASSWORD 'nutrition';
+CREATE ROLE stores LOGIN PASSWORD 'stores';
+CREATE ROLE shelf_life LOGIN PASSWORD 'shelf_life';
+CREATE ROLE ocr LOGIN PASSWORD 'ocr';
+
+ALTER DATABASE identity_db OWNER TO identity;
+ALTER DATABASE family_db OWNER TO family;
 ALTER DATABASE inventory_db OWNER TO inventory;
+ALTER DATABASE shopping_db OWNER TO shopping;
+ALTER DATABASE catalog_db OWNER TO catalog;
+ALTER DATABASE notifications_db OWNER TO notifications;
+ALTER DATABASE privacy_db OWNER TO privacy;
+ALTER DATABASE jobs_db OWNER TO jobs;
+ALTER DATABASE recipes_db OWNER TO recipes;
+ALTER DATABASE nutrition_db OWNER TO nutrition;
+ALTER DATABASE stores_db OWNER TO stores;
+ALTER DATABASE shelf_life_db OWNER TO shelf_life;
+ALTER DATABASE ocr_db OWNER TO ocr;
