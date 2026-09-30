@@ -20,6 +20,21 @@ services:
       IDENTITY_URL: http://identity:3010
     networks: [backend]
 
+  loki:
+    image: grafana/loki:3.5.0
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - loki_data:/loki
+      - ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro
+    networks: [data]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.132.0
+    command: ["--config=/etc/otel-collector.yml"]
+    volumes:
+      - ./infrastructure/otel/otel-collector.yml:/etc/otel-collector.yml:ro
+    networks: [backend, data]
+
   prometheus:
     image: prom/prometheus:v3.5.0
     command: --config.file=/etc/prometheus/prometheus.yml
@@ -29,8 +44,8 @@ services:
 
   grafana:
     image: grafana/grafana:12.1.1
-    depends_on: [prometheus]
-    ports: ["3007:3000"]
+    depends_on: [prometheus, loki]
+    volumes:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -171,6 +186,7 @@ volumes:
   kafka_data:
   minio_data:
   grafana_data:
+  loki_data:
   opensearch_data:
 
 networks:
