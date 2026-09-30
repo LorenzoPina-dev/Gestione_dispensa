@@ -98,7 +98,7 @@ Stessa chiave + stesso request hash:
 - restituisce la risposta originaria.
 
 Stessa chiave + hash diverso:
-- 409 IDENTITY_KEY_REUSED.
+- 409 IDEMPOTENCY_KEY_REUSED.
 
 Retry dopo timeout:
 - non crea una seconda mutation.
