@@ -121,7 +121,12 @@ async function requireGatewayAuth(req: Request, res: Response, next: express.Nex
   if (!oidcIssuer || !oidcAudience) return res.status(503).json({ error: { code: "AUTH_NOT_CONFIGURED", message: "Gateway identity verification is not configured.", retryable: true } });
   try {
     const { payload } = await jwtVerify(header.slice(7), jwks, { issuer: oidcIssuer, audience: oidcAudience });
-    if (payload.sub) annotate({ userId: payload.sub });
+    if (payload.sub) {
+      annotate({ userId: payload.sub });
+      // Domain services receive the verified subject as internal request context.
+      // The browser cannot authoritatively set this value.
+      req.headers["x-user-id"] = String(payload.sub);
+    }
   } catch (error) {
     // The reason (expired, bad signature, wrong issuer/audience, JWKS unreachable) tells a client bug from a config bug.
     recordError(error, { status: 401 });
