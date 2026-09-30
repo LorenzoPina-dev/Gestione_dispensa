@@ -126,6 +126,7 @@ async function requireGatewayAuth(req: Request, res: Response, next: express.Nex
       // Domain services receive the verified subject as internal request context.
       // The browser cannot authoritatively set this value.
       req.headers["x-user-id"] = String(payload.sub);
+      req.headers["x-oidc-sub"] = String(payload.sub);
     }
   } catch (error) {
     // The reason (expired, bad signature, wrong issuer/audience, JWKS unreachable) tells a client bug from a config bug.
@@ -148,7 +149,7 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     if (hasBody) headers["Content-Type"] = "application/json";
     // Headers the domain services depend on: RLS family context, idempotency and optimistic locking.
     // traceparent / x-request-id are added automatically by the instrumented fetch.
-    for (const name of ["x-user-id", "x-family-id", "x-correlation-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    for (const name of ["x-user-id", "x-oidc-sub", "x-family-id", "x-correlation-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
     const target = `${url.host}${url.pathname}`;
     annotate({ upstream: target });
     try {
