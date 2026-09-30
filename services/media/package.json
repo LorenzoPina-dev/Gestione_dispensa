@@ -1,0 +1,1 @@
+{"name":"@gestione-dispensa/media","private":true,"version":"2.0.0","type":"module","scripts":{"build":"tsc","start":"node dist/server.js","dev":"tsx src/server.ts","typecheck":"tsc --noEmit"},"dependencies":{},"devDependencies":{"@types/node":"^22.0.0","tsx":"^4.19.0","typescript":"^5.7.0"}}

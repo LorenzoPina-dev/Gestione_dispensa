@@ -1,10 +1,12 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
+# The web build is intentionally rooted at the monorepo so npm workspaces
+# can resolve the root lockfile while installing only this workspace.
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY services/web/package.json services/web/tsconfig.json services/web/tsconfig.app.json ./services/web/
 
-RUN npm install
+RUN npm install --workspace @gestione-dispensa/web --include-workspace-root=false
 
 COPY services/web/src ./services/web/src
 COPY services/web/index.html services/web/vite.config.ts ./services/web/

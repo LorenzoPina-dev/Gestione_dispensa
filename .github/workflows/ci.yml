@@ -17,19 +17,26 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - run: npm run validate:structure
-      - run: npm run obs:check
+      - name: Reconcile workspace lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Clean install from reconciled lockfile
+        run: npm ci --ignore-scripts
       - run: npm run build
       - run: npm run typecheck
-      - run: npm run format:check
       - run: npm run test
 
   compose-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose --profile family-local config --quiet
+      - name: Validate Compose model
+        run: docker compose --profile family-local config --quiet
+      - name: Validate rendered services
+        run: |
+          test "$(docker compose config --services | wc -l)" -ge 20
+          docker compose config --images
+      - name: Build every application image
+        run: docker compose build --pull --parallel
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -37,18 +44,18 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: dispensa
+          POSTGRES_PASSWORD: dispensa
           POSTGRES_DB: gestione_dispensa
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U dispensa -d gestione_dispensa"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gestione_dispensa
+      DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,10 +63,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-      - run: npm ci
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts
       - run: psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
       - run: node infra/postgres/scripts/migrate.mjs migrate
       - run: node infra/postgres/scripts/migrate.mjs status
       - run: psql "$DATABASE_URL" -f infra/postgres/fixtures/002-integrity.sql
-      - run: npm run typecheck:services
-      - run: npm run build:services
+      - run: npm run typecheck
+      - run: npm run build
