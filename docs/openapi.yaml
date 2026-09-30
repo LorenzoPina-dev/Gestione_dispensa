@@ -156,6 +156,18 @@ paths:
       responses:
         '200': {description: Wasted, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '422': {$ref: '#/components/responses/BusinessRule'}
+  /inventory/{itemId}/expiration/confirm:
+    post:
+      tags: [Inventory]
+      parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExpirationConfirm'}
+      responses:
+        '200': {description: Expiration confirmed, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '422': {$ref: '#/components/responses/BusinessRule'}
   /inventory/{itemId}/movements:
     get:
       tags: [Inventory]
@@ -177,6 +189,12 @@ paths:
       responses:
         '201': {description: Product, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /catalog/products/{productId}:
+    get:
+      tags: [Catalog]
+      parameters: [{$ref: '#/components/parameters/ProductId'}]
+      responses:
+        '200': {description: Product, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
     patch:
       tags: [Catalog]
       parameters: [{$ref: '#/components/parameters/ProductId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
@@ -691,6 +709,13 @@ components:
               unit: {type: string}
               priceMinor: {type: [integer, 'null'], minimum: 0}
               currency: {type: [string, 'null'], pattern: '^[A-Z]{3}$'}
+    ExpirationConfirm:
+      type: object
+      required: [expiresAt, source]
+      additionalProperties: false
+      properties:
+        expiresAt: {type: string, format: date-time}
+        source: {type: string, enum: [declared]}
     ShelfLifeRequest:
       type: object
       required: [itemId, productId, storedAt, opened]
