@@ -148,7 +148,7 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     if (hasBody) headers["Content-Type"] = "application/json";
     // Headers the domain services depend on: RLS family context, idempotency and optimistic locking.
     // traceparent / x-request-id are added automatically by the instrumented fetch.
-    for (const name of ["x-family-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    for (const name of ["x-user-id", "x-family-id", "x-correlation-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
     const target = `${url.host}${url.pathname}`;
     annotate({ upstream: target });
     try {
