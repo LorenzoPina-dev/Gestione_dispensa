@@ -1,0 +1,1 @@
+{"realm":"dispensa","enabled":true,"registrationAllowed":true,"loginWithEmailAllowed":true,"duplicateEmailsAllowed":false,"resetPasswordAllowed":true,"clients":[{"clientId":"dispensa-app","enabled":true,"publicClient":true,"standardFlowEnabled":true,"directAccessGrantsEnabled":true,"redirectUris":["https://localhost:8443/*"],"webOrigins":["https://localhost:8443"]}]}
