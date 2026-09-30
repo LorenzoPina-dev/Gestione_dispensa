@@ -210,7 +210,16 @@ services:
 
   service-catalog:
     build: ./services/service-catalog
-    environment: { PORT: 3314, SERVICE_NAME: service-catalog, DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db" }
+    environment:
+      PORT: 3314
+      SERVICE_NAME: service-catalog
+      DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
+      OIDC_ISSUER: "http://keycloak:8080/realms/dispensa"
+      OIDC_DISCOVERY_URL: "http://keycloak:8080/realms/dispensa/.well-known/openid-configuration"
+      OIDC_JWKS_URL: "http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs"
+      OIDC_AUDIENCE: "dispensa-app"
+      OFF_LOOKUP_BASE_URL: "http://off-lookup:3200"
+      OFF_LOOKUP_TIMEOUT_MS: "2500"
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
