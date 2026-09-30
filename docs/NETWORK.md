@@ -1,14 +1,23 @@
-# Network architecture
+# Network
 
-Networks:
+Browser-facing:
+```
+Browser --HTTPS:8443--> Nginx
+Nginx / -> Web
+Nginx /api -> Gateway:3300
+Nginx /realms -> Keycloak
+```
 
-- `edge`: NGINX and web
-- `backend`: NGINX, gateway and domain services
-- `data`: internal-only databases and storage
-- `messaging`: internal-only Kafka/event infrastructure
+Microservizi e datastore sono su rete interna. Le loro porte non sono pubblicate sull'host salvo debug controllato.
 
-Only NGINX exposes a host port (`8443`). Database, Kafka, Redis, MongoDB, MinIO and OpenSearch ports are not public application endpoints.
+Data plane:
+```
+service-inventory -> inventory_db
+service-family -> family_db
+service-shopping -> shopping_db
+service-catalog -> catalog_db
+... ogni servizio -> proprio DB
+off-lookup -> off_lookup_db
+```
 
-Internal service discovery uses Docker DNS, e.g. `http://inventory:3016`.
-
-The intended LAN entrypoint is `https://<host>:8443`. Direct Vite access is a development fallback, not the application entrypoint.
+Nessun servizio dispone di credenziali per i DB degli altri servizi.
