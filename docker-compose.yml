@@ -21,6 +21,14 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     networks: [backend]
 
+  alloy:
+    image: grafana/alloy:latest
+    command: run /etc/alloy/config.alloy
+    volumes:
+      - ./infrastructure/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [data]
+
   loki:
     image: grafana/loki:3.5.0
     command: -config.file=/etc/loki/loki.yml
