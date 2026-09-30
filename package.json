@@ -1,34 +1,19 @@
 {
   "name": "gestione-dispensa",
-  "version": "0.1.0",
   "private": true,
-  "description": "Family-first local pantry platform",
-  "type": "module",
-  "workspaces": [
-    "apps/*",
-    "services/*",
-    "packages/*"
-  ],
+  "version": "2.0.0",
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "compose:up": "docker compose up -d",
+    "compose:down": "docker compose down",
+    "compose:build": "docker compose build",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "eslint .",
-    "format:check": "prettier --check .",
-    "test": "npm run test --workspaces --if-present",
-    "validate:structure": "node tools/validate-structure.mjs",
-    "obs:sync": "node tools/sync-observability.mjs",
-    "obs:check": "node tools/sync-observability.mjs --check",
-    "build:services": "npm run build --workspaces --if-present",
-    "typecheck:services": "npm run typecheck --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
   },
+  "workspaces": [
+    "services/*"
+  ],
   "engines": {
     "node": ">=22"
-  },
-  "devDependencies": {
-    "@types/node": "^26.4.1",
-    "eslint": "^10.10.0",
-    "prettier": "^3.5.3",
-    "typescript": "^5.8.2",
-    "typescript-eslint": "^8.26.0"
   }
 }

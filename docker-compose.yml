@@ -1,14 +1,161 @@
-name: gestione-dispensa
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports: ["8443:8443"]
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/certs:/etc/nginx/certs:ro
+    depends_on: [gateway, web]
+    networks: [edge, backend]
 
-# Every service (api, postgres, redis, keycloak, minio, observability stack)
-# is defined once in infra/compose/family-local.yml. This file previously
-# also redefined api/postgres/redis directly below its `include:` line, with
-# the include path itself broken (missing newline before the second `name:`
-# key caused YAML to parse it as a mapping, not a path -- confirmed via
-# `python3 -c "import yaml; yaml.safe_load(...)"`, which returned
-# {'./infra/compose/family-local.ymlname': 'gestione-dispensa'} instead of a
-# plain path). Fixed by keeping this file to a single `include:` and letting
-# infra/compose/family-local.yml be the single source of truth.
-include:
-  - ./infra/compose/family-local.yml
-  - ./infra/compose/off-cache.yml
+  web:
+    build: ./services/web
+    networks: [edge]
+
+  gateway:
+    build: ./services/gateway
+    environment:
+      PORT: 3000
+      SERVICE_NAME: gateway
+    networks: [backend]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dispensa
+      POSTGRES_PASSWORD: dispensa
+      POSTGRES_DB: postgres
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [data]
+
+  mongodb:
+    image: mongo:8
+    volumes: [mongo_data:/data/db]
+    networks: [data]
+
+  redis:
+    image: redis:7-alpine
+    networks: [data]
+
+  kafka:
+    image: bitnami/kafka:3.9
+    environment:
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      ALLOW_PLAINTEXT_LISTENER: yes
+    volumes: [kafka_data:/bitnami/kafka]
+    networks: [messaging]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniochange
+    volumes: [minio_data:/data]
+    networks: [data]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.0
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes: [opensearch_data:/usr/share/opensearch/data]
+    networks: [data]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: start-dev --http-port=8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    networks: [backend]
+
+  identity:
+    build: ./services/identity
+    environment: { PORT: 3010, SERVICE_NAME: identity }
+    networks: [backend, data]
+  users:
+    build: ./services/users
+    environment: { PORT: 3011, SERVICE_NAME: users }
+    networks: [backend, data]
+  families:
+    build: ./services/families
+    environment: { PORT: 3012, SERVICE_NAME: families }
+    networks: [backend, data]
+  products:
+    build: ./services/products
+    environment: { PORT: 3013, SERVICE_NAME: products }
+    networks: [backend, data]
+  barcode:
+    build: ./services/barcode
+    environment: { PORT: 3014, SERVICE_NAME: barcode }
+    networks: [backend, data]
+  vision:
+    build: ./services/vision
+    environment: { PORT: 3015, SERVICE_NAME: vision }
+    networks: [backend, data]
+  inventory:
+    build: ./services/inventory
+    environment: { PORT: 3016, SERVICE_NAME: inventory }
+    networks: [backend, data]
+  expiration:
+    build: ./services/expiration
+    environment: { PORT: 3017, SERVICE_NAME: expiration }
+    networks: [backend, data]
+  shopping:
+    build: ./services/shopping
+    environment: { PORT: 3018, SERVICE_NAME: shopping }
+    networks: [backend, data]
+  stores:
+    build: ./services/stores
+    environment: { PORT: 3019, SERVICE_NAME: stores }
+    networks: [backend, data]
+  offers:
+    build: ./services/offers
+    environment: { PORT: 3020, SERVICE_NAME: offers }
+    networks: [backend, data]
+  recipes:
+    build: ./services/recipes
+    environment: { PORT: 3021, SERVICE_NAME: recipes }
+    networks: [backend, data]
+  nutrition:
+    build: ./services/nutrition
+    environment: { PORT: 3022, SERVICE_NAME: nutrition }
+    networks: [backend, data]
+  notifications:
+    build: ./services/notifications
+    environment: { PORT: 3023, SERVICE_NAME: notifications }
+    networks: [backend, data, messaging]
+  media:
+    build: ./services/media
+    environment: { PORT: 3024, SERVICE_NAME: media }
+    networks: [backend, data]
+  search:
+    build: ./services/search
+    environment: { PORT: 3025, SERVICE_NAME: search }
+    networks: [backend, data]
+  analytics:
+    build: ./services/analytics
+    environment: { PORT: 3026, SERVICE_NAME: analytics }
+    networks: [backend, data, messaging]
+
+volumes:
+  postgres_data:
+  mongo_data:
+  kafka_data:
+  minio_data:
+  opensearch_data:
+
+networks:
+  edge:
+  backend:
+  data:
+    internal: true
+  messaging:
+    internal: true
