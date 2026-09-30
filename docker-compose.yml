@@ -1,3 +1,14 @@
+x-app-healthcheck: &app-healthcheck
+  test:
+    - CMD
+    - node
+    - -e
+    - "fetch('http://127.0.0.1:'+process.env.PORT+'/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  interval: 10s
+  timeout: 3s
+  retries: 5
+  start_period: 5s
+
 services:
   nginx:
     image: nginx:1.27-alpine
@@ -19,6 +30,10 @@ services:
       SERVICE_NAME: gateway
       IDENTITY_URL: http://identity:3010
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      identity:
+        condition: service_healthy
+    healthcheck: *app-healthcheck
     networks: [backend]
 
   alloy:
@@ -162,7 +177,16 @@ services:
 
   identity:
     build: ./services/identity
-    environment: { PORT: 3010, SERVICE_NAME: identity }
+    environment:
+      PORT: 3010
+      SERVICE_NAME: identity
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      KEYCLOAK_REALM: dispensa
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      keycloak:
+        condition: service_started
+    healthcheck: *app-healthcheck
     networks: [backend, data]
   users:
     build: ./services/users
