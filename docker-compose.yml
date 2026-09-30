@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
     networks: [edge, backend]
   web:
-    build: { context: ., dockerfile: services/web/Dockerfile }
+    build: { context: ., dockerfile: apps/web/Dockerfile }
     healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/healthz"], interval: 10s, timeout: 3s, retries: 5, start_period: 5s }
     restart: unless-stopped
     networks: [edge]
@@ -26,9 +26,9 @@ services:
     environment:
       PORT: 3300
       SERVICE_NAME: gateway
-      IDENTITY_URL: "http://identity:3010"
+      IDENTITY_URL: "http://service-identity:3310"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
-    depends_on: { identity: { condition: service_healthy } }
+    depends_on: { service-identity: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend]
