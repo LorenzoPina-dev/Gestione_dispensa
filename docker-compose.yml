@@ -26,7 +26,14 @@ services:
     environment:
       PORT: 3300
       SERVICE_NAME: gateway
-      IDENTITY_URL: "http://service-identity:3310"
+      IDENTITY_SERVICE_BASE_URL: "http://service-identity:3310/api/v1"
+      FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
+      INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1"
+      SHOPPING_SERVICE_BASE_URL: "http://service-shopping:3313/api/v1"
+      CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1"
+      NOTIFICATIONS_SERVICE_BASE_URL: "http://service-notifications:3315/api/v1"
+      PRIVACY_SERVICE_BASE_URL: "http://service-privacy:3316/api/v1"
+      JOBS_SERVICE_BASE_URL: "http://service-jobs:3317/api/v1"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on: { service-identity: { condition: service_healthy } }
     healthcheck: *node-healthcheck
