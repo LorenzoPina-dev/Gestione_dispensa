@@ -1,9 +1,5 @@
 x-node-healthcheck: &node-healthcheck
-  test:
-    - CMD
-    - node
-    - -e
-    - "fetch('http://127.0.0.1:'+process.env.PORT+'/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
   interval: 10s
   timeout: 3s
   retries: 5
@@ -11,46 +7,26 @@ x-node-healthcheck: &node-healthcheck
 
 services:
   nginx:
-    build:
-      context: ./infrastructure/nginx
-    ports:
-      - "8443:8443"
-    environment:
-      TLS_CERT_DAYS: "825"
-      TLS_SAN: "DNS:localhost,IP:127.0.0.1"
-    volumes:
-      - ./certs:/etc/nginx/certs
+    build: { context: ./infrastructure/nginx }
+    ports: ["8443:8443"]
+    environment: { TLS_CERT_DAYS: "825", TLS_SAN: "DNS:localhost,IP:127.0.0.1,IP:192.168.1.24" }
+    volumes: ["./certs:/etc/nginx/certs"]
     depends_on:
-      gateway:
-        condition: service_healthy
-      web:
-        condition: service_healthy
+      gateway: { condition: service_healthy }
+      web: { condition: service_healthy }
     restart: unless-stopped
     networks: [edge, backend]
 
   web:
-    build:
-      context: .
-      dockerfile: services/web/Dockerfile
+    build: { context: ., dockerfile: services/web/Dockerfile }
+    healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/healthz"], interval: 10s, timeout: 3s, retries: 5, start_period: 5s }
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
     networks: [edge]
 
   gateway:
     build: ./services/gateway
-    environment:
-      PORT: 3000
-      SERVICE_NAME: gateway
-      IDENTITY_URL: http://identity:3010
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-    depends_on:
-      identity:
-        condition: service_healthy
+    environment: { PORT: 3000, SERVICE_NAME: gateway, IDENTITY_URL: http://identity:3010, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    depends_on: { identity: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend]
@@ -67,131 +43,86 @@ services:
   loki:
     image: grafana/loki:3.5.0
     command: -config.file=/etc/loki/loki.yml
-    volumes:
-      - loki_data:/loki
-      - ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro
+    volumes: [loki_data:/loki, ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro]
     restart: unless-stopped
     networks: [data]
 
   tempo:
     image: grafana/tempo:2.8.2
     command: ["-config.file=/etc/tempo.yml"]
-    volumes:
-      - tempo_data:/var/tempo
-      - ./infrastructure/tempo/tempo.yml:/etc/tempo.yml:ro
+    volumes: [tempo_data:/var/tempo, ./infrastructure/tempo/tempo.yml:/etc/tempo.yml:ro]
     restart: unless-stopped
     networks: [data]
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.132.0
     command: ["--config=/etc/otel-collector.yml"]
-    volumes:
-      - ./infrastructure/otel/otel-collector.yml:/etc/otel-collector.yml:ro
-    depends_on:
-      tempo:
-        condition: service_started
+    volumes: [./infrastructure/otel/otel-collector.yml:/etc/otel-collector.yml:ro]
+    depends_on: { tempo: { condition: service_started } }
     restart: unless-stopped
     networks: [backend, data]
 
   prometheus:
     image: prom/prometheus:v3.5.0
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
-    volumes:
-      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    volumes: [./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro, ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro]
     restart: unless-stopped
     networks: [backend, data]
 
   grafana:
     image: grafana/grafana:12.1.1
-    environment:
-      GF_SERVER_ROOT_URL: https://localhost:8443/grafana/
-      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      GF_METRICS_ENABLED: "true"
+    environment: { GF_SERVER_ROOT_URL: https://localhost:8443/grafana/, GF_SERVER_SERVE_FROM_SUB_PATH: "true", GF_METRICS_ENABLED: "true" }
     depends_on:
-      prometheus:
-        condition: service_started
-      loki:
-        condition: service_started
+      prometheus: { condition: service_started }
+      loki: { condition: service_started }
+    volumes: [grafana_data:/var/lib/grafana, ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro, ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro]
     restart: unless-stopped
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks: [backend, data]
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.52.1
     privileged: true
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker:/var/lib/docker:ro
-      - /dev/disk:/dev/disk:ro
+    volumes: [/:/rootfs:ro, /var/run:/var/run:ro, /sys:/sys:ro, /var/lib/docker:/var/lib/docker:ro, /dev/disk:/dev/disk:ro]
     restart: unless-stopped
     networks: [data]
 
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: dispensa
-      POSTGRES_PASSWORD: dispensa
-      POSTGRES_DB: postgres
+    environment: { POSTGRES_USER: dispensa, POSTGRES_PASSWORD: dispensa, POSTGRES_DB: postgres }
     volumes: [postgres_data:/var/lib/postgresql/data]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dispensa -d postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U dispensa -d postgres"], interval: 5s, timeout: 5s, retries: 10, start_period: 5s }
     restart: unless-stopped
     networks: [data]
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
-    environment:
-      DATA_SOURCE_NAME: postgresql://dispensa:dispensa@postgres:5432/postgres?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
+    environment: { DATA_SOURCE_NAME: postgresql://dispensa:dispensa@postgres:5432/postgres?sslmode=disable }
+    depends_on: { postgres: { condition: service_healthy } }
     restart: unless-stopped
     networks: [data]
 
   mongodb:
     image: mongo:8
     volumes: [mongo_data:/data/db]
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+    healthcheck: { test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"], interval: 10s, timeout: 5s, retries: 10, start_period: 10s }
     restart: unless-stopped
     networks: [data]
 
   redis:
     image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10 }
     restart: unless-stopped
     networks: [data]
 
   redis-exporter:
     image: oliver006/redis_exporter:v1.75.0
-    environment:
-      REDIS_ADDR: redis://redis:6379
-    depends_on:
-      redis:
-        condition: service_healthy
+    environment: { REDIS_ADDR: redis://redis:6379 }
+    depends_on: { redis: { condition: service_healthy } }
     restart: unless-stopped
     networks: [data]
 
   kafka:
-    image: apache/kafka:4.2.2
+    image: apache/kafka:4.2.1
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -205,8 +136,6 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
       KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
       CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
     volumes: [kafka_data:/tmp/kraft-combined-logs]
@@ -216,74 +145,39 @@ services:
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.9.0
     command: ["--kafka.server=kafka:9092"]
-    depends_on:
-      kafka:
-        condition: service_started
+    depends_on: { kafka: { condition: service_started } }
     restart: unless-stopped
     networks: [data, messaging]
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: miniochange
-      MINIO_PROMETHEUS_AUTH_TYPE: public
+    environment: { MINIO_ROOT_USER: minio, MINIO_ROOT_PASSWORD: miniochange, MINIO_PROMETHEUS_AUTH_TYPE: public }
     volumes: [minio_data:/data]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
     restart: unless-stopped
     networks: [data]
 
   opensearch:
     image: opensearchproject/opensearch:2.19.0
-    environment:
-      discovery.type: single-node
-      DISABLE_SECURITY_PLUGIN: "true"
-      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    environment: { discovery.type: single-node, DISABLE_SECURITY_PLUGIN: "true", OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m" }
     volumes: [opensearch_data:/usr/share/opensearch/data]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 15
-      start_period: 20s
+    healthcheck: { test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"], interval: 10s, timeout: 5s, retries: 15, start_period: 20s }
     restart: unless-stopped
     networks: [data]
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
     command: start-dev --http-port=8080 --import-realm --metrics-enabled=true --health-enabled=true
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_DB: dev-file
-    volumes:
-      - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
+    environment: { KC_BOOTSTRAP_ADMIN_USERNAME: admin, KC_BOOTSTRAP_ADMIN_PASSWORD: admin, KC_DB: dev-file }
+    volumes: [./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro]
+    healthcheck: { test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"], interval: 10s, timeout: 5s, retries: 20, start_period: 20s }
     restart: unless-stopped
     networks: [backend]
 
   identity:
     build: ./services/identity
-    environment:
-      PORT: 3010
-      SERVICE_NAME: identity
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
-      KEYCLOAK_REALM: dispensa
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-    depends_on:
-      keycloak:
-        condition: service_healthy
+    environment: { PORT: 3010, SERVICE_NAME: identity, KEYCLOAK_INTERNAL_URL: http://keycloak:8080, KEYCLOAK_REALM: dispensa, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    depends_on: { keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
@@ -387,21 +281,9 @@ services:
 
   off-lookup:
     build: ./services/off-lookup
-    environment:
-      OFF_LOOKUP_PORT: 3200
-      OFF_LOOKUP_MONGO_URL: mongodb://mongodb:27017
-      OFF_LOOKUP_MONGO_DB: off
-      OFF_LOOKUP_MONGO_COLLECTION: products
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-    depends_on:
-      mongodb:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
+    environment: { OFF_LOOKUP_PORT: 3200, OFF_LOOKUP_MONGO_URL: mongodb://mongodb:27017, OFF_LOOKUP_MONGO_DB: off, OFF_LOOKUP_MONGO_COLLECTION: products, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318 }
+    depends_on: { mongodb: { condition: service_healthy } }
+    healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"], interval: 10s, timeout: 3s, retries: 5, start_period: 10s }
     restart: unless-stopped
     networks: [backend, data]
 
@@ -418,7 +300,5 @@ volumes:
 networks:
   edge:
   backend:
-  data:
-    internal: true
-  messaging:
-    internal: true
+  data: { internal: true }
+  messaging: { internal: true }
