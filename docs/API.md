@@ -18,7 +18,7 @@ Il browser non chiama direttamente i microservizi. Il Gateway inoltra alle porte
 | Authorization | client -> gateway | sì per endpoint autenticati | `Bearer <OIDC access token>` |
 | X-Request-Id | client/gateway | no | se assente il Gateway lo genera; viene propagato invariato |
 | X-Correlation-Id | client/gateway | no | se assente viene generato; stesso workflow distribuito |
-| X-Idempotency-Key | client -> gateway | per POST/PATCH/DELETE non-safe | chiave unica per la mutazione; TTL minimo 24h |
+| X-Idempotency-Key | client -> gateway | per POST/PATCH/PUT/DELETE non-safe | chiave unica per la mutazione; TTL minimo 24h |
 | If-Match | client -> gateway | per PATCH/DELETE concorrenti | ETag della versione letta |
 | Content-Type | client -> gateway | per body | `application/json`, oppure `multipart/form-data` per upload |
 
