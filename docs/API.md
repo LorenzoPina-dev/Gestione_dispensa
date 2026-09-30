@@ -523,9 +523,9 @@ Request:
 ```
 Response 200:
 ```json
-{"data":{"draftId":"uuid","status":"confirmed","applied":true}}
+{"data":{"draftId":"uuid","status":"confirmed","applied":false}}
 ```
-La conferma non concede all'OCR ownership di Inventory/Stores: chi applica la mutazione chiama il service owner.
+La conferma chiude il draft e produce OcrDraftConfirmed. L'applicazione ai domini avviene tramite i rispettivi owner: Catalog risolve il prodotto, Stores registra il prezzo e Inventory registra la scorta. Ogni mutation è idempotente.
 
 ## 12. Shelf-Life
 
