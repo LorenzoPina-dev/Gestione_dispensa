@@ -363,15 +363,23 @@ export function cookRecipe(
 
 // --- Nutrition ---------------------------------------------------------------
 
-export function getNutritionSummary(
+export async function getNutritionSummary(
   familyId: string,
   period: "today" | "week" = "today",
 ): Promise<NutritionSummaryDto> {
-  return apiRequest("/nutrition/summary", { query: { familyId, period } });
+  const result = await apiRequest<{ data: NutritionSummaryDto }>("/nutrition/summary", { query: { familyId, period } });
+  return result.data;
 }
 
-export function listFamilyInvites(familyId: string): Promise<{ invites: Array<{ id?: string; inviteId?: string; role: InviteRole; status: "CREATED"|"REVOKED"|"CONSUMED"|"EXPIRED"; expiresAt: string; fallbackCode?: string; createdAt: string }> }> {
-  return apiRequest(`/families/${familyId}/invites`);
+export async function listFamilyInvites(familyId: string): Promise<{ invites: Array<{ id?: string; inviteId?: string; role: InviteRole; status: "CREATED"|"REVOKED"|"CONSUMED"|"EXPIRED"; expiresAt: string; fallbackCode?: string; createdAt: string }> }> {
+  const result = await apiRequest<{ items: Array<{ inviteId: string; role: "admin"|"member"; status: string; expiresAt: string; createdAt: string }>; nextCursor: string | null }>(`/families/${familyId}/invites`);
+  return { invites: result.items.map((i) => ({
+    inviteId: i.inviteId,
+    role: i.role === "admin" ? "MANAGER" : "MEMBER",
+    status: i.status === "pending" ? "CREATED" : i.status === "revoked" ? "REVOKED" : i.status === "accepted" ? "CONSUMED" : "EXPIRED",
+    expiresAt: i.expiresAt,
+    createdAt: i.createdAt,
+  })) };
 }
 
 export function requestPasswordReset(email: string): Promise<{ accepted: boolean; message: string }> {
