@@ -24,15 +24,33 @@ const fail = (
   message: string,
   details: unknown[] = [],
 ): void => {
+  const retryable = new Set(["FAMILY_AUTH_UNAVAILABLE","UPSTREAM_ERROR","SERVICE_UNAVAILABLE","INTERNAL_ERROR"]).has(code);
+  const requestId = crypto.randomUUID();
   json(res, status, {
-    error: { code, message, details, requestId: crypto.randomUUID() },
+    error: { code, message, details, retryable, requestId },
+    meta: { requestId, traceId: crypto.randomUUID(), schemaVersion: "1.0" },
   });
 };
 
-function requestContext(req: express.Request): { userId: string; familyId: string } | null {
+type RequestContext = {
+  userId: string;
+  familyId: string;
+  requestId: string;
+  correlationId: string;
+  causationId: string | null;
+};
+
+function requestContext(req: express.Request): RequestContext | null {
   const userId = String(req.header("x-user-id") ?? "").trim();
   const familyId = String(req.query.familyId ?? req.body?.familyId ?? req.header("x-family-id") ?? "").trim();
-  return userId && familyId ? { userId, familyId } : null;
+  if (!userId || !familyId) return null;
+  return {
+    userId,
+    familyId,
+    requestId: String(req.header("x-request-id") ?? crypto.randomUUID()),
+    correlationId: String(req.header("x-correlation-id") ?? crypto.randomUUID()),
+    causationId: req.header("x-causation-id"),
+  };
 }
 
 async function authorizeFamily(ctx: { userId: string; familyId: string }, write: boolean): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
@@ -57,9 +75,15 @@ function idempotencyKey(req: express.Request): string | null {
 }
 
 function ifMatch(req: express.Request): number | null {
-  const value = req.header("if-match");
-  if (value === undefined) return null;
-  const parsed = Number(value.replace(/^W\\/?/i, "").replace(/"/g, ""));
+  const value = req.header("if-match")?.trim();
+  if (!value) return null;
+  const normalized = value.replace(/^W\//i, "").replace(/^"|"$/g, "").trim();
+  const versionMatch = normalized.match(/^version-(\d+)$/i);
+  if (versionMatch) {
+    const version = Number(versionMatch[1]);
+    return Number.isInteger(version) && version >= 1 ? version : null;
+  }
+  const parsed = Number(normalized);
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
 }
 
@@ -117,16 +141,15 @@ async function emitOutbox(
   client: PoolClient,
   type: string,
   aggregateId: string,
-  familyId: string,
-  actorUserId: string,
+  ctx: RequestContext,
   payload: unknown,
 ): Promise<void> {
   const eventId = crypto.randomUUID();
   await client.query(
     `insert into shopping_domain.outbox_events
-      (event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
-     values($1,$2,1,$3,$4,$5,now(),$6::jsonb,now())`,
-    [eventId, type, aggregateId, familyId, crypto.randomUUID(), JSON.stringify(toEventPayload(payload))],
+      (event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,causation_id,occurred_at,payload,created_at)
+     values($1,$2,1,$3,$4,$5,$6,now(),$7::jsonb,now())`,
+    [eventId, type, aggregateId, ctx.familyId, ctx.correlationId, ctx.causationId, JSON.stringify(toEventPayload(payload))],
   );
 }
 
@@ -135,6 +158,36 @@ function toEventPayload(payload: unknown): unknown {
     return (payload as { data: unknown }).data;
   }
   return payload;
+}
+
+function toList(row: Record<string, unknown>, itemCount?: number): Record<string, unknown> {
+  return {
+    listId: String(row.id),
+    familyId: String(row.family_id),
+    name: String(row.name),
+    status: String(row.status),
+    itemCount: itemCount ?? Number(row.item_count ?? 0),
+    createdByUserId: String(row.created_by_user_id),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    version: Number(row.version),
+  };
+}
+
+function toItem(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    itemId: String(row.id),
+    listId: String(row.list_id),
+    productId: row.product_id === null || row.product_id === undefined ? null : String(row.product_id),
+    label: String(row.label),
+    quantity: Number(row.quantity),
+    unit: row.unit === null || row.unit === undefined ? null : String(row.unit),
+    checked: Boolean(row.checked),
+    source: String(row.source ?? "manual"),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    version: Number(row.version),
+  };
 }
 
 async function init(): Promise<void> {
@@ -189,6 +242,8 @@ app.post("/api/v1/shopping/lists", async (req, res) => {
   if (ctx === null || name.length === 0 || name.length > 120 || key === null) {
     return fail(res, 400, "VALIDATION_ERROR", "familyId, name and X-Idempotency-Key are required.");
   }
+  const access = await authorizeFamily(ctx, true);
+  if (!access.ok) return fail(res, access.status, access.code, access.message);
 
   const client = await pool.connect();
   try {
@@ -209,7 +264,7 @@ app.post("/api/v1/shopping/lists", async (req, res) => {
       [crypto.randomUUID(), ctx.familyId, name, ctx.userId],
     );
     const response = { data: toList(row.rows[0]), version: 1 };
-    await emitOutbox(client, "ShoppingListCreated", String(row.rows[0].id), ctx.familyId, ctx.userId, response);
+    await emitOutbox(client, "ShoppingListCreated", String(row.rows[0].id), ctx, response);
     await finishIdempotency(client, req, 201, response);
     await client.query("commit");
     return json(res, 201, response);
@@ -224,6 +279,8 @@ app.post("/api/v1/shopping/lists", async (req, res) => {
 app.get("/api/v1/shopping/lists/:listId", async (req, res) => {
   const ctx = requestContext(req);
   if (ctx === null) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");
+  const access = await authorizeFamily(ctx, false);
+  if (!access.ok) return fail(res, access.status, access.code, access.message);
   const q = await pool.query("select * from shopping_domain.lists where id=$1 and family_id=$2", [req.params.listId, ctx.familyId]);
   if (!q.rowCount) return fail(res, 404, "NOT_FOUND", "Shopping list not found.");
   const items = await pool.query("select * from shopping_domain.items where list_id=$1 order by created_at", [req.params.listId]);
@@ -240,6 +297,10 @@ app.get("/api/v1/shopping/lists/:listId", async (req, res) => {
 app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
   const ctx = requestContext(req);
   const body = req.body as Body;
+  if (ctx) {
+    const access = await authorizeFamily(ctx, true);
+    if (!access.ok) return fail(res, access.status, access.code, access.message);
+  }
   if (ctx === null || idempotencyKey(req) === null) return fail(res, 400, "VALIDATION_ERROR", "familyId and X-Idempotency-Key are required.");
   const label = typeof body.label === "string" ? body.label.trim() : "";
   const quantity = Number(body.quantity);
@@ -259,13 +320,17 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
       [crypto.randomUUID(),req.params.listId,body.productId??null,label,quantity,unit,Boolean(body.checked??false),typeof body.source==="string"?body.source:"manual"]);
     await client.query("update shopping_domain.lists set version=version+1,updated_at=now() where id=$1",[req.params.listId]);
     const response={data:toItem(item.rows[0] as Record<string,unknown>),version:Number(list.rows[0].version)+1};
-    await emitOutbox(client,"ShoppingItemAdded",String(item.rows[0].id),ctx.familyId,ctx.userId,response);
+    await emitOutbox(client, "ShoppingItemAdded", String(item.rows[0].id), ctx, response);
     await finishIdempotency(client,req,201,response);await client.query("commit");return json(res,201,response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to add shopping item.");}finally{client.release();}
 });
 
 app.patch("/api/v1/shopping/lists/:listId/items/:itemId", async (req,res)=>{
   const ctx=requestContext(req); const body=req.body as Body;
+  if (ctx) {
+    const access = await authorizeFamily(ctx, true);
+    if (!access.ok) return fail(res, access.status, access.code, access.message);
+  }
   if(ctx===null||idempotencyKey(req)===null||ifMatch(req)===null)return fail(res,400,"VALIDATION_ERROR","familyId, X-Idempotency-Key and If-Match are required.");
   const client=await pool.connect();
   try{
@@ -285,12 +350,17 @@ app.patch("/api/v1/shopping/lists/:listId/items/:itemId", async (req,res)=>{
     const updated=await client.query(`update shopping_domain.items set label=$2,quantity=$3,unit=$4,checked=$5,updated_at=now(),version=version+1 where id=$1 returning *`,[row.id,label,quantity,unit,checked]);
     await client.query("update shopping_domain.lists set version=version+1,updated_at=now() where id=$1",[req.params.listId]);
     const response={data:toItem(updated.rows[0] as Record<string,unknown>),version:Number(updated.rows[0].version)};
-    await emitOutbox(client,"ShoppingItemUpdated",String(row.id),ctx.familyId,ctx.userId,response);await finishIdempotency(client,req,200,response);await client.query("commit");return json(res,200,response);
+    await emitOutbox(client, "ShoppingItemUpdated", String(row.id), ctx, response);await finishIdempotency(client,req,200,response);await client.query("commit");return json(res,200,response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to update shopping item.");}finally{client.release();}
 });
 
 app.delete("/api/v1/shopping/lists/:listId/items/:itemId",async(req,res)=>{
-  const ctx=requestContext(req); if(ctx===null||idempotencyKey(req)===null||ifMatch(req)===null)return fail(res,400,"VALIDATION_ERROR","familyId, X-Idempotency-Key and If-Match are required.");
+  const ctx=requestContext(req);
+  if (ctx) {
+    const access = await authorizeFamily(ctx, true);
+    if (!access.ok) return fail(res, access.status, access.code, access.message);
+  }
+  if(ctx===null||idempotencyKey(req)===null||ifMatch(req)===null)return fail(res,400,"VALIDATION_ERROR","familyId, X-Idempotency-Key and If-Match are required.");
   const client=await pool.connect();
   try{
     await client.query("begin");const body={listId:req.params.listId,itemId:req.params.itemId};const idem=await beginIdempotency(client,req,ctx,body);
@@ -301,12 +371,17 @@ app.delete("/api/v1/shopping/lists/:listId/items/:itemId",async(req,res)=>{
     if(current.rows[0].list_status!=="open"){await client.query("rollback");return fail(res,422,"BUSINESS_RULE_VIOLATION","Closed shopping lists cannot be modified.");}
     if(Number(current.rows[0].version)!==ifMatch(req)){await client.query("rollback");return fail(res,412,"PRECONDITION_FAILED","Item version changed.");}
     await client.query("delete from shopping_domain.items where id=$1",[req.params.itemId]);await client.query("update shopping_domain.lists set version=version+1,updated_at=now() where id=$1",[req.params.listId]);
-    await emitOutbox(client,"ShoppingItemRemoved",req.params.itemId,ctx.familyId,ctx.userId,body);await finishIdempotency(client,req,204,null);await client.query("commit");return res.status(204).end();
+    await emitOutbox(client, "ShoppingItemRemoved", req.params.itemId, ctx, body);await finishIdempotency(client,req,204,null);await client.query("commit");return res.status(204).end();
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to delete shopping item.");}finally{client.release();}
 });
 
 app.post("/api/v1/shopping/lists/:listId/close",async(req,res)=>{
-  const ctx=requestContext(req);if(ctx===null||idempotencyKey(req)===null)return fail(res,400,"VALIDATION_ERROR","familyId and X-Idempotency-Key are required.");
+  const ctx=requestContext(req);
+  if (ctx) {
+    const access = await authorizeFamily(ctx, true);
+    if (!access.ok) return fail(res, access.status, access.code, access.message);
+  }
+  if(ctx===null||idempotencyKey(req)===null)return fail(res,400,"VALIDATION_ERROR","familyId and X-Idempotency-Key are required.");
   const client=await pool.connect();
   try{
     await client.query("begin");const body={listId:req.params.listId};const idem=await beginIdempotency(client,req,ctx,body);
@@ -315,7 +390,7 @@ app.post("/api/v1/shopping/lists/:listId/close",async(req,res)=>{
     const q=await client.query("update shopping_domain.lists set status='closed',version=version+1,updated_at=now() where id=$1 and family_id=$2 and status='open' returning *",[req.params.listId,ctx.familyId]);
     if(!q.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","Open shopping list not found.");}
     const response={data:toList(q.rows[0] as Record<string,unknown>),version:Number(q.rows[0].version)};
-    await emitOutbox(client,"ShoppingListClosed",req.params.listId,ctx.familyId,ctx.userId,response);await finishIdempotency(client,req,200,response);await client.query("commit");return json(res,200,response);
+    await emitOutbox(client, "ShoppingListClosed", req.params.listId, ctx, response);await finishIdempotency(client,req,200,response);await client.query("commit");return json(res,200,response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to close list.");}finally{client.release();}
 });
 
