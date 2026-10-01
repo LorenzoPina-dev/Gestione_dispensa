@@ -178,7 +178,7 @@ export function updateFamilyMembership(
     method: "PATCH",
     ifMatch: version,
     query: { familyId },
-    body: { role: input.role.toLowerCase() },
+    body: { role: input.role === "ADMIN" || input.role === "MANAGER" ? "admin" : input.role.toLowerCase() },
   });
 }
 
