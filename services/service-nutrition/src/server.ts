@@ -79,57 +79,7 @@ const targetDto = (row: Record<string, unknown>) => ({
 });
 
 async function init(): Promise<void> {
-  await pool.query(`create schema if not exists nutrition_domain`);
-  await pool.query(`create table if not exists nutrition_domain.targets(
-    user_id uuid primary key,
-    calories_kcal numeric(10,2) not null check(calories_kcal>=0),
-    protein_g numeric(10,2) not null check(protein_g>=0),
-    carbs_g numeric(10,2) not null check(carbs_g>=0),
-    fat_g numeric(10,2) not null check(fat_g>=0),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists nutrition_domain.diary_entries(
-    id uuid primary key,
-    user_id uuid not null,
-    date date not null,
-    meal varchar(32) not null,
-    product_id uuid not null,
-    quantity numeric(14,3) not null check(quantity>0),
-    unit varchar(16) not null,
-    source varchar(32) not null check(source in ('manual','inventory')),
-    source_movement_id uuid null,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists nutrition_domain.idempotency_keys(
-    key varchar(255) primary key,
-    actor_user_id uuid not null,
-    family_id uuid null,
-    request_hash varchar(64) not null,
-    status varchar(16) not null check(status in ('processing','completed','failed')),
-    response_status integer null,
-    response_body jsonb null,
-    created_at timestamptz not null default now(),
-    expires_at timestamptz not null
-  )`);
-  await pool.query(`create table if not exists nutrition_domain.outbox_events(
-    event_id uuid primary key,
-    event_type varchar(128) not null,
-    schema_version integer not null,
-    aggregate_id uuid not null,
-    family_id uuid null,
-    correlation_id uuid not null,
-    occurred_at timestamptz not null,
-    payload jsonb not null,
-    published_at timestamptz null,
-    attempts integer not null default 0,
-    last_error text null,
-    created_at timestamptz not null
-  )`);
-  await pool.query("create index if not exists nutrition_diary_user_date_idx on nutrition_domain.diary_entries(user_id,date desc,created_at desc)");
-  await pool.query("create index if not exists nutrition_outbox_publish_idx on nutrition_domain.outbox_events(published_at,created_at)");
+  await pool.query("select 1");
 }
 
 app.get("/health/live", (_req,res) => res.json({status:"ok",service:"service-nutrition"}));
