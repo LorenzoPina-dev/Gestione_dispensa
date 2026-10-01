@@ -207,6 +207,7 @@ export async function createProduct(input: {
   carbs?: number;
   fat?: number;
   fiber?: number;
+  idempotencyKey?: string;
 }): Promise<ProductDto> {
   const result = await apiRequest<{
     productId: string;
@@ -226,6 +227,7 @@ export async function createProduct(input: {
     version: number;
   }>("/catalog/products", {
     method: "POST",
+    idempotencyKey: input.idempotencyKey,
     body: {
       name: input.canonicalName,
       ...(input.defaultUnit ? { defaultUnit: input.defaultUnit } : {}),
@@ -283,8 +285,21 @@ export function createStockItem(input: {
   reorderPoint?: number;
   location?: string;
   expiresAt?: string;
+  idempotencyKey?: string;
 }): Promise<StockItemDto> {
-  return apiRequest("/inventory/items", { method: "POST", query: { familyId: input.familyId }, body: { productId: input.productId, quantity: input.quantity, unit: input.unit, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}), ...(input.location ? { location: input.location } : {}), ...(input.packageId ? { lotCode: input.packageId } : {}) } });
+  return apiRequest("/inventory/items", {
+    method: "POST",
+    idempotencyKey: input.idempotencyKey,
+    query: { familyId: input.familyId },
+    body: {
+      productId: input.productId,
+      quantity: input.quantity,
+      unit: input.unit,
+      ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      ...(input.location ? { location: input.location } : {}),
+      ...(input.packageId ? { lotCode: input.packageId } : {}),
+    },
+  });
 }
 
 export function recordMovement(
@@ -296,11 +311,13 @@ export function recordMovement(
     quantity: number;
     unit: InventoryUnit;
     occurredAt: string;
+    idempotencyKey?: string;
   },
 ): Promise<RecordMovementResultDto> {
   const path = input.kind === "WASTE" ? `/inventory/${stockItemId}/waste` : `/inventory/${stockItemId}/consume`;
   return apiRequest(path, {
     method: "POST",
+    idempotencyKey: input.idempotencyKey,
     ifMatch: version,
     query: { familyId: input.familyId },
     body: { quantity: input.quantity, reason: input.kind === "WASTE" ? "spoiled" : "used" },
