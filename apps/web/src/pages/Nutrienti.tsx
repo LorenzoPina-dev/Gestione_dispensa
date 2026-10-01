@@ -172,7 +172,7 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
                 className="w-full accent-[#c4623a]"
               />
             </div>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               {[
                 { label: "kcal", value: scaledValues.calories },
                 { label: "prot.", value: scaledValues.protein },
