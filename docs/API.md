@@ -591,6 +591,15 @@ Response 202:
 {"data":{"jobId":"uuid","status":"queued","type":"receipt","objectKey":"ocr/..."}}
 ```
 
+### GET /ocr/jobs
+
+Query: `familyId`, optional `status`, `limit`, `cursor`.
+
+Response 200:
+```json
+{"items":[{"jobId":"uuid","status":"needs_review","type":"receipt","progress":100,"draftId":"uuid","error":null}],"nextCursor":null}
+```
+
 ### GET /ocr/jobs/{jobId}
 
 Response 200:
