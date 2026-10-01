@@ -1,7 +1,6 @@
 import { apiRequest, newIdempotencyKey } from "./client";
 import type {
   ActiveShoppingListDto,
-  AddShoppingItemResultDto,
   CreatedInviteDto,
   FamilyCreationResultDto,
   InventoryUnit,
@@ -257,7 +256,7 @@ export function getActiveShoppingList(familyId: string): Promise<ActiveShoppingL
   return apiRequest<{ data: { listId: string; name: string; status: "open" | "closed"; items: ShoppingItemDto[]; version: number } }>(`/shopping/lists/${active.listId}`, { query: { familyId } }).then((result) => ({ list: { listId: result.data.listId, name: result.data.name, status: result.data.status, version: result.data.version }, items: result.data.items }));
 }
 
-export function createShoppingList(familyId: string, name: string): Promise<{
+export async function createShoppingList(familyId: string, name: string): Promise<{
   id: string;
   familyId: string;
   ownerUserId: string;
@@ -265,7 +264,18 @@ export function createShoppingList(familyId: string, name: string): Promise<{
   status: "ACTIVE";
   version: number;
 }> {
-  return apiRequest("/shopping/lists", { method: "POST", body: { familyId, name } });
+  const result = await apiRequest<{
+    data: { listId: string; name: string; status: "open" | "closed"; version: number };
+    version: number;
+  }>("/shopping/lists", { method: "POST", body: { familyId, name } });
+  return {
+    id: result.data.listId,
+    familyId,
+    ownerUserId: "",
+    name: result.data.name,
+    status: result.data.status === "open" ? "ACTIVE" : "ARCHIVED",
+    version: result.data.version,
+  };
 }
 
 export function addShoppingItem(
@@ -279,7 +289,7 @@ export function addShoppingItem(
     sourceType: ShoppingSourceType;
     sourceRef?: string;
   },
-): Promise<AddShoppingItemResultDto> {
+): Promise<ShoppingItemDto> {
   return apiRequest(`/shopping/lists/${listId}/items`, {
     method: "POST",
     body: { familyId, label: input.displayName, quantity: input.quantity, unit: input.unit, ...(input.productId ? { productId: input.productId } : {}) },
