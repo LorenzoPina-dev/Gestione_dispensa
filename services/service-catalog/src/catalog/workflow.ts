@@ -130,7 +130,7 @@ export class CatalogWorkflowService {
     try {
       const match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
       if (match === undefined) {
-        return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
+        return { status: "UNKNOWN", resolution: "provider", identifierType, normalizedValue, product: undefined };
       }
       const product = await this.lookup.persistExternalMatch({
         identifierType,
