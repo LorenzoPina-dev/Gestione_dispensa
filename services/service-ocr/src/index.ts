@@ -247,69 +247,7 @@ async function readMultipart(req: Request): Promise<MultipartForm> {
 }
 
 async function init(): Promise<void> {
-  await pool.query("create schema if not exists ocr_domain");
-  await pool.query(`create table if not exists ocr_domain.ocr_jobs(
-    id uuid primary key,
-    user_id uuid not null,
-    family_id uuid,
-    type varchar(32) not null check(type in ('receipt','pantry_image')),
-    object_key varchar(500) not null,
-    status varchar(32) not null check(status in ('queued','processing','completed','failed','cancelled','needs_review')),
-    progress smallint not null default 0 check(progress between 0 and 100),
-    error_code varchar(100),
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists ocr_domain.ocr_drafts(
-    id uuid primary key default gen_random_uuid(),
-    job_id uuid not null references ocr_domain.ocr_jobs(id) on delete cascade,
-    confidence numeric(5,4) not null check(confidence between 0 and 1),
-    status varchar(32) not null check(status in ('draft','confirmed','rejected')),
-    raw_result jsonb not null,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists ocr_domain.ocr_draft_items(
-    id uuid primary key default gen_random_uuid(),
-    draft_id uuid not null references ocr_domain.ocr_drafts(id) on delete cascade,
-    name varchar(300) not null,
-    barcode varchar(64),
-    quantity numeric(14,3),
-    unit varchar(16),
-    price_minor bigint,
-    currency char(3),
-    confidence numeric(5,4) not null check(confidence between 0 and 1),
-    product_id uuid
-  )`);
-  await pool.query(`create table if not exists ocr_domain.idempotency_keys(
-    key varchar(255) primary key,
-    actor_user_id uuid not null,
-    family_id uuid,
-    request_hash varchar(64) not null,
-    status varchar(16) not null check(status in ('processing','completed','failed')),
-    response_status integer,
-    response_body jsonb,
-    created_at timestamptz not null default now(),
-    expires_at timestamptz not null
-  )`);
-  await pool.query(`create table if not exists ocr_domain.outbox_events(
-    event_id uuid primary key,
-    event_type varchar(128) not null,
-    schema_version integer not null,
-    aggregate_id uuid not null,
-    family_id uuid,
-    correlation_id uuid not null,
-    occurred_at timestamptz not null,
-    payload jsonb not null,
-    published_at timestamptz,
-    attempts integer not null default 0,
-    last_error text,
-    created_at timestamptz not null default now()
-  )`);
-  await pool.query("create index if not exists ocr_jobs_status_created_idx on ocr_domain.ocr_jobs(status,created_at desc)");
-  await pool.query("create index if not exists ocr_drafts_job_idx on ocr_domain.ocr_drafts(job_id)");
+  await pool.query("select 1");
 }
 
 app.get("/health/live", (_req, res) => res.json({ status: "ok", service: "service-ocr" }));
