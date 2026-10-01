@@ -28,7 +28,7 @@ const jwks = createRemoteJWKSet(new URL(oidcJwksUrl));
 app.disable("x-powered-by");
 // First middleware: assigns requestId/traceId (or continues the ones sent by nginx/browser) and writes one access-log line per request.
 app.use(requestObservability());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "2mb", type: (req) => !String(req.headers["content-type"] ?? "").toLowerCase().startsWith("multipart/form-data") }));
 app.use(rebindContext());
 
 // Header d'identità interni: li imposta SOLO il gateway dopo aver verificato il JWT. Qualunque valore
