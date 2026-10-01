@@ -64,7 +64,11 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
 
   useEffect(() => {
     if (initialStock !== undefined) {
+      // Hydration/revalidation from the composite view is authoritative remote state.
+      // Establish the baseline before React state changes so it can never be mistaken
+      // for a user mutation by the synchronization effect.
       prevStockRef.current = initialStock;
+      skipNextSyncRef.current = true;
       setStockState(initialStock);
       setIsDemo(false);
       setDemoReason(null);
