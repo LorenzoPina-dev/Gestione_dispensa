@@ -214,7 +214,7 @@ app.get("/api/v1/views/notifications-screen", (req, res) => composite(req, res, 
 
 async function requireGatewayAuth(req: Request, res: Response, next: express.NextFunction) {
   const header = req.header("authorization");
-  if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: { code: "UNAUTHENTICATED", message: "Authentication is required.", retryable: false } });
+  if (!header?.startsWith("Bearer ")) return res.status(401).json(withMeta({ error: { code: "UNAUTHENTICATED", message: "Authentication is required.", retryable: false } }));
   if (!oidcIssuer || !oidcAudience) return res.status(503).json({ error: { code: "AUTH_NOT_CONFIGURED", message: "Gateway identity verification is not configured.", retryable: true } });
   try {
     const { payload } = await jwtVerify(header.slice(7), jwks, { issuer: oidcIssuer, audience: oidcAudience });
@@ -281,7 +281,15 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
         try { noteUpstreamFailure(JSON.parse(text), target); } catch { noteUpstreamFailure(undefined, target); }
       }
       res.status(upstream.status);
-      const contentType = upstream.headers.get("content-type"); if (contentType) res.setHeader("content-type",contentType);
+      const contentType = upstream.headers.get("content-type");
+      if (upstream.status >= 400) {
+        let body: unknown = undefined;
+        try { body = JSON.parse(text); } catch { body = undefined; }
+        const normalized = normalizeGatewayError(body, upstream.status);
+        res.json(normalized);
+        return;
+      }
+      if (contentType) res.setHeader("content-type", contentType);
       res.send(text);
     } catch (error) {
       recordError(error, { status: 502 });
@@ -298,7 +306,7 @@ async function composite(
 ): Promise<void> {
   const familyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
   if (!familyId) {
-    res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "familyId is required", retryable: false } });
+    res.status(400).json(withMeta({ error: { code: "VALIDATION_ERROR", message: "familyId is required", retryable: false } }));
     return;
   }
   if (/^[A-Za-z0-9._:-]{8,128}$/.test(familyId)) annotate({ familyId }); // log correlation only; user input, so shape-checked
@@ -542,6 +550,20 @@ function noteUpstreamFailure(body: unknown, target?: string): void {
 }
 
 /** Gateway-generated errors carry requestId/traceId so a user-visible failure can be quoted and found in Grafana. */
+function normalizeGatewayError(body: unknown, status: number): Record<string, unknown> {
+  const candidate = typeof body === "object" && body !== null ? body as Record<string, any> : {};
+  const error = typeof candidate.error === "object" && candidate.error !== null ? candidate.error as Record<string, any> : {};
+  const ctx = currentContext();
+  return withMeta({
+    error: {
+      code: typeof error.code === "string" ? error.code : status >= 500 ? "UPSTREAM_ERROR" : "HTTP_ERROR",
+      message: typeof error.message === "string" ? error.message : "The request could not be completed.",
+      details: Array.isArray(error.details) ? error.details : [],
+      retryable: typeof error.retryable === "boolean" ? error.retryable : status >= 500,
+      requestId: typeof error.requestId === "string" ? error.requestId : ctx.requestId,
+    },
+  }) as Record<string, unknown>;
+}
 function withMeta(body: unknown): unknown {
   const ctx = currentContext();
   if (!ctx || typeof body !== "object" || body === null || "meta" in body) return body;
