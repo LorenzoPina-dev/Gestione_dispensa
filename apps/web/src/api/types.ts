@@ -13,12 +13,6 @@ export interface UserDto {
   timezone: string;
   createdAt: string;
   updatedAt: string;
-  /** Client-side compatibility aliases populated only by the HTTP adapter. */
-  id?: string;
-  name?: string | null;
-  preferredUsername?: string | null;
-  activeFamilyId?: string | null;
-  roles?: string[];
 }
 export interface UserFamilySummaryDto {
   familyId: string;
