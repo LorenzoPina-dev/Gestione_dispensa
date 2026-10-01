@@ -215,7 +215,7 @@ Mai includere il token raw.
   "membershipId":"uuid",
   "familyId":"uuid",
   "userId":"uuid",
-  "role":"member"
+  "role":"owner|admin|member|viewer"
 }
 ```
 
