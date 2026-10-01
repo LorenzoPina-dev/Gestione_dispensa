@@ -4,6 +4,7 @@ import type {
   IdentifierType,
   Product,
   ProductProvenance,
+  CatalogVersionConflictError,
 } from "./service.js";
 import type {
   CatalogCandidateRepository,
@@ -49,6 +50,9 @@ interface ProductRow {
   fiber_per_100?: string | number | null;
   created_at: string;
   updated_at: string;
+  barcodes_json?: string | null;
+  external_source?: string | null;
+  external_ref?: string | null;
 }
 
 export class PostgresCatalogRepository implements CatalogRepository {
@@ -61,7 +65,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   public async listActive(): Promise<Product[]> {
     const result = await this.database.transaction();
     try {
-      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at, COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id = p.id), '[]') AS barcodes_json, p.external_source, p.external_ref FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
       await result.commit(); return rows.rows.map(mapProduct);
     } catch (error) { await result.rollback(); throw error; }
   }
@@ -105,6 +109,15 @@ export class PostgresCatalogRepository implements CatalogRepository {
           input.product.updatedAt,
         ],
       );
+      for (const barcode of input.product.barcodes) {
+        await transaction.query(
+          `INSERT INTO product_identifiers
+            (product_id, source_id, identifier_type, normalized_value, is_verified)
+           VALUES ($1, $2, 'BARCODE', $3, true)
+           ON CONFLICT DO NOTHING`,
+          [input.product.id, sourceId, barcode],
+        );
+      }
       await transaction.query(
         `INSERT INTO data_provenance
           (entity_type, entity_id, source_id, observed_at, source_version, confidence)
@@ -125,6 +138,88 @@ export class PostgresCatalogRepository implements CatalogRepository {
       throw error;
     }
   }
+  public async updateProductAtomic(input: {
+    productId: string;
+    expectedVersion: number;
+    patch: { name?: string; brand?: string | null; category?: string | null; imageObjectKey?: string | null; nutrition?: Record<string, unknown> | null };
+    event: CatalogUpdatedEvent;
+  }): Promise<Product | undefined> {
+    const transaction = await this.database.transaction();
+    try {
+      const current = await transaction.query<ProductRow>(
+        `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality,
+          p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100,
+          p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+          COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
+          p.external_source, p.external_ref
+         FROM products p LEFT JOIN brands b ON b.id=p.brand_id
+         WHERE p.id=$1 AND p.status='ACTIVE' FOR UPDATE`,
+        [input.productId],
+      );
+      const row = current.rows[0];
+      if (!row) {
+        await transaction.rollback();
+        return undefined;
+      }
+      if (row.version !== input.expectedVersion) {
+        await transaction.rollback();
+        throw new CatalogVersionConflictError();
+      }
+
+      const nutrition = input.patch.nutrition;
+      const kcal = nutrition && typeof nutrition.kcalPer100g === "number" ? nutrition.kcalPer100g : null;
+      const protein = nutrition && typeof nutrition.proteinGPer100g === "number" ? nutrition.proteinGPer100g : null;
+      const carbs = nutrition && typeof nutrition.carbsGPer100g === "number" ? nutrition.carbsGPer100g : null;
+      const fat = nutrition && typeof nutrition.fatGPer100g === "number" ? nutrition.fatGPer100g : null;
+      const fiber = nutrition && typeof nutrition.fiberGPer100g === "number" ? nutrition.fiberGPer100g : null;
+      const brandId = Object.hasOwn(input.patch, "brand")
+        ? await ensureBrand(transaction, input.patch.brand ?? undefined)
+        : undefined;
+
+      await transaction.query(
+        `UPDATE products SET
+          canonical_name=CASE WHEN $2 THEN $3 ELSE canonical_name END,
+          brand_id=CASE WHEN $4 THEN $5 ELSE brand_id END,
+          category=CASE WHEN $6 THEN $7 ELSE category END,
+          photo_url=CASE WHEN $8 THEN $9 ELSE photo_url END,
+          calories_per_100=CASE WHEN $10 THEN $11 ELSE calories_per_100 END,
+          protein_per_100=CASE WHEN $12 THEN $13 ELSE protein_per_100 END,
+          carbs_per_100=CASE WHEN $14 THEN $15 ELSE carbs_per_100 END,
+          fat_per_100=CASE WHEN $16 THEN $17 ELSE fat_per_100 END,
+          fiber_per_100=CASE WHEN $18 THEN $19 ELSE fiber_per_100 END,
+          updated_at=now(), version=version+1
+         WHERE id=$1`,
+        [
+          input.productId,
+          Object.hasOwn(input.patch,"name"), input.patch.name ?? null,
+          Object.hasOwn(input.patch,"brand"), brandId ?? null,
+          Object.hasOwn(input.patch,"category"), input.patch.category ?? null,
+          Object.hasOwn(input.patch,"imageObjectKey"), input.patch.imageObjectKey ?? null,
+          kcal !== null, kcal,
+          protein !== null, protein,
+          carbs !== null, carbs,
+          fat !== null, fat,
+          fiber !== null, fiber,
+        ],
+      );
+      const fresh = await transaction.query<ProductRow>(
+        `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality,
+          p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100,
+          p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+          COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
+          p.external_source, p.external_ref
+         FROM products p LEFT JOIN brands b ON b.id=p.brand_id WHERE p.id=$1`,
+        [input.productId],
+      );
+      await insertOutbox(transaction, input.event);
+      await transaction.commit();
+      return fresh.rows[0] ? mapProduct(fresh.rows[0]) : undefined;
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
 }
 
 export class PostgresCatalogLookupRepository implements CatalogLookupRepository {
@@ -341,5 +436,8 @@ function mapProduct(row: ProductRow): Product {
     ...(row.fiber_per_100 != null ? { fiber: Number(row.fiber_per_100) } : {}),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
+    barcodes: row.barcodes_json ? JSON.parse(row.barcodes_json) as string[] : [],
+    ...(row.external_source ? { externalSource: row.external_source } : {}),
+    ...(row.external_ref ? { externalRef: row.external_ref } : {}),
   };
 }
