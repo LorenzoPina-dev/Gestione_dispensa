@@ -648,6 +648,33 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EraseRequest'}}}}
       responses:
         '202': {description: Erasure job, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /internal/jobs:
+    post:
+      operationId: createInternalJob
+      tags: [Jobs]
+      security: [{internalServiceAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateJob'}
+      responses:
+        '202': {description: Job accepted, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /internal/jobs/{jobId}:
+    get:
+      operationId: getInternalJob
+      tags: [Jobs]
+      security: [{internalServiceAuth: []}]
+      parameters: [{$ref: '#/components/parameters/JobId'}]
+      responses:
+        '200': {description: Job status, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /views/dashboard-today:
     get:
       operationId: getDashboardTodayView
@@ -707,6 +734,10 @@ paths:
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
 components:
   securitySchemes:
+    internalServiceAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: service-token
     bearerAuth:
       type: http
       scheme: bearer
