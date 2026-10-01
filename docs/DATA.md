@@ -157,6 +157,22 @@ version integer NOT NULL
 
 Il token raw non viene persistito.
 
+### join_attempts
+
+```text
+id UUID PK
+invite_id UUID NOT NULL REFERENCES invites(id) ON DELETE CASCADE
+user_id UUID NOT NULL
+browser_binding_hash varchar(128) NOT NULL
+state varchar(32) NOT NULL -- PENDING_REVIEW|ACCEPTED|REJECTED|EXPIRED
+expires_at timestamptz NOT NULL
+created_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+version integer NOT NULL DEFAULT 1
+```
+
+`user_id` is a remote Identity ID. `invite_id` is a local Family FK.
+
 ## 6. inventory_db
 
 ### pantry_items — stato corrente
@@ -845,6 +861,16 @@ Ogni table deve dichiarare, in migration o retention policy, se è:
 
 La cancellazione privacy non può eliminare dati di un altro DB direttamente. Il service owner riceve un workflow di erasure e registra il proprio esito.
 
+## 24A. Forbidden physical aliases
+
+The following names are migration-era logical aliases only and MUST NOT be created as tables or schemas:
+
+- `shopping_lists` -> use `shopping_domain.lists`.
+- `shopping_items` -> use `shopping_domain.items`.
+- `product_barcodes` -> use `product_identifiers`.
+- `product_sources` -> use `data_sources` + `data_provenance`.
+- `dead_letters` -> use `dead_letter_jobs`.
+- `family_memberships` / `stock_items` / `stock_movements` are pre-2.0 names and MUST NOT be referenced by the current services.
 ## 25. Future schema evolution
 
 Sono consentiti:
