@@ -1,6 +1,7 @@
 import express from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
+import { registerAddMissingIngredientsRoute } from "./add-missing.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -222,6 +223,8 @@ app.get("/api/v1/recipes/suggestions",async(req,res)=>{
   const items=await Promise.all(q.rows.map(async row=>{const recipe=await loadRecipe(String(row.id),ctx.familyId);return {recipeId:recipe?.recipeId??String(row.id),score:1,missingIngredients:[]};}));
   return res.json({items});
 });
+
+registerAddMissingIngredientsRoute(app, pool);
 
 app.use((_req,res)=>res.status(404).json(errorBody("NOT_FOUND","Route not found.")));
 
