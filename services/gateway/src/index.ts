@@ -84,7 +84,7 @@ app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/logout", serviceProxy(identityBaseUrl));
 app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
 for (const [prefix, base] of [
-  ["/api/v1/auth", identityBaseUrl], ["/api/v1/me", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
+  ["/api/v1/auth", identityBaseUrl], ["/api/v1/me", identityBaseUrl], ["/api/v1/identity", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
   ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
   ["/api/v1/inventory", inventoryBaseUrl], ["/api/v1/shopping-lists", shoppingBaseUrl], ["/api/v1/shopping", shoppingBaseUrl],
   ["/api/v1/products", catalogBaseUrl], ["/api/v1/catalog", catalogBaseUrl],
@@ -161,7 +161,11 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     if (hasBody) headers["Content-Type"] = "application/json";
     // Headers the domain services depend on: RLS family context, idempotency and optimistic locking.
     // traceparent / x-request-id are added automatically by the instrumented fetch.
-    for (const name of ["x-user-id", "x-oidc-sub", "x-user-email", "x-user-name", "x-user-username", "x-family-id", "x-correlation-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    for (const name of ["x-user-id", "x-oidc-sub", "x-user-email", "x-user-name", "x-user-username", "x-correlation-id", "idempotency-key", "x-idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    // Family context is never accepted from a forged x-family-id header. Derive it from the
+    // validated request shape (query/body/path) and let the owning service authorize membership.
+    const familyId = extractFamilyId(req);
+    if (familyId) headers["x-family-id"] = familyId;
     const target = `${url.host}${url.pathname}`;
     annotate({ upstream: target });
     try {
@@ -214,7 +218,7 @@ async function dashboardView(familyId: string, authorization?: string) {
   const [family, members, pantry, shopping, recipes, notifications, ocr] = await Promise.all([
     coreGet(`/families/${encodeURIComponent(familyId)}`, authorization),
     coreGet(`/families/${encodeURIComponent(familyId)}/members`, authorization),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    coreGet("/inventory", authorization, { familyId }),
     coreGet("/shopping-lists/active", authorization, { familyId }),
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
@@ -228,7 +232,7 @@ async function dashboardView(familyId: string, authorization?: string) {
 
 async function pantryView(familyId: string, authorization?: string) {
   const [pantry, shopping, notifications] = await Promise.all([
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    coreGet("/inventory", authorization, { familyId }),
     coreGet("/shopping-lists/active", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
   ]);
@@ -360,17 +364,33 @@ async function serviceGet(baseUrl: string, path: string, authorization?: string,
   return (result.body?.data ?? result.body) as Record<string, any>;
 }
 
+function extractFamilyId(req: Request): string | undefined {
+  const queryFamilyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
+  const body = typeof req.body === "object" && req.body !== null && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : undefined;
+  const bodyFamilyId = typeof body?.familyId === "string" ? body.familyId.trim() : "";
+  const familyPath = req.originalUrl.match(/\/api\/v1\/famil(?:y|ies)(?:-invites)?\/([0-9a-f-]{8,64})/i)?.[1] ?? "";
+  const candidate = queryFamilyId || bodyFamilyId || familyPath;
+  return candidate || undefined;
+}
+
 async function callBase(baseUrl: string, path: string, authorization?: string, query?: Record<string, string>) {
   const url = new URL(`${baseUrl}${path}`);
   for (const [key, value] of Object.entries(query ?? {})) url.searchParams.set(key, value);
+  const ctx = currentContext();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    };
+    if (ctx?.userId) headers["x-user-id"] = ctx.userId;
+    const familyId = query?.familyId ?? ctx?.familyId;
+    if (familyId) headers["x-family-id"] = familyId;
     const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        ...(authorization ? { Authorization: authorization } : {}),
-      },
+      headers,
       signal: controller.signal,
     });
     const body = await response.json().catch(() => ({}));
