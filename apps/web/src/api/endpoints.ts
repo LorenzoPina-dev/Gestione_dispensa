@@ -334,16 +334,19 @@ export function listMovements(stockItemId: string): Promise<{ movements: Movemen
 
 // --- Recipes -----------------------------------------------------------------
 
-export function listRecipes(familyId: string): Promise<{ recipes: RecipeDto[] }> {
-  return apiRequest("/recipes", { query: { familyId } });
+export async function listRecipes(familyId: string): Promise<{ recipes: RecipeDto[] }> {
+  const result = await apiRequest<{ items: RecipeDto[]; nextCursor: string | null }>("/recipes", { query: { familyId } });
+  return { recipes: result.items };
 }
 
-export function listRecipeSuggestions(familyId: string): Promise<{ suggestions: RecipeMatchDto[] }> {
-  return apiRequest("/recipes/suggestions", { query: { familyId } });
+export async function listRecipeSuggestions(familyId: string): Promise<{ suggestions: RecipeMatchDto[] }> {
+  const result = await apiRequest<{ items: RecipeMatchDto[]; nextCursor?: string | null }>("/recipes/suggestions", { query: { familyId } });
+  return { suggestions: result.items };
 }
 
-export function getRecipe(familyId: string, recipeId: string): Promise<{ recipe: RecipeDto }> {
-  return apiRequest(`/recipes/${recipeId}`, { query: { familyId } });
+export async function getRecipe(familyId: string, recipeId: string): Promise<{ recipe: RecipeDto }> {
+  const result = await apiRequest<{ data: RecipeDto }>(`/recipes/${recipeId}`, { query: { familyId } });
+  return { recipe: result.data };
 }
 
 export function addRecipeMissingIngredients(
