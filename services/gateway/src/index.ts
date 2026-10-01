@@ -124,7 +124,7 @@ app.get("/api/v1/views/nutrition-screen", (req, res) => composite(req, res, nutr
 app.get("/api/v1/views/family-screen", (req, res) => composite(req, res, familyView));
 app.get("/api/v1/views/notifications-screen", (req, res) => composite(req, res, notificationsView));
 
-async function requireGatewayAuth(req: Request, res: Response, next: express.NextFunction) {
+async async function requireGatewayAuth(req: Request, res: Response, next: express.NextFunction) {
   const header = req.header("authorization");
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: { code: "UNAUTHENTICATED", message: "Authentication is required.", retryable: false } });
   if (!oidcIssuer || !oidcAudience) return res.status(503).json({ error: { code: "AUTH_NOT_CONFIGURED", message: "Gateway identity verification is not configured.", retryable: true } });
