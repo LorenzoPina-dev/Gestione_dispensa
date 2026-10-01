@@ -101,6 +101,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   const streamRef = useRef<MediaStream | null>(null);
   const [state, setState] = useState<BarcodeState>("IDLE");
   const [candidate, setCandidate] = useState<{
+    productId: string;
     name: string;
     brand?: string;
     unit: string;
@@ -292,6 +293,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
     const result = await api.resolveProductBarcode("BARCODE", code);
     if (result.status === "MATCHED" && result.product) {
       setCandidate({
+        productId: result.product.id,
         name: result.product.canonicalName,
         ...(result.product.brand ? { brand: result.product.brand } : {}),
         unit: result.product.defaultUnit,
@@ -400,6 +402,8 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   function confirmCandidate() {
     if (!candidate) return;
     setForm({
+      productId: candidate.productId,
+      barcode: manualCode,
       name: candidate.name,
       brand: candidate.brand,
       unit: candidate.unit,
@@ -415,6 +419,8 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
 
   function handleSave() {
     onAdd({
+      productId: form.productId,
+      barcode: form.barcode ?? manualCode ?? undefined,
       name: form.name ?? manualCode ?? "Prodotto sconosciuto",
       brand: form.brand,
       batches: [{ quantity: Number(qty), expiryDate: expiry || undefined }],
