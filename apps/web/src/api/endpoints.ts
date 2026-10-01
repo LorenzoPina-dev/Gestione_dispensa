@@ -1,5 +1,5 @@
 import { apiRequest, ApiError } from "./client";
-import type { ActiveShoppingListDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductUnit, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto } from "./types";
+import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductUnit, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto } from "./types";
 
 export function getReadiness(): Promise<ReadinessDto> { return apiRequest<ReadinessDto>("/health/ready"); }
 export async function getCurrentUser(): Promise<UserDto> {
@@ -50,7 +50,7 @@ export async function createFamilyInvite(familyId: string, input: { role: Invite
 }
 export function resolveInvite(token: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve", { method: "POST", body: { token, browserBindingHash } }); }
 export function resolveInviteByCode(code: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve-code", { method: "POST", body: { code, browserBindingHash } }); }
-export function acceptInvite(attemptId: string, consentVersion: string): Promise<JoinAttemptDto> { return apiRequest(`/invites/${attemptId}/accept`, { method: "POST", body: { consentVersion } }); }
+export function acceptInvite(attemptId: string, consentVersion: string): Promise<AcceptInviteResultDto> { return apiRequest(`/invites/${attemptId}/accept`, { method: "POST", body: { consentVersion } }); }
 interface FamiliesHttpResponse { items?: UserFamilySummaryDto[]; nextCursor?: string | null; }
 export interface FamiliesResult { families: UserFamilySummaryDto[]; nextCursor: string | null; }
 export async function listFamilies(): Promise<FamiliesResult> { const result = await apiRequest<FamiliesHttpResponse>("/families"); return { families: (result.items ?? []).map((f) => ({ ...f, displayName: f.name })), nextCursor: result.nextCursor ?? null }; }
