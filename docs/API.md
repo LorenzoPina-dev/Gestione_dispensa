@@ -190,7 +190,7 @@ Response 200:
 
 ### PATCH /families/{familyId}/members/{userId}
 
-Request: `{"role":"member"}`. Allowed role values: `admin` | `member`. Owner transfer is a dedicated future contract so ownership cannot be accidentally removed.
+Request: `{"role":"member"}`. Allowed role values: `admin` | `member` | `viewer`. Owner transfer is a dedicated future contract so ownership cannot be accidentally removed.
 
 Response 200: membership + version.
 
@@ -216,7 +216,7 @@ Request:
 ```json
 {"email":"invitee@example.com","role":"member","expiresInSeconds":86400}
 ```
-`role` = `member` oppure `admin`. `expiresInSeconds`: 3600..604800.
+`role` = `member`, `admin` oppure `viewer`. `expiresInSeconds`: 3600..604800. `email` è opzionale e viene usata solo come destinatario descrittivo dell'invito.
 
 Response 201:
 ```json
@@ -274,13 +274,6 @@ Response 200:
 ```
 Non concede membership.
 
-### POST /family-invites/{token}/accept
-
-Body `{}`. Response 201:
-```json
-{"data":{"familyId":"uuid","userId":"uuid","role":"member","joinedAt":"2026-09-30T15:30:00Z"},"version":1}
-```
-Richiede autenticazione. Token consumato atomicamente.
 
 ## 4. Inventory
 
