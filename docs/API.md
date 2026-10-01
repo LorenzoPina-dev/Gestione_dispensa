@@ -122,6 +122,36 @@ Request:
 
 Tutti i campi sono opzionali; almeno uno deve essere presente. Response 200 come GET.
 
+## 2A. Authentication operations
+
+These endpoints are part of the public application contract because registration, password reset and local logout are required before/after an authenticated Identity profile exists.
+
+### POST /auth/register
+
+Request:
+```json
+{"name":"Mario Rossi","email":"user@example.com","password":"..."}
+```
+Response 201:
+```json
+{"data":{"success":true,"message":"..."}}
+```
+
+### POST /auth/reset-password
+
+Request:
+```json
+{"email":"user@example.com"}
+```
+Response 202:
+```json
+{"data":{"accepted":true,"message":"..."}}
+```
+
+### POST /auth/logout
+
+No request body. Response 204. Logout is client-token disposal; the Identity service has no server-side browser session to invalidate.
+
 ## 3. Families
 
 ### GET /families
