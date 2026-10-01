@@ -418,6 +418,15 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   }
 
   function handleSave() {
+    const parsedQty = Number(qty);
+    if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+      setCameraError("Inserisci una quantità maggiore di zero.");
+      return;
+    }
+    if (!form.name?.trim() && !manualCode.trim()) {
+      setCameraError("Inserisci il nome del prodotto.");
+      return;
+    }
     onAdd({
       productId: form.productId,
       barcode: form.barcode ?? manualCode ?? undefined,
@@ -505,10 +514,20 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
 
       {/* LOOKING — waiting on local DB / worker / Open Food Facts */}
       {state === "LOOKING" && (
-        <div className="space-y-4 text-center py-10">
+        <div className="space-y-4 py-8 text-center">
+          {manualCode && (
+            <div className="rounded-2xl p-4 text-left" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
+              <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "#6b5e4e" }}>Barcode rilevato</p>
+              <p className="mt-1 font-mono text-lg tracking-[0.18em] font-semibold" style={{ color: "#1a1510" }}>
+                {manualCode}
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "#6b5e4e" }}>
+                Il server sta cercando il prodotto nel catalogo locale e, se necessario, in Open Food Facts.
+              </p>
+            </div>
+          )}
           <div className="w-10 h-10 mx-auto rounded-full animate-spin" style={{ border: "3px solid #ede6d6", borderTopColor: "#c4623a" }} />
-          <p className="text-sm" style={{ color: "#6b5e4e" }}>Ricerca del codice {manualCode}…</p>
-          <p className="text-xs" style={{ color: "#6b5e4e" }}>Controllo prima il catalogo locale, poi Open Food Facts se necessario.</p>
+          <p className="text-sm font-medium" style={{ color: "#6b5e4e" }}>Ricerca prodotto…</p>
         </div>
       )}
 
@@ -648,7 +667,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
           expiry={expiry}
           setExpiry={setExpiry}
           onSave={handleSave}
-          onCancel={() => setState("CANDIDATE")}
+          onCancel={() => setState(candidate ? "CANDIDATE" : "NOT_FOUND")}
           submitLabel="Carica in dispensa"
           isConfirm={state === "CONFIRMED"}
         />
