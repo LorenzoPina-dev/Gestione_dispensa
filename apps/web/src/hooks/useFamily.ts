@@ -98,8 +98,8 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
     async (invite: Invite): Promise<Invite> => {
       if (!effectiveFamilyId) return invite;
       const expiresInSeconds = Math.max(
-        60,
-        Math.min(86_400, Math.round((new Date(invite.expiresAt).getTime() - Date.now()) / 1000)),
+        3_600,
+        Math.min(172_800, Math.round((new Date(invite.expiresAt).getTime() - Date.now()) / 1000)),
       );
       const created = await api.createFamilyInvite(effectiveFamilyId, {
         role: INVITE_ROLE_TO_API[invite.role],
