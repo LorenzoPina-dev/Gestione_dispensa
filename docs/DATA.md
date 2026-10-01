@@ -121,7 +121,7 @@ version integer NOT NULL
 id UUID PK
 family_id UUID NOT NULL
 user_id UUID NOT NULL
-role varchar NOT NULL -- owner|admin|member
+role varchar NOT NULL -- owner|admin|member|viewer
 joined_at timestamptz NOT NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
@@ -703,7 +703,7 @@ Gli indici possono essere aggiunti se il benchmark lo dimostra, ma non devono al
 
 ### Family
 - una coppia `(family_id,user_id)` identifica una sola membership;
-- role ∈ owner|admin|member;
+- role ∈ owner|admin|member|viewer;
 - una family deve avere almeno un owner;
 - invite token raw non è persistito;
 - accepted/revoked/expired invite non può essere riutilizzato.
