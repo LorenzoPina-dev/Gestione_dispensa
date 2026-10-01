@@ -218,7 +218,17 @@ async function getActiveShopping(familyId: string, authorization?: string): Prom
   const lists = await serviceGet(shoppingBaseUrl, "/shopping/lists", authorization, { familyId });
   const active = Array.isArray(lists.items) ? lists.items.find((item: any) => item.status === "open") : undefined;
   if (!active) return undefined;
-  return serviceGet(shoppingBaseUrl, `/shopping/lists/${encodeURIComponent(String(active.listId))}`, authorization);
+  const detail = await serviceGet(shoppingBaseUrl, `/shopping/lists/${encodeURIComponent(String(active.listId))}`, authorization);
+  return {
+    list: {
+      listId: String(detail.listId),
+      name: String(detail.name),
+      status: detail.status,
+      itemCount: Array.isArray(detail.items) ? detail.items.length : 0,
+      version: Number(detail.version ?? active.version ?? 1),
+    },
+    items: Array.isArray(detail.items) ? detail.items : [],
+  };
 }
 
 async function dashboardView(familyId: string, authorization?: string) {
@@ -259,11 +269,11 @@ async function recipesView(familyId: string, authorization?: string) {
   const [recipes, pantry, shopping, notifications] = await Promise.all([
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
     coreGet("/inventory", authorization, { familyId }),
-    coreGet("/shopping-lists/active", authorization, { familyId }),
+    getActiveShopping(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, shopping, notifications, {
-    suggestedRecipes: recipes.suggestions ?? [],
+    suggestedRecipes: recipes.items ?? [],
   });
 }
 
@@ -295,7 +305,7 @@ async function familyView(familyId: string, authorization?: string) {
 async function notificationsView(familyId: string, authorization?: string) {
   const [notifications, pantry] = await Promise.all([
     coreGet("/notifications", authorization, { familyId }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    coreGet("/inventory", authorization, { familyId }),
   ]);
   return {
     familyId,
@@ -316,10 +326,10 @@ function composeCommon(
   return {
     familyId,
     family: family?.family ?? family,
-    members: members?.memberships ?? [],
+    members: members?.items ?? [],
     pantry: pantry?.items ?? [],
     shopping: shopping ?? null,
-    notifications: notifications?.notifications ?? [],
+    notifications: notifications?.items ?? [],
     ...extra,
     navigationSummary: navigationSummary(pantry, shopping, notifications),
   };
@@ -342,8 +352,8 @@ function navigationSummary(
     if (days <= 0) expired += 1;
     else if (days <= 5) expiringSoon += 1;
   }
-  const unread = Array.isArray(notifications?.notifications)
-    ? notifications.notifications.filter((n: any) => !n.readAt).length
+  const unread = Array.isArray(notifications?.items)
+    ? notifications.items.filter((n: any) => !n.readAt).length
     : 0;
   const pendingShopping = Array.isArray(shopping?.items)
     ? shopping.items.filter((i: any) => i.state === "ACCEPTED").length
