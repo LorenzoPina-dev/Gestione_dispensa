@@ -9,6 +9,7 @@ export type BarcodeResolutionStatus = "MATCHED" | "UNKNOWN" | "DEGRADED";
 
 export interface BarcodeResolution {
   status: BarcodeResolutionStatus;
+  resolution: "cache" | "provider";
   identifierType: IdentifierType;
   normalizedValue: string;
   product: Product | undefined;
@@ -118,11 +119,11 @@ export class CatalogWorkflowService {
 
     const local = await this.lookup.findByIdentifier({ identifierType, normalizedValue });
     if (local !== undefined) {
-      return { status: "MATCHED", identifierType, normalizedValue, product: local };
+      return { status: "MATCHED", resolution: "cache", identifierType, normalizedValue, product: local };
     }
 
     if (this.externalLookup === undefined) {
-      return { status: "UNKNOWN", identifierType, normalizedValue, product: undefined };
+      return { status: "UNKNOWN", resolution: "provider", identifierType, normalizedValue, product: undefined };
     }
 
     try {
@@ -136,9 +137,9 @@ export class CatalogWorkflowService {
         match,
         traceId,
       });
-      return { status: "MATCHED", identifierType, normalizedValue, product };
+      return { status: "MATCHED", resolution: "provider", identifierType, normalizedValue, product };
     } catch {
-      return { status: "DEGRADED", identifierType, normalizedValue, product: undefined };
+      return { status: "DEGRADED", resolution: "provider", identifierType, normalizedValue, product: undefined };
     }
   }
 
