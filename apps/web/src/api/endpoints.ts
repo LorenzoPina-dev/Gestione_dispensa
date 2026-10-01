@@ -156,8 +156,9 @@ export async function listFamilies(): Promise<FamiliesResult> {
   };
 }
 
-export function listFamilyMembers(familyId: string): Promise<{ memberships: ManagedMembershipDto[] }> {
-  return apiRequest(`/families/${familyId}/members`);
+export async function listFamilyMembers(familyId: string): Promise<{ memberships: ManagedMembershipDto[] }> {
+  const result = await apiRequest<{ items: ManagedMembershipDto[]; nextCursor: string | null }>(`/families/${familyId}/members`);
+  return { memberships: result.items };
 }
 
 export function updateFamilyMembership(
@@ -165,7 +166,7 @@ export function updateFamilyMembership(
   membershipId: string,
   input: { role: MembershipRole | "ADMIN"; status: "ACTIVE" | "SUSPENDED" },
 ): Promise<ManagedMembershipDto> {
-  return apiRequest(`/families/${familyId}/members/${membershipId}`, { method: "PATCH", body: input });
+  return apiRequest(`/families/${familyId}/members/${membershipId}`, { method: "PATCH", body: { role: input.role.toLowerCase() } });
 }
 
 export function removeFamilyMembership(
