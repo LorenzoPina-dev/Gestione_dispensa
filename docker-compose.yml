@@ -282,7 +282,9 @@ services:
   service-nutrition:
     build: { context: ., dockerfile: services/service-nutrition/Dockerfile }
     environment: { PORT: 3402, SERVICE_NAME: service-nutrition, DATABASE_URL: "postgres://nutrition:nutrition@postgres:5432/nutrition_db", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1" }
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      service-catalog: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
