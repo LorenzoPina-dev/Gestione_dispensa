@@ -1,13 +1,213 @@
-import express from "express";import {Pool} from "pg";import crypto from "node:crypto";
-const app=express();app.use(express.json({limit:"1mb"}));const port=Number(process.env.PORT??3402);const pool=new Pool({connectionString:process.env.DATABASE_URL});
-const fail=(res:express.Response,s:number,c:string,m:string)=>res.status(s).json({error:{code:c,message:m,details:[],requestId:crypto.randomUUID()}});
-async function init(){await pool.query(`create schema if not exists nutrition_domain`);await pool.query(`create table if not exists nutrition_domain.targets(user_id uuid primary key,calories_kcal numeric not null,protein_g numeric not null,carbs_g numeric not null,fat_g numeric not null,version integer not null default 1)`);await pool.query(`create table if not exists nutrition_domain.diary(id uuid primary key,user_id uuid not null,date date not null,meal varchar(32) not null,product_id uuid not null,quantity numeric not null,unit varchar(16) not null,source varchar(32) not null,version integer not null default 1,created_at timestamptz not null default now())`);}
-app.get("/health/live",(_q,r)=>r.json({status:"ok",service:"service-nutrition"}));app.get("/health/ready",async(_q,r)=>{try{await pool.query("select 1");r.json({status:"ready"})}catch{r.status(503).json({status:"not_ready"})}});
-const user=(req:express.Request)=>String(req.header("x-user-id")??"");
-const targetDto=(x:any)=>({caloriesKcal:Number(x.calories_kcal),proteinG:Number(x.protein_g),carbsG:Number(x.carbs_g),fatG:Number(x.fat_g),version:x.version});
-app.get("/api/v1/nutrition/targets",async(req,res)=>{const u=user(req);if(!u)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");let q=await pool.query("select * from nutrition_domain.targets where user_id=$1",[u]);if(!q.rowCount){q=await pool.query("insert into nutrition_domain.targets(user_id,calories_kcal,protein_g,carbs_g,fat_g) values($1,2000,100,250,70) returning *",[u])}res.json({data:targetDto(q.rows[0])})});
-app.put("/api/v1/nutrition/targets",async(req,res)=>{const u=user(req),b=req.body??{};if(!u)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");for(const k of ["caloriesKcal","proteinG","carbsG","fatG"])if(!Number.isFinite(Number(b[k]))||Number(b[k])<0)return fail(res,400,"VALIDATION_ERROR",`${k} must be non-negative.`);const q=await pool.query(`insert into nutrition_domain.targets(user_id,calories_kcal,protein_g,carbs_g,fat_g) values($1,$2,$3,$4,$5) on conflict(user_id) do update set calories_kcal=excluded.calories_kcal,protein_g=excluded.protein_g,carbs_g=excluded.carbs_g,fat_g=excluded.fat_g,version=nutrition_domain.targets.version+1 returning *`,[u,b.caloriesKcal,b.proteinG,b.carbsG,b.fatG]);res.json({data:targetDto(q.rows[0]),version:q.rows[0].version})});
-app.get("/api/v1/nutrition/diary",async(req,res)=>{const u=user(req);if(!u)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");const q=await pool.query("select * from nutrition_domain.diary where user_id=$1 and ($2='' or date >= $2::date) and ($3='' or date <= $3::date) order by date desc,created_at desc limit $4",[u,String(req.query.from??""),String(req.query.to??""),Math.min(Math.max(Number(req.query.limit??50),1),100)]);res.json({items:q.rows.map(x=>({entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source})),nextCursor:null})});
-app.post("/api/v1/nutrition/diary",async(req,res)=>{const u=user(req),b=req.body??{};if(!u)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");if(!b.date||!b.meal||!b.productId||!Number.isFinite(Number(b.quantity))||Number(b.quantity)<=0||!b.unit)return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity and unit are required.");const id=crypto.randomUUID();const q=await pool.query("insert into nutrition_domain.diary(id,user_id,date,meal,product_id,quantity,unit,source) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[id,u,b.date,b.meal,b.productId,b.quantity,b.unit,b.source??"manual"]);const x=q.rows[0];res.status(201).json({data:{entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source},version:x.version})});
-app.get("/api/v1/nutrition/summary",async(req,res)=>{const u=user(req);if(!u)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");const t=await pool.query("select * from nutrition_domain.targets where user_id=$1",[u]);res.json({data:{caloriesKcal:t.rowCount?Number(t.rows[0].calories_kcal):2000,proteinG:t.rowCount?Number(t.rows[0].protein_g):100,carbsG:t.rowCount?Number(t.rows[0].carbs_g):250,fatG:t.rowCount?Number(t.rows[0].fat_g):70,period:String(req.query.period??"today")}})});
-app.use((_q,r)=>fail(r,404,"NOT_FOUND","Route not found."));init().then(()=>app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-nutrition",port}))).catch(e=>{console.error(e);process.exit(1)});
+import express, { type Request, type Response } from "express";
+import { Pool, type PoolClient } from "pg";
+import crypto from "node:crypto";
+
+const app = express();
+app.disable("x-powered-by");
+app.use(express.json({ limit: "1mb" }));
+
+const port = Number(process.env.PORT ?? 3402);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+type Body = Record<string, unknown>;
+
+const fail = (res: Response, status: number, code: string, message: string): Response =>
+  res.status(status).json({ error: { code, message, details: [], requestId: crypto.randomUUID() } });
+
+const actor = (req: Request): string => String(req.header("x-user-id") ?? "").trim();
+const key = (req: Request): string | null => {
+  const value = String(req.header("x-idempotency-key") ?? "").trim();
+  return value.length >= 8 ? value : null;
+};
+const match = (req: Request): number | null => {
+  const value = req.header("if-match");
+  if (!value) return null;
+  const parsed = Number(value.replace(/^W\/?/i, "").replace(/"/g, ""));
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
+};
+const hash = (value: unknown): string => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+async function beginIdempotency(client: PoolClient, req: Request, body: unknown) {
+  const idempotencyKey = key(req);
+  const userId = actor(req);
+  if (!idempotencyKey || !userId) return { kind: "missing" as const };
+
+  const requestHash = hash(body);
+  const existing = await client.query(
+    "select actor_user_id,request_hash,status,response_status,response_body from nutrition_domain.idempotency_keys where key=$1 for update",
+    [idempotencyKey],
+  );
+
+  if (existing.rowCount) {
+    const row = existing.rows[0];
+    if (String(row.actor_user_id) !== userId || row.request_hash !== requestHash) return { kind: "conflict" as const };
+    if (row.status === "completed") return { kind: "replay" as const, status: Number(row.response_status), response: row.response_body };
+    return { kind: "new" as const };
+  }
+
+  await client.query(
+    `insert into nutrition_domain.idempotency_keys(key,actor_user_id,family_id,request_hash,status,created_at,expires_at)
+     values($1,$2,null,$3,'processing',now(),now()+interval '24 hours')`,
+    [idempotencyKey, userId, requestHash],
+  );
+  return { kind: "new" as const };
+}
+
+async function finishIdempotency(client: PoolClient, req: Request, status: number, response: unknown): Promise<void> {
+  const idempotencyKey = key(req);
+  if (!idempotencyKey) return;
+  await client.query(
+    "update nutrition_domain.idempotency_keys set status='completed',response_status=$2,response_body=$3 where key=$1",
+    [idempotencyKey, status, JSON.stringify(response)],
+  );
+}
+
+async function emitOutbox(client: PoolClient, type: string, aggregateId: string, userId: string, payload: unknown): Promise<void> {
+  await client.query(
+    `insert into nutrition_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
+     values($1,$2,1,$3,null,$4,now(),$5::jsonb,now())`,
+    [crypto.randomUUID(), type, aggregateId, userId, JSON.stringify(payload)],
+  );
+}
+
+const targetDto = (row: Record<string, unknown>) => ({
+  caloriesKcal: Number(row.calories_kcal),
+  proteinG: Number(row.protein_g),
+  carbsG: Number(row.carbs_g),
+  fatG: Number(row.fat_g),
+  version: Number(row.version),
+});
+
+async function init(): Promise<void> {
+  await pool.query(`create schema if not exists nutrition_domain`);
+  await pool.query(`create table if not exists nutrition_domain.targets(
+    user_id uuid primary key,
+    calories_kcal numeric(10,2) not null check(calories_kcal>=0),
+    protein_g numeric(10,2) not null check(protein_g>=0),
+    carbs_g numeric(10,2) not null check(carbs_g>=0),
+    fat_g numeric(10,2) not null check(fat_g>=0),
+    updated_at timestamptz not null default now(),
+    version integer not null default 1
+  )`);
+  await pool.query(`create table if not exists nutrition_domain.diary_entries(
+    id uuid primary key,
+    user_id uuid not null,
+    date date not null,
+    meal varchar(32) not null,
+    product_id uuid not null,
+    quantity numeric(14,3) not null check(quantity>0),
+    unit varchar(16) not null,
+    source varchar(32) not null check(source in ('manual','inventory')),
+    source_movement_id uuid null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    version integer not null default 1
+  )`);
+  await pool.query(`create table if not exists nutrition_domain.idempotency_keys(
+    key varchar(255) primary key,
+    actor_user_id uuid not null,
+    family_id uuid null,
+    request_hash varchar(64) not null,
+    status varchar(16) not null check(status in ('processing','completed','failed')),
+    response_status integer null,
+    response_body jsonb null,
+    created_at timestamptz not null default now(),
+    expires_at timestamptz not null
+  )`);
+  await pool.query(`create table if not exists nutrition_domain.outbox_events(
+    event_id uuid primary key,
+    event_type varchar(128) not null,
+    schema_version integer not null,
+    aggregate_id uuid not null,
+    family_id uuid null,
+    correlation_id uuid not null,
+    occurred_at timestamptz not null,
+    payload jsonb not null,
+    published_at timestamptz null,
+    attempts integer not null default 0,
+    last_error text null,
+    created_at timestamptz not null
+  )`);
+  await pool.query("create index if not exists nutrition_diary_user_date_idx on nutrition_domain.diary_entries(user_id,date desc,created_at desc)");
+  await pool.query("create index if not exists nutrition_outbox_publish_idx on nutrition_domain.outbox_events(published_at,created_at)");
+}
+
+app.get("/health/live", (_req,res) => res.json({status:"ok",service:"service-nutrition"}));
+app.get("/health/ready", async (_req,res) => {
+  try { await pool.query("select 1"); res.json({status:"ready",service:"service-nutrition"}); }
+  catch { res.status(503).json({status:"not_ready",service:"service-nutrition"}); }
+});
+
+app.get("/api/v1/nutrition/targets", async (req,res) => {
+  const userId=actor(req); if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const q=await pool.query("select * from nutrition_domain.targets where user_id=$1",[userId]);
+  const row=q.rows[0] as Record<string,unknown>|undefined;
+  return res.json({data: row ? targetDto(row) : {caloriesKcal:2000,proteinG:100,carbsG:250,fatG:70,version:1}});
+});
+
+app.put("/api/v1/nutrition/targets", async(req,res)=>{
+  const userId=actor(req), idempotencyKey=key(req), version=match(req);
+  if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  if(!idempotencyKey||version===null)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key and If-Match are required.");
+  const body=req.body as Body;
+  for(const field of ["caloriesKcal","proteinG","carbsG","fatG"]) if(!Number.isFinite(Number(body[field]))||Number(body[field])<0)return fail(res,400,"VALIDATION_ERROR",`${field} must be non-negative.`);
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const idem=await beginIdempotency(client,req,body);
+    if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}
+    if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}
+    if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
+    const current=await client.query("select * from nutrition_domain.targets where user_id=$1 for update",[userId]);
+    if(!current.rowCount && version!==1){await client.query("rollback");return fail(res,412,"PRECONDITION_FAILED","Target version changed.");}
+    if(current.rowCount && Number(current.rows[0].version)!==version){await client.query("rollback");return fail(res,412,"PRECONDITION_FAILED","Target version changed.");}
+    const q=await client.query(
+      `insert into nutrition_domain.targets(user_id,calories_kcal,protein_g,carbs_g,fat_g)
+       values($1,$2,$3,$4,$5)
+       on conflict(user_id) do update set calories_kcal=excluded.calories_kcal,protein_g=excluded.protein_g,carbs_g=excluded.carbs_g,fat_g=excluded.fat_g,updated_at=now(),version=nutrition_domain.targets.version+1
+       returning *`,
+      [userId,body.caloriesKcal,body.proteinG,body.carbsG,body.fatG],
+    );
+    const row=q.rows[0] as Record<string,unknown>; const response={data:targetDto(row),version:Number(row.version)};
+    await emitOutbox(client,"NutritionTargetUpdated",userId,userId,response);
+    await finishIdempotency(client,req,200,response); await client.query("commit"); return res.json(response);
+  }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to update nutrition target.");}
+  finally{client.release();}
+});
+
+app.get("/api/v1/nutrition/diary", async(req,res)=>{
+  const userId=actor(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const limit=Math.min(Math.max(Number(req.query.limit??50),1),100),offset=Math.max(Number(req.query.cursor??0),0);
+  const from=String(req.query.from??""),to=String(req.query.to??"");
+  const q=await pool.query(
+    `select id,date,meal,product_id,quantity,unit,source,source_movement_id,created_at,updated_at,version
+     from nutrition_domain.diary_entries where user_id=$1 and ($2='' or date >= $2::date) and ($3='' or date <= $3::date)
+     order by date desc,created_at desc limit $4 offset $5`,
+    [userId,from,to,limit,offset],
+  );
+  return res.json({items:q.rows.map(x=>({entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source})),nextCursor:q.rows.length===limit?String(offset+limit):null});
+});
+
+app.post("/api/v1/nutrition/diary", async(req,res)=>{
+  const userId=actor(req),idempotencyKey=key(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
+  const body=req.body as Body;const quantity=Number(body.quantity);const source=body.source===undefined?"manual":String(body.source);
+  if(typeof body.date!=="string"||typeof body.meal!=="string"||typeof body.productId!=="string"||!Number.isFinite(quantity)||quantity<=0||typeof body.unit!=="string"||!["manual","inventory"].includes(source))return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity, unit and a valid source are required.");
+  const client=await pool.connect();
+  try{await client.query("begin");const idem=await beginIdempotency(client,req,body);if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
+    const id=crypto.randomUUID();
+    const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,[id,userId,body.date,body.meal,body.productId,quantity,body.unit,source,body.sourceMovementId??null]);
+    const x=q.rows[0];const response={data:{entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source},version:x.version};
+    await emitOutbox(client,"NutritionEntryRecorded",id,userId,response);await finishIdempotency(client,req,201,response);await client.query("commit");return res.status(201).json(response);
+  }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to record diary entry.");}finally{client.release();}
+});
+
+app.get("/api/v1/nutrition/summary", async(req,res)=>{
+  const userId=actor(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const period=String(req.query.period??"today");if(period!=="today"&&period!=="week")return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
+  const q=await pool.query("select * from nutrition_domain.targets where user_id=$1",[userId]);
+  const row=q.rows[0] as Record<string,unknown>|undefined;
+  return res.json({data:{caloriesKcal:row?Number(row.calories_kcal):2000,proteinG:row?Number(row.protein_g):100,carbsG:row?Number(row.carbs_g):250,fatG:row?Number(row.fat_g):70,period}});
+});
+
+app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
+init().then(()=>app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-nutrition",port})))).catch(e=>{console.error(e);process.exit(1)});
