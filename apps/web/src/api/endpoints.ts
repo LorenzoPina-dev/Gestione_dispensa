@@ -25,7 +25,11 @@ export function logoutSession(): Promise<void> { return apiRequest<void>("/auth/
 export async function getFamily(): Promise<{ id: string; displayName: string } | null> { const f = (await listFamilies()).families[0]; return f ? { id: f.familyId, displayName: f.displayName ?? f.name } : null; }
 export interface RegisterPayload { name: string; email: string; password: string; }
 export function registerUser(payload: RegisterPayload): Promise<{ success: boolean; message: string }> { return apiRequest("/auth/register", { method: "POST", body: payload }); }
-export function createFamily(name: string): Promise<FamilyCreationResultDto> {\n  const familyName = name.trim();\n  if (!familyName) throw new Error("Family name is required.");\n  return apiRequest<FamilyCreationResultDto>("/families", { method: "POST", body: { name: familyName } });\n}
+export function createFamily(name: string): Promise<FamilyCreationResultDto> {
+  const familyName = name.trim();
+  if (!familyName) throw new Error("Family name is required.");
+  return apiRequest<FamilyCreationResultDto>("/families", { method: "POST", body: { name: familyName } });
+}
 export async function listFamilyInvites(familyId: string): Promise<{ invites: Array<{ id: string; inviteId: string; role: InviteRole; status: "CREATED"|"REVOKED"|"CONSUMED"|"EXPIRED"; expiresAt: string; fallbackCode?: string; qrPayload?: string; createdAt: string; version: number }> }> {
   const result = await apiRequest<{ items: Array<{ inviteId: string; email?: string; role: "admin"|"member"|"viewer"; status: string; expiresAt: string; createdAt: string; version: number }>; nextCursor: string | null }>(`/families/${familyId}/invites`);
   return {
