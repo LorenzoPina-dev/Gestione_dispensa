@@ -273,8 +273,16 @@ services:
 
   service-recipes:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
-    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
-    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      PORT: 3401
+      SERVICE_NAME: service-recipes
+      DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db"
+      INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1"
+      SHOPPING_SERVICE_BASE_URL: "http://service-shopping:3313/api/v1"
+    depends_on:
+      postgres: { condition: service_healthy }
+      service-inventory: { condition: service_healthy }
+      service-shopping: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
