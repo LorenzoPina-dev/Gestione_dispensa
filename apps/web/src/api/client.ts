@@ -49,7 +49,7 @@ export class NetworkUnavailableError extends Error {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   /** Required by mutating endpoints (create/movement/invite create, ...). */
   idempotencyKey?: string;
@@ -272,7 +272,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const trace = newTraceContext();
   headers.traceparent = `00-${trace.traceId}-${trace.spanId}-01`;
   headers["X-Request-Id"] = trace.requestId;
-  if (idempotencyKey) headers["X-Idempotency-Key"] = idempotencyKey;
+  if (method !== "GET" && method !== "HEAD") headers["X-Idempotency-Key"] = idempotencyKey ?? newIdempotencyKey();
   if (ifMatch !== undefined) headers["If-Match"] = String(ifMatch);
 
   const token = isPublic ? undefined : ((await ensureFreshAccessToken()) ?? DEV_BEARER_TOKEN);
