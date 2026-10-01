@@ -212,7 +212,7 @@ export function parseCreateProductBody(body: Body): {
     if (body[field] !== undefined && (!Number.isFinite(Number(body[field])) || Number(body[field]) < 0)) return undefined;
   }
   if (body.barcodes !== undefined) {
-    if (!Array.isArray(body.barcodes) || body.barcodes.some((value) => typeof value !== "string" || !/^\d{8,14}$/.test(value.trim()))) return undefined;
+    if (!Array.isArray(body.barcodes) || body.barcodes.some((value) => typeof value !== "string" || !/^(?:\d{8}|\d{12}|\d{13}|\d{14})$/.test(value.trim()))) return undefined;
     const barcodes = [...new Set(body.barcodes.map((value) => value.trim()))];
     return { canonicalName: body.name.trim(), defaultUnit: defaultUnit as ProductUnit,
       ...(body.brand ? { brand: body.brand.trim() } : {}),
