@@ -253,7 +253,7 @@ export function getActiveShoppingList(familyId: string): Promise<ActiveShoppingL
       meta: { requestId: "", traceId: "", schemaVersion: "2.0" },
     });
   }
-  return apiRequest<ActiveShoppingListDto>(`/shopping/lists/${active.listId}`);
+  return apiRequest<{ data: { listId: string; name: string; status: "open" | "closed"; items: ShoppingItemDto[]; version: number } }>(`/shopping/lists/${active.listId}`, { query: { familyId } }).then((result) => ({ list: { listId: result.data.listId, name: result.data.name, status: result.data.status, version: result.data.version }, items: result.data.items }));
 }
 
 export function createShoppingList(familyId: string, name: string): Promise<{
