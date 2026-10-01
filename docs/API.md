@@ -411,7 +411,7 @@ Request: `{"familyId":"uuid","name":"Spesa"}`. `familyId` identifica la famiglia
 
 Response 200:
 ```json
-{"data":{"listId":"uuid","name":"Spesa","status":"open","items":[{"itemId":"uuid","productId":"uuid","label":"Latte","quantity":2,"unit":"L","checked":false}],"version":2}}
+{"data":{"listId":"uuid","name":"Spesa","status":"open","items":[{"itemId":"uuid","productId":"uuid","label":"Latte","quantity":2,"unit":"L","checked":false,"version":1}],"version":2}}
 ```
 
 ### POST /shopping/lists/{listId}/items
@@ -424,7 +424,7 @@ Response 201 item + version.
 
 ### PATCH /shopping/lists/{listId}/items/{itemId}
 
-Request: any of `label`, `quantity`, `unit`, `checked`. Response 200.
+Request: any of `label`, `quantity`, `unit`, `checked`. Requires `If-Match` containing the current item `version` and `X-Idempotency-Key`. Response 200: item + version.
 
 ### DELETE /shopping/lists/{listId}/items/{itemId}
 
