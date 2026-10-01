@@ -537,7 +537,7 @@ export default function App() {
         items={visibleNav}
         currentTab={currentTab}
         onSelect={(nextTab) => setTab(nextTab as Tab)}
-        getBadge={navBadge}
+        getBadge={(key) => navBadge(key as Tab)}
       />
 
       {showLogoutConfirm && (
