@@ -84,17 +84,16 @@ app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/logout", serviceProxy(identityBaseUrl));
 app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
 for (const [prefix, base] of [
-  ["/api/v1/auth", identityBaseUrl], ["/api/v1/me", identityBaseUrl], ["/api/v1/identity", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
-  ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
-  ["/api/v1/inventory", inventoryBaseUrl], ["/api/v1/shopping-lists", shoppingBaseUrl], ["/api/v1/shopping", shoppingBaseUrl],
-  ["/api/v1/products", catalogBaseUrl], ["/api/v1/catalog", catalogBaseUrl],
+  ["/api/v1/identity", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
+  ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl],
+  ["/api/v1/inventory", inventoryBaseUrl], ["/api/v1/shopping", shoppingBaseUrl],
+  ["/api/v1/catalog", catalogBaseUrl],
   ["/api/v1/notifications", notificationsBaseUrl], ["/api/v1/privacy", privacyBaseUrl], ["/api/v1/jobs", jobsBaseUrl],
 ] as const) app.use(prefix, requireGatewayAuth, serviceProxy(base));
 app.use("/api/v1/recipes", requireGatewayAuth, serviceProxy(recipesBaseUrl));
 app.use("/api/v1/nutrition", requireGatewayAuth, serviceProxy(nutritionBaseUrl));
 app.use("/api/v1/stores", requireGatewayAuth, serviceProxy(storesBaseUrl));
 app.use("/api/v1/shelf-life", requireGatewayAuth, serviceProxy(`${process.env.SHELF_LIFE_SERVICE_BASE_URL ?? "http://service-shelf-life:3404/api/v1"}`));
-app.use("/api/v1/ocr-jobs", requireGatewayAuth, serviceProxy(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`));
 app.use("/api/v1/ocr", requireGatewayAuth, serviceProxy(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`));
 
 
@@ -229,7 +228,7 @@ async function dashboardView(familyId: string, authorization?: string) {
     getActiveShopping(familyId, authorization),
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
-    serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr-jobs", authorization, { familyId, status: "NEEDS_REVIEW" }),
+    serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr/jobs", authorization, { familyId, status: "NEEDS_REVIEW" }),
   ]);
   return composeCommon(familyId, family, members, pantry, shopping, notifications, {
     suggestedRecipes: recipes.suggestions ?? [],
@@ -240,7 +239,7 @@ async function dashboardView(familyId: string, authorization?: string) {
 async function pantryView(familyId: string, authorization?: string) {
   const [pantry, shopping, notifications] = await Promise.all([
     coreGet("/inventory", authorization, { familyId }),
-    coreGet("/shopping-lists/active", authorization, { familyId }),
+    getActiveShopping(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, shopping, notifications);
@@ -258,7 +257,7 @@ async function shoppingView(familyId: string, authorization?: string) {
 async function recipesView(familyId: string, authorization?: string) {
   const [recipes, pantry, shopping, notifications] = await Promise.all([
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    coreGet("/inventory", authorization, { familyId }),
     coreGet("/shopping-lists/active", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
   ]);
