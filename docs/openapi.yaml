@@ -1000,18 +1000,14 @@ components:
       properties:
         name: {type: string, minLength: 1, maxLength: 300}
         brand: {type: [string, 'null'], maxLength: 200}
-        category: {type: [string, 'null'], maxLength: 120}
         defaultUnit: {type: string, enum: [g, kg, ml, l, piece, pack], default: piece}
-        nutrition:
-          type: object
-          additionalProperties: false
-          properties:
-            kcalPer100g: {type: number, minimum: 0}
-            proteinGPer100g: {type: number, minimum: 0}
-            carbsGPer100g: {type: number, minimum: 0}
-            fatGPer100g: {type: number, minimum: 0}
-            fiberGPer100g: {type: number, minimum: 0}
-        barcodes: {type: array, minItems: 1, items: {type: string, pattern: '^[0-9]{8,14}
+        category: {type: [string, 'null'], maxLength: 120}
+        barcodes: {type: array, minItems: 1, items: {type: string, pattern: '^[0-9]{8,14}$'}}
+        calories: {type: number, minimum: 0}
+        protein: {type: number, minimum: 0}
+        carbs: {type: number, minimum: 0}
+        fat: {type: number, minimum: 0}
+        fiber: {type: number, minimum: 0}
     PatchProduct:
       type: object
       minProperties: 1
