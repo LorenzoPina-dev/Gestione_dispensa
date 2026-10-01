@@ -300,22 +300,35 @@ export function updateShoppingItemState(
   });
 }
 
-export function batchUpdateShoppingItems(
+export async function batchUpdateShoppingItems(
   familyId: string,
   listId: string,
-  itemIds: string[],
+  items: Array<{ itemId: string; version: number }>,
   state: ShoppingItemState,
 ): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> {
   const updated: ShoppingItemDto[] = [];
   const failedItemIds: string[] = [];
-  for (const itemId of itemIds) {
+  for (const item of items) {
     try {
-      updated.push(await updateShoppingItemState(familyId, listId, itemId, 0, state));
+      updated.push(await updateShoppingItemState(familyId, listId, item.itemId, item.version, state));
     } catch {
-      failedItemIds.push(itemId);
+      failedItemIds.push(item.itemId);
     }
   }
   return { updated, failedItemIds };
+}
+
+export function deleteShoppingItem(
+  familyId: string,
+  listId: string,
+  itemId: string,
+  version: number,
+): Promise<void> {
+  return apiRequest<void>(`/shopping/lists/${listId}/items/${itemId}`, {
+    method: "DELETE",
+    query: { familyId },
+    ifMatch: version,
+  });
 }
 
 // --- Notifications ----------------------------------------------------------
