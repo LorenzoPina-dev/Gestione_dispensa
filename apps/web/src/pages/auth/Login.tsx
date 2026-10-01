@@ -6,65 +6,9 @@ import { Input } from "../../components/ui/Input";
 import { KEYCLOAK_REALM_URL, KEYCLOAK_CLIENT_ID } from "../../api/config";
 import { useAuthStore } from "../../store/auth";
 import { getCurrentUser, listFamilies } from "../../api/endpoints";
-
 type LoginState = "IDLE" | "SUBMITTING" | "ERROR";
-function mapRealmRole(roles: string[] | undefined): AuthUser["role"] {
-  const allowed: AuthUser["role"][] = ["OWNER", "MANAGER", "MEMBER", "VIEWER"];
-  const match = roles?.find((role): role is AuthUser["role"] => allowed.includes(role as AuthUser["role"]));
-  return match ?? "MEMBER";
-}
-
-interface Props { onLogin: (user: AuthUser) => void; onRegister: () => void; onForgot: () => void; }
-
-export default function Login({ onLogin, onRegister, onForgot }: Props) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [state, setState] = useState<LoginState>("IDLE");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showPw, setShowPw] = useState(false);
-  const setTokens = useAuthStore((s) => s.setTokens);
-  const sessionExpiredMessage = useAuthStore((s) => s.error);
-
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault(); setState("SUBMITTING"); setErrorMessage(null); useAuthStore.setState({ error: null });
-    const cleanEmail = email.trim().toLowerCase();
-    if (!KEYCLOAK_REALM_URL || !KEYCLOAK_CLIENT_ID) { setState("ERROR"); setErrorMessage("Configurazione OIDC non disponibile. Contatta l'amministratore."); return; }
-    try {
-      const res = await fetch(`${KEYCLOAK_REALM_URL}/protocol/openid-connect/token`, {
-        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ grant_type: "password", client_id: KEYCLOAK_CLIENT_ID, username: cleanEmail, password, scope: "openid profile email" }).toString(),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (data.error === "invalid_grant") throw new Error("Email o password non corretti.");
-        if (data.error === "invalid_client") throw new Error("Client OIDC non configurato correttamente (invalid_client). Contatta l'amministratore.");
-        throw new Error(data.error_description || "Credenziali non valide.");
-      }
-      if (!data.access_token) throw new Error("Token di accesso non restituito da Keycloak.");
-      if (!data.refresh_token) throw new Error("Il server non ha emesso un refresh token. Verifica che Direct Access Grants sia abilitato per il client Keycloak.");
-      setTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, expiresIn: typeof data.expires_in === "number" ? data.expires_in : 300 });
-      const apiUser = await getCurrentUser();
-      if (!apiUser?.id) throw new Error("L'API non ha restituito un profilo utente valido.");
-      // L'appartenenza alle famiglie vive in service-family (GET /families via gateway): /auth/me
-      // restituisce solo il profilo, quindi la famiglia attiva si risolve da qui.
-      const families = await listFamilies();
-      const activeFamily = (apiUser.activeFamilyId ? families.families.find((f) => f.familyId === apiUser.activeFamilyId) : undefined) ?? families.families[0];
-      const familyId = activeFamily?.familyId ?? null;
-      const role: AuthUser["role"] = activeFamily ? (activeFamily.role as AuthUser["role"]) : mapRealmRole(apiUser.roles);
-      const userProfileName = apiUser.name || apiUser.preferredUsername || cleanEmail.split("@")[0];
-      setState("IDLE");
-      onLogin({ id: apiUser.id, name: userProfileName, email: apiUser.email || cleanEmail, avatar: userProfileName.slice(0, 2).toUpperCase(), role, hasFamilyId: familyId });
-    } catch (err: unknown) { setState("ERROR"); setErrorMessage(err instanceof Error ? err.message : "Errore durante l'accesso."); }
-  }
-
-  return <AuthShell title="Bentornato" subtitle="Accedi al tuo account per continuare">
-    <form onSubmit={handleLogin} className="space-y-4">
-      {state === "ERROR" && <div className="rounded-xl px-4 py-3 text-sm" style={{ backgroundColor: colors.terracottaLight, color: colors.terracotta }}>{errorMessage || "Email o password non corretti. Riprova."}</div>}
-      {state !== "ERROR" && sessionExpiredMessage && <div className="rounded-xl px-4 py-3 text-sm" style={{ backgroundColor: colors.amberLight, color: colors.amberDark }}>{sessionExpiredMessage}</div>}
-      <div><label className="text-xs font-medium block mb-1.5" style={{ color: colors.inkMuted }}>Email</label><Input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setState("IDLE"); }} placeholder="nome@esempio.it" autoComplete="email" required /></div>
-      <div><div className="flex justify-between items-center mb-1.5"><label className="text-xs font-medium" style={{ color: colors.inkMuted }}>Password</label><button type="button" onClick={onForgot} className="text-xs transition-opacity hover:opacity-70" style={{ color: colors.terracotta }}>Password dimenticata?</button></div><div className="relative"><Input type={showPw ? "text" : "password"} value={password} onChange={(e) => { setPassword(e.target.value); setState("IDLE"); }} placeholder="••••••••" autoComplete="current-password" required style={{ paddingRight: "3.5rem" }} /><button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded-lg" style={{ color: colors.inkMuted }} aria-label={showPw ? "Nascondi password" : "Mostra password"}>{showPw ? "Nascondi" : "Mostra"}</button></div></div>
-      <button type="submit" disabled={state === "SUBMITTING"} className="w-full py-3 rounded-xl text-sm font-semibold transition-all" style={{ backgroundColor: state === "SUBMITTING" ? colors.disabled : colors.terracotta, color: colors.white }}>{state === "SUBMITTING" ? "Accesso in corso…" : "Accedi"}</button>
-    </form>
-    <div className="pt-2 text-center"><span className="text-xs" style={{ color: colors.inkMuted }}>Non hai un account? </span><button type="button" onClick={onRegister} className="text-xs font-semibold transition-opacity hover:opacity-70" style={{ color: colors.terracotta }}>Registrati</button></div>
-  </AuthShell>;
-}
+function normalizeRole(role:string|undefined):AuthUser["role"]{switch(role?.toLowerCase()){case"owner":return"OWNER";case"admin":case"manager":return"MANAGER";case"member":return"MEMBER";case"viewer":return"VIEWER";default:return"MEMBER";}}
+interface Props{onLogin:(user:AuthUser)=>void;onRegister:()=>void;onForgot:()=>void;}
+export default function Login({onLogin,onRegister,onForgot}:Props){const[email,setEmail]=useState(""),[password,setPassword]=useState(""),[state,setState]=useState<LoginState>("IDLE"),[errorMessage,setErrorMessage]=useState<string|null>(null),[showPw,setShowPw]=useState(false);const setTokens=useAuthStore(s=>s.setTokens),sessionExpiredMessage=useAuthStore(s=>s.error);
+async function handleLogin(e:React.FormEvent){e.preventDefault();setState("SUBMITTING");setErrorMessage(null);useAuthStore.setState({error:null});const cleanEmail=email.trim().toLowerCase();if(!KEYCLOAK_REALM_URL||!KEYCLOAK_CLIENT_ID){setState("ERROR");setErrorMessage("Configurazione OIDC non disponibile. Contatta l'amministratore.");return;}try{const res=await fetch(`${KEYCLOAK_REALM_URL}/protocol/openid-connect/token`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"password",client_id:KEYCLOAK_CLIENT_ID,username:cleanEmail,password,scope:"openid profile email"})});const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error==="invalid_grant"?"Email o password non corretti.":data.error_description||"Credenziali non valide.");if(!data.access_token)throw new Error("Token di accesso non restituito da Keycloak.");if(!data.refresh_token)throw new Error("Il server non ha emesso un refresh token.");setTokens({accessToken:data.access_token,refreshToken:data.refresh_token,expiresIn:typeof data.expires_in==="number"?data.expires_in:300});const apiUser=await getCurrentUser();if(!apiUser?.userId)throw new Error("L'API non ha restituito un profilo utente valido.");const families=await listFamilies();const active=apiUser.activeFamilyId?families.families.find(f=>f.familyId===apiUser.activeFamilyId):families.families[0];const familyId=active?.familyId??null;const role=normalizeRole(active?.role??apiUser.roles?.[0]);const name=apiUser.displayName||apiUser.email||cleanEmail.split("@")[0];setState("IDLE");onLogin({id:apiUser.userId,name,email:apiUser.email||cleanEmail,avatar:name.slice(0,2).toUpperCase(),role,hasFamilyId:familyId});}catch(err){setState("ERROR");setErrorMessage(err instanceof Error?err.message:"Errore durante l'accesso.");}}
+return <AuthShell title="Bentornato" subtitle="Accedi al tuo account per continuare"><form onSubmit={handleLogin} className="space-y-4">{state==="ERROR"&&<div className="rounded-xl px-4 py-3 text-sm" style={{backgroundColor:colors.terracottaLight,color:colors.terracotta}}>{errorMessage}</div>}{state!=="ERROR"&&sessionExpiredMessage&&<div className="rounded-xl px-4 py-3 text-sm" style={{backgroundColor:colors.amberLight,color:colors.amberDark}}>{sessionExpiredMessage}</div>}<div><label className="text-xs font-medium block mb-1.5" style={{color:colors.inkMuted}}>Email</label><Input type="email" value={email} onChange={e=>{setEmail(e.target.value);setState("IDLE")}} placeholder="nome@esempio.it" autoComplete="email" required/></div><div><div className="flex justify-between items-center mb-1.5"><label className="text-xs font-medium" style={{color:colors.inkMuted}}>Password</label><button type="button" onClick={onForgot} className="text-xs" style={{color:colors.terracotta}}>Password dimenticata?</button></div><div className="relative"><Input type={showPw?"text":"password"} value={password} onChange={e=>{setPassword(e.target.value);setState("IDLE")}} placeholder="••••••••" autoComplete="current-password" required style={{paddingRight:"3.5rem"}}/><button type="button" onClick={()=>setShowPw(v=>!v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1" style={{color:colors.inkMuted}}>{showPw?"Nascondi":"Mostra"}</button></div></div><button type="submit" disabled={state==="SUBMITTING"} className="w-full py-3 rounded-xl text-sm font-semibold" style={{backgroundColor:state==="SUBMITTING"?colors.disabled:colors.terracotta,color:colors.white}}>{state==="SUBMITTING"?"Accesso in corso…":"Accedi"}</button></form><div className="pt-2 text-center"><span className="text-xs" style={{color:colors.inkMuted}}>Non hai un account? </span><button type="button" onClick={onRegister} className="text-xs font-semibold" style={{color:colors.terracotta}}>Registrati</button></div></AuthShell>}
