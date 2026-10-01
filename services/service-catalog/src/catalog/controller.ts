@@ -99,7 +99,7 @@ export class CatalogController {
         meta.traceId,
       );
       if (!product) throw new CatalogHttpError(404, "NOT_FOUND", "Product not found.");
-      return success(toPublicProduct(product), meta);
+      return success(toPublicProduct(product), meta, product.version);
     } catch (error) {
       if (error instanceof CatalogVersionConflictError) {
         throw new CatalogHttpError(412, "PRECONDITION_FAILED", error.message);
