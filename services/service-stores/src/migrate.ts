@@ -1,5 +1,19 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Pool } from "pg";
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-try { await pool.query(await readFile(new URL("../migrations/001_initial.sql", import.meta.url), "utf8")); }
-finally { await pool.end(); }
+const migrationsDir = join(process.cwd(), "migrations");
+
+try {
+  const files = (await readdir(migrationsDir))
+    .filter((file) => /^\d+_.+\.sql$/.test(file))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  for (const file of files) {
+    await pool.query(await readFile(join(migrationsDir, file), "utf8"));
+    console.log(JSON.stringify({ service: "stores", migration: file, status: "ok" }));
+  }
+} finally {
+  await pool.end();
+}
