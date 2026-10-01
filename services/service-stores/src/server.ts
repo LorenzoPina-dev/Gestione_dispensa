@@ -78,70 +78,7 @@ const storeDto = (row: Record<string, unknown>) => ({
 });
 
 async function init(): Promise<void> {
-  await pool.query(`create schema if not exists stores_domain`);
-  await pool.query(`create table if not exists stores_domain.stores(
-    id uuid primary key,
-    name varchar(300) not null check(length(trim(name))>0),
-    chain varchar(200),
-    address text,
-    latitude numeric(9,6),
-    longitude numeric(9,6),
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists stores_domain.prices(
-    id uuid primary key,
-    store_id uuid not null references stores_domain.stores(id) on delete cascade,
-    product_id uuid not null,
-    amount_minor bigint not null check(amount_minor>=0),
-    currency char(3) not null check(currency ~ '^[A-Z]{3}$'),
-    observed_at timestamptz not null,
-    source varchar(64) not null,
-    created_at timestamptz not null default now()
-  )`);
-  await pool.query(`create table if not exists stores_domain.offers(
-    id uuid primary key,
-    store_id uuid not null references stores_domain.stores(id) on delete cascade,
-    product_id uuid not null,
-    type varchar(32) not null check(type in ('percentage','fixed')),
-    value numeric(12,4) not null check(value>=0),
-    valid_from timestamptz not null,
-    valid_to timestamptz not null,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1,
-    check(valid_from < valid_to),
-    check(type <> 'percentage' or value <= 100)
-  )`);
-  await pool.query(`create table if not exists stores_domain.idempotency_keys(
-    key varchar(255) primary key,
-    actor_user_id uuid not null,
-    family_id uuid null,
-    request_hash varchar(64) not null,
-    status varchar(16) not null check(status in ('processing','completed','failed')),
-    response_status integer null,
-    response_body jsonb null,
-    created_at timestamptz not null default now(),
-    expires_at timestamptz not null
-  )`);
-  await pool.query(`create table if not exists stores_domain.outbox_events(
-    event_id uuid primary key,
-    event_type varchar(128) not null,
-    schema_version integer not null,
-    aggregate_id uuid not null,
-    family_id uuid null,
-    correlation_id uuid not null,
-    occurred_at timestamptz not null,
-    payload jsonb not null,
-    published_at timestamptz null,
-    attempts integer not null default 0,
-    last_error text null,
-    created_at timestamptz not null
-  )`);
-  await pool.query("create index if not exists stores_price_product_observed_idx on stores_domain.prices(store_id,product_id,observed_at desc)");
-  await pool.query("create index if not exists stores_offer_validity_idx on stores_domain.offers(store_id,valid_from,valid_to)");
-  await pool.query("create index if not exists stores_outbox_publish_idx on stores_domain.outbox_events(published_at,created_at)");
+  await pool.query("select 1");
 }
 
 app.get("/health/live", (_req,res) => res.json({status:"ok",service:"service-stores"}));
