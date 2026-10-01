@@ -85,7 +85,7 @@ app.post("/api/v1/auth/logout", requireGatewayAuth, serviceProxy(identityBaseUrl
 app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
 for (const [prefix, base] of [
   ["/api/v1/identity", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
-  ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl],
+  ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
   ["/api/v1/inventory", inventoryBaseUrl], ["/api/v1/shopping", shoppingBaseUrl],
   ["/api/v1/catalog", catalogBaseUrl],
   ["/api/v1/notifications", notificationsBaseUrl], ["/api/v1/privacy", privacyBaseUrl], ["/api/v1/jobs", jobsBaseUrl],
