@@ -223,6 +223,7 @@ export async function createProduct(input: {
     method: "POST",
     body: {
       name: input.canonicalName,
+      ...(input.defaultUnit ? { defaultUnit: input.defaultUnit } : {}),
       ...(input.brand ? { brand: input.brand } : {}),
       ...(input.category ? { category: input.category } : {}),
       ...(input.barcodes && input.barcodes.length > 0 ? { barcodes: input.barcodes } : {}),
