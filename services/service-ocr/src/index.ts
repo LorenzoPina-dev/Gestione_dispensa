@@ -89,70 +89,9 @@ async function ensureBucket(): Promise<void> {
 }
 
 async function init(): Promise<void> {
-  await pool.query(`create schema if not exists ocr_domain`);
-  await pool.query(`create table if not exists ocr_domain.ocr_jobs(
-    id uuid primary key,
-    user_id uuid not null,
-    family_id uuid,
-    type varchar(32) not null check(type in ('receipt','pantry_image')),
-    object_key varchar(500) not null,
-    status varchar(32) not null check(status in ('queued','processing','completed','failed','cancelled','needs_review')),
-    progress smallint not null default 0 check(progress between 0 and 100),
-    error_code varchar(100),
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists ocr_domain.ocr_drafts(
-    id uuid primary key default gen_random_uuid(),
-    job_id uuid not null references ocr_domain.ocr_jobs(id) on delete cascade,
-    confidence numeric(5,4) not null check(confidence between 0 and 1),
-    status varchar(32) not null check(status in ('draft','confirmed','rejected')),
-    raw_result jsonb not null,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists ocr_domain.ocr_draft_items(
-    id uuid primary key default gen_random_uuid(),
-    draft_id uuid not null references ocr_domain.ocr_drafts(id) on delete cascade,
-    name varchar(300) not null,
-    barcode varchar(64),
-    quantity numeric(14,3),
-    unit varchar(16),
-    price_minor bigint,
-    currency char(3),
-    confidence numeric(5,4) not null check(confidence between 0 and 1),
-    product_id uuid
-  )`);
-  await pool.query(`create table if not exists ocr_domain.idempotency_keys(
-    key varchar(255) primary key,
-    actor_user_id uuid not null,
-    family_id uuid,
-    request_hash varchar(64) not null,
-    status varchar(16) not null check(status in ('processing','completed','failed')),
-    response_status integer,
-    response_body jsonb,
-    created_at timestamptz not null default now(),
-    expires_at timestamptz not null
-  )`);
-  await pool.query(`create table if not exists ocr_domain.outbox_events(
-    event_id uuid primary key,
-    event_type varchar(128) not null,
-    schema_version integer not null,
-    aggregate_id uuid not null,
-    family_id uuid,
-    correlation_id uuid not null,
-    occurred_at timestamptz not null,
-    payload jsonb not null,
-    published_at timestamptz,
-    attempts integer not null default 0,
-    last_error text,
-    created_at timestamptz not null default now()
-  )`);
-  await pool.query("create index if not exists ocr_jobs_status_created_idx on ocr_domain.ocr_jobs(status,created_at desc)");
-  await pool.query("create index if not exists ocr_drafts_job_idx on ocr_domain.ocr_drafts(job_id)");
+  await pool.query("select 1");
 }
+
 
 app.get("/health/live", (_req, res) => res.json({ status: "ok", service: "service-ocr" }));
 app.get("/health/ready", async (_req, res) => {
@@ -211,7 +150,7 @@ app.post("/api/v1/ocr/jobs", upload.single("file"), async (req, res) => {
        values($1,$2,$3,$4,$5,'queued',0)`,
       [jobId, actor, familyId(req), type, objectKey],
     );
-    const response = { data: { jobId, status: "queued", estimatedTimeSeconds: 3 }, version: 1 };
+    const response = { data: { jobId, status: "queued", type, objectKey }, version: 1 };
     await finishIdempotency(client, req, 202, response);
     await client.query("commit");
 
@@ -271,23 +210,59 @@ app.post("/api/v1/internal/ocr/jobs/:jobId/process", async (req,res)=>{
 app.get("/api/v1/ocr/jobs/:jobId", async (req, res) => {
   const actor = userId(req);
   if (!actor) return fail(res, 401, "UNAUTHENTICATED", "Authenticated user required.");
-  const q = await pool.query("select * from ocr_domain.ocr_jobs where id=$1 and user_id=$2",[req.params.jobId,actor]);
+  const q = await pool.query(
+    `select j.id,j.status,j.type,j.progress,j.error_code,
+      coalesce(d.id::text,'') as draft_id,j.version
+     from ocr_domain.ocr_jobs j
+     left join ocr_domain.ocr_drafts d on d.job_id=j.id and d.status='draft'
+     where j.id=$1 and j.user_id=$2`,
+    [req.params.jobId, actor],
+  );
   if (!q.rowCount) return fail(res,404,"NOT_FOUND","OCR job not found.");
-  return res.json({ data: q.rows[0] });
+  const row=q.rows[0];
+  return res.json({
+    data:{
+      jobId:row.id,
+      status:row.status,
+      type:row.type,
+      progress:Number(row.progress),
+      draftId:row.draft_id || null,
+      error:row.error_code ?? null,
+    },
+    version:Number(row.version),
+  });
 });
 
 app.get("/api/v1/ocr/drafts/:draftId", async (req,res) => {
-  const actor=userId(req); if(!actor)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
-  const q=await pool.query(`select d.*,j.user_id from ocr_domain.ocr_drafts d join ocr_domain.ocr_jobs j on j.id=d.job_id where d.id=$1 and j.user_id=$2`,[req.params.draftId,actor]);
+  const actor=userId(req);
+  if(!actor)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const q=await pool.query(
+    `select d.id,d.job_id,d.confidence,d.status,d.raw_result,d.version,j.type,j.user_id
+     from ocr_domain.ocr_drafts d
+     join ocr_domain.ocr_jobs j on j.id=d.job_id
+     where d.id=$1 and j.user_id=$2`,
+    [req.params.draftId,actor],
+  );
   if(!q.rowCount)return fail(res,404,"NOT_FOUND","OCR draft not found.");
-  return res.json({data:q.rows[0]});
+  const row=q.rows[0];
+  const raw=(typeof row.raw_result==="object"&&row.raw_result!==null)?row.raw_result as Record<string,unknown>:{};
+  return res.json({
+    data:{
+      draftId:row.id,
+      jobId:row.job_id,
+      type:row.type,
+      confidence:Number(row.confidence),
+      items:Array.isArray(raw.items)?raw.items:[],
+    },
+    version:Number(row.version),
+  });
 });
 
 app.post("/api/v1/ocr/drafts/:draftId/reject", async(req,res)=>{
   const actor=userId(req);if(!actor)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");const client=await pool.connect();
   try{await client.query("begin");const q=await client.query(`select d.* from ocr_domain.ocr_drafts d join ocr_domain.ocr_jobs j on j.id=d.job_id where d.id=$1 and j.user_id=$2 for update`,[req.params.draftId,actor]);if(!q.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","OCR draft not found.");}
   const idem=await beginIdempotency(client,req,req.body??{});if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
-  const u=await client.query(`update ocr_domain.ocr_drafts set status='rejected',updated_at=now(),version=version+1 where id=$1 returning *`,[req.params.draftId]);const response={data:u.rows[0],version:u.rows[0].version};await finishIdempotency(client,req,200,response);await client.query("commit");return res.json(response);}
+  const u=await client.query(`update ocr_domain.ocr_drafts set status='rejected',updated_at=now(),version=version+1 where id=$1 returning *`,[req.params.draftId]);const response={data:{draftId:u.rows[0].id,status:"rejected",applied:false},version:u.rows[0].version};await client.query(`insert into ocr_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at) values($1,'OcrDraftRejected',1,$2,(select family_id from ocr_domain.ocr_jobs where id=$2),$3,now(),$4::jsonb,now())`,[crypto.randomUUID(),u.rows[0].job_id,crypto.randomUUID(),JSON.stringify(response)]);await finishIdempotency(client,req,200,response);await client.query("commit");return res.json(response);}
   catch(e){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",e instanceof Error?e.message:"Unable to reject draft.");}finally{client.release();}
 });
 
@@ -296,7 +271,7 @@ app.post("/api/v1/ocr/drafts/:draftId/confirm", async(req,res)=>{
   try{await client.query("begin");const q=await client.query(`select d.* from ocr_domain.ocr_drafts d join ocr_domain.ocr_jobs j on j.id=d.job_id where d.id=$1 and j.user_id=$2 for update`,[req.params.draftId,actor]);if(!q.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","OCR draft not found.");}
   const body=req.body as Body;if(!Array.isArray(body.items)) {await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","items is required.");}
   const idem=await beginIdempotency(client,req,body);if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
-  const u=await client.query(`update ocr_domain.ocr_drafts set status='confirmed',raw_result=$2,updated_at=now(),version=version+1 where id=$1 returning *`,[req.params.draftId,JSON.stringify({items:body.items})]);const response={data:u.rows[0],version:u.rows[0].version};await finishIdempotency(client,req,200,response);await client.query("commit");return res.json(response);}
+  const u=await client.query(`update ocr_domain.ocr_drafts set status='confirmed',raw_result=$2,updated_at=now(),version=version+1 where id=$1 returning *`,[req.params.draftId,JSON.stringify({items:body.items})]);const response={data:{draftId:u.rows[0].id,status:"confirmed",applied:false},version:u.rows[0].version};await client.query(`insert into ocr_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at) values($1,'OcrDraftConfirmed',1,$2,(select family_id from ocr_domain.ocr_jobs where id=$2),$3,now(),$4::jsonb,now())`,[crypto.randomUUID(),u.rows[0].job_id,crypto.randomUUID(),JSON.stringify(response)]);await finishIdempotency(client,req,200,response);await client.query("commit");return res.json(response);}
   catch(e){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",e instanceof Error?e.message:"Unable to confirm draft.");}finally{client.release();}
 });
 
