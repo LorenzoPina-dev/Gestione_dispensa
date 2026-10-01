@@ -441,17 +441,6 @@ export function addRecipeMissingIngredients(
   });
 }
 
-export function cookRecipe(
-  familyId: string,
-  recipeId: string,
-  servings: number,
-): Promise<{ movementIds: string[] }> {
-  return apiRequest(`/recipes/${recipeId}/cook`, {
-    method: "POST",
-    body: { familyId, servings },
-  });
-}
-
 // --- Nutrition ---------------------------------------------------------------
 
 export async function getNutritionSummary(
