@@ -209,7 +209,7 @@ export interface ShoppingItemDto {
   state?: ShoppingItemState;
   sourceType?: ShoppingSourceType;
   sourceRef?: string;
-  version?: number;
+  version: number;
 }
 
 export interface ActiveShoppingListDto {
