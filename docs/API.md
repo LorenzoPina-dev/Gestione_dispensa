@@ -687,7 +687,7 @@ La cancellazione è orchestrata senza query cross-DB.
 
 ## 14. Jobs
 
-Gli endpoint Jobs sono interni al piano backend e non esposti al browser.
+Gli endpoint Jobs sono interni al piano backend e non esposti al browser. Richiedono `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`, dove il token è una credenziale service-to-service e non un token OIDC utente.
 
 ### POST /internal/jobs
 
