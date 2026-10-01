@@ -68,7 +68,8 @@ async function walk(root) {
 const legacyHits = [];
 for (const root of roots) {
   for (const file of await walk(root)) {
-    const text = await readFile(file, "utf8");
+    const raw = await readFile(file, "utf8");
+    const text = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "");
     if (legacyPatterns.some((pattern) => pattern.test(text))) legacyHits.push(file);
   }
 }
