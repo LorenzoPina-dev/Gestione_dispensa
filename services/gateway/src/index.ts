@@ -81,7 +81,7 @@ app.use("/api/v1/views", requireGatewayAuth);
 // Devono stare PRIMA del ciclo sottostante, che impone requireGatewayAuth su /api/v1/auth.
 app.post("/api/v1/auth/register", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
-app.post("/api/v1/auth/logout", serviceProxy(identityBaseUrl));
+app.post("/api/v1/auth/logout", requireGatewayAuth, serviceProxy(identityBaseUrl));
 app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
 for (const [prefix, base] of [
   ["/api/v1/identity", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
