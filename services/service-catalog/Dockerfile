@@ -10,11 +10,10 @@ RUN npm --workspace @gestione-dispensa/service-catalog run build
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY package.json package-lock.json ./
-COPY services/service-catalog/package.json ./services/service-catalog/
-RUN npm install --workspace @gestione-dispensa/service-catalog --omit=dev --ignore-scripts
-COPY --from=build /app/services/service-catalog/dist ./services/service-catalog/dist
-COPY --from=build /app/services/service-catalog/migrations ./services/service-catalog/migrations
+COPY services/service-catalog/package.json ./package.json
+RUN npm install --omit=dev --ignore-scripts
+COPY --from=build /app/services/service-catalog/dist ./dist
+COPY --from=build /app/services/service-catalog/migrations ./migrations
 USER node
 EXPOSE 3314
-CMD ["sh", "-c", "node services/service-catalog/dist/migrate.js && node services/service-catalog/dist/server.js"]
+CMD ["sh", "-c", "node dist/migrate.js && node dist/server.js"]
