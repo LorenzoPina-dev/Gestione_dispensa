@@ -79,7 +79,17 @@ export function createFamily(input: {
   timezone: string;
   unitSystem: "METRIC" | "IMPERIAL";
 }): Promise<FamilyCreationResultDto> {
-  return apiRequest("/families", { method: "POST", body: input });
+  // The family-service HTTP contract expects `name`, while the web domain
+  // uses `displayName`. Translate the field only at the transport boundary.
+  return apiRequest("/families", {
+    method: "POST",
+    body: {
+      name: input.displayName,
+      locale: input.locale,
+      timezone: input.timezone,
+      unitSystem: input.unitSystem,
+    },
+  });
 }
 
 export function createFamilyInvite(
