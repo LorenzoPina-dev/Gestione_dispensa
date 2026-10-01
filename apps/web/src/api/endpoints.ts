@@ -185,14 +185,30 @@ export function removeFamilyMembership(
 
 // --- Catalog -----------------------------------------------------------------
 
-export function createProduct(input: {
+export async function createProduct(input: {
   canonicalName: string;
   brand?: string | null;
   defaultUnit?: ProductUnit;
   category?: string;
   barcodes: string[];
 }): Promise<ProductDto> {
-  return apiRequest("/catalog/products", {
+  const result = await apiRequest<{
+    productId: string;
+    name: string;
+    brand: string | null;
+    category: string | null;
+    barcodes: string[];
+    imageObjectKey: string | null;
+    nutrition: {
+      kcalPer100g: number | null;
+      proteinGPer100g: number | null;
+      carbsGPer100g: number | null;
+      fatGPer100g: number | null;
+      fiberGPer100g: number | null;
+    };
+    source: { type: string; id: string };
+    version: number;
+  }>("/catalog/products", {
     method: "POST",
     body: {
       name: input.canonicalName,
@@ -201,6 +217,26 @@ export function createProduct(input: {
       barcodes: input.barcodes,
     },
   });
+
+  return {
+    id: result.productId,
+    canonicalName: result.name,
+    brand: result.brand ?? undefined,
+    defaultUnit: input.defaultUnit ?? "piece",
+    status: "ACTIVE",
+    provenanceQuality:
+      result.source.type === "manual" ? "VERIFIED" : "IMPORTED",
+    version: result.version,
+    category: result.category ?? undefined,
+    photoUrl: result.imageObjectKey ?? undefined,
+    calories: result.nutrition.kcalPer100g ?? undefined,
+    protein: result.nutrition.proteinGPer100g ?? undefined,
+    carbs: result.nutrition.carbsGPer100g ?? undefined,
+    fat: result.nutrition.fatGPer100g ?? undefined,
+    fiber: result.nutrition.fiberGPer100g ?? undefined,
+    createdAt: "",
+    updatedAt: "",
+  };
 }
 
 // --- Inventory ---------------------------------------------------------------
@@ -427,9 +463,55 @@ export function requestPasswordReset(email: string): Promise<{ accepted: boolean
   return apiRequest("/auth/reset-password", { method: "POST", body: { email } });
 }
 
-export function resolveProductBarcode(
+export async function resolveProductBarcode(
   identifierType: "EAN8" | "EAN13" | "GTIN12" | "GTIN14" | "SKU" | "BARCODE",
   value: string,
 ): Promise<BarcodeResolutionDto> {
-  return apiRequest("/catalog/barcodes/resolve", { method: "POST", body: { barcode: value } });
+  const result = await apiRequest<{
+    resolution: "cache" | "provider";
+    product: {
+      productId: string;
+      name: string;
+      brand: string | null;
+      category: string | null;
+      barcodes: string[];
+      imageObjectKey: string | null;
+      nutrition: {
+        kcalPer100g: number | null;
+        proteinGPer100g: number | null;
+        carbsGPer100g: number | null;
+        fatGPer100g: number | null;
+        fiberGPer100g: number | null;
+      };
+      source: { type: string; id: string };
+      version: number;
+    };
+  }>("/catalog/barcodes/resolve", {
+    method: "POST",
+    body: { barcode: value },
+  });
+  return {
+    status: "MATCHED",
+    identifierType,
+    normalizedValue: value,
+    product: {
+      id: result.product.productId,
+      canonicalName: result.product.name,
+      brand: result.product.brand ?? undefined,
+      defaultUnit: "piece",
+      status: "ACTIVE",
+      provenanceQuality:
+        result.product.source.type === "manual" ? "VERIFIED" : "IMPORTED",
+      version: result.product.version,
+      category: result.product.category ?? undefined,
+      photoUrl: result.product.imageObjectKey ?? undefined,
+      calories: result.product.nutrition.kcalPer100g ?? undefined,
+      protein: result.product.nutrition.proteinGPer100g ?? undefined,
+      carbs: result.product.nutrition.carbsGPer100g ?? undefined,
+      fat: result.product.nutrition.fatGPer100g ?? undefined,
+      fiber: result.product.nutrition.fiberGPer100g ?? undefined,
+      createdAt: "",
+      updatedAt: "",
+    },
+  };
 }
