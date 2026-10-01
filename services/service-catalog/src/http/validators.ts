@@ -192,7 +192,8 @@ export function parseRecordMovementBody(body: Body):
 export function parseCreateProductBody(
   body: Body,
 ): { canonicalName: string; brand?: string; defaultUnit: ProductUnit; category?: string; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number } | undefined {
-  const { canonicalName, brand, defaultUnit, category, calories, protein, carbs, fat, fiber } = body;
+  const canonicalName = typeof body.name === "string" ? body.name : body.canonicalName;
+  const { brand, defaultUnit, category, calories, protein, carbs, fat, fiber } = body;
   if (
     typeof canonicalName !== "string" ||
     canonicalName.length === 0 ||
