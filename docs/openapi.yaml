@@ -603,6 +603,80 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EraseRequest'}}}}
       responses:
         '202': {description: Erasure job, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /internal/jobs:
+    post:
+      operationId: postInternalJobs
+      tags: [Jobs]
+      security: []
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJob'
+      responses:
+        '202': {description: Job queued, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /internal/jobs/{jobId}:
+    get:
+      operationId: getInternalJobsJobId
+      tags: [Jobs]
+      security: []
+      parameters: [{$ref: '#/components/parameters/JobId'}]
+      responses:
+        '200': {description: Job status, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /views/dashboard-today:
+    get:
+      operationId: getDashboardTodayView
+      tags: [Composite]
+      parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
+      responses:
+        '200': {description: Today view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /views/pantry-screen:
+    get:
+      operationId: getPantryScreenView
+      tags: [Composite]
+      parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
+      responses:
+        '200': {description: Pantry screen view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /views/shopping-screen:
+    get:
+      operationId: getShoppingScreenView
+      tags: [Composite]
+      parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
+      responses:
+        '200': {description: Shopping screen view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /views/recipes-screen:
+    get:
+      operationId: getRecipesScreenView
+      tags: [Composite]
+      parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
+      responses:
+        '200': {description: Recipes screen view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /views/nutrition-screen:
+    get:
+      operationId: getNutritionScreenView
+      tags: [Composite]
+      parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
+      responses:
+        '200': {description: Nutrition screen view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /views/family-screen:
+    get:
+      operationId: getFamilyScreenView
+      tags: [Composite]
+      parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
+      responses:
+        '200': {description: Family screen view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /views/notifications-screen:
+    get:
+      operationId: getNotificationsScreenView
+      tags: [Composite]
+      parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
+      responses:
+        '200': {description: Notifications screen view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /dashboard:
     get:
       operationId: getDashboard
@@ -669,6 +743,14 @@ components:
         avatarUrl: {type: [string, 'null'], maxLength: 1000}
         locale: {type: string, maxLength: 16}
         timezone: {type: string, maxLength: 64}
+    CreateJob:
+      type: object
+      required: [type, payload, deduplicationKey]
+      additionalProperties: false
+      properties:
+        type: {type: string, minLength: 1, maxLength: 100}
+        payload: {type: object, additionalProperties: true}
+        deduplicationKey: {type: string, minLength: 1, maxLength: 255}
     RegisterRequest:
       type: object
       additionalProperties: false
