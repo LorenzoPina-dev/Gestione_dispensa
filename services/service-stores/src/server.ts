@@ -57,7 +57,7 @@ async function outbox(client: PoolClient, type: string, aggregateId: string, pay
   await client.query(
     `insert into stores_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
      values($1,$2,1,$3,null,$4,now(),$5::jsonb,now())`,
-    [crypto.randomUUID(), type, aggregateId, crypto.randomUUID(), JSON.stringify(payload)],
+    [crypto.randomUUID(), type, aggregateId, crypto.randomUUID(), JSON.stringify(toEventPayload(payload))],
   );
 }
 
@@ -76,6 +76,13 @@ const storeDto = (row: Record<string, unknown>) => ({
   chain: row.chain === null ? null : String(row.chain),
   address: row.address === null ? null : String(row.address),
 });
+
+function toEventPayload(payload: unknown): unknown {
+  if (typeof payload === "object" && payload !== null && Object.hasOwn(payload as object, "data")) {
+    return (payload as { data: unknown }).data;
+  }
+  return payload;
+}
 
 async function init(): Promise<void> {
   await pool.query("select 1");
