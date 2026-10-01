@@ -1,1 +1,44 @@
-{"realm":"dispensa","enabled":true,"registrationAllowed":true,"loginWithEmailAllowed":true,"duplicateEmailsAllowed":false,"resetPasswordAllowed":true,"clients":[{"clientId":"dispensa-app","enabled":true,"publicClient":true,"standardFlowEnabled":true,"directAccessGrantsEnabled":true,"redirectUris":["https://localhost:8443/*"],"webOrigins":["https://localhost:8443"]}]}
+{
+  "realm": "dispensa",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "clients": [
+    {
+      "clientId": "dispensa-app",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "fullScopeAllowed": true,
+      "redirectUris": [
+        "https://localhost:8443/*",
+        "https://192.168.1.24:8443/*",
+        "https://192.168.1.33:8443/*"
+      ],
+      "webOrigins": [
+        "https://localhost:8443",
+        "https://192.168.1.24:8443",
+        "https://192.168.1.33:8443"
+      ],
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "protocolMappers": [
+        {
+          "name": "audience-account",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "account",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

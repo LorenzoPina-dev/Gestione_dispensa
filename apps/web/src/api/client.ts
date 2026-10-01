@@ -257,8 +257,15 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
  * Throws `ApiError` for documented error envelopes and `NetworkUnavailableError` when the
  * backend cannot be reached at all.
  */
+/**
+ * Rotte pubbliche del gateway (nessun JWT richiesto). Per queste non allegiamo il token salvato
+ * (potrebbe essere scaduto) e un 401 non deve essere interpretato come "sessione scaduta".
+ */
+const PUBLIC_API_PATHS = new Set(["/auth/register", "/auth/reset-password"]);
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, idempotencyKey, ifMatch, query, signal } = options;
+  const isPublic = PUBLIC_API_PATHS.has(path);
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -268,7 +275,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (ifMatch !== undefined) headers["If-Match"] = String(ifMatch);
 
-  const token = (await ensureFreshAccessToken()) ?? DEV_BEARER_TOKEN;
+  const token = isPublic ? undefined : ((await ensureFreshAccessToken()) ?? DEV_BEARER_TOKEN);
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -307,7 +314,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   if (response.status === 204) return undefined as T;
 
-  if (response.status === 401) {
+  if (response.status === 401 && !isPublic) {
     // L'access token era scaduto e il refresh in ensureFreshAccessToken potrebbe non averlo
     // rinnovato (es. nessun refresh token salvato). Non cancelliamo lo storage qui a mano:
     // lo fa doRefresh() quando il refresh fallisce. Qui ci limitiamo a segnalare l'evento,

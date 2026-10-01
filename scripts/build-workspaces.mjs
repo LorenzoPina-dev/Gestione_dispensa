@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
-const workspaceRoots = ["services", "packages"];
+const workspaceRoots = ["apps", "packages", "services"].filter((dir) => existsSync(join(root, dir)));
 
 function readPackage(dir) {
   const path = join(root, dir, "package.json");
@@ -51,14 +51,16 @@ function visit(pkg) {
 
 for (const pkg of buildable) visit(pkg);
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+// On Windows npm is a .cmd shim and cannot be spawned without a shell.
+const isWindows = process.platform === "win32";
+const npmCommand = isWindows ? "npm.cmd" : "npm";
 
 for (const pkg of ordered) {
   console.log(`\n==> Building ${pkg.name}`);
   const result = spawnSync(
     npmCommand,
     ["run", "build", "--workspace", pkg.name],
-    { cwd: root, stdio: "inherit", shell: false },
+    { cwd: root, stdio: "inherit", shell: isWindows },
   );
 
   if (result.status !== 0) {

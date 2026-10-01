@@ -6,11 +6,13 @@
     "compose:up": "docker compose up -d",
     "compose:down": "docker compose down",
     "compose:build": "docker compose build",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "build:libs": "npm run build -w @gestione-dispensa/observability && npm run build -w @gestione-dispensa/worker-core",
+    "typecheck": "npm run build:libs && npm run typecheck --workspaces --if-present",
+    "build": "node scripts/build-workspaces.mjs",
+    "test": "npm run build:libs && npm run test --workspaces --if-present"
   },
   "workspaces": [
+    "apps/*",
     "services/*",
     "packages/*"
   ],

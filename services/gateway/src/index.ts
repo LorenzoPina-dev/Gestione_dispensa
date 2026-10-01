@@ -30,6 +30,14 @@ app.use(requestObservability());
 app.use(express.json({ limit: "2mb" }));
 app.use(rebindContext());
 
+// Header d'identità interni: li imposta SOLO il gateway dopo aver verificato il JWT. Qualunque valore
+// inviato dal browser (anche su rotte pubbliche) viene scartato per impedire lo spoofing dell'utente.
+const INTERNAL_IDENTITY_HEADERS = ["x-user-id", "x-oidc-sub", "x-user-email", "x-user-name", "x-user-username"] as const;
+app.use((req, _res, next) => {
+  for (const name of INTERNAL_IDENTITY_HEADERS) delete req.headers[name];
+  next();
+});
+
 const clientErrors = metrics.counter("web_client_errors_total", "Errors reported by the browser app.", ["kind"]);
 const CLIENT_ERROR_KINDS = new Set(["js_error", "unhandled_rejection", "react_render", "api_error", "network_error"]);
 const beaconHits = new Map<string, { count: number; resetAt: number }>();
@@ -127,6 +135,10 @@ async function requireGatewayAuth(req: Request, res: Response, next: express.Nex
       // The browser cannot authoritatively set this value.
       req.headers["x-user-id"] = String(payload.sub);
       req.headers["x-oidc-sub"] = String(payload.sub);
+      // Claim del profilo, percent-encoded perché gli header HTTP non ammettono caratteri non ASCII.
+      if (typeof payload.email === "string") req.headers["x-user-email"] = encodeURIComponent(payload.email);
+      if (typeof payload.name === "string") req.headers["x-user-name"] = encodeURIComponent(payload.name);
+      if (typeof payload.preferred_username === "string") req.headers["x-user-username"] = encodeURIComponent(payload.preferred_username);
     }
   } catch (error) {
     // The reason (expired, bad signature, wrong issuer/audience, JWKS unreachable) tells a client bug from a config bug.
@@ -149,7 +161,7 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     if (hasBody) headers["Content-Type"] = "application/json";
     // Headers the domain services depend on: RLS family context, idempotency and optimistic locking.
     // traceparent / x-request-id are added automatically by the instrumented fetch.
-    for (const name of ["x-user-id", "x-oidc-sub", "x-family-id", "x-correlation-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    for (const name of ["x-user-id", "x-oidc-sub", "x-user-email", "x-user-name", "x-user-username", "x-family-id", "x-correlation-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
     const target = `${url.host}${url.pathname}`;
     annotate({ upstream: target });
     try {

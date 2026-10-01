@@ -4,7 +4,7 @@ RUN apk add --no-cache openssl
 
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY entrypoint.sh /usr/local/bin/dispensa-nginx-entrypoint
-RUN chmod +x /usr/local/bin/dispensa-nginx-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/dispensa-nginx-entrypoint && chmod +x /usr/local/bin/dispensa-nginx-entrypoint
 
 EXPOSE 8443
 

@@ -12,6 +12,6 @@ services:
         mkcert -install
         mkcert -key-file /certs/key.pem \
                -cert-file /certs/cert.pem \
-               localhost 127.0.0.1 ::1 192.168.1.24
+               localhost 127.0.0.1 ::1 ${LAN_HOST:-192.168.1.24}
         echo "TLS certificate generated in ./certs/"
         ls -la /certs/

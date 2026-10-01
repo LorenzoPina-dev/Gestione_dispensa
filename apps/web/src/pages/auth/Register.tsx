@@ -57,7 +57,12 @@ export default function Register({ onRegistered, onLogin }: Props) {
       let familyId: string | null = null; let userId = cleanEmail; let userProfileName = cleanName || cleanEmail.split("@")[0];
       try { const apiUser = await getCurrentUser(); if (apiUser) { userId = apiUser.id; userProfileName = apiUser.name || userProfileName; if (apiUser.activeFamilyId) familyId = apiUser.activeFamilyId; } } catch { /* allow onboarding after transient /me failure */ }
       let role: AuthUser["role"] = "OWNER";
-      if (familyId) { try { const families = await listFamilies(); const found = families.families.find((f) => f.familyId === familyId); if (found) role = found.role as AuthUser["role"]; } catch { /* keep default */ } }
+      // /auth/me non conosce le famiglie (sono di service-family): le leggiamo da GET /families.
+      try {
+        const families = await listFamilies();
+        const found = (familyId ? families.families.find((f) => f.familyId === familyId) : undefined) ?? families.families[0];
+        if (found) { familyId = found.familyId; role = found.role as AuthUser["role"]; }
+      } catch { /* keep default: nuova registrazione senza famiglia -> onboarding */ }
       const user: AuthUser = { id: userId, name: userProfileName, email: cleanEmail, avatar: userProfileName.slice(0, 2).toUpperCase(), role, hasFamilyId: familyId };
       setStep("done"); onRegistered(user);
     } catch (err: unknown) { setStep("form"); setApiError(err instanceof Error ? err.message : "Errore durante la registrazione. Riprova."); }

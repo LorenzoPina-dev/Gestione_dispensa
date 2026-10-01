@@ -35,15 +35,22 @@ export default function Login({ onLogin, onRegister, onForgot }: Props) {
         body: new URLSearchParams({ grant_type: "password", client_id: KEYCLOAK_CLIENT_ID, username: cleanEmail, password, scope: "openid profile email" }).toString(),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error_description || "Credenziali non valide.");
+      if (!res.ok) {
+        if (data.error === "invalid_grant") throw new Error("Email o password non corretti.");
+        if (data.error === "invalid_client") throw new Error("Client OIDC non configurato correttamente (invalid_client). Contatta l'amministratore.");
+        throw new Error(data.error_description || "Credenziali non valide.");
+      }
       if (!data.access_token) throw new Error("Token di accesso non restituito da Keycloak.");
       if (!data.refresh_token) throw new Error("Il server non ha emesso un refresh token. Verifica che Direct Access Grants sia abilitato per il client Keycloak.");
       setTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, expiresIn: typeof data.expires_in === "number" ? data.expires_in : 300 });
       const apiUser = await getCurrentUser();
       if (!apiUser?.id) throw new Error("L'API non ha restituito un profilo utente valido.");
-      const familyId = apiUser.activeFamilyId ?? null;
-      let role: AuthUser["role"] = mapRealmRole(apiUser.roles);
-      if (familyId) { const families = await listFamilies(); const found = families.families.find((f) => f.familyId === familyId); if (found) role = found.role as AuthUser["role"]; }
+      // L'appartenenza alle famiglie vive in service-family (GET /families via gateway): /auth/me
+      // restituisce solo il profilo, quindi la famiglia attiva si risolve da qui.
+      const families = await listFamilies();
+      const activeFamily = (apiUser.activeFamilyId ? families.families.find((f) => f.familyId === apiUser.activeFamilyId) : undefined) ?? families.families[0];
+      const familyId = activeFamily?.familyId ?? null;
+      const role: AuthUser["role"] = activeFamily ? (activeFamily.role as AuthUser["role"]) : mapRealmRole(apiUser.roles);
       const userProfileName = apiUser.name || apiUser.preferredUsername || cleanEmail.split("@")[0];
       setState("IDLE");
       onLogin({ id: apiUser.id, name: userProfileName, email: apiUser.email || cleanEmail, avatar: userProfileName.slice(0, 2).toUpperCase(), role, hasFamilyId: familyId });

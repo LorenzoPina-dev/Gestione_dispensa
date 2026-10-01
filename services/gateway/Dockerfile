@@ -1,13 +1,16 @@
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY tsconfig.base.json ./tsconfig.base.json
+COPY services/gateway/package.json services/gateway/tsconfig.json ./services/gateway/
+WORKDIR /app/services/gateway
 RUN npm install
-COPY tsconfig.json ./
-COPY src ./src
+COPY services/gateway/src ./src
 RUN npm run build
+
 FROM node:22-alpine
 WORKDIR /app
-COPY --from=build /app/package.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-CMD ["node","dist/server.js"]
+ENV NODE_ENV=production
+COPY services/gateway/package.json ./package.json
+RUN npm install --omit=dev --ignore-scripts
+COPY --from=build /app/services/gateway/dist ./dist
+CMD ["node","dist/index.js"]
