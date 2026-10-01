@@ -114,7 +114,7 @@ async function emitOutbox(
     `insert into shelf_life_domain.outbox_events
       (event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
      values($1,$2,1,$3,$4,$5,now(),$6::jsonb,now())`,
-    [crypto.randomUUID(), type, aggregateId, familyId, crypto.randomUUID(), JSON.stringify(payload)],
+    [crypto.randomUUID(), type, aggregateId, familyId, crypto.randomUUID(), JSON.stringify(toEventPayload(payload))],
   );
 }
 
@@ -148,6 +148,13 @@ function confidenceFor(rule: { min_days: number; max_days: number; product_categ
   const categoryBonus = rule.product_category ? 0.1 : 0;
   const rangePenalty = Math.min(0.15, Math.max(0, (rule.max_days - rule.min_days) / 500));
   return Math.max(0.5, Math.min(0.99, 0.75 + categoryBonus - rangePenalty));
+}
+
+function toEventPayload(payload: unknown): unknown {
+  if (typeof payload === "object" && payload !== null && Object.hasOwn(payload as object, "data")) {
+    return (payload as { data: unknown }).data;
+  }
+  return payload;
 }
 
 async function init(): Promise<void> {
