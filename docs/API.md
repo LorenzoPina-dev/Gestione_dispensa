@@ -380,7 +380,7 @@ Response 200:
 
 ### POST /shopping/lists
 
-Request: `{"name":"Spesa"}`. Response 201 list + version.
+Request: `{"familyId":"uuid","name":"Spesa"}`. `familyId` identifica la famiglia autenticata e viene verificato dal Gateway/Family boundary. Response 201 list + version.
 
 ### GET /shopping/lists/{listId}
 
@@ -536,7 +536,7 @@ Response 201 offer + version.
 ## 10. Notifications
 
 ### GET /notifications
-Query: `unreadOnly`, `limit`, `cursor`.
+Query: `familyId`, `unreadOnly`, `limit`, `cursor`.
 Response 200:
 ```json
 {"items":[{"notificationId":"uuid","type":"expiration","title":"Scadenza vicina","body":"Latte scade tra 2 giorni","readAt":null,"createdAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
@@ -544,7 +544,7 @@ Response 200:
 
 ### POST /notifications/{notificationId}/read
 
-Body `{}`. Response 200 notification + version.
+Body `{"familyId":"uuid"}`. Response 200 notification + version.
 
 ### GET /notifications/preferences
 Response 200:
