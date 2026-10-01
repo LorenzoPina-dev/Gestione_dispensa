@@ -8,6 +8,7 @@ app.use(express.json({ limit: "1mb" }));
 
 const port = Number(process.env.PORT ?? 3315);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 
 type Body = Record<string, unknown>;
 
@@ -25,6 +26,16 @@ function family(req: Request): string | null {
   return String(req.query.familyId ?? req.body?.familyId ?? req.header("x-family-id") ?? "").trim() || null;
 }
 
+async function authorizeFamily(userId: string, familyId: string): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
+  try {
+    const response = await fetch(`${familyServiceBaseUrl}/families/${encodeURIComponent(familyId)}/members`, { headers: { "x-user-id": userId, accept: "application/json" }, signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." };
+    const payload = await response.json() as { items?: Array<{ userId: string; status: string }> };
+    const member = payload.items?.find((item) => item.userId === userId);
+    if (!member || member.status !== "ACTIVE") return { ok: false, status: 403, code: "FORBIDDEN", message: "User is not an active member of the family." };
+    return { ok: true };
+  } catch { return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." }; }
+}
 function key(req: Request): string | null {
   const value = String(req.header("x-idempotency-key") ?? "").trim();
   return value.length >= 8 ? value : null;
@@ -109,6 +120,7 @@ app.get("/api/v1/notifications", async (req, res) => {
   const userId = actor(req);
   const familyId = family(req);
   if (!userId || !familyId) return fail(res, 400, "VALIDATION_ERROR", "familyId and authenticated user are required.");
+  const familyAccess = await authorizeFamily(userId, familyId); if (!familyAccess.ok) return fail(res, familyAccess.status, familyAccess.code, familyAccess.message);
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
   const unreadOnly = req.query.unreadOnly === "true";
 
@@ -140,6 +152,7 @@ app.post("/api/v1/notifications/:notificationId/read", async (req, res) => {
   const userId = actor(req);
   const familyId = family(req);
   if (!userId || !familyId) return fail(res, 400, "VALIDATION_ERROR", "familyId and authenticated user are required.");
+  const familyAccess = await authorizeFamily(userId, familyId); if (!familyAccess.ok) return fail(res, familyAccess.status, familyAccess.code, familyAccess.message);
   if (!key(req)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.");
 
   const client = await pool.connect();
