@@ -773,17 +773,16 @@ ACK
 
 Le FK sono ammesse solo nello stesso DB:
 
-- family_db: members.family_id -> families.id; invites.family_id -> families.id.
-- inventory_db: pantry_items.lot_id -> pantry_lots.id.
-- shopping_db: shopping_items.list_id -> shopping_lists.id.
-- catalog_db: product_barcodes.product_id -> products.id; product_sources.product_id -> products.id.
-- privacy_db: privacy_jobs/erasure_requests possono usare solo PK locali.
-- jobs_db: job_attempts.job_id -> jobs.id; dead_letters.job_id -> jobs.id quando valorizzato.
-- recipes_db: recipe_ingredients.recipe_id -> recipes.id; recipe_steps.recipe_id -> recipes.id.
-- ocr_db: ocr_drafts.job_id -> ocr_jobs.id; ocr_draft_items.draft_id -> ocr_drafts.id.
+- family_db: `members.family_id -> families.id`; `invites.family_id -> families.id`; `join_attempts.invite_id -> invites.id`.
+- inventory_db: `pantry_items.lot_id -> pantry_lots.id`.
+- shopping_db: `shopping_domain.items.list_id -> shopping_domain.lists.id`.
+- catalog_db: `product_identifiers.product_id -> products.id`; `product_identifiers.source_id -> data_sources.id`; `data_provenance.source_id -> data_sources.id`.
+- jobs_db: `job_attempts.job_id -> jobs.id`; `dead_letter_jobs.job_id -> jobs.id`.
+- recipes_db: `recipes_domain.recipe_ingredients.recipe_id -> recipes_domain.recipes.id`; `recipes_domain.recipe_steps.recipe_id -> recipes_domain.recipes.id`.
+- ocr_db: `ocr_domain.ocr_drafts.job_id -> ocr_domain.ocr_jobs.id`; `ocr_domain.ocr_draft_items.draft_id -> ocr_domain.ocr_drafts.id`.
+- stores_db: `stores_domain.prices.store_id -> stores_domain.stores.id`; `stores_domain.offers.store_id -> stores_domain.stores.id`.
 
 Ogni FK non elencata deve essere considerata cross-domain vietata fino a esplicita documentazione.
-
 ## 22. Required indexes
 
 Ogni migration deve creare almeno:
