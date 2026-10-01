@@ -52,13 +52,14 @@ export interface ProductProvenance {
 
 export interface CatalogUpdatedEvent {
   eventId: string;
-  eventType: "catalog.product-updated";
+  eventType: "ProductCreated" | "ProductUpdated" | "ProductEnriched";
   eventVersion: 1;
   aggregateType: "product";
   aggregateId: string;
   actorId: string;
   traceId: string;
-  changedFields: readonly string[];
+  payload: Readonly<Record<string, unknown>>;
+  changedFields?: readonly string[];
 }
 
 export interface CatalogRepository {
@@ -157,13 +158,19 @@ export class CatalogService {
       },
       event: {
         eventId: this.ids.next(),
-        eventType: "catalog.product-updated",
+        eventType: "ProductCreated",
         eventVersion: 1,
         aggregateType: "product",
         aggregateId: productId,
         actorId: command.actorId,
         traceId: command.traceId,
-        changedFields: ["canonicalName", "brand", "defaultUnit"],
+        payload: {
+          productId,
+          name: canonicalName,
+          brand: command.brand?.trim() ?? null,
+          category: command.category?.trim() ?? null,
+          barcodes,
+        },
       },
     });
   }
@@ -180,13 +187,17 @@ export class CatalogService {
     }
     const event: CatalogUpdatedEvent = {
       eventId: this.ids.next(),
-      eventType: "catalog.product-updated",
+      eventType: "ProductUpdated",
       eventVersion: 1,
       aggregateType: "product",
       aggregateId: productId,
       actorId,
       traceId,
       changedFields: Object.keys(patch),
+      payload: {
+        productId,
+        changedFields: Object.keys(patch),
+      },
     };
     return this.repository.updateProductAtomic({ productId, expectedVersion, patch, event });
   }
