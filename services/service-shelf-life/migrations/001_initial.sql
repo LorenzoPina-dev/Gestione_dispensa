@@ -19,6 +19,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS shelf_rules_unique
 
 CREATE TABLE IF NOT EXISTS shelf_life_domain.predictions (
   id uuid PRIMARY KEY,
+  user_id uuid NOT NULL,
+  family_id uuid NULL,
   item_id uuid NOT NULL,
   product_id uuid NOT NULL,
   estimated_expires_at timestamptz NOT NULL,
