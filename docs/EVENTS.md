@@ -396,3 +396,67 @@ Producer: Jobs. Payload: jobId, type, deduplicationKey.
 Producer: Jobs/worker. Payload: jobId, type, completedAt.
 
 Event names are stable identifiers. Internal implementation may use different class names, but emitted contracts must use these eventType values.
+
+
+## 10. Runtime producer vocabulary
+
+The following additional event types are emitted by the current runtime and are therefore part of the canonical vocabulary:
+
+### ProductUpdated v1
+Producer: Catalog. Payload: `{productId, changedFields}`.
+
+### FamilyUpdated v1
+Producer: Family. Payload: `{familyId, name, version}`.
+
+### FamilyDeleted v1
+Producer: Family. Payload: `{familyId}`.
+
+### FamilyMemberUpdated v1
+Producer: Family. Payload: `{userId, role, joinedAt, version}`.
+
+### FamilyMemberRemoved v1
+Producer: Family. Payload: `{userId}`.
+
+### FamilyInviteRevoked v1
+Producer: Family. Payload: `{inviteId}`.
+
+### FamilyInviteAccepted v1
+Producer: Family. Payload: `{familyId, userId, role, joinedAt}`.
+
+### ShoppingListCreated v1
+Producer: Shopping. Payload: `{listId, familyId, name, status, version}`.
+
+### ShoppingItemAdded v1
+Producer: Shopping. Payload: `{itemId, listId, productId, label, quantity, unit, checked, version}`.
+
+### ShoppingItemUpdated v1
+Producer: Shopping. Payload: `{itemId, listId, changedFields, version}`.
+
+### ShoppingItemRemoved v1
+Producer: Shopping. Payload: `{itemId, listId}`.
+
+### ShoppingListClosed v1
+Producer: Shopping. Payload: `{listId, status, version}`.
+
+### NotificationRead v1
+Producer: Notifications. Payload: `{notificationId, readAt}`.
+
+### RecipeDeleted v1
+Producer: Recipes. Payload: `{recipeId}`.
+
+### ShelfLifePredictionQueued v1
+Producer: Shelf-Life. Payload: `{predictionId, itemId, productId, storage, opened, category}`.
+
+### ShelfLifePredictionCompleted v1
+Producer: Shelf-Life. Payload: `{predictionId, estimatedExpiresAt, confidence, modelVersion}`.
+
+### ShelfLifePredictionApplied v1
+Producer: Shelf-Life. Payload: `{predictionId, itemId, status}`.
+
+### OcrDraftConfirmed v1
+Producer: OCR. Payload: `{draftId, jobId, type, confirmedAt, itemCount}`.
+
+### OcrDraftRejected v1
+Producer: OCR. Payload: `{draftId, jobId, rejectedAt}`.
+
+Event payloads contain domain data only. HTTP envelopes, `meta`, access tokens, refresh tokens, QR raw tokens, fallback codes and database credentials are never part of an event payload.
