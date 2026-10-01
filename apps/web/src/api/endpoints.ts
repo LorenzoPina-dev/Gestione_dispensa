@@ -201,7 +201,7 @@ export async function createProduct(input: {
   brand?: string | null;
   defaultUnit?: ProductUnit;
   category?: string;
-  barcodes: string[];
+  barcodes?: string[];
 }): Promise<ProductDto> {
   const result = await apiRequest<{
     productId: string;
@@ -225,7 +225,7 @@ export async function createProduct(input: {
       name: input.canonicalName,
       ...(input.brand ? { brand: input.brand } : {}),
       ...(input.category ? { category: input.category } : {}),
-      barcodes: input.barcodes,
+      ...(input.barcodes && input.barcodes.length > 0 ? { barcodes: input.barcodes } : {}),
     },
   });
 
