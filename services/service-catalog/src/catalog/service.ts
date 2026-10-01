@@ -12,7 +12,7 @@ export interface CreateManualProductCommand {
   carbs?: number;
   fat?: number;
   fiber?: number;
-  barcodes: readonly string[];
+  barcodes?: readonly string[];
   actorId: string;
   traceId: string;
 }
@@ -126,7 +126,7 @@ export class CatalogService {
     const canonicalName = command.canonicalName.trim();
     const issues = validate(command, canonicalName);
     if (issues.length > 0) throw new CatalogValidationError(issues);
-    const barcodes = [...new Set(command.barcodes.map((value) => normalizeIdentifier("BARCODE", value)))];
+    const barcodes = [...new Set((command.barcodes ?? []).map((value) => normalizeIdentifier("BARCODE", value)))];
     const productId = this.ids.next();
     const now = this.clock.now();
     return this.repository.createManualProductAtomic({
@@ -221,6 +221,5 @@ function validate(command: CreateManualProductCommand, canonicalName: string): s
   if (command.traceId.trim().length < 16) issues.push("traceId is required");
   if (!["g", "kg", "ml", "l", "piece", "pack"].includes(command.defaultUnit))
     issues.push("defaultUnit is invalid");
-  if (command.barcodes.length < 1) issues.push("barcodes are required");
   return issues;
 }
