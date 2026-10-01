@@ -555,7 +555,7 @@ Response 201: price record + version.
 Request:
 ```json
 {"productId":"uuid","type":"percentage","value":20,"validFrom":"2026-09-30T00:00:00Z","validTo":"2026-10-05T23:59:59Z"}
-``
+```
 Response 201 offer + version.
 
 ## 10. Notifications
