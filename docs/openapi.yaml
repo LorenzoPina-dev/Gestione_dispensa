@@ -889,7 +889,7 @@ components:
       additionalProperties: false
       properties:
         email: {type: string, format: email}
-        role: {type: string, enum: [member, admin]}
+        role: {type: string, enum: [member, admin, viewer]}
         expiresInSeconds: {type: integer, minimum: 3600, maximum: 604800}
     ResolveInviteRequest:
       type: object
