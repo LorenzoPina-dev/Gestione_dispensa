@@ -198,6 +198,11 @@ export function parseCreateProductBody(
       defaultUnit: ProductUnit;
       category?: string;
       barcodes?: string[];
+      calories?: number;
+      protein?: number;
+      carbs?: number;
+      fat?: number;
+      fiber?: number;
     }
   | undefined {
   if (
