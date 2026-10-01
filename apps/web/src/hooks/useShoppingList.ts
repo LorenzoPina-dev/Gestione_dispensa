@@ -46,10 +46,12 @@ export function useShoppingList(familyId?: string | null, initialList?: Shopping
   const familyIdRef = useRef(effectiveFamilyId);
   familyIdRef.current = effectiveFamilyId;
   const prevListRef = useRef<ShoppingList | null>(null);
+  const hydrationTargetRef = useRef<ShoppingList | null>(null);
 
   useEffect(() => {
     if (initialList !== undefined) {
       // Composite hydration is the authoritative remote baseline.
+      hydrationTargetRef.current = initialList;
       prevListRef.current = initialList;
       setListState(initialList ?? { id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
       setIsDemo(false);
@@ -105,6 +107,15 @@ export function useShoppingList(familyId?: string | null, initialList?: Shopping
   }, [effectiveFamilyId, initialList]);
 
   useEffect(() => {
+    // Wait for the exact remote object to become committed before treating list changes
+    // as user mutations. This also keeps React StrictMode from duplicating writes.
+    if (hydrationTargetRef.current !== null) {
+      if (list !== hydrationTargetRef.current) return;
+      hydrationTargetRef.current = null;
+      prevListRef.current = list;
+      return;
+    }
+
     const prev = prevListRef.current;
     if (prev === null || prev === list) return;
     prevListRef.current = list;
