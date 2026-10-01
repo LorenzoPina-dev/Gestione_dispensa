@@ -1,17 +1,370 @@
-import express, { type Request } from "express";
-import { Pool } from "pg";
-const app=express();app.disable("x-powered-by");app.use(express.json({limit:"1mb"}));const pool=new Pool({connectionString:process.env.DATABASE_URL});const s="shelf_life_domain";const port=Number(process.env.PORT??3404);
-type StorageKind="PANTRY"|"FRIDGE"|"FREEZER"|"CELLAR"|"OTHER";
-const normalize=(v:any):StorageKind=>{const x=String(v??"").trim().toLowerCase();if(["frigo","fridge","frigorifero"].includes(x))return"FRIDGE";if(["freezer","congelatore"].includes(x))return"FREEZER";if(["dispensa","pantry"].includes(x))return"PANTRY";if(["cantina","cellar"].includes(x))return"CELLAR";return"OTHER"};
-async function resolve(category:string|undefined,storage:StorageKind){const q=await pool.query(`select category,storage_kind,estimated_days,notify_days_before,source from ${s}.rules where category=$1 and storage_kind=$2 union all select category,storage_kind,estimated_days,notify_days_before,source from ${s}.rules where category='__default__' and storage_kind=$2 limit 1`,[category?.trim().toLowerCase()||"__default__",storage]);return q.rows[0] as any|undefined;}
-async function predict(category:string|undefined,storage:StorageKind,receivedAt:string|Date){const rule=await resolve(category,storage);if(!rule||rule.estimated_days==null)return{estimated:false,expirationDate:null,notifyDaysBefore:Number(rule?.notify_days_before??2)};const d=new Date(receivedAt);d.setUTCDate(d.getUTCDate()+Number(rule.estimated_days));return{estimated:true,expirationDate:d.toISOString().slice(0,10),estimatedDays:Number(rule.estimated_days),notifyDaysBefore:Number(rule.notify_days_before),source:rule.source};}
-app.get("/api/v1/shelf-life/predictions",async(req,res)=>{const itemId=String(req.query.itemId??"");const productId=String(req.query.productId??"");const q=await pool.query(`select * from ${s}.predictions where ($1='' or item_id=$1) and ($2='' or product_id=$2) order by created_at desc limit 100`,[itemId,productId]);res.json({items:q.rows,nextCursor:null})});
-app.post("/api/v1/shelf-life/predictions",async(req,res)=>{const b=req.body??{};if(!b.itemId||!b.productId)return res.status(400).json({error:{code:"VALIDATION_ERROR",message:"itemId and productId are required."}});const p=await predict(b.category,normalize(b.storageKind),b.receivedAt??new Date().toISOString());if(!p.expirationDate)return res.status(422).json({error:{code:"PREDICTION_UNAVAILABLE",message:"No shelf-life rule is available."}});const q=await pool.query(`insert into ${s}.predictions(item_id,product_id,estimated_expires_at,confidence,basis,model_version,status) values($1,$2,$3,$4,$5,$6,'completed') returning *`,[b.itemId,b.productId,p.expirationDate,Number(b.confidence??0.5),p.source??"rule","rule-v1"]);res.status(201).json({data:q.rows[0],version:q.rows[0].version})});
-app.get("/api/v1/shelf-life/predictions/:predictionId",async(req,res)=>{const q=await pool.query(`select * from ${s}.predictions where id=$1`,[req.params.predictionId]);if(!q.rowCount)return res.status(404).json({error:{code:"NOT_FOUND",message:"Prediction not found."}});res.json({data:q.rows[0]})});
-app.post("/api/v1/shelf-life/predictions/:predictionId/apply",async(req,res)=>{const q=await pool.query(`update ${s}.predictions set status='applied',version=version+1,updated_at=now() where id=$1 and status in ('completed','queued') returning *`,[req.params.predictionId]);if(!q.rowCount)return res.status(404).json({error:{code:"NOT_FOUND",message:"Prediction not found or already applied."}});res.json({data:q.rows[0],version:q.rows[0].version})});
-app.get("/health/live",(_,r)=>r.json({status:"ok",service:"service-shelf-life"}));app.get("/health/ready",async(_,r)=>{try{await pool.query("select 1");r.json({status:"ok",db:true})}catch{r.status(503).json({status:"not_ready",db:false})}});
-app.use((e:any,_q:Request,r:any,_n:any)=>r.status(500).json({error:{code:"INTERNAL_ERROR",message:e?.message??"Internal error"}}));
-async function ensureSchema(){await pool.query(`create schema if not exists ${s}`);await pool.query(`create table if not exists ${s}.predictions(id uuid primary key default gen_random_uuid(),item_id uuid not null,product_id uuid not null,estimated_expires_at timestamptz not null,confidence numeric(5,4) not null,basis text not null,model_version varchar(64) not null,status varchar(32) not null,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),version integer not null default 1)`);
-await pool.query(`create table if not exists ${s}.rules(id uuid primary key default gen_random_uuid(),category text not null,storage_kind text not null,estimated_days integer,notify_days_before integer not null default 2,source text not null default 'DEFAULT',created_at timestamptz not null default now(),updated_at timestamptz not null default now(),unique(category,storage_kind))`);for(const k of ["PANTRY","FRIDGE","FREEZER","CELLAR","OTHER"])await pool.query(`insert into ${s}.rules(category,storage_kind,estimated_days,notify_days_before,source) values('__default__',$1,null,2,'DEFAULT') on conflict do nothing`,[k]);}
-await ensureSchema();
-app.listen(port,"0.0.0.0",()=>process.stdout.write(JSON.stringify({service:"service-shelf-life",port})+"\n"));
+import express, { type Request, type Response } from "express";
+import { Pool, type PoolClient } from "pg";
+import { createClient } from "redis";
+import crypto from "node:crypto";
+
+const app = express();
+app.disable("x-powered-by");
+app.use(express.json({ limit: "1mb" }));
+
+const port = Number(process.env.PORT ?? 3404);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
+const queue = "q:shelf-life-prediction";
+
+type Storage = "PANTRY" | "FRIDGE" | "FREEZER" | "CELLAR" | "OTHER";
+type PredictionStatus = "queued" | "completed" | "applied" | "superseded" | "failed";
+type Body = Record<string, unknown>;
+
+const fail = (res: Response, status: number, code: string, message: string): Response =>
+  res.status(status).json({
+    error: { code, message, details: [], requestId: crypto.randomUUID() },
+  });
+
+function actor(req: Request): string {
+  return String(req.header("x-user-id") ?? "").trim();
+}
+
+function requireInternal(req: Request, res: Response): boolean {
+  if (!internalServiceToken) {
+    fail(res, 503, "SERVICE_UNAVAILABLE", "Internal service authentication is not configured.");
+    return false;
+  }
+  if (req.header("authorization") !== `Bearer ${internalServiceToken}`) {
+    fail(res, 401, "UNAUTHENTICATED", "Internal service authentication is required.");
+    return false;
+  }
+  return true;
+}
+
+function key(req: Request): string | null {
+  const value = String(req.header("x-idempotency-key") ?? "").trim();
+  return value.length >= 8 ? value : null;
+}
+
+function normalizeStorage(value: unknown): Storage {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (["fridge", "frigo", "frigorifero"].includes(raw)) return "FRIDGE";
+  if (["freezer", "congelatore"].includes(raw)) return "FREEZER";
+  if (["pantry", "dispensa"].includes(raw)) return "PANTRY";
+  if (["cellar", "cantina"].includes(raw)) return "CELLAR";
+  return "OTHER";
+}
+
+function hash(value: unknown): string {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+async function beginIdempotency(client: PoolClient, req: Request, body: unknown, userId: string) {
+  const idempotencyKey = key(req);
+  if (!idempotencyKey) return { kind: "missing" as const };
+
+  const requestHash = hash(body);
+  const existing = await client.query(
+    "select actor_user_id,request_hash,status,response_status,response_body from shelf_life_domain.idempotency_keys where key=$1 for update",
+    [idempotencyKey],
+  );
+
+  if (existing.rowCount) {
+    const row = existing.rows[0];
+    if (String(row.actor_user_id) !== userId || row.request_hash !== requestHash) {
+      return { kind: "conflict" as const };
+    }
+    if (row.status === "completed") {
+      return {
+        kind: "replay" as const,
+        status: Number(row.response_status),
+        response: row.response_body,
+      };
+    }
+    return { kind: "new" as const };
+  }
+
+  await client.query(
+    `insert into shelf_life_domain.idempotency_keys
+      (key,actor_user_id,family_id,request_hash,status,created_at,expires_at)
+     values($1,$2,null,$3,'processing',now(),now()+interval '24 hours')`,
+    [idempotencyKey, userId, requestHash],
+  );
+  return { kind: "new" as const };
+}
+
+async function finishIdempotency(client: PoolClient, req: Request, status: number, response: unknown) {
+  const idempotencyKey = key(req);
+  if (!idempotencyKey) return;
+  await client.query(
+    "update shelf_life_domain.idempotency_keys set status='completed',response_status=$2,response_body=$3 where key=$1",
+    [idempotencyKey, status, JSON.stringify(response)],
+  );
+}
+
+async function emitOutbox(
+  client: PoolClient,
+  type: string,
+  aggregateId: string,
+  familyId: string | null,
+  payload: unknown,
+) {
+  await client.query(
+    `insert into shelf_life_domain.outbox_events
+      (event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
+     values($1,$2,1,$3,$4,$5,now(),$6::jsonb,now())`,
+    [crypto.randomUUID(), type, aggregateId, familyId, crypto.randomUUID(), JSON.stringify(payload)],
+  );
+}
+
+async function ruleFor(category: string | null, storage: Storage, opened: boolean) {
+  const result = await pool.query(
+    `select id,product_category,storage,opened,min_days,max_days,model_version,active
+     from shelf_life_domain.rules
+     where active=true
+       and storage=$2
+       and opened=$3
+       and (product_category=$1 or product_category is null)
+     order by case when product_category=$1 then 0 else 1 end
+     limit 1`,
+    [category, storage, opened],
+  );
+  return result.rows[0] as
+    | {
+        id: string;
+        product_category: string | null;
+        storage: Storage;
+        opened: boolean;
+        min_days: number;
+        max_days: number;
+        model_version: string;
+        active: boolean;
+      }
+    | undefined;
+}
+
+function confidenceFor(rule: { min_days: number; max_days: number; product_category: string | null }): number {
+  const categoryBonus = rule.product_category ? 0.1 : 0;
+  const rangePenalty = Math.min(0.15, Math.max(0, (rule.max_days - rule.min_days) / 500));
+  return Math.max(0.5, Math.min(0.99, 0.75 + categoryBonus - rangePenalty));
+}
+
+async function init(): Promise<void> {
+  await pool.query(`create schema if not exists shelf_life_domain`);
+  await pool.query(`create table if not exists shelf_life_domain.rules(
+    id uuid primary key default gen_random_uuid(),
+    product_category varchar(120) null,
+    storage varchar(32) not null,
+    opened boolean not null,
+    min_days integer not null check(min_days>=0),
+    max_days integer not null check(max_days>=min_days),
+    model_version varchar(64) not null,
+    active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  )`);
+  await pool.query(`create unique index if not exists shelf_rules_unique
+    on shelf_life_domain.rules(coalesce(product_category,''),storage,opened,model_version)`);
+  await pool.query(`create table if not exists shelf_life_domain.predictions(
+    id uuid primary key default gen_random_uuid(),
+    item_id uuid not null,
+    product_id uuid not null,
+    estimated_expires_at timestamptz not null,
+    confidence numeric(5,4) not null check(confidence between 0 and 1),
+    basis varchar(200) not null,
+    model_version varchar(64) not null,
+    status varchar(32) not null check(status in ('queued','completed','applied','superseded','failed')),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    version integer not null default 1
+  )`);
+  await pool.query(`create table if not exists shelf_life_domain.idempotency_keys(
+    key varchar(255) primary key,
+    actor_user_id uuid not null,
+    family_id uuid null,
+    request_hash varchar(64) not null,
+    status varchar(16) not null check(status in ('processing','completed','failed')),
+    response_status integer null,
+    response_body jsonb null,
+    created_at timestamptz not null default now(),
+    expires_at timestamptz not null
+  )`);
+  await pool.query(`create table if not exists shelf_life_domain.outbox_events(
+    event_id uuid primary key,
+    event_type varchar(128) not null,
+    schema_version integer not null,
+    aggregate_id uuid not null,
+    family_id uuid null,
+    correlation_id uuid not null,
+    occurred_at timestamptz not null,
+    payload jsonb not null,
+    published_at timestamptz null,
+    attempts integer not null default 0,
+    last_error text null,
+    created_at timestamptz not null
+  )`);
+  await pool.query("create index if not exists shelf_predictions_item_status_idx on shelf_life_domain.predictions(item_id,status)");
+  await pool.query("create index if not exists shelf_predictions_product_idx on shelf_life_domain.predictions(product_id,created_at desc)");
+  await pool.query("create index if not exists shelf_outbox_publish_idx on shelf_life_domain.outbox_events(published_at,created_at)");
+}
+
+app.get("/health/live", (_req,res) => res.json({ status:"ok", service:"service-shelf-life" }));
+app.get("/health/ready", async (_req,res) => {
+  try { await pool.query("select 1"); res.json({ status:"ready",service:"service-shelf-life" }); }
+  catch { res.status(503).json({ status:"not_ready",service:"service-shelf-life" }); }
+});
+
+app.post("/api/v1/shelf-life/predictions", async (req,res) => {
+  const userId = actor(req);
+  const body = req.body as Body;
+  const itemId = typeof body.itemId === "string" ? body.itemId : "";
+  const productId = typeof body.productId === "string" ? body.productId : "";
+  const storage = normalizeStorage(body.storedAt);
+  const opened = body.opened === true;
+
+  if (!userId) return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  if (!itemId || !productId || typeof body.storedAt !== "string" || !key(req)) {
+    return fail(res,400,"VALIDATION_ERROR","itemId, productId, storedAt, opened and X-Idempotency-Key are required.");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const idem = await beginIdempotency(client,req,body,userId);
+    if (idem.kind === "missing") { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required."); }
+    if (idem.kind === "conflict") { await client.query("rollback"); return fail(res,409,"CONFLICT","Idempotency key conflict."); }
+    if (idem.kind === "replay") { await client.query("commit"); return res.status(idem.status).json(idem.response); }
+
+    const latest = await client.query(
+      "select id,status,version from shelf_life_domain.predictions where item_id=$1 and status in ('queued','completed','applied') order by created_at desc limit 1 for update",
+      [itemId],
+    );
+    if (latest.rowCount && latest.rows[0].status === "queued") {
+      const response = { data: { predictionId: latest.rows[0].id, status: "queued" }, version: Number(latest.rows[0].version) };
+      await finishIdempotency(client,req,202,response); await client.query("commit"); return res.status(202).json(response);
+    }
+
+    const predictionId = crypto.randomUUID();
+    const response = { data: { predictionId, status: "queued" }, version: 1 };
+    await client.query(
+      `insert into shelf_life_domain.predictions(id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status)
+       values($1,$2,$3,now(),0,'pending','pending','queued')`,
+      [predictionId,itemId,productId],
+    );
+    await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,null,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null});
+    await finishIdempotency(client,req,202,response);
+    await client.query("commit");
+
+    try {
+      await redis.connect().catch(() => undefined);
+      if (redis.isOpen) {
+        await redis.lPush(queue,JSON.stringify({data:{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null}}));
+      }
+    } catch { /* durable queued prediction remains */ }
+
+    return res.status(202).json(response);
+  } catch (error) {
+    await client.query("rollback");
+    return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to queue prediction.");
+  } finally { client.release(); }
+});
+
+app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async (req,res) => {
+  if (!requireInternal(req,res)) return;
+  const id = req.params.predictionId;
+  const body = req.body as Body;
+  const storage = normalizeStorage(body.storedAt ?? body.storage);
+  const opened = body.opened === true;
+  const category = typeof body.category === "string" ? body.category.trim().toLowerCase() : null;
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const current = await client.query(
+      "select * from shelf_life_domain.predictions where id=$1 for update",
+      [id],
+    );
+    if (!current.rowCount) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Prediction not found."); }
+    if (current.rows[0].status === "applied") { await client.query("commit"); return res.status(200).json({ data: current.rows[0] }); }
+
+    const rule = await ruleFor(category,storage,opened);
+    if (!rule) {
+      await client.query(
+        "update shelf_life_domain.predictions set status='failed',basis='no_matching_rule',model_version='none',updated_at=now(),version=version+1 where id=$1",
+        [id],
+      );
+      await client.query("commit");
+      return fail(res,422,"PREDICTION_UNAVAILABLE","No active shelf-life rule matches the requested product/storage state.");
+    }
+
+    const confidence = confidenceFor(rule);
+    const minDays = Number(rule.min_days);
+    const maxDays = Number(rule.max_days);
+    const estimatedDays = minDays === maxDays ? minDays : Math.round((minDays + maxDays) / 2);
+    const expires = new Date();
+    expires.setUTCDate(expires.getUTCDate() + estimatedDays);
+
+    const q = await client.query(
+      `update shelf_life_domain.predictions
+       set estimated_expires_at=$2,confidence=$3,basis=$4,model_version=$5,status='completed',updated_at=now(),version=version+1
+       where id=$1 returning *`,
+      [id,expires.toISOString(),confidence,`product_category+storage+opened:${storage}:${opened}`,rule.model_version],
+    );
+    await emitOutbox(client,"ShelfLifePredictionCompleted",id,null,{predictionId:id,estimatedExpiresAt:expires.toISOString(),confidence,modelVersion:rule.model_version});
+    await client.query("commit");
+    return res.status(200).json({ data: q.rows[0], version: q.rows[0].version });
+  } catch (error) {
+    await client.query("rollback");
+    return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to process prediction.");
+  } finally { client.release(); }
+});
+
+app.get("/api/v1/shelf-life/predictions/:predictionId", async (req,res) => {
+  const userId=actor(req); if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const q=await pool.query("select id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status,version from shelf_life_domain.predictions where id=$1",[req.params.predictionId]);
+  if(!q.rowCount)return fail(res,404,"NOT_FOUND","Prediction not found.");
+  const x=q.rows[0];
+  return res.json({data:{
+    predictionId:x.id,itemId:x.item_id,estimatedExpiresAt:x.estimated_expires_at,
+    confidence:Number(x.confidence),basis:x.basis,status:x.status
+  },version:Number(x.version)});
+});
+
+app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) => {
+  const userId=actor(req), idempotencyKey=key(req);
+  if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
+
+  const q=await pool.query("select * from shelf_life_domain.predictions where id=$1",[req.params.predictionId]);
+  if(!q.rowCount)return fail(res,404,"NOT_FOUND","Prediction not found.");
+  const x=q.rows[0] as Record<string,unknown>;
+  if(x.status!=="completed")return fail(res,422,"BUSINESS_RULE_VIOLATION","Only completed predictions can be applied.");
+
+  // Inventory remains owner of pantry state. Ask the Inventory service to confirm the declared
+  // estimated expiration; no cross-database SQL is permitted here.
+  const inventoryBase=(process.env.INVENTORY_SERVICE_BASE_URL??"http://service-inventory:3312/api/v1").replace(/\/$/,"");
+  try {
+    const response=await fetch(`${inventoryBase}/inventory/${x.item_id}/expiration/confirm`,{
+      method:"POST",
+      headers:{"content-type":"application/json","x-user-id":userId,"authorization":req.header("authorization")??"", "x-idempotency-key":idempotencyKey},
+      body:JSON.stringify({expiresAt:x.estimated_expires_at,source:"estimated"})
+    });
+    if(!response.ok)return fail(res,response.status,"UPSTREAM_ERROR","Inventory could not apply the shelf-life prediction.");
+  } catch {
+    return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable.",);
+  }
+
+  const updated=await pool.query(
+    "update shelf_life_domain.predictions set status='applied',updated_at=now(),version=version+1 where id=$1 and status='completed' returning *",
+    [req.params.predictionId],
+  );
+  if(!updated.rowCount)return fail(res,409,"CONFLICT","Prediction state changed before apply.");
+  return res.json({data:{
+    predictionId:updated.rows[0].id,itemId:updated.rows[0].item_id,estimatedExpiresAt:updated.rows[0].estimated_expires_at,
+    confidence:Number(updated.rows[0].confidence),basis:updated.rows[0].basis,status:"applied"
+  },version:updated.rows[0].version});
+});
+
+app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
+
+async function main() {
+  await init();
+  app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-shelf-life",port})));
+}
+main().catch((error)=>{console.error(error);process.exit(1)});
