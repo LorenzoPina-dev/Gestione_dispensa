@@ -352,7 +352,7 @@ Request:
 ```json
 {"expiresAt":"2026-10-05T00:00:00Z","source":"declared"}
 ```
-Response 200: item aggiornato. Una data dichiarata ha priorità sulla prediction.
+Response 200: item aggiornato. `source` = `declared` quando la data viene fornita/confermata dall’utente; `estimated` quando viene applicata una prediction Shelf-Life. Una data `declared` ha priorità sulla prediction.
 
 ## 5. Catalog / barcode
 
