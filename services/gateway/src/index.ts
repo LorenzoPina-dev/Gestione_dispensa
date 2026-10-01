@@ -1,4 +1,5 @@
 import express, { type Request, type Response } from "express";
+import { Readable } from "node:stream";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { annotate, currentContext, errorMiddleware, log, metrics, metricsHandler, noteUpstreamError, rebindContext, recordError, requestObservability, startObservability } from "./observability.js";
 
@@ -158,7 +159,10 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     const headers: Record<string,string> = { Accept: "application/json" };
     const authorization = req.header("authorization"); if (authorization) headers.Authorization = authorization;
     const hasBody = !["GET", "HEAD"].includes(req.method);
-    if (hasBody) headers["Content-Type"] = "application/json";
+    const incomingContentType = req.header("content-type") ?? "";
+    const isMultipart = incomingContentType.toLowerCase().startsWith("multipart/form-data");
+    if (hasBody && !isMultipart) headers["Content-Type"] = "application/json";
+    if (isMultipart) headers["Content-Type"] = incomingContentType;
     // Headers the domain services depend on: RLS family context, idempotency and optimistic locking.
     // traceparent / x-request-id are added automatically by the instrumented fetch.
     for (const name of ["x-user-id", "x-oidc-sub", "x-user-email", "x-user-name", "x-user-username", "x-correlation-id", "idempotency-key", "x-idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
@@ -169,12 +173,20 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     const target = `${url.host}${url.pathname}`;
     annotate({ upstream: target });
     try {
-      const upstream = await fetch(url, {
+      const init: RequestInit & { duplex?: "half" } = {
         method: req.method,
         headers,
-        ...(hasBody ? { body: JSON.stringify(req.body ?? {}) } : {}),
         signal: AbortSignal.timeout(requestTimeoutMs),
-      });
+      };
+      if (hasBody) {
+        if (isMultipart) {
+          init.body = Readable.toWeb(req) as unknown as BodyInit;
+          init.duplex = "half";
+        } else {
+          init.body = JSON.stringify(req.body ?? {});
+        }
+      }
+      const upstream = await fetch(url, init);
       const text = await upstream.text();
       if (upstream.status >= 400) {
         // Copy the upstream error code/message into this hop's access-log line: one log line tells who failed and why.
