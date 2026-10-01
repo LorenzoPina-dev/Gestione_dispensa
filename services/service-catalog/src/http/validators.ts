@@ -212,6 +212,7 @@ export function parseCreateProductBody(
   const validUnits = new Set<ProductUnit>(["g", "kg", "ml", "l", "piece", "pack"]);
   const defaultUnit = body.defaultUnit === undefined ? "piece" : body.defaultUnit;
   if (typeof defaultUnit !== "string" || !validUnits.has(defaultUnit as ProductUnit)) return undefined;
+  if (body.barcodes !== undefined && !Array.isArray(body.barcodes)) return undefined;
   const barcodes = body.barcodes === undefined ? undefined : [...new Set(body.barcodes.map((value) => value.trim()))];
   if (barcodes?.some((value) => !/^[0-9]+$/.test(value) || value.length < 8 || value.length > 14)) return undefined;
 
