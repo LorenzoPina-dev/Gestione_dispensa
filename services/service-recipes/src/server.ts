@@ -8,6 +8,7 @@ app.use(express.json({ limit: "2mb" }));
 
 const port = Number(process.env.PORT ?? 3401);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 
 type Body = Record<string, unknown>;
 
@@ -19,6 +20,19 @@ function context(req: express.Request): { userId: string; familyId: string } | n
   const userId = String(req.header("x-user-id") ?? "").trim();
   const familyId = String(req.query.familyId ?? req.body?.familyId ?? req.header("x-family-id") ?? "").trim();
   return userId && familyId ? { userId, familyId } : null;
+}
+async function authorizeFamily(ctx: { userId: string; familyId: string }, write: boolean): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
+  try {
+    const response = await fetch(`${familyServiceBaseUrl}/families/${encodeURIComponent(ctx.familyId)}/members`, { headers: { "x-user-id": ctx.userId, accept: "application/json" }, signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." };
+    const payload = await response.json() as { items?: Array<{ userId: string; role: string; status: string }> };
+    const member = payload.items?.find((item) => item.userId === ctx.userId);
+    if (!member || member.status !== "ACTIVE") return { ok: false, status: 403, code: "FORBIDDEN", message: "User is not an active member of the family." };
+    if (write && member.role === "viewer") return { ok: false, status: 403, code: "FORBIDDEN", message: "Viewer role is read-only." };
+    return { ok: true };
+  } catch {
+    return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." };
+  }
 }
 
 function key(req: express.Request): string | null {
@@ -108,6 +122,10 @@ app.get("/health/ready", async (_req, res) => {
 });
 
 app.get("/api/v1/recipes", async (req, res) => {
+  const initialContext = context(req);
+  if (!initialContext) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
+  const access = await authorizeFamily(initialContext, false);
+  if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
   const ctx = context(req);
   if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
@@ -129,6 +147,7 @@ app.post("/api/v1/recipes", async (req, res) => {
   const ctx = context(req);
   const body = req.body as Body;
   if (!ctx || !key(req)) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId and X-Idempotency-Key are required."));
+  const access = await authorizeFamily(ctx, true); if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const servings = Number(body.servings);
   const ingredients = Array.isArray(body.ingredients) ? body.ingredients : [];
@@ -186,6 +205,7 @@ app.post("/api/v1/recipes", async (req, res) => {
 });
 
 app.get("/api/v1/recipes/:recipeId", async (req,res) => {
+  const ctx = context(req); if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required.")); const access = await authorizeFamily(ctx,false); if (!access.ok) return res.status(access.status).json(errorBody(access.code,access.message));
   const ctx = context(req);
   if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR","familyId is required."));
   const recipe = await loadRecipe(req.params.recipeId,ctx.familyId);
@@ -194,7 +214,8 @@ app.get("/api/v1/recipes/:recipeId", async (req,res) => {
 });
 
 app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
-  const ctx=context(req); const version=match(req);
+  const ctx=context(req);
+  if (ctx) { const access = await authorizeFamily(ctx,true); if (!access.ok) return res.status(access.status).json(errorBody(access.code,access.message)); } const version=match(req);
   if(!ctx||!key(req)||version===null)return res.status(400).json(errorBody("VALIDATION_ERROR","familyId, X-Idempotency-Key and If-Match are required."));
   const body=req.body as Body; const client=await pool.connect();
   try{await client.query("begin");const idem=await beginIdempotency(client,req,ctx.userId,ctx.familyId,body);if(idem.kind==="conflict"){await client.query("rollback");return res.status(409).json(errorBody("CONFLICT","Idempotency key conflict."));}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}if(idem.kind==="missing"){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","X-Idempotency-Key is required."));}
@@ -216,7 +237,8 @@ app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
 });
 
 app.delete("/api/v1/recipes/:recipeId",async(req,res)=>{
-  const ctx=context(req);const version=match(req);if(!ctx||!key(req)||version===null)return res.status(400).json(errorBody("VALIDATION_ERROR","familyId, X-Idempotency-Key and If-Match are required."));
+  const ctx=context(req);
+  if (ctx) { const access = await authorizeFamily(ctx,true); if (!access.ok) return res.status(access.status).json(errorBody(access.code,access.message)); }const version=match(req);if(!ctx||!key(req)||version===null)return res.status(400).json(errorBody("VALIDATION_ERROR","familyId, X-Idempotency-Key and If-Match are required."));
   const client=await pool.connect();try{await client.query("begin");const idem=await beginIdempotency(client,req,ctx.userId,ctx.familyId,{recipeId:req.params.recipeId});if(idem.kind==="conflict"){await client.query("rollback");return res.status(409).json(errorBody("CONFLICT","Idempotency key conflict."));}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).end();}if(idem.kind==="missing"){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","X-Idempotency-Key is required."));}
     const current=await client.query("select version from recipes_domain.recipes where id=$1 and family_id=$2 for update",[req.params.recipeId,ctx.familyId]);if(!current.rowCount){await client.query("rollback");return res.status(404).json(errorBody("NOT_FOUND","Recipe not found."));}if(Number(current.rows[0].version)!==version){await client.query("rollback");return res.status(412).json(errorBody("PRECONDITION_FAILED","Recipe version changed."));}
     await client.query("delete from recipes_domain.recipes where id=$1",[req.params.recipeId]);await outbox(client,"RecipeDeleted",req.params.recipeId,ctx.familyId,ctx.userId,{recipeId:req.params.recipeId});await finishIdempotency(client,req,204,null);await client.query("commit");return res.status(204).end();
@@ -224,7 +246,8 @@ app.delete("/api/v1/recipes/:recipeId",async(req,res)=>{
 });
 
 app.get("/api/v1/recipes/suggestions",async(req,res)=>{
-  const ctx=context(req);if(!ctx)return res.status(400).json(errorBody("VALIDATION_ERROR","familyId is required."));
+  const ctx=context(req);
+  if (ctx) { const access = await authorizeFamily(ctx,false); if (!access.ok) return res.status(access.status).json(errorBody(access.code,access.message)); }if(!ctx)return res.status(400).json(errorBody("VALIDATION_ERROR","familyId is required."));
   const q=await pool.query("select id from recipes_domain.recipes where family_id=$1 order by updated_at desc limit $2",[ctx.familyId,Math.min(Math.max(Number(req.query.limit??20),1),100)]);
   const items=await Promise.all(q.rows.map(async row=>{const recipe=await loadRecipe(String(row.id),ctx.familyId);return {recipeId:recipe?.recipeId??String(row.id),score:1,missingIngredients:[]};}));
   return res.json({items});
