@@ -12,6 +12,7 @@ export interface CreateManualProductCommand {
   carbs?: number;
   fat?: number;
   fiber?: number;
+  barcodes: readonly string[];
   actorId: string;
   traceId: string;
 }
@@ -26,7 +27,7 @@ export interface Product {
   // (see CatalogWorkflowService.resolveBarcode) are genuinely IMPORTED, and the Postgres mapping
   // was already casting across this type without it being true -- this makes the type honest.
   provenanceQuality: ProductQuality;
-  version: 1;
+  version: number;
   category?: string;
   photoUrl?: string;
   calories?: number;
@@ -36,6 +37,9 @@ export interface Product {
   fiber?: number;
   createdAt: Date;
   updatedAt: Date;
+  barcodes: string[];
+  externalSource?: string;
+  externalRef?: string;
 }
 
 export interface ProductProvenance {
@@ -60,6 +64,12 @@ export interface CatalogUpdatedEvent {
 export interface CatalogRepository {
   listActive(): Promise<Product[]>;
   getById(productId: string): Promise<Product | undefined>;
+  updateProductAtomic(input: {
+    productId: string;
+    expectedVersion: number;
+    patch: { name?: string; brand?: string | null; category?: string | null; imageObjectKey?: string | null; nutrition?: Record<string, unknown> | null };
+    event: CatalogUpdatedEvent;
+  }): Promise<Product | undefined>;
   createManualProductAtomic(input: {
     product: Product;
     provenance: ProductProvenance;
@@ -108,6 +118,7 @@ export class CatalogService {
     const canonicalName = command.canonicalName.trim();
     const issues = validate(command, canonicalName);
     if (issues.length > 0) throw new CatalogValidationError(issues);
+    const barcodes = [...new Set(command.barcodes.map((value) => normalizeIdentifier("BARCODE", value)))];
     const productId = this.ids.next();
     const now = this.clock.now();
     return this.repository.createManualProductAtomic({
@@ -127,6 +138,7 @@ export class CatalogService {
         ...(command.fiber != null ? { fiber: command.fiber } : {}),
         createdAt: now,
         updatedAt: now,
+        barcodes,
       },
       provenance: {
         productId,
@@ -146,6 +158,29 @@ export class CatalogService {
         changedFields: ["canonicalName", "brand", "defaultUnit"],
       },
     });
+  }
+
+  public async updateProduct(
+    productId: string,
+    expectedVersion: number,
+    patch: { name?: string; brand?: string | null; category?: string | null; imageObjectKey?: string | null; nutrition?: Record<string, unknown> | null },
+    actorId: string,
+    traceId: string,
+  ): Promise<Product | undefined> {
+    if (!productId.trim() || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new CatalogValidationError(["productId and expectedVersion are required"]);
+    }
+    const event: CatalogUpdatedEvent = {
+      eventId: this.ids.next(),
+      eventType: "catalog.product-updated",
+      eventVersion: 1,
+      aggregateType: "product",
+      aggregateId: productId,
+      actorId,
+      traceId,
+      changedFields: Object.keys(patch),
+    };
+    return this.repository.updateProductAtomic({ productId, expectedVersion, patch, event });
   }
 }
 
