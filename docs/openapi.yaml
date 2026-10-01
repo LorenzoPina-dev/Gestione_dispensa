@@ -1143,6 +1143,16 @@ components:
     Conflict: {description: Conflict, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     PreconditionFailed: {description: Precondition failed, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     BusinessRule: {description: Business rule violation, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    BadGateway:
+      description: Downstream provider or service failure
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    BusinessRuleViolation:
+      description: Valid request rejected by a domain invariant
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
     ServiceUnavailable: {description: Service unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
 }
         observedAt: {type: string, format: date-time}
