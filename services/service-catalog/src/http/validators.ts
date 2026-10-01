@@ -215,6 +215,11 @@ export function parseCreateProductBody(
   if (body.barcodes !== undefined && !Array.isArray(body.barcodes)) return undefined;
   const barcodes = body.barcodes === undefined ? undefined : [...new Set(body.barcodes.map((value) => value.trim()))];
   if (barcodes?.some((value) => !/^[0-9]+$/.test(value) || value.length < 8 || value.length > 14)) return undefined;
+  const numericNutrition = body.nutrition === undefined ? undefined : body.nutrition;
+  if (numericNutrition !== undefined && (numericNutrition === null || typeof numericNutrition !== "object" || Array.isArray(numericNutrition))) return undefined;
+  const nutritionRecord = numericNutrition as Record<string, unknown> | undefined;
+  const nutritionValues = [nutritionRecord?.kcalPer100g, nutritionRecord?.proteinGPer100g, nutritionRecord?.carbsGPer100g, nutritionRecord?.fatGPer100g, nutritionRecord?.fiberGPer100g];
+  if (nutritionValues.some((value) => value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0))) return undefined;
 
   return {
     canonicalName: body.name.trim(),
@@ -230,6 +235,11 @@ export function parseCreateProductBody(
         ? { category: body.category.trim() }
         : {}),
     ...(barcodes && barcodes.length > 0 ? { barcodes } : {}),
+    ...(nutritionRecord?.kcalPer100g !== undefined ? { calories: nutritionRecord.kcalPer100g as number } : {}),
+    ...(nutritionRecord?.proteinGPer100g !== undefined ? { protein: nutritionRecord.proteinGPer100g as number } : {}),
+    ...(nutritionRecord?.carbsGPer100g !== undefined ? { carbs: nutritionRecord.carbsGPer100g as number } : {}),
+    ...(nutritionRecord?.fatGPer100g !== undefined ? { fat: nutritionRecord.fatGPer100g as number } : {}),
+    ...(nutritionRecord?.fiberGPer100g !== undefined ? { fiber: nutritionRecord.fiberGPer100g as number } : {}),
   };
 }
 
