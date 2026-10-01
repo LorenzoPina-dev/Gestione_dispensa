@@ -113,6 +113,11 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     .route("/catalog/barcodes/:barcode")
     .get(
       asyncHandler(async (req, res) => {
+        const principal = await resolvePrincipal(req, verifier);
+        if (!principal) {
+          sendFailure(res, 401, "UNAUTHENTICATED", "Authentication is required.", req.meta);
+          return;
+        }
         const barcode = req.params.barcode as string;
         if (!/^[0-9]+$/.test(barcode)) {
           sendFailure(res, 400, "VALIDATION_ERROR", "barcode must contain digits only.", req.meta);
