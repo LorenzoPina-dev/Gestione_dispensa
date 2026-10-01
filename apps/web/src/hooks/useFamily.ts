@@ -77,7 +77,6 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
         setIsDemo(false);
       } catch {
         if (cancelled) return;
-        prevMembersRef.current = [];
         setMembersState([]);
         setIsDemo(false);
       } finally {
@@ -97,7 +96,7 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
 
   const syncInviteCreated = useCallback(
     async (invite: Invite): Promise<Invite> => {
-      if (isDemoRef.current || !effectiveFamilyId) return invite;
+      if (!effectiveFamilyId) return invite;
       const expiresInSeconds = Math.max(
         60,
         Math.min(86_400, Math.round((new Date(invite.expiresAt).getTime() - Date.now()) / 1000)),
