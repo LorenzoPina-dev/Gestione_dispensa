@@ -268,7 +268,7 @@ paths:
     post:
       operationId: postInventoryItemIdConsume
       tags: [Inventory]
-      parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ConsumeRequest'}}}}
       responses:
         '200': {description: Consumed, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
@@ -277,7 +277,7 @@ paths:
     post:
       operationId: postInventoryItemIdWaste
       tags: [Inventory]
-      parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      parameters: [{$ref: '#/components/parameters/ItemId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WasteRequest'}}}}
       responses:
         '200': {description: Wasted, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
