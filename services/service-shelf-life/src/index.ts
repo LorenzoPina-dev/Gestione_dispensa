@@ -277,34 +277,57 @@ app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) =
   if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
   if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
 
-  const q=await pool.query("select * from shelf_life_domain.predictions where id=$1",[req.params.predictionId]);
-  if(!q.rowCount)return fail(res,404,"NOT_FOUND","Prediction not found.");
-  const x=q.rows[0] as Record<string,unknown>;
-  if(x.status!=="completed")return fail(res,422,"BUSINESS_RULE_VIOLATION","Only completed predictions can be applied.");
-
-  // Inventory remains owner of pantry state. Ask the Inventory service to confirm the declared
-  // estimated expiration; no cross-database SQL is permitted here.
-  const inventoryBase=(process.env.INVENTORY_SERVICE_BASE_URL??"http://service-inventory:3312/api/v1").replace(/\/$/,"");
+  const client=await pool.connect();
   try {
-    const response=await fetch(`${inventoryBase}/inventory/${x.item_id}/expiration/confirm`,{
-      method:"POST",
-      headers:{"content-type":"application/json","x-user-id":userId,"authorization":req.header("authorization")??"", "x-idempotency-key":idempotencyKey},
-      body:JSON.stringify({expiresAt:x.estimated_expires_at,source:"estimated"})
-    });
-    if(!response.ok)return fail(res,response.status,"UPSTREAM_ERROR","Inventory could not apply the shelf-life prediction.");
-  } catch {
-    return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable.",);
-  }
+    await client.query("begin");
+    const idem=await beginIdempotency(client,req,{predictionId:req.params.predictionId,operation:"apply"},userId);
+    if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}
+    if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}
+    if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
 
-  const updated=await pool.query(
-    "update shelf_life_domain.predictions set status='applied',updated_at=now(),version=version+1 where id=$1 and status='completed' returning *",
-    [req.params.predictionId],
-  );
-  if(!updated.rowCount)return fail(res,409,"CONFLICT","Prediction state changed before apply.");
-  return res.json({data:{
-    predictionId:updated.rows[0].id,itemId:updated.rows[0].item_id,estimatedExpiresAt:updated.rows[0].estimated_expires_at,
-    confidence:Number(updated.rows[0].confidence),basis:updated.rows[0].basis,status:"applied"
-  },version:updated.rows[0].version});
+    const q=await client.query("select * from shelf_life_domain.predictions where id=$1 for update",[req.params.predictionId]);
+    if(!q.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","Prediction not found.");}
+    const x=q.rows[0];
+    if(x.status==="applied"){
+      const response={data:{predictionId:x.id,itemId:x.item_id,estimatedExpiresAt:x.estimated_expires_at,confidence:Number(x.confidence),basis:x.basis,status:"applied"},version:Number(x.version)};
+      await finishIdempotency(client,req,200,response);await client.query("commit");return res.json(response);
+    }
+    if(x.status!=="completed"){await client.query("rollback");return fail(res,422,"BUSINESS_RULE_VIOLATION","Only completed predictions can be applied.");}
+
+    const inventoryBase=(process.env.INVENTORY_SERVICE_BASE_URL??"http://service-inventory:3312/api/v1").replace(/\/$/,"");
+    let upstream;
+    try {
+      upstream=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id))+"/expiration/confirm",{
+        method:"POST",
+        headers:{"content-type":"application/json","x-user-id":userId,"authorization":req.header("authorization")??"","x-idempotency-key":idempotencyKey},
+        body:JSON.stringify({expiresAt:x.estimated_expires_at,source:"estimated"}),
+      });
+    } catch {
+      await client.query("rollback");
+      return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable.");
+    }
+    if(!upstream.ok){
+      await client.query("rollback");
+      return fail(res,502,"UPSTREAM_ERROR","Inventory could not apply the shelf-life prediction.");
+    }
+
+    const updated=await client.query(
+      "update shelf_life_domain.predictions set status='applied',updated_at=now(),version=version+1 where id=$1 and status='completed' returning *",
+      [req.params.predictionId],
+    );
+    if(!updated.rowCount){await client.query("rollback");return fail(res,409,"CONFLICT","Prediction state changed before apply.");}
+    const u=updated.rows[0];
+    const response={data:{predictionId:u.id,itemId:u.item_id,estimatedExpiresAt:u.estimated_expires_at,confidence:Number(u.confidence),basis:u.basis,status:"applied"},version:Number(u.version)};
+    await emitOutbox(client,"ShelfLifePredictionApplied",String(u.id),null,response);
+    await finishIdempotency(client,req,200,response);
+    await client.query("commit");
+    return res.json(response);
+  } catch(error) {
+    await client.query("rollback");
+    return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to apply prediction.");
+  } finally {
+    client.release();
+  }
 });
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
