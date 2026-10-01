@@ -176,7 +176,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {[
                   { label: "Quantità", value: `${totalQty} ${detail.unit}` },
                   { label: "Luogo", value: `${locInfo(detail.location).icon} ${locInfo(detail.location).label}` },
@@ -206,7 +206,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
               {detail.calories !== undefined && (
                 <div>
                   <p className="text-xs font-semibold mb-2" style={{ color: colors.inkMuted }}>Valori per 100g</p>
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                     {[
                       { label: "kcal", value: detail.calories },
                       { label: "prot.", value: detail.protein ?? 0 },
