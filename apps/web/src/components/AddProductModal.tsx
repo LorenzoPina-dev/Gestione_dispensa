@@ -371,7 +371,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
         // comunque non-validabile lato client (es. formato non-GS1 o codice con cifre
         // alterate). Lasciamo al backend decidere se quel codice esiste.
         const normalized = hit.rawValue.trim().replaceAll("-", "");
-        if (!/^(?:\\d{8}|\\d{12}|\\d{13}|\\d{14})$/.test(normalized)) {
+        if (!/^(?:[0-9]{8}|[0-9]{12}|[0-9]{13}|[0-9]{14})$/.test(normalized)) {
           setManualCode(hit.rawValue);
           setCameraError(
             `Ho letto "${hit.rawValue}", ma il codice non ha una lunghezza/formato supportato per la ricerca automatica. Correggilo o inseriscilo manualmente.`,
