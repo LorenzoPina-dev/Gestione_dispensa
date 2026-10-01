@@ -379,23 +379,26 @@ Response 200:
 
 ### POST /catalog/products
 
+Headers: `X-Idempotency-Key` obbligatorio.
+
 Request:
 ```json
-{"name":"Latte intero","brand":"Marca","barcodes":["8000000000000"],"category":"milk"}
+{"name":"Latte intero","brand":"Marca","defaultUnit":"L","barcodes":["8000000000000"],"category":"milk"}
 ```
-Response 201: product + version.
+
+`name` è obbligatorio. `defaultUnit` è opzionale e defaulta a `piece`. `barcodes` è opzionale per prodotti manuali; quando presente ogni valore deve contenere 8..14 cifre.
+
+Response 201:
+```json
+{"data":{"productId":"uuid","name":"Latte intero","brand":"Marca","category":"milk","barcodes":["8000000000000"],"imageObjectKey":null,"nutrition":{"kcalPer100g":null,"proteinGPer100g":null,"carbsGPer100g":null,"fatGPer100g":null,"fiberGPer100g":null},"source":{"type":"manual","id":"manual"},"version":1},"meta":{"requestId":"uuid","traceId":"uuid","schemaVersion":"1.0"}}
+```
 
 ### PATCH /catalog/products/{productId}
 
-Aggiorna dati canonici; response 200.
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
 
-### POST /catalog/barcodes/resolve
+Il valore di `If-Match` deve coincidere con la `version` corrente; mismatch = `412 PRECONDITION_FAILED`.
 
-Request:
-```json
-{"barcode":"8000000000000"}
-```
-Response 200 come GET barcode.
 
 ## 6. Shopping
 
