@@ -8,6 +8,7 @@ app.use(express.json({ limit: "1mb" }));
 
 const port = Number(process.env.PORT ?? 3313);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 
 type ShoppingListStatus = "open" | "closed";
 type Body = Record<string, unknown>;
@@ -34,6 +35,22 @@ function requestContext(req: express.Request): { userId: string; familyId: strin
   return userId && familyId ? { userId, familyId } : null;
 }
 
+async function authorizeFamily(ctx: { userId: string; familyId: string }, write: boolean): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
+  try {
+    const response = await fetch(`${familyServiceBaseUrl}/families/${encodeURIComponent(ctx.familyId)}/members`, {
+      headers: { "x-user-id": ctx.userId, accept: "application/json" },
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!response.ok) return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." };
+    const payload = await response.json() as { items?: Array<{ userId: string; role: string; status: string }> };
+    const member = payload.items?.find((item) => item.userId === ctx.userId);
+    if (!member || member.status !== "ACTIVE") return { ok: false, status: 403, code: "FORBIDDEN", message: "User is not an active member of the family." };
+    if (write && member.role === "viewer") return { ok: false, status: 403, code: "FORBIDDEN", message: "Viewer role is read-only." };
+    return { ok: true };
+  } catch {
+    return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." };
+  }
+}
 function idempotencyKey(req: express.Request): string | null {
   const value = String(req.header("x-idempotency-key") ?? "").trim();
   return value.length >= 8 ? value : null;
@@ -138,6 +155,9 @@ app.get("/health/ready", async (_req, res) => {
 app.get("/api/v1/shopping/lists", async (req, res) => {
   const ctx = requestContext(req);
   if (ctx === null) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");
+  const access = await authorizeFamily(ctx, req.method !== "GET" && req.method !== "HEAD");
+  if (!access.ok) return fail(res, access.status, access.code, access.message);
+
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
   const offset = Math.max(Number(req.query.cursor ?? 0), 0);
 
