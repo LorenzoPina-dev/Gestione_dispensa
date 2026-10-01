@@ -574,7 +574,9 @@ paths:
     post:
       operationId: postOcrJobs
       tags: [OCR]
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/FamilyQuery'}
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file, type], properties: {file: {type: string, format: binary}, type: {type: string, enum: [receipt, pantry_image]}}}}}}
       responses:
         '202': {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
