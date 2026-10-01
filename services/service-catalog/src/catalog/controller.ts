@@ -63,7 +63,7 @@ export class CatalogController {
   public async getProduct(productId: string, meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<PublicProduct>> {
     const product = await this.catalog.getProduct(productId);
     if (!product) throw new CatalogHttpError(404, "NOT_FOUND", "Product not found.");
-    return success(toPublicProduct(product), meta);
+    return success(toPublicProduct(product), meta, product.version);
   }
 
   public async createProduct(
@@ -73,7 +73,7 @@ export class CatalogController {
   ): Promise<CatalogHttpSuccess<PublicProduct>> {
     if (!principal) throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
     const product = await this.catalog.createManualProduct({ ...command, actorId: principal.subject });
-    return success(toPublicProduct(product), meta);
+    return success(toPublicProduct(product), meta, product.version);
   }
 
   public async updateProduct(
@@ -124,6 +124,7 @@ export class CatalogController {
     return success(
       { resolution: resolution.resolution, product: toPublicProduct(resolution.product) },
       meta,
+      resolution.product.version,
     );
   }
 
@@ -189,6 +190,6 @@ export function toCatalogHttpError(
   };
 }
 
-function success<T>(data: T, meta: CatalogHttpMeta): CatalogHttpSuccess<T> {
-  return { data, meta };
+function success<T>(data: T, meta: CatalogHttpMeta, version?: number): CatalogHttpSuccess<T> & { version?: number } {
+  return { data, meta, ...(version === undefined ? {} : { version }) };
 }
