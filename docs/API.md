@@ -447,6 +447,17 @@ Request:
 ```
 Response 201 entry + version.
 
+### GET /nutrition/summary
+
+Query: `period=today|week`, optional `familyId`.
+
+Response 200:
+```json
+{"data":{"caloriesKcal":2200,"proteinG":120,"carbsG":250,"fatG":70,"period":"today"}}
+```
+
+This is a read-only composite nutrition summary used by the application dashboard. It does not replace the canonical nutrition targets or diary resources.
+
 ## 9. Stores / offers
 
 ### GET /stores
