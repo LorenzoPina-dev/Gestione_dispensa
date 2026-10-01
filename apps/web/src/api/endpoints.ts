@@ -286,7 +286,7 @@ export function updateShoppingItemState(
   return apiRequest(`/shopping/lists/${listId}/items/${itemId}`, {
     method: "PATCH",
     ifMatch: version,
-    body: { familyId, state },
+    body: { checked: state === "ACCEPTED" || state === "COMPLETED" },
   });
 }
 
@@ -296,10 +296,16 @@ export function batchUpdateShoppingItems(
   itemIds: string[],
   state: ShoppingItemState,
 ): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> {
-  return apiRequest(`/shopping/lists/${listId}/batch-action`, {
-    method: "POST",
-    body: { familyId, itemIds, state },
-  });
+  const updated: ShoppingItemDto[] = [];
+  const failedItemIds: string[] = [];
+  for (const itemId of itemIds) {
+    try {
+      updated.push(await updateShoppingItemState(familyId, listId, itemId, 0, state));
+    } catch {
+      failedItemIds.push(itemId);
+    }
+  }
+  return { updated, failedItemIds };
 }
 
 // --- Notifications ----------------------------------------------------------
