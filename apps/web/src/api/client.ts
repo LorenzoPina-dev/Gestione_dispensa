@@ -360,7 +360,17 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     payload !== null &&
     Object.prototype.hasOwnProperty.call(payload, "data")
   ) {
-    return (payload as Envelope<T>).data;
+    const envelope = payload as Envelope<T> & { version?: number };
+    const data = envelope.data;
+    if (
+      typeof envelope.version === "number" &&
+      data !== null &&
+      typeof data === "object" &&
+      !Array.isArray(data)
+    ) {
+      return { ...(data as Record<string, unknown>), version: envelope.version } as T;
+    }
+    return data;
   }
   return payload as T;
 }
