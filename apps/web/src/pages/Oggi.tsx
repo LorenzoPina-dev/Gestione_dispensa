@@ -14,7 +14,7 @@ function mapRecipeMatch(m: RecipeMatchDto): RecipeMatch {
     servings: r.servings,
     time: r.timeMinutes ?? 0,
     difficulty: r.difficulty ?? "Facile",
-    ingredients: r.ingredients.map((i) => ({ name: i.displayName ?? i.name ?? "Ingrediente", stockItemId: i.productId ?? null, amount: i.amount ?? i.quantity ?? 0, unit: i.unit, allergens: i.allergens ?? [] })),
+    ingredients: r.ingredients.map((i) => ({ name: i.displayName ?? i.name ?? "Ingrediente", stockItemId: i.productId ?? undefined, amount: i.amount ?? i.quantity ?? 0, unit: i.unit, allergens: i.allergens ?? [] })),
     steps: r.steps,
     image: r.image ?? "",
     tags: r.tags ?? [],
@@ -30,7 +30,7 @@ export default function Oggi({ stock, shopping, currentUserName, onNavigate, sug
   const lowStock = useMemo(() => stock.filter((s) => s.reorderPoint !== undefined && s.batches.reduce((a, b) => a + b.quantity, 0) <= s.reorderPoint), [stock]);
   const hour = new Date().getHours(); const greeting = hour < 12 ? "Buongiorno" : hour < 18 ? "Buon pomeriggio" : "Buonasera"; const firstName = currentUserName.split(" ")[0];
   const urgentCount = expired.length + expiring.length + lowStock.length;
-  let heroText = "Tutto sotto controllo. La dispensa è in ordine."; let heroColor = colors.sage;
+  let heroText = "Tutto sotto controllo. La dispensa è in ordine."; let heroColor: string = colors.sage;
   if (expired.length > 0) { heroText = `${expired.length} prodott${expired.length > 1 ? "i" : "o"} scadut${expired.length > 1 ? "i" : "o"} — da rivedere subito`; heroColor = colors.terracotta; }
   else if (expiring.length > 0) { heroText = `${expiring.length} prodott${expiring.length > 1 ? "i" : "o"} scad${expiring.length > 1 ? "ono" : "e"} nei prossimi 5 giorni`; heroColor = colors.expiring; }
   else if (lowStock.length > 0) { heroText = `${lowStock.length} articol${lowStock.length > 1 ? "i" : "o"} sotto la soglia di riordino`; heroColor = colors.inkMuted; }
