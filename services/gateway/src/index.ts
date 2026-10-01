@@ -84,6 +84,7 @@ app.post("/api/v1/auth/register", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/logout", requireGatewayAuth, serviceProxy(identityBaseUrl));
 app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
+app.get("/api/v1/family-invites/:token", serviceProxy(familyBaseUrl));
 for (const [prefix, base] of [
   ["/api/v1/identity", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
   ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
