@@ -464,6 +464,14 @@ Request: campi recipe modificabili. Response 200.
 
 Response 204.
 
+### POST /recipes/{recipeId}/add-missing
+
+Body: `{ "familyId": "uuid" }`.
+Verifica la disponibilità corrente in Inventory e aggiunge alla lista Shopping attiva solo gli ingredienti mancanti o insufficienti. L’orchestrazione non modifica direttamente il database Recipes o Shopping.
+Response 200:
+```json
+{"data":{"itemIds":["uuid","uuid"]},"version":1}
+```
 ### GET /recipes/suggestions
 
 Query: `familyId`, `limit`.
