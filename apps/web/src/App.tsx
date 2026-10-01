@@ -95,10 +95,10 @@ export default function App() {
           : familyList[0];
 
         const user: AuthUser = {
-          id: apiUser.id,
-          name: apiUser.name || apiUser.preferredUsername || apiUser.email || "Utente",
+          id: apiUser.userId,
+          name: apiUser.displayName || apiUser.email || "Utente",
           email: apiUser.email || "",
-          avatar: (apiUser.name || apiUser.preferredUsername || "U").slice(0, 2).toUpperCase(),
+          avatar: (apiUser.displayName || apiUser.email || "U").slice(0, 2).toUpperCase(),
           role: (active?.role as Role) || "OWNER",
           hasFamilyId: active?.familyId || null,
         };
