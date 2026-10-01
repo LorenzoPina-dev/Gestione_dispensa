@@ -238,7 +238,9 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
   }): Promise<Product | undefined> {
     const result = await this.database.query<ProductRow>(
       `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status,
-          p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at
+          p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+          COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
+          p.external_source, p.external_ref
        FROM product_identifiers i
        JOIN products p ON p.id = i.product_id
        LEFT JOIN brands b ON b.id = p.brand_id
