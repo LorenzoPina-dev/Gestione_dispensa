@@ -147,7 +147,7 @@ export async function listFamilies(): Promise<FamiliesResult> {
 }
 
 export async function listFamilyMembers(familyId: string): Promise<{ memberships: ManagedMembershipDto[] }> {
-  const result = await apiRequest<{ items: Array<{ userId: string; role: "owner" | "admin" | "member" | "viewer"; joinedAt: string }>; nextCursor: string | null }>(`/families/${familyId}/members`);
+  const result = await apiRequest<{ items: Array<{ userId: string; role: "owner" | "admin" | "member" | "viewer"; joinedAt: string; version: number; status: "ACTIVE" | "SUSPENDED" }>; nextCursor: string | null }>(`/families/${familyId}/members`);
   return {
     memberships: result.items.map((member) => ({
       id: member.userId,
@@ -161,8 +161,8 @@ export async function listFamilyMembers(familyId: string): Promise<{ memberships
             : member.role === "viewer"
               ? "VIEWER"
               : "MEMBER",
-      status: "ACTIVE",
-      version: 1,
+      status: member.status,
+      version: member.version,
       joinedAt: member.joinedAt,
     })),
   };
