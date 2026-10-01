@@ -247,7 +247,7 @@ async function pantryView(familyId: string, authorization?: string) {
 
 async function shoppingView(familyId: string, authorization?: string) {
   const [shopping, pantry, notifications] = await Promise.all([
-    coreGet("/shopping-lists/active", authorization, { familyId }),
+    getActiveShopping(familyId, authorization),
     coreGet("/inventory", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
   ]);
@@ -269,7 +269,7 @@ async function recipesView(familyId: string, authorization?: string) {
 async function nutritionView(familyId: string, authorization?: string) {
   const [nutrition, pantry, notifications] = await Promise.all([
     serviceGet(nutritionBaseUrl, "/nutrition/summary", authorization, { familyId, period: "today" }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    coreGet("/inventory", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, undefined, notifications, { nutrition });
@@ -354,9 +354,9 @@ async function coreGet(path: string, authorization?: string, query?: Record<stri
   const normalized = path.startsWith("/") ? path : `/${path}`;
   const table: Array<[string, string]> = [
     ["/families", familyBaseUrl], ["/family-invites", familyBaseUrl], ["/invites", familyBaseUrl],
-    ["/inventory", inventoryBaseUrl], ["/shopping-lists", shoppingBaseUrl], ["/shopping", shoppingBaseUrl],
+    ["/inventory", inventoryBaseUrl], ["/shopping", shoppingBaseUrl],
     ["/products", catalogBaseUrl], ["/catalog", catalogBaseUrl], ["/notifications", notificationsBaseUrl],
-    ["/privacy", privacyBaseUrl], ["/jobs", jobsBaseUrl], ["/auth", identityBaseUrl], ["/me", identityBaseUrl], ["/meta", identityBaseUrl],
+    ["/privacy", privacyBaseUrl], ["/jobs", jobsBaseUrl], ["/identity", identityBaseUrl], ["/meta", identityBaseUrl],
   ];
   const entry = table.find(([prefix]) => normalized === prefix || normalized.startsWith(`${prefix}/`));
   const result = entry ? await callBase(entry[1], normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
