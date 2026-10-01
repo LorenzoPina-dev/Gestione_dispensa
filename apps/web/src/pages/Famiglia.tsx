@@ -271,7 +271,7 @@ export default function Famiglia({
             const canRemoveThis = canManage && !isCurrentUser && !(m.role === "OWNER" && activeOwners.length <= 1);
             const isRemoving = removingId === m.id;
             return (
-              <Row key={m.id} index={idx} last={idx === activeMembers.length - 1} style={{ opacity: isRemoving ? 0.5 : 1, transition: "opacity 0.3s" }}>
+              <Row key={m.id} index={idx} last={idx === activeMembers.length - 1} className="flex-wrap" style={{ opacity: isRemoving ? 0.5 : 1, transition: "opacity 0.3s" }}>
                 <AvatarUI initials={m.avatar} size={9} role={m.role} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -288,7 +288,7 @@ export default function Famiglia({
                   {ROLE_LABELS[m.role]}
                 </span>
                 {canManage && !isCurrentUser && (
-                  <div className="flex gap-1 shrink-0">
+                  <div className="flex flex-wrap justify-end gap-1 shrink-0">
                     <button
                       onClick={() => { setChangeRoleFor(m); setNewRoleValue(m.role); }}
                       className="text-[10px] px-2 py-1 rounded-lg transition-all hover:opacity-80"
@@ -336,7 +336,7 @@ export default function Famiglia({
       {/* Inviti */}
       {canManage && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <SectionHeading>Inviti</SectionHeading>
             <button
               onClick={() => setShowInviteModal(true)}
