@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { AuthUser, AuthScreen } from "./store/auth";
 import type { ShoppingList, Role } from "./types";
 import { colors, fonts } from "./tokens";
@@ -28,6 +28,7 @@ import Ricette from "./pages/Ricette";
 import Nutrienti from "./pages/Nutrienti";
 import Famiglia from "./pages/Famiglia";
 import Notifiche from "./pages/Notifiche";
+import MobileBottomNav from "./components/MobileBottomNav";
 
 type Tab = "oggi" | "dispensa" | "spesa" | "ricette" | "nutrienti" | "famiglia" | "notifiche";
 
@@ -154,45 +155,62 @@ export default function App() {
   const familyId = authToken !== null ? (currentUser?.hasFamilyId ?? null) : null;
   const composite = useScreenView(tab, familyId);
 
-  const initialStock = composite.data?.pantry?.map(mapStockItemDtoToUi);
+  // Composite data is remote state. Keep mapped references stable so domain hooks can
+  // distinguish hydration/revalidation from real user mutations.
+  const initialStock = useMemo(
+    () => composite.data?.pantry?.map(mapStockItemDtoToUi),
+    [composite.data?.pantry],
+  );
 
-  const initialShopping = composite.data?.shopping
-    ? mapActiveShoppingListDtoToUi(composite.data.shopping)
-    : composite.data?.shopping === null
-      ? { id: "", name: "Spesa", status: "ACTIVE" as const, version: 0, items: [] }
-      : undefined;
+  const initialShopping = useMemo(
+    () =>
+      composite.data?.shopping
+        ? mapActiveShoppingListDtoToUi(composite.data.shopping)
+        : composite.data?.shopping === null
+          ? { id: "", name: "Spesa", status: "ACTIVE" as const, version: 0, items: [] }
+          : undefined,
+    [composite.data?.shopping],
+  );
 
-  const initialMembers = composite.data?.members?.map((m) => {
-    const memberId = m.id || m.userId;
-    return {
-      id: memberId,
-      name: m.name || `Utente ${m.userId.slice(0, 8)}`,
-      email: m.email || "",
-      avatar: m.avatar || m.userId.slice(0, 2).toUpperCase(),
-      role: normalizeFamilyRole(String(m.role)),
-      status: m.status || "ACTIVE",
-      version: m.version,
-    };
-  });
+  const initialMembers = useMemo(
+    () =>
+      composite.data?.members?.map((m) => {
+        const memberId = m.id || m.userId;
+        return {
+          id: memberId,
+          name: m.name || `Utente ${m.userId.slice(0, 8)}`,
+          email: m.email || "",
+          avatar: m.avatar || m.userId.slice(0, 2).toUpperCase(),
+          role: normalizeFamilyRole(String(m.role)),
+          status: m.status || "ACTIVE",
+          version: m.version,
+        };
+      }),
+    [composite.data?.members],
+  );
 
-  const initialNotifications = composite.data?.notifications?.map((n) => {
-    const type = String(n.type ?? "").toLowerCase();
-    const category =
-      n.category ??
-      (type.includes("invite")
-        ? "INVITE"
-        : type.includes("reorder") || type.includes("stock") || type.includes("expiration")
-          ? "REORDER"
-          : "SYSTEM");
-    return {
-      id: n.id ?? n.notificationId ?? "",
-      category,
-      title: n.title,
-      body: n.body,
-      createdAt: n.createdAt,
-      ...(n.readAt ? { readAt: n.readAt } : {}),
-    };
-  });
+  const initialNotifications = useMemo(
+    () =>
+      composite.data?.notifications?.map((n) => {
+        const type = String(n.type ?? "").toLowerCase();
+        const category =
+          n.category ??
+          (type.includes("invite")
+            ? "INVITE"
+            : type.includes("reorder") || type.includes("stock") || type.includes("expiration")
+              ? "REORDER"
+              : "SYSTEM");
+        return {
+          id: n.id ?? n.notificationId ?? "",
+          category,
+          title: n.title,
+          body: n.body,
+          createdAt: n.createdAt,
+          ...(n.readAt ? { readAt: n.readAt } : {}),
+        };
+      }),
+    [composite.data?.notifications],
+  );
 
   const inventory = useInventory(familyId, initialStock);
   const shopping = useShoppingList(familyId, initialShopping);
@@ -324,7 +342,7 @@ export default function App() {
 
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex min-h-[100dvh] flex-col overflow-x-hidden"
       style={{ backgroundColor: colors.cream, fontFamily: "var(--font-sans)" }}
     >
       {isOffline && (
@@ -444,7 +462,7 @@ export default function App() {
           </div>
         </nav>
 
-        <main className="flex-1 min-w-0 overflow-auto">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-4 pb-24 sm:p-6 sm:pb-6 lg:p-8">
           {currentTab === "oggi" && (
             <Oggi
               stock={stock}
@@ -514,6 +532,13 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <MobileBottomNav
+        items={visibleNav}
+        currentTab={currentTab}
+        onSelect={(nextTab) => setTab(nextTab)}
+        getBadge={navBadge}
+      />
 
       {showLogoutConfirm && (
         <ConfirmModal
