@@ -666,6 +666,23 @@ paths:
         '200': {description: Job status, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /internal/shelf-life/predictions/{predictionId}/process:
+    post:
+      operationId: processShelfLifePrediction
+      tags: [Shelf-Life]
+      security: [{internalServiceAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/PredictionId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProcessShelfLifePrediction'}
+      responses:
+        '200': {description: Completed prediction, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/BusinessRuleViolation'}
   /views/dashboard-today:
     get:
       operationId: getDashboardTodayView
@@ -786,6 +803,16 @@ components:
         avatarUrl: {type: [string, 'null'], maxLength: 1000}
         locale: {type: string, maxLength: 16}
         timezone: {type: string, maxLength: 64}
+    ProcessShelfLifePrediction:
+      type: object
+      required: [itemId, productId, storedAt, opened]
+      additionalProperties: false
+      properties:
+        itemId: {$ref: '#/components/schemas/Uuid'}
+        productId: {$ref: '#/components/schemas/Uuid'}
+        storedAt: {type: string, enum: [pantry, fridge, freezer, cellar, other]}
+        opened: {type: boolean}
+        category: {type: [string, 'null'], maxLength: 120}
     CreateJob:
       type: object
       required: [type, payload, deduplicationKey]
