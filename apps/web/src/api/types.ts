@@ -1,11 +1,3 @@
-/**
- * TypeScript mirror of the ACTUAL backend HTTP surface in services/http.ts — not
- * docs/openapi.yaml, whose documented paths/shapes (`GET /inventory`, `/shopping-lists/active`,
- * PROPOSED/ACCEPTED states, etc.) turned out not to match the real, already-wired routes.
- * These types mirror the real domain `Product`/`StockItem`/`ShoppingItem`/... interfaces in
- * services/{catalog,inventory,shopping,family}/service.ts and invites.ts.
- */
-
 export interface Meta {
   requestId: string;
   traceId: string;
@@ -26,7 +18,7 @@ export interface ErrorEnvelope {
 
 export interface Envelope<T> {
   data: T;
-  meta: Meta;
+  meta?: Meta;
 }
 
 // --- Auth & Identity --------------------------------------------------------
@@ -41,108 +33,36 @@ export interface UserDto {
   timezone: string;
   createdAt: string;
   updatedAt: string;
-}*
- * TypeScript mirror of the ACTUAL backend HTTP surface in services/http.ts — not
- * docs/openapi.yaml, whose documented paths/shapes (`GET /inventory`, `/shopping-lists/active`,
- * PROPOSED/ACCEPTED states, etc.) turned out not to match the real, already-wired routes.
- * These types mirror the real domain `Product`/`StockItem`/`ShoppingItem`/... interfaces in
- * services/{catalog,inventory,shopping,family}/service.ts and invites.ts.
- */
-
-export interface Meta {
-  requestId: string;
-  traceId: string;
-  schemaVersion: string;
 }
 
-export interface ApiErrorBody {
-  code: string;
-  message: string;
-  retryable: boolean;
-  details?: Array<Record<string, unknown>>;
-}
-
-export interface ErrorEnvelope {
-  error: ApiErrorBody;
-  meta: Meta;
-}
-
-export interface Envelope<T> {
-  data: T;
-  meta: Meta;
-}
-
-// --- Auth & Identity --------------------------------------------------------
-
-export interface UserDto {
-  id: string;
-  email?: string;
-  name?: string;
-  givenName?: string;
-  familyName?: string;
-  preferredUsername?: string;
-  roles?: string[];
-  activeFamilyId?: string;
-}
-
-// --- Family (services/family/service.ts, invites.ts) --------------------
-
-export type FamilyUnitSystem = "METRIC" | "IMPERIAL";
-
-export interface FamilyDto {
-  id: string;
-  displayName: string;
-  creatorUserId: string;
-  locale: string;
-  timezone: string;
-  unitSystem: FamilyUnitSystem;
-  status: "ACTIVE" | "SUSPENDED" | "ERASED";
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface FamilyMembershipDto {
-  id: string;
-  familyId: string;
-  userId: string;
-  role: "OWNER";
-  status: "ACTIVE";
-  joinedAt: string;
-  version: number;
-}
-
-export interface FamilyCreationResultDto {
-  family: FamilyDto;
-  membership: FamilyMembershipDto;
-}
-
-export type InviteRole = "MANAGER" | "MEMBER" | "VIEWER";
-
-export interface CreatedInviteDto {
-  inviteId: string;
-  role: InviteRole;
-  status: "CREATED";
-  expiresAt: string;
-  qrPayload: string;
-  fallbackCode: string;
-}
-
-export interface JoinAttemptDto {
-  id: string;
-  inviteId: string;
-  userId?: string;
-  state: "PENDING_AUTHENTICATION" | "PENDING_REVIEW" | "ACCEPTED" | "REJECTED" | "EXPIRED";
-  expiresAt: string;
-  /** Only present once the invite has been accepted. */
-  familyId?: string;
-  role?: InviteRole;
-}
+// --- Family -----------------------------------------------------------------
 
 export interface UserFamilySummaryDto {
   familyId: string;
-  displayName: string;
-  role: string;
+  name: string;
+  role: "owner" | "admin" | "member" | "viewer";
+  memberCount?: number;
+  createdAt?: string;
+}
+
+export interface FamilyCreationResultDto {
+  familyId: string;
+  name: string;
+  role: "owner";
+  createdAt: string;
+  version: number;
+}
+
+export interface FamilyDto {
+  familyId: string;
+  name: string;
+  version: number;
+  members: Array<{
+    userId: string;
+    displayName: string | null;
+    role: "owner" | "admin" | "member" | "viewer";
+    joinedAt: string;
+  }>;
 }
 
 export type MembershipRole = "OWNER" | "MANAGER" | "MEMBER" | "VIEWER";
@@ -161,7 +81,29 @@ export interface ManagedMembershipDto {
   joinedAt?: string;
 }
 
-// --- Catalog (services/catalog/service.ts) -------------------------------
+export type InviteRole = "MANAGER" | "MEMBER" | "VIEWER";
+
+export interface CreatedInviteDto {
+  inviteId: string;
+  email?: string;
+  role: InviteRole;
+  status: "CREATED" | "pending";
+  expiresAt: string;
+  fallbackCode?: string;
+  qrPayload?: string;
+}
+
+export interface JoinAttemptDto {
+  id: string;
+  inviteId: string;
+  userId?: string;
+  state: "PENDING_AUTHENTICATION" | "PENDING_REVIEW" | "ACCEPTED" | "REJECTED" | "EXPIRED";
+  expiresAt: string;
+  familyId?: string;
+  role?: InviteRole;
+}
+
+// --- Catalog ----------------------------------------------------------------
 
 export type ProductUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";
 
@@ -193,20 +135,22 @@ export interface BarcodeResolutionDto {
   product?: ProductDto;
 }
 
-// --- Inventory (services/inventory/service.ts) ---------------------------
+// --- Inventory --------------------------------------------------------------
 
-export type InventoryUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";
+export type InventoryUnit = ProductUnit;
 export type MovementKind = "RECEIPT" | "CONSUMPTION" | "WASTE" | "ADJUSTMENT" | "TRANSFER";
 
 export interface StockItemDto {
   id: string;
+  itemId?: string;
   familyId: string;
   productId: string;
+  name?: string;
   quantity: number;
   unit: InventoryUnit;
   reorderPoint?: number;
   version: number;
-  status: "ACTIVE";
+  status?: "ACTIVE";
   productName?: string;
   brand?: string;
   category?: string;
@@ -218,40 +162,54 @@ export interface StockItemDto {
   fiber?: number;
   location?: string;
   batches?: Array<{ quantity: number; expiryDate?: string }>;
+  lotId?: string | null;
+  expiresAt?: string | null;
+  expirationSource?: "declared" | "estimated" | null;
+  lotCode?: string | null;
+  addedAt?: string;
+  openedAt?: string | null;
+  updatedAt?: string;
 }
 
 export interface RecordMovementResultDto {
-  stockItem: StockItemDto;
-  movementId: string;
-  duplicate: boolean;
+  stockItem?: StockItemDto;
+  itemId: string;
+  movementId?: string;
+  consumedQuantity?: number;
+  wastedQuantity?: number;
+  remainingQuantity: number;
+  removed: boolean;
+  duplicate?: boolean;
 }
 
-// --- Shopping (services/shopping/service.ts) -----------------------------
+// --- Shopping ---------------------------------------------------------------
 
 export type ShoppingItemState = "SUGGESTED" | "ACCEPTED" | "SNOOZED" | "IGNORED" | "COMPLETED";
 export type ShoppingSourceType = "MANUAL" | "REORDER" | "OFFER" | "RECIPE";
 
 export interface ShoppingListDto {
-  id: string;
-  familyId: string;
-  ownerUserId: string;
+  listId: string;
   name: string;
-  status: "ACTIVE";
+  status: "open" | "closed" | "archived";
+  itemCount?: number;
   version: number;
+  familyId?: string;
+  ownerUserId?: string;
 }
 
 export interface ShoppingItemDto {
-  id: string;
-  listId: string;
+  itemId: string;
+  listId?: string;
   productId?: string;
-  displayName: string;
+  label: string;
+  displayName?: string;
   quantity: number;
   unit: InventoryUnit;
-  packageId?: string;
-  state: ShoppingItemState;
-  sourceType: ShoppingSourceType;
+  checked: boolean;
+  state?: ShoppingItemState;
+  sourceType?: ShoppingSourceType;
   sourceRef?: string;
-  version: number;
+  version?: number;
 }
 
 export interface ActiveShoppingListDto {
@@ -264,70 +222,81 @@ export interface AddShoppingItemResultDto {
   merged: boolean;
 }
 
-// --- Platform -----------------------------------------------------------
-
-export interface ReadinessDto {
-  status: "ready";
-  dependencies: Record<string, unknown>;
-}
-
-
-export interface MovementDto {
-  id: string;
-  stockItemId: string;
-  kind: MovementKind;
-  quantity: number;
-  unit: InventoryUnit;
-  source: string;
-  actorId?: string;
-  actorName?: string;
-  occurredAt: string;
-  createdAt: string;
-  metadata?: Record<string, unknown>;
-}
+// --- Notifications ----------------------------------------------------------
 
 export interface NotificationDto {
-  id: string;
-  familyId: string;
-  category: "REORDER" | "INVITE" | "SYSTEM";
+  notificationId?: string;
+  id?: string;
+  familyId?: string;
+  type?: string;
+  category?: "REORDER" | "INVITE" | "SYSTEM";
   title: string;
   body: string;
-  readAt?: string;
+  readAt?: string | null;
   createdAt: string;
 }
 
-export interface RecipeIngredientDto {
-  id: string;
-  productId?: string;
-  displayName: string;
-  amount: number;
-  unit: InventoryUnit;
-  allergens: string[];
+export interface NotificationPreferencesDto {
+  expiration: boolean;
+  lowStock: boolean;
+  offers: boolean;
+  family: boolean;
+  system: boolean;
+  channels: {
+    inApp: boolean;
+    email: boolean;
+    push: boolean;
+  };
+  version: number;
 }
+
+// --- Recipes ----------------------------------------------------------------
+
+export interface RecipeIngredientDto {
+  id?: string;
+  productId?: string | null;
+  name?: string;
+  displayName?: string;
+  amount?: number;
+  quantity?: number;
+  unit: InventoryUnit;
+  allergens?: string[];
+}
+
 export interface RecipeDto {
-  id: string;
+  recipeId?: string;
+  id?: string;
   title: string;
   source?: string;
-  quality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+  quality?: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
   servings: number;
-  timeMinutes: number;
-  difficulty: "Facile" | "Medio" | "Difficile";
+  timeMinutes?: number;
+  difficulty?: "Facile" | "Medio" | "Difficile";
   image?: string;
-  tags: string[];
+  tags?: string[];
   caloriesPerServing?: number;
   steps: string[];
   ingredients: RecipeIngredientDto[];
 }
+
 export interface RecipeMatchDto {
   recipe: RecipeDto;
   score: number;
-  matchedIngredientNames: string[];
+  matchedIngredientNames?: string[];
   missingIngredients: RecipeIngredientDto[];
 }
+
+// --- Nutrition --------------------------------------------------------------
+
 export interface NutritionSummaryDto {
-  since: string;
-  totals: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
-  items: Array<{
+  caloriesKcal?: number;
+  proteinG?: number;
+  carbsG?: number;
+  fatG?: number;
+  period?: "today" | "week";
+  since?: string;
+  totals?: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+  items?: Array<{
     movementId: string;
     productId: string;
     productName: string;
@@ -337,4 +306,28 @@ export interface NutritionSummaryDto {
     nutrients: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
     confidence: "CONFIRMED" | "ESTIMATED" | "UNKNOWN";
   }>;
+}
+
+// --- Platform ---------------------------------------------------------------
+
+export interface ReadinessDto {
+  status: "ready";
+  dependencies: Record<string, unknown>;
+}
+
+export interface MovementDto {
+  id: string;
+  stockItemId?: string;
+  kind?: MovementKind;
+  type?: string;
+  quantity: number;
+  unit: InventoryUnit;
+  source?: string;
+  reason?: string | null;
+  actorId?: string;
+  actorUserId?: string;
+  actorName?: string;
+  occurredAt: string;
+  createdAt?: string;
+  metadata?: Record<string, unknown>;
 }
