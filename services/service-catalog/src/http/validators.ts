@@ -287,7 +287,7 @@ export function parsePatchProductBody(
     patch.imageObjectKey = body.imageObjectKey === null ? null : body.imageObjectKey.trim();
   }
   if (Object.hasOwn(body, "nutrition")) {
-    if (body.nutrition !== null || typeof body.nutrition !== "object" || Array.isArray(body.nutrition)) {
+    if (body.nutrition !== null && (typeof body.nutrition !== "object" || Array.isArray(body.nutrition))) {
       return undefined;
     }
     patch.nutrition = body.nutrition as Record<string, unknown> | null;
