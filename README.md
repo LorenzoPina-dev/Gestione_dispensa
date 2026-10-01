@@ -1,6 +1,6 @@
 # Gestione Dispensa
 
-Gestione Dispensa is a modular household food-management platform. The backend has been redesigned as independently buildable microservices; the existing `apps/web` UI is intentionally preserved unchanged in this architectural reset.
+Gestione Dispensa is a modular household food-management platform. The backend has been redesigned as independently buildable microservices; the existing `apps/web` UI is retained but its API boundary is explicitly adapted to the canonical microservice contracts.
 
 ## Target architecture
 
@@ -41,4 +41,4 @@ It must not rebuild unrelated services.
 
 ## Important
 
-This commit is the clean architectural baseline. Business functionality is specified in `docs/` and implemented incrementally behind stable contracts. The web UI is preserved as requested; legacy backend services and infrastructure are not retained in the new tree.
+This commit is the clean architectural baseline. Business functionality is specified in `docs/` and implemented incrementally behind stable contracts. The web UI is retained as the client; legacy directories may remain in the repository during migration but are not runtime ownership boundaries. Canonical services are the only authoritative domain owners.
