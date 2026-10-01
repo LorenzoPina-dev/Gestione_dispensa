@@ -191,38 +191,109 @@ export function parseRecordMovementBody(body: Body):
 
 export function parseCreateProductBody(
   body: Body,
-): { canonicalName: string; brand?: string; defaultUnit: ProductUnit; category?: string; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number } | undefined {
-  const canonicalName = typeof body.name === "string" ? body.name : body.canonicalName;
-  const { brand, defaultUnit, category, calories, protein, carbs, fat, fiber } = body;
+):
+  | {
+      canonicalName: string;
+      brand?: string;
+      defaultUnit: ProductUnit;
+      category?: string;
+      barcodes: string[];
+    }
+  | undefined {
   if (
-    typeof canonicalName !== "string" ||
-    canonicalName.length === 0 ||
-    typeof defaultUnit !== "string" ||
-    !PRODUCT_UNITS.includes(defaultUnit as ProductUnit) ||
-    (brand !== undefined && typeof brand !== "string") ||
-    (category !== undefined && typeof category !== "string") ||
-    [calories, protein, carbs, fat, fiber].some(v => v !== undefined && (typeof v !== "number" || !Number.isFinite(v)))
+    typeof body.name !== "string" ||
+    body.name.trim().length < 1 ||
+    body.name.trim().length > 300 ||
+    !Array.isArray(body.barcodes) ||
+    body.barcodes.length < 1 ||
+    !body.barcodes.every((value) => typeof value === "string" && /^[0-9]+$/.test(value) && value.length >= 8 && value.length <= 14)
   ) {
     return undefined;
   }
+
+  const barcodes = [...new Set((body.barcodes as string[]).map((value) => value.trim()))];
+  if (barcodes.length === 0) return undefined;
+
   return {
-    canonicalName,
-    ...(brand !== undefined ? { brand: brand as string } : {}),
-    defaultUnit: defaultUnit as ProductUnit,
-    ...(category !== undefined ? { category: category as string } : {}),
-    ...(calories !== undefined ? { calories } : {}),
-    ...(protein !== undefined ? { protein } : {}),
-    ...(carbs !== undefined ? { carbs } : {}),
-    ...(fat !== undefined ? { fat } : {}),
-    ...(fiber !== undefined ? { fiber } : {}),
-  } as { canonicalName: string; brand?: string; defaultUnit: ProductUnit; category?: string; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number };
+    canonicalName: body.name.trim(),
+    defaultUnit: "piece",
+    ...(body.brand === null || body.brand === undefined
+      ? {}
+      : typeof body.brand === "string"
+        ? { brand: body.brand.trim() }
+        : {}),
+    ...(body.category === null || body.category === undefined
+      ? {}
+      : typeof body.category === "string"
+        ? { category: body.category.trim() }
+        : {}),
+    barcodes,
+  };
 }
 
-export function parseResolveBarcodeBody(body: Body): { identifierType: IdentifierType; value: string } | undefined {
-  const identifierType = typeof body.identifierType === "string" ? body.identifierType : "";
-  const value = typeof body.value === "string" ? body.value : "";
-  if (!IDENTIFIER_TYPES.includes(identifierType as IdentifierType) || value.trim().length === 0) return undefined;
-  return { identifierType: identifierType as IdentifierType, value };
+export function parseResolveBarcodeBody(
+  body: Body,
+): { identifierType: IdentifierType; value: string } | undefined {
+  if (
+    typeof body.barcode !== "string" ||
+    body.barcode.trim().length === 0 ||
+    !/^[0-9]+$/.test(body.barcode.trim())
+  ) {
+    return undefined;
+  }
+  return { identifierType: "BARCODE", value: body.barcode.trim() };
+}
+
+export function parsePatchProductBody(
+  body: Body,
+):
+  | {
+      name?: string;
+      brand?: string | null;
+      category?: string | null;
+      imageObjectKey?: string | null;
+      nutrition?: Record<string, unknown> | null;
+    }
+  | undefined {
+  const allowed = ["name", "brand", "category", "imageObjectKey", "nutrition"];
+  if (Object.keys(body).length === 0 || Object.keys(body).some((key) => !allowed.includes(key))) {
+    return undefined;
+  }
+
+  const patch: {
+    name?: string;
+    brand?: string | null;
+    category?: string | null;
+    imageObjectKey?: string | null;
+    nutrition?: Record<string, unknown> | null;
+  } = {};
+
+  if (Object.hasOwn(body, "name")) {
+    if (typeof body.name !== "string" || body.name.trim().length < 1 || body.name.trim().length > 300) {
+      return undefined;
+    }
+    patch.name = body.name.trim();
+  }
+  if (Object.hasOwn(body, "brand")) {
+    if (body.brand !== null && typeof body.brand !== "string") return undefined;
+    patch.brand = body.brand === null ? null : body.brand.trim();
+  }
+  if (Object.hasOwn(body, "category")) {
+    if (body.category !== null && typeof body.category !== "string") return undefined;
+    patch.category = body.category === null ? null : body.category.trim();
+  }
+  if (Object.hasOwn(body, "imageObjectKey")) {
+    if (body.imageObjectKey !== null && typeof body.imageObjectKey !== "string") return undefined;
+    patch.imageObjectKey = body.imageObjectKey === null ? null : body.imageObjectKey.trim();
+  }
+  if (Object.hasOwn(body, "nutrition")) {
+    if (body.nutrition !== null || typeof body.nutrition !== "object" || Array.isArray(body.nutrition)) {
+      return undefined;
+    }
+    patch.nutrition = body.nutrition as Record<string, unknown> | null;
+  }
+
+  return patch;
 }
 
 export function parseUpdateShoppingItemBody(body: Body): { familyId: string; state: ShoppingItemState } | undefined {
