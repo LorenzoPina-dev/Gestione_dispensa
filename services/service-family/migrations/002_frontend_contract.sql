@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS join_attempts(
   state varchar(32) NOT NULL CHECK (state IN ('PENDING_REVIEW','ACCEPTED','REJECTED','EXPIRED')),
   expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  version integer NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS join_attempts_user_idx ON join_attempts(user_id);
