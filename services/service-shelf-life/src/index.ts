@@ -9,6 +9,7 @@ app.use(express.json({ limit: "1mb" }));
 
 const port = Number(process.env.PORT ?? 3404);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
 const queue = "q:shelf-life-prediction";
@@ -24,6 +25,17 @@ const fail = (res: Response, status: number, code: string, message: string): Res
 
 function actor(req: Request): string {
   return String(req.header("x-user-id") ?? "").trim();
+}
+async function authorizeFamily(userId: string, familyId: string, write: boolean): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
+  try {
+    const response = await fetch(`${familyServiceBaseUrl}/families/${encodeURIComponent(familyId)}/members`, { headers: { "x-user-id": userId, accept: "application/json" }, signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." };
+    const payload = await response.json() as { items?: Array<{ userId: string; role: string; status: string }> };
+    const member = payload.items?.find((item) => item.userId === userId);
+    if (!member || member.status !== "ACTIVE") return { ok: false, status: 403, code: "FORBIDDEN", message: "User is not an active member of the family." };
+    if (write && member.role === "viewer") return { ok: false, status: 403, code: "FORBIDDEN", message: "Viewer role is read-only." };
+    return { ok: true };
+  } catch { return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." }; }
 }
 
 function familyContext(req: Request): string | null {
@@ -178,6 +190,7 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
   const familyId = familyContext(req);
 
   if (!userId) return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const familyAccess = await authorizeFamily(userId, familyId, true); if (!familyAccess.ok) return fail(res, familyAccess.status, familyAccess.code, familyAccess.message);
   if (!itemId || !productId || !familyId || typeof body.storedAt !== "string" || typeof opened !== "boolean" || !key(req)) {
     return fail(res,400,"VALIDATION_ERROR","itemId, productId, familyId, storedAt, opened and X-Idempotency-Key are required.");
   }
