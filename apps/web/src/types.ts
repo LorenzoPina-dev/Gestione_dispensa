@@ -38,6 +38,10 @@ export interface StockBatch {
 
 export interface StockItem {
   id: string;
+  /** Canonical Catalog product. Present when the item was resolved from barcode or created in catalog. */
+  productId?: string;
+  /** Barcode used to create/resolve the catalog product, when applicable. */
+  barcode?: string;
   name: string;
   brand?: string;
   batches: StockBatch[];
