@@ -272,7 +272,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const trace = newTraceContext();
   headers.traceparent = `00-${trace.traceId}-${trace.spanId}-01`;
   headers["X-Request-Id"] = trace.requestId;
-  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  if (idempotencyKey) headers["X-Idempotency-Key"] = idempotencyKey;
   if (ifMatch !== undefined) headers["If-Match"] = String(ifMatch);
 
   const token = isPublic ? undefined : ((await ensureFreshAccessToken()) ?? DEV_BEARER_TOKEN);
@@ -351,7 +351,18 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw failure;
   }
 
-  return (payload as Envelope<T>).data;
+  // The canonical HTTP contract has two success shapes:
+  // - mutation/enveloped responses: { data: T, ... }
+  // - paginated/list responses: { items: [...], nextCursor: ... }
+  // Never assume every successful response contains `data`.
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    Object.prototype.hasOwnProperty.call(payload, "data")
+  ) {
+    return (payload as Envelope<T>).data;
+  }
+  return payload as T;
 }
 
 function anySignal(signals: AbortSignal[]): AbortSignal {
