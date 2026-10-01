@@ -672,11 +672,43 @@ Response 200:
 {"data":{"jobId":"uuid","type":"shelf_life_prediction","status":"queued","attempt":0,"maxAttempts":5,"createdAt":"2026-09-30T15:30:00Z"}}
 ```
 
+## 15A. Screen Composite Views
+
+Questi endpoint sono read models ottimizzati per il browser. Non sono source of truth e non introducono ownership dati.
+
+### GET /views/dashboard-today
+Query obbligatoria: `familyId`. Response 200: stessa struttura di `GET /dashboard`.
+
+### GET /views/pantry-screen
+Query obbligatoria: `familyId`. Response 200:
+```json
+{"data":{"familyId":"uuid","pantry":{"items":[],"nextCursor":null},"shopping":null,"notifications":{"items":[],"nextCursor":null},"navigationSummary":{}}}
+```
+
+### GET /views/shopping-screen
+Query obbligatoria: `familyId`. Response 200: view con shopping corrente, pantry e notifications.
+
+### GET /views/recipes-screen
+Query obbligatoria: `familyId`. Response 200: view con recipe suggestions, pantry, shopping e notifications.
+
+### GET /views/nutrition-screen
+Query obbligatoria: `familyId`. Response 200: view con nutrition summary, pantry e notifications.
+
+### GET /views/family-screen
+Query obbligatoria: `familyId`. Response 200: view con family, members, invites e navigation summary.
+
+### GET /views/notifications-screen
+Query obbligatoria: `familyId`. Response 200: view con notifications, pantry e navigation summary.
+
+Tutte le screen views sono GET autenticati. Se un downstream fallisce, il Gateway restituisce un errore documentato oppure una view parziale solo secondo la regola di `partialFailures`; non vengono sintetizzati dati domain falsi.
+
 ## 15. Composite Views
 
 Sono esclusivamente GET e non sono source of truth.
 
 ### GET /dashboard
+
+Query obbligatoria: `familyId`.
 
 Response 200:
 ```json
