@@ -322,6 +322,17 @@ services:
       service-shelf-life: { condition: service_healthy }
     restart: unless-stopped
     networks: [backend, data, messaging]
+  worker-ocr:
+    build: { context: ., dockerfile: services/worker-ocr/Dockerfile }
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      OCR_SERVICE_BASE_URL: "http://service-ocr:3405/api/v1"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
+    depends_on:
+      redis: { condition: service_healthy }
+      service-ocr: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [backend, messaging]
   service-ocr:
     build: { context: ., dockerfile: services/service-ocr/Dockerfile }
     environment: { PORT: 3405, SERVICE_NAME: service-ocr, DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db" }
