@@ -24,8 +24,8 @@ export interface UseInventoryResult {
 }
 
 /**
- * Loads the family's live inventory from `GET /api/v1/inventory/stock-items?familyId=...` and
- * keeps it in sync with the backend as the UI mutates it. Pages built from the Figma export only
+ * Loads the family's live inventory from the canonical `GET /api/v1/inventory?familyId=...`
+ * and keeps the local screen synchronized with the server after mutations. Pages built from the Figma export only
  * know how to call `setStock(updater)`, exactly like `useState`'s setter, so this hook diffs the
  * previous and next arrays to infer which domain mutation happened and fires the matching
  * endpoint:
@@ -60,6 +60,7 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
   // Tiene traccia dell'ultimo array di stock "sincronizzato", così il useEffect
   // sotto può calcolare il diff senza dover leggere lo state precedente da setState.
   const prevStockRef = useRef<StockItem[] | null>(null);
+  const skipNextSyncRef = useRef(false);
 
   useEffect(() => {
     if (initialStock !== undefined) {
@@ -111,11 +112,34 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
   // primo popolamento grazie al confronto per reference con prevStockRef.
   useEffect(() => {
     const prev = prevStockRef.current;
-    if (prev === null) return;              // load non ancora avvenuto
-    if (prev === stock) return;             // stesso riferimento → nessun cambiamento reale
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false;
+      prevStockRef.current = stock;
+      return;
+    }
+    if (prev === null) return;
+    if (prev === stock) return;
     prevStockRef.current = stock;
-    if (isDemoRef.current || !familyIdRef.current) return;
-    void syncInventoryDiff(familyIdRef.current, prev, stock);
+    const family = familyIdRef.current;
+    if (isDemoRef.current || !family) return;
+    void syncInventoryDiff(family, prev, stock)
+      .then(async () => {
+        try {
+          const result = await api.listStockItems(family);
+          const canonical = result.items.map(mapStockItemDtoToUi);
+          skipNextSyncRef.current = true;
+          prevStockRef.current = canonical;
+          setStockState(canonical);
+        } catch (err) {
+          reportIssue("Impossibile riallineare la dispensa con il server.", err, async () => {
+            const result = await api.listStockItems(family);
+            const canonical = result.items.map(mapStockItemDtoToUi);
+            skipNextSyncRef.current = true;
+            prevStockRef.current = canonical;
+            setStockState(canonical);
+          });
+        }
+      });
   }, [stock]);
 
   const setStock = useCallback<SetStock>((updater) => {
@@ -184,7 +208,9 @@ function reportIssue(message: string, err: unknown, retry: () => Promise<void>):
 }
 
 async function syncCreate(familyId: string, item: StockItem): Promise<void> {
+  const operationId = `inventory-create:${familyId}:${item.id}`;
   const product = await api.createProduct({
+    idempotencyKey: operationId + ":product",
     canonicalName: item.name,
     brand: item.brand ?? null,
     defaultUnit: normalizeUnit(item.unit),
@@ -196,6 +222,7 @@ async function syncCreate(familyId: string, item: StockItem): Promise<void> {
     fiber: item.fiber,
   });
   await api.createStockItem({
+    idempotencyKey: operationId + ":stock",
     familyId,
     productId: product.id,
     quantity: totalQuantity(item),
@@ -217,6 +244,7 @@ async function syncMovement(
   let journey = beginInventoryAction(kind, version);
   try {
     await api.recordMovement(stockItemId, version, {
+      idempotencyKey: `inventory-movement:${familyId}:${stockItemId}:${version}:${kind}:${quantity}`,
       familyId,
       kind,
       quantity,
