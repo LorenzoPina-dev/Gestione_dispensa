@@ -388,46 +388,77 @@ completed_at timestamptz NULL
 
 ```text
 id UUID PK
-type varchar(100) NOT NULL
-status varchar NOT NULL -- queued|running|completed|failed|cancelled
-deduplication_key varchar(255) NULL
+family_id UUID NULL
+capability varchar(100) NOT NULL
+status varchar(16) NOT NULL -- PENDING|PROCESSING|COMPLETED|FAILED|CANCELLED|DEGRADED
+idempotency_key varchar(255) NOT NULL
+max_attempts integer NOT NULL DEFAULT 5 CHECK(max_attempts >= 1)
+current_attempt integer NOT NULL DEFAULT 0 CHECK(current_attempt >= 0)
+next_attempt_at timestamptz NOT NULL DEFAULT now()
+result_ref JSONB NULL
+last_error_code varchar(128) NULL
+last_error_class varchar(16) NULL -- TRANSIENT|PERMANENT
+trace_id varchar(128) NULL
 payload JSONB NOT NULL
-attempt integer NOT NULL DEFAULT 0
-max_attempts integer NOT NULL
-available_at timestamptz NOT NULL
-locked_at timestamptz NULL
-locked_by varchar(128) NULL
-last_error text NULL
-created_at timestamptz NOT NULL
-updated_at timestamptz NOT NULL
-version integer NOT NULL
-UNIQUE(type,deduplication_key) WHERE deduplication_key IS NOT NULL
+created_at timestamptz NOT NULL DEFAULT now()
+updated_at timestamptz NOT NULL DEFAULT now()
+UNIQUE(capability,idempotency_key)
 ```
 
 ### job_attempts
 
 ```text
 id UUID PK
-job_id UUID NOT NULL
+job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE
 attempt integer NOT NULL
 started_at timestamptz NOT NULL
 finished_at timestamptz NULL
-status varchar NOT NULL
-error text NULL
+status varchar(16) NOT NULL
+error_code varchar(128) NULL
+error_class varchar(16) NULL
+duration_ms integer NULL
+UNIQUE(job_id,attempt)
 ```
 
-### dead_letters
+### dead_letter_jobs
 
 ```text
 id UUID PK
-job_id UUID NULL
-event_id UUID NULL
-reason varchar NOT NULL
-payload JSONB NOT NULL
+job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE
+queue varchar(128) NOT NULL
+reason text NOT NULL
+error_code varchar(128) NULL
+error_class varchar(16) NULL
+attempts integer NOT NULL
+replay_count integer NOT NULL DEFAULT 0
 failed_at timestamptz NOT NULL
-resolved_at timestamptz NULL
+original_created_at timestamptz NOT NULL
 ```
 
+### audit_events
+
+```text
+id UUID PK
+actor_id UUID NULL
+action varchar(128) NOT NULL
+resource_type varchar(128) NOT NULL
+resource_id UUID NULL
+outcome varchar(32) NOT NULL
+reason text NULL
+trace_id varchar(128) NOT NULL
+created_at timestamptz NOT NULL DEFAULT now()
+```
+
+### inbox_events
+
+```text
+id UUID PK
+consumer_name varchar(128) NOT NULL
+event_id UUID NOT NULL
+processed_at timestamptz NULL
+outcome varchar(32) NULL
+UNIQUE(consumer_name,event_id)
+```
 ## 12. recipes_db
 
 ### recipes
