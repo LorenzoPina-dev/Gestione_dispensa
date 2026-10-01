@@ -318,7 +318,7 @@ export function getActiveShoppingList(familyId: string): Promise<ActiveShoppingL
       meta: { requestId: "", traceId: "", schemaVersion: "2.0" },
     });
   }
-  return apiRequest<{ data: { listId: string; name: string; status: "open" | "closed"; items: ShoppingItemDto[]; version: number } }>(`/shopping/lists/${active.listId}`, { query: { familyId } }).then((result) => ({ list: { listId: result.data.listId, name: result.data.name, status: result.data.status, version: result.data.version }, items: result.data.items }));
+  return apiRequest<{ listId: string; name: string; status: "open" | "closed"; items: ShoppingItemDto[]; version: number }>(`/shopping/lists/${active.listId}`, { query: { familyId } }).then((result) => ({ list: { listId: result.listId, name: result.name, status: result.status, version: result.version }, items: result.items }));
 }
 
 export async function createShoppingList(familyId: string, name: string): Promise<{
@@ -330,16 +330,18 @@ export async function createShoppingList(familyId: string, name: string): Promis
   version: number;
 }> {
   const result = await apiRequest<{
-    data: { listId: string; name: string; status: "open" | "closed"; version: number };
+    listId: string;
+    name: string;
+    status: "open" | "closed";
     version: number;
   }>("/shopping/lists", { method: "POST", body: { familyId, name } });
   return {
-    id: result.data.listId,
+    id: result.listId,
     familyId,
     ownerUserId: "",
-    name: result.data.name,
-    status: result.data.status === "open" ? "ACTIVE" : "ARCHIVED",
-    version: result.data.version,
+    name: result.name,
+    status: result.status === "open" ? "ACTIVE" : "ARCHIVED",
+    version: result.version,
   };
 }
 
@@ -443,8 +445,8 @@ export async function listRecipeSuggestions(familyId: string): Promise<{ suggest
 }
 
 export async function getRecipe(familyId: string, recipeId: string): Promise<{ recipe: RecipeDto }> {
-  const result = await apiRequest<{ data: RecipeDto }>(`/recipes/${recipeId}`, { query: { familyId } });
-  return { recipe: result.data };
+  const result = await apiRequest<RecipeDto>(`/recipes/${recipeId}`, { query: { familyId } });
+  return { recipe: result };
 }
 
 export function addRecipeMissingIngredients(
@@ -463,8 +465,8 @@ export async function getNutritionSummary(
   familyId: string,
   period: "today" | "week" = "today",
 ): Promise<NutritionSummaryDto> {
-  const result = await apiRequest<{ data: NutritionSummaryDto }>("/nutrition/summary", { query: { familyId, period } });
-  return result.data;
+  const result = await apiRequest<NutritionSummaryDto>("/nutrition/summary", { query: { familyId, period } });
+  return result;
 }
 
 export async function listFamilyInvites(familyId: string): Promise<{ invites: Array<{ id?: string; inviteId?: string; role: InviteRole; status: "CREATED"|"REVOKED"|"CONSUMED"|"EXPIRED"; expiresAt: string; fallbackCode?: string; createdAt: string }> }> {
