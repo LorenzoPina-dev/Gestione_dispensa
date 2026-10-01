@@ -425,19 +425,20 @@ async function ensureBrand(database: SqlClient, brand: string | undefined): Prom
 async function insertOutbox(database: SqlClient, event: CatalogUpdatedEvent): Promise<void> {
   await database.query(
     `INSERT INTO outbox_events
-      (event_id, event_type, event_version, aggregate_type, aggregate_id, payload)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-    [
+      (event_id, event_type, event_version, aggregate_type, aggregate_id, actor_id, trace_id, occurred_at, payload)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8::jsonb)`
+    , [
       event.eventId,
       event.eventType,
       event.eventVersion,
       event.aggregateType,
       event.aggregateId,
-      JSON.stringify(event),
-    ],
+      event.actorId,
+      event.traceId,
+      JSON.stringify(event.payload),
+    ]
   );
 }
-
 function mapProduct(row: ProductRow): Product {
   return {
     id: row.id,
