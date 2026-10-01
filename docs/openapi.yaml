@@ -394,6 +394,17 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateDiaryEntry'}}}}
       responses:
         '201': {description: Entry, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /nutrition/summary:
+    get:
+      operationId: getNutritionSummary
+      tags: [Nutrition]
+      parameters:
+        - {name: familyId, in: query, required: false, schema: {type: string, format: uuid}}
+        - {name: period, in: query, required: false, schema: {type: string, enum: [today, week], default: today}}
+      responses:
+        '200': {description: Nutrition summary, content: {application/json: {schema: {$ref: '#/components/schemas/NutritionSummaryResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /stores:
     get:
       operationId: getStores
@@ -765,6 +776,19 @@ components:
         proteinG: {type: number, minimum: 0}
         carbsG: {type: number, minimum: 0}
         fatG: {type: number, minimum: 0}
+    NutritionSummaryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [caloriesKcal, proteinG, carbsG, fatG, period]
+          properties:
+            caloriesKcal: {type: number, minimum: 0}
+            proteinG: {type: number, minimum: 0}
+            carbsG: {type: number, minimum: 0}
+            fatG: {type: number, minimum: 0}
+            period: {type: string, enum: [today, week]}
     CreateDiaryEntry:
       type: object
       required: [date, meal, productId, quantity, unit]
