@@ -45,9 +45,12 @@ export function useShoppingList(familyId?: string | null, initialList?: Shopping
   isDemoRef.current = isDemo;
   const familyIdRef = useRef(effectiveFamilyId);
   familyIdRef.current = effectiveFamilyId;
+  const prevListRef = useRef<ShoppingList | null>(null);
 
   useEffect(() => {
     if (initialList !== undefined) {
+      // Composite hydration is the authoritative remote baseline.
+      prevListRef.current = initialList;
       setListState(initialList ?? { id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
       setIsDemo(false);
       setDemoReason(null);
@@ -101,12 +104,23 @@ export function useShoppingList(familyId?: string | null, initialList?: Shopping
     };
   }, [effectiveFamilyId, initialList]);
 
+  useEffect(() => {
+    const prev = prevListRef.current;
+    if (prev === null || prev === list) return;
+    prevListRef.current = list;
+    const family = familyIdRef.current;
+    if (isDemoRef.current || !family) return;
+    void syncShoppingDiff(family, prev, list);
+  }, [list]);
+
   const setList = useCallback<SetShoppingList>((updater) => {
-    setListState((prev) => {
-      const next = typeof updater === "function" ? (updater as (p: ShoppingList) => ShoppingList)(prev) : updater;
-      if (!isDemoRef.current && familyIdRef.current) void syncShoppingDiff(familyIdRef.current, prev, next);
-      return next;
-    });
+    // Pure state update. Synchronization happens after commit, outside the updater,
+    // so React StrictMode cannot duplicate the network mutation.
+    setListState((prev) =>
+      typeof updater === "function"
+        ? (updater as (p: ShoppingList) => ShoppingList)(prev)
+        : updater,
+    );
   }, []);
 
   return { list, setList, isDemo, loading, demoReason };
