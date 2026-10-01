@@ -11,6 +11,20 @@ export async function getFamily(): Promise<{ id: string; displayName: string } |
 export interface RegisterPayload { name: string; email: string; password: string; }
 export function registerUser(payload: RegisterPayload): Promise<{ success: boolean; message: string }> { return apiRequest("/auth/register", { method: "POST", body: payload }); }
 export function createFamily(input: { displayName: string; locale: string; timezone: string; unitSystem: "METRIC" | "IMPERIAL" }): Promise<FamilyCreationResultDto> { return apiRequest("/families", { method: "POST", body: { name: input.displayName } }); }
+export async function listFamilyInvites(familyId: string): Promise<{ invites: Array<{ id: string; inviteId: string; role: InviteRole; status: "CREATED"|"REVOKED"|"CONSUMED"|"EXPIRED"; expiresAt: string; fallbackCode?: string; qrPayload?: string; createdAt: string; version: number }> }> {
+  const result = await apiRequest<{ items: Array<{ inviteId: string; email?: string; role: "admin"|"member"|"viewer"; status: string; expiresAt: string; createdAt: string; version: number }>; nextCursor: string | null }>(`/families/${familyId}/invites`);
+  return {
+    invites: result.items.map((item) => ({
+      id: item.inviteId,
+      inviteId: item.inviteId,
+      role: item.role === "admin" ? "MANAGER" : item.role === "viewer" ? "VIEWER" : "MEMBER",
+      status: item.status === "pending" ? "CREATED" : item.status === "revoked" ? "REVOKED" : item.status === "accepted" ? "CONSUMED" : "EXPIRED",
+      expiresAt: item.expiresAt,
+      createdAt: item.createdAt,
+      version: item.version,
+    })),
+  };
+}
 export function createFamilyInvite(familyId: string, input: { role: InviteRole; expiresInSeconds: number }): Promise<CreatedInviteDto> { return apiRequest(`/families/${familyId}/invites`, { method: "POST", body: input }); }
 export function resolveInvite(token: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve", { method: "POST", body: { token, browserBindingHash } }); }
 export function resolveInviteByCode(code: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve-code", { method: "POST", body: { code, browserBindingHash } }); }
