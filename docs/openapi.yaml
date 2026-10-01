@@ -1089,6 +1089,12 @@ components:
       additionalProperties: false
       properties:
         expiresAt: {type: string, format: date-time}
+        source: {type: string, enum: [declared, estimated]}
+      type: object
+      required: [expiresAt, source]
+      additionalProperties: false
+      properties:
+        expiresAt: {type: string, format: date-time}
         source: {type: string, enum: [declared]}
     ShelfLifeRequest:
       type: object
