@@ -380,7 +380,7 @@ Request:
 {"name":"Latte intero","brand":"Marca","defaultUnit":"L","barcodes":["8000000000000"],"category":"milk","calories":62,"protein":3.2,"carbs":4.8,"fat":3.5,"fiber":0}
 ```
 
-`name` è obbligatorio. `defaultUnit` è opzionale e defaulta a `piece`. `barcodes` è opzionale per prodotti manuali; quando presente ogni valore deve contenere 8..14 cifre. I campi nutrizionali opzionali `calories`, `protein`, `carbs`, `fat`, `fiber` sono non negativi.
+`name` è obbligatorio. `defaultUnit` è opzionale e defaulta a `piece`. `barcodes` è opzionale per prodotti manuali; quando presente ogni valore deve contenere 8, 12, 13 oppure 14 cifre. I campi nutrizionali opzionali `calories`, `protein`, `carbs`, `fat`, `fiber` sono non negativi.
 
 Response 201:
 ```json
