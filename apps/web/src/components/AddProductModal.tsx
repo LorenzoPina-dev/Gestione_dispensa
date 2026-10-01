@@ -65,7 +65,7 @@ function ModeMenu({ onSelect, onClose }: { onSelect: (m: AddMode) => void; onClo
     { key: "lista" as AddMode, icon: "📋", label: "Importa lista", desc: "Incolla una lista di prodotti" },
   ];
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 space-y-5 sm:p-6">
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-light" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>
           Aggiungi prodotto
@@ -425,7 +425,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
   }
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 space-y-5 sm:p-6">
       <div className="flex items-center gap-3">
         <button onClick={() => { stopCamera(); onBack(); }} className="text-sm" style={{ color: "#6b5e4e" }}>← Indietro</button>
         <h3 className="text-lg font-light flex-1" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>Scansiona barcode</h3>
@@ -533,7 +533,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
               </div>
             </div>
             {candidate.calories !== undefined && (
-              <div className="grid grid-cols-5 gap-1 pt-1">
+              <div className="grid grid-cols-2 gap-1 pt-1 sm:grid-cols-5">
                 {[
                   { l: "kcal", v: candidate.calories },
                   { l: "prot.", v: candidate.protein ?? 0 },
@@ -649,7 +649,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
 // ── Photo capture ──────────────────────────────────────────────────────────────
 function PhotoCapture({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) {
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 space-y-5 sm:p-6">
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="text-sm" style={{color:"#6b5e4e"}}>← Indietro</button>
         <h3 className="text-lg font-light flex-1" style={{fontFamily:"var(--font-display)",color:"#1a1510"}}>Foto prodotto</h3>
@@ -683,7 +683,7 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 space-y-4 sm:p-6">
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="text-sm" style={{ color: "#6b5e4e" }}>← Indietro</button>
         <h3 className="text-lg font-light flex-1" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>Inserimento manuale</h3>
@@ -761,7 +761,7 @@ function ImportList({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
 
   if (done) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-4 space-y-4 sm:p-6">
         <div className="rounded-2xl p-6 text-center space-y-2" style={{ backgroundColor: "#dceadd" }}>
           <p className="text-2xl">✓</p>
           <p className="font-medium text-sm" style={{ color: "#3d6641" }}>{parsed.length} prodotti caricati in dispensa</p>
@@ -772,7 +772,7 @@ function ImportList({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 space-y-4 sm:p-6">
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="text-sm" style={{ color: "#6b5e4e" }}>← Indietro</button>
         <h3 className="text-lg font-light flex-1" style={{ fontFamily: "var(--font-display)", color: "#1a1510" }}>Importa lista</h3>
