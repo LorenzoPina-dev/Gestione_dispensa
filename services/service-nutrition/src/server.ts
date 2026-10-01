@@ -164,11 +164,25 @@ app.post("/api/v1/nutrition/diary", async(req,res)=>{
 });
 
 app.get("/api/v1/nutrition/summary", async(req,res)=>{
-  const userId=actor(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
-  const period=String(req.query.period??"today");if(period!=="today"&&period!=="week")return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
-  const q=await pool.query("select * from nutrition_domain.targets where user_id=$1",[userId]);
-  const row=q.rows[0] as Record<string,unknown>|undefined;
-  return res.json({data:{caloriesKcal:row?Number(row.calories_kcal):2000,proteinG:row?Number(row.protein_g):100,carbsG:row?Number(row.carbs_g):250,fatG:row?Number(row.fat_g):70,period}});
+  const userId=actor(req);
+  if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const period=String(req.query.period??"today");
+  if(period!=="today"&&period!=="week")return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
+  const days=period==="today"?0:6;
+  const q=await pool.query("select quantity,unit,nutrition_snapshot from nutrition_domain.diary_entries where user_id=$1 and date between current_date-$2::integer and current_date",[userId,days]);
+  let caloriesKcal=0,proteinG=0,carbsG=0,fatG=0,fiberG=0;
+  for(const row of q.rows){
+    const snapshot=typeof row.nutrition_snapshot==="object"&&row.nutrition_snapshot!==null?row.nutrition_snapshot as Record<string,unknown>:null;
+    if(!snapshot)continue;
+    const multiplier=nutrientMultiplier(Number(row.quantity),String(row.unit));
+    caloriesKcal+=Number(snapshot.caloriesKcalPer100g??0)*multiplier;
+    proteinG+=Number(snapshot.proteinGPer100g??0)*multiplier;
+    carbsG+=Number(snapshot.carbsGPer100g??0)*multiplier;
+    fatG+=Number(snapshot.fatGPer100g??0)*multiplier;
+    fiberG+=Number(snapshot.fiberGPer100g??0)*multiplier;
+  }
+  const round=(value:number)=>Number(value.toFixed(2));
+  return res.json({data:{caloriesKcal:round(caloriesKcal),proteinG:round(proteinG),carbsG:round(carbsG),fatG:round(fatG),period,totals:{calories:round(caloriesKcal),protein:round(proteinG),carbs:round(carbsG),fat:round(fatG),fiber:round(fiberG)}}});
 });
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
