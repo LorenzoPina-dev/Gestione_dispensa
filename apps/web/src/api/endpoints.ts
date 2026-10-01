@@ -191,14 +191,14 @@ export function createProduct(input: {
 }): Promise<ProductDto> {
   return apiRequest("/catalog/products", {
     method: "POST",
-    body: { ...input, brand: input.brand ?? undefined },
+    body: { name: input.canonicalName, brand: input.brand ?? undefined, defaultUnit: input.defaultUnit, ...(input.category ? { category: input.category } : {}) },
   });
 }
 
 // --- Inventory ---------------------------------------------------------------
 
 export function listStockItems(familyId: string): Promise<{ items: StockItemDto[] }> {
-  return apiRequest("/inventory", { query: { familyId } });
+  return apiRequest("/inventory", { query: { familyId, status: "current" } });
 }
 
 export function createStockItem(input: {
@@ -212,7 +212,7 @@ export function createStockItem(input: {
   location?: string;
   expiresAt?: string;
 }): Promise<StockItemDto> {
-  return apiRequest("/inventory/items", { method: "POST", body: input });
+  return apiRequest("/inventory/items", { method: "POST", body: { productId: input.productId, quantity: input.quantity, unit: input.unit, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}), ...(input.location ? { location: input.location } : {}), ...(input.packageId ? { lotCode: input.packageId } : {}) } });
 }
 
 export function recordMovement(
@@ -329,7 +329,7 @@ export function markNotificationRead(
 // --- Inventory history / dashboard ------------------------------------------
 
 export function listMovements(stockItemId: string): Promise<{ movements: MovementDto[] }> {
-  return apiRequest(`/inventory/items/${stockItemId}/movements`);
+  return apiRequest(`/inventory/${stockItemId}/movements`);
 }
 
 // --- Recipes -----------------------------------------------------------------
