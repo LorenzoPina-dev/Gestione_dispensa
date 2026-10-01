@@ -1,6 +1,7 @@
 import express from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
+import { registerAddMissingIngredientsRoute } from "./add-missing.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -228,6 +229,24 @@ app.post("/api/v1/recipes", async (req, res) => {
   } finally { client.release(); }
 });
 
+app.get("/api/v1/recipes/suggestions", async (req, res) => {
+  const ctx = context(req);
+  if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
+  const access = await authorizeFamily(ctx, false);
+  if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
+
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
+  const q = await pool.query(
+    "select id from recipes_domain.recipes where family_id=$1 order by updated_at desc limit $2",
+    [ctx.familyId, limit],
+  );
+  const items = await Promise.all(q.rows.map(async (row) => {
+    const recipe = await loadRecipe(String(row.id), ctx.familyId);
+    return { recipeId: recipe?.recipeId ?? String(row.id), score: 1, missingIngredients: [] };
+  }));
+  return res.json({ items });
+});
+
 app.get("/api/v1/recipes/:recipeId", async (req, res) => {
   const ctx = context(req);
   if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
@@ -273,23 +292,7 @@ app.delete("/api/v1/recipes/:recipeId",async(req,res)=>{
   }catch(error){await client.query("rollback");return res.status(500).json(errorBody("INTERNAL_ERROR",error instanceof Error?error.message:"Unable to delete recipe."));}finally{client.release();}
 });
 
-app.get("/api/v1/recipes/suggestions", async (req, res) => {
-  const ctx = context(req);
-  if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
-  const access = await authorizeFamily(ctx, false);
-  if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
-
-  const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
-  const q = await pool.query(
-    "select id from recipes_domain.recipes where family_id=$1 order by updated_at desc limit $2",
-    [ctx.familyId, limit],
-  );
-  const items = await Promise.all(q.rows.map(async (row) => {
-    const recipe = await loadRecipe(String(row.id), ctx.familyId);
-    return { recipeId: recipe?.recipeId ?? String(row.id), score: 1, missingIngredients: [] };
-  }));
-  return res.json({ items });
-});
+registerAddMissingIngredientsRoute(app, pool);
 
 app.use((_req,res)=>res.status(404).json(errorBody("NOT_FOUND","Route not found.")));
 
