@@ -187,6 +187,7 @@ const toItem = (row: Record<string, unknown>): Record<string, unknown> => ({
   quantity: Number(row.quantity),
   unit: String(row.unit),
   checked: Boolean(row.checked),
+  version: Number(row.version),
 });
 
 app.get("/health/live", (_req, res) => json(res, 200, { status: "ok", service: "service-shopping" }));
