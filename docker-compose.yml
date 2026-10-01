@@ -264,7 +264,7 @@ services:
 
   service-jobs:
     build: { context: ., dockerfile: services/service-jobs/Dockerfile }
-    environment: { <<: *oidc-env, PORT: 3317, SERVICE_NAME: service-jobs, DATABASE_URL: "postgres://jobs:jobs@postgres:5432/jobs_db" }
+    environment: { <<: *oidc-env, PORT: 3317, SERVICE_NAME: service-jobs, DATABASE_URL: "postgres://jobs:jobs@postgres:5432/jobs_db", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}" }
     depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
