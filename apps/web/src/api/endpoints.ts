@@ -304,8 +304,9 @@ export function batchUpdateShoppingItems(
 
 // --- Notifications ----------------------------------------------------------
 
-export function listNotifications(familyId: string): Promise<{ notifications: NotificationDto[] }> {
-  return apiRequest("/notifications", { query: { familyId } });
+export async function listNotifications(familyId: string): Promise<{ notifications: NotificationDto[] }> {
+  const result = await apiRequest<{ items: NotificationDto[]; nextCursor: string | null }>("/notifications", { query: { familyId } });
+  return { notifications: result.items };
 }
 
 export function markNotificationRead(
