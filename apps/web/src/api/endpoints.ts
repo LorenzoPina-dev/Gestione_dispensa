@@ -1,4 +1,4 @@
-import { apiRequest, newIdempotencyKey } from "./client";
+import { apiRequest } from "./client";
 import type {
   ActiveShoppingListDto,
   CreatedInviteDto,
