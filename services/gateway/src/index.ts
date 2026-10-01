@@ -230,7 +230,7 @@ async function getActiveShopping(familyId: string, authorization?: string): Prom
   const lists = await serviceGet(shoppingBaseUrl, "/shopping/lists", authorization, { familyId });
   const active = Array.isArray(lists.items) ? lists.items.find((item: any) => item.status === "open") : undefined;
   if (!active) return undefined;
-  const detail = await serviceGet(shoppingBaseUrl, `/shopping/lists/${encodeURIComponent(String(active.listId))}`, authorization);
+  const detail = await serviceGet(shoppingBaseUrl, `/shopping/lists/${encodeURIComponent(String(active.listId))}`, authorization, { familyId });
   return {
     list: {
       listId: String(detail.listId),
@@ -251,7 +251,7 @@ async function dashboardView(familyId: string, authorization?: string) {
     getActiveShopping(familyId, authorization),
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
-    serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr/jobs", authorization, { familyId, status: "NEEDS_REVIEW" }),
+    serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr/jobs", authorization, { familyId, status: "needs_review" }),
   ]);
   return composeCommon(familyId, family, members, pantry, shopping, notifications, {
     suggestedRecipes: recipes.items ?? [],
