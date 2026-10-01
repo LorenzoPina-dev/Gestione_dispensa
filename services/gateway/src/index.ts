@@ -205,13 +205,13 @@ app.get("/health/ready", async (_req, res) => {
  * Domain services can later move behind these calls without changing the Web contract.
  */
 app.get("/api/v1/dashboard", requireGatewayAuth, (req, res) => composite(req, res, dashboardView));
-app.get("/api/v1/views/dashboard-today", (req, res) => composite(req, res, dashboardView));
-app.get("/api/v1/views/pantry-screen", (req, res) => composite(req, res, pantryView));
-app.get("/api/v1/views/shopping-screen", (req, res) => composite(req, res, shoppingView));
-app.get("/api/v1/views/recipes-screen", (req, res) => composite(req, res, recipesView));
-app.get("/api/v1/views/nutrition-screen", (req, res) => composite(req, res, nutritionView));
-app.get("/api/v1/views/family-screen", (req, res) => composite(req, res, familyView));
-app.get("/api/v1/views/notifications-screen", (req, res) => composite(req, res, notificationsView));
+app.get("/api/v1/views/dashboard-today", requireGatewayAuth, (req, res) => composite(req, res, dashboardView));
+app.get("/api/v1/views/pantry-screen", requireGatewayAuth, (req, res) => composite(req, res, pantryView));
+app.get("/api/v1/views/shopping-screen", requireGatewayAuth, (req, res) => composite(req, res, shoppingView));
+app.get("/api/v1/views/recipes-screen", requireGatewayAuth, (req, res) => composite(req, res, recipesView));
+app.get("/api/v1/views/nutrition-screen", requireGatewayAuth, (req, res) => composite(req, res, nutritionView));
+app.get("/api/v1/views/family-screen", requireGatewayAuth, (req, res) => composite(req, res, familyView));
+app.get("/api/v1/views/notifications-screen", requireGatewayAuth, (req, res) => composite(req, res, notificationsView));
 
 async function requireGatewayAuth(req: Request, res: Response, next: express.NextFunction) {
   const header = req.header("authorization");
