@@ -516,6 +516,8 @@ Response 200:
 Request:
 ```json
 {"date":"2026-09-30","meal":"lunch","productId":"uuid","quantity":250,"unit":"g"}
+
+`unit` deve essere `g` oppure `kg`. Al momento della registrazione Nutrition cattura uno snapshot immutabile dei nutrienti del prodotto Catalog. Se il prodotto non ha dati nutrizionali, la richiesta fallisce con `404`.
 ```
 Response 201 entry + version.
 
