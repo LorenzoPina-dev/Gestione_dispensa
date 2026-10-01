@@ -814,20 +814,30 @@ components:
         data: {}
         version: {type: integer, minimum: 1}
       additionalProperties: false
+    Meta:
+      type: object
+      required: [requestId, traceId, schemaVersion]
+      additionalProperties: false
+      properties:
+        requestId: {$ref: '#/components/schemas/Uuid'}
+        traceId: {type: string, minLength: 16, maxLength: 64}
+        schemaVersion: {type: string, const: '1.0'}
     Error:
       type: object
-      required: [error]
+      required: [error, meta]
+      additionalProperties: false
       properties:
         error:
           type: object
-          required: [code, message, requestId]
+          required: [code, message, details, retryable, requestId]
+          additionalProperties: false
           properties:
             code: {type: string}
             message: {type: string}
             details: {type: array, items: {type: object}}
+            retryable: {type: boolean}
             requestId: {$ref: '#/components/schemas/Uuid'}
-          additionalProperties: false
-      additionalProperties: false
+        meta: {$ref: '#/components/schemas/Meta'}
     ProfilePatch:
       type: object
       minProperties: 1
