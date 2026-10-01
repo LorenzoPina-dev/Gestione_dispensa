@@ -3,6 +3,7 @@ import type { ProductCandidate } from "./workflow.js";
 import {
   CatalogService,
   CatalogValidationError,
+  CatalogVersionConflictError,
   type CreateManualProductCommand,
   type IdentifierType,
   type Product,
@@ -20,6 +21,24 @@ export interface CatalogHttpSuccess<T> {
   meta: CatalogHttpMeta;
 }
 
+export interface PublicProduct {
+  productId: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  barcodes: string[];
+  imageObjectKey: string | null;
+  nutrition: {
+    kcalPer100g: number | null;
+    proteinGPer100g: number | null;
+    carbsGPer100g: number | null;
+    fatGPer100g: number | null;
+    fiberGPer100g: number | null;
+  };
+  source: { type: string; id: string };
+  version: number;
+}
+
 export class CatalogHttpError extends Error {
   public constructor(
     public readonly status: number,
@@ -32,14 +51,6 @@ export class CatalogHttpError extends Error {
   }
 }
 
-/**
- * The product catalog is shared reference data, not family-scoped, so this
- * controller has no membership/authorization boundary to check beyond
- * authentication: any signed-in user may add a manual product or look up a
- * barcode. Family-scoped consumers of the catalog (e.g. attaching a product
- * to a stock item) enforce their own family authorization separately in the
- * inventory controller.
- */
 export class CatalogController {
   private readonly catalog: CatalogService;
   private readonly workflow: CatalogWorkflowService;
@@ -49,57 +60,105 @@ export class CatalogController {
     this.workflow = workflow;
   }
 
-  public async listProducts(meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<{ products: Product[] }>> {
-    return success({ products: await this.catalog.listProducts() }, meta);
-  }
-
-  public async getProduct(productId: string, meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<{ product: Product }>> {
+  public async getProduct(productId: string, meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<PublicProduct>> {
     const product = await this.catalog.getProduct(productId);
-    if (product === undefined) throw new CatalogHttpError(404, "NOT_FOUND_OR_NOT_VISIBLE", "Product is not visible.");
-    return success({ product }, meta);
+    if (!product) throw new CatalogHttpError(404, "NOT_FOUND", "Product not found.");
+    return success(toPublicProduct(product), meta);
   }
 
   public async createProduct(
     principal: Principal | undefined,
     command: Omit<CreateManualProductCommand, "actorId">,
     meta: CatalogHttpMeta,
-  ): Promise<CatalogHttpSuccess<unknown>> {
-    if (principal === undefined)
-      throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
-    const product = await this.catalog.createManualProduct({
-      ...command,
-      actorId: principal.subject,
-    });
-    return success(product, meta);
+  ): Promise<CatalogHttpSuccess<PublicProduct>> {
+    if (!principal) throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    const product = await this.catalog.createManualProduct({ ...command, actorId: principal.subject });
+    return success(toPublicProduct(product), meta);
+  }
+
+  public async updateProduct(
+    principal: Principal | undefined,
+    productId: string,
+    expectedVersion: number,
+    patch: {
+      name?: string;
+      brand?: string | null;
+      category?: string | null;
+      imageObjectKey?: string | null;
+      nutrition?: Record<string, unknown> | null;
+    },
+    meta: CatalogHttpMeta,
+  ): Promise<CatalogHttpSuccess<PublicProduct>> {
+    if (!principal) throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    try {
+      const product = await this.catalog.updateProduct(
+        productId,
+        expectedVersion,
+        patch,
+        principal.subject,
+        meta.traceId,
+      );
+      if (!product) throw new CatalogHttpError(404, "NOT_FOUND", "Product not found.");
+      return success(toPublicProduct(product), meta);
+    } catch (error) {
+      if (error instanceof CatalogVersionConflictError) {
+        throw new CatalogHttpError(412, "PRECONDITION_FAILED", error.message);
+      }
+      throw error;
+    }
   }
 
   public async lookupBarcode(
     identifierType: IdentifierType,
     value: string,
     meta: CatalogHttpMeta,
-  ): Promise<CatalogHttpSuccess<unknown>> {
-    const resolution = await this.workflow.resolveBarcode(identifierType, value, meta.traceId);
-    return success(resolution, meta);
+    refresh = false,
+  ): Promise<CatalogHttpSuccess<{ resolution: "cache" | "provider"; product: PublicProduct }>> {
+    const resolution = await this.workflow.resolveBarcode(identifierType, value, meta.traceId, refresh);
+    if (resolution.status === "UNKNOWN") {
+      throw new CatalogHttpError(404, "NOT_FOUND", "No product was found for this barcode.");
+    }
+    if (resolution.status === "DEGRADED" || !resolution.product) {
+      throw new CatalogHttpError(502, "UPSTREAM_ERROR", "Product lookup provider is unavailable.", true);
+    }
+    return success(
+      { resolution: resolution.resolution, product: toPublicProduct(resolution.product) },
+      meta,
+    );
   }
-  /**
-   * Backs `POST /api/v1/products/candidates`. Persists an imported candidate
-   * (typically from a barcode scan) and marks it `requiresReview` when the
-   * confidence is below 0.95 — CatalogWorkflowService owns that threshold.
-   */
+
   public async submitImportedCandidate(
     principal: Principal | undefined,
     candidate: Omit<ProductCandidate, "requiresReview">,
     meta: CatalogHttpMeta,
   ): Promise<CatalogHttpSuccess<ProductCandidate>> {
-    if (principal === undefined)
-      throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
-    const result = await this.workflow.submitImportedCandidate(
-      candidate,
-      principal.subject,
-      meta.traceId,
-    );
+    if (!principal) throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    const result = await this.workflow.submitImportedCandidate(candidate, principal.subject, meta.traceId);
     return success(result, meta);
   }
+}
+
+function toPublicProduct(product: Product): PublicProduct {
+  return {
+    productId: product.id,
+    name: product.canonicalName,
+    brand: product.brand ?? null,
+    category: product.category ?? null,
+    barcodes: [...product.barcodes],
+    imageObjectKey: product.photoUrl ?? null,
+    nutrition: {
+      kcalPer100g: product.calories ?? null,
+      proteinGPer100g: product.protein ?? null,
+      carbsGPer100g: product.carbs ?? null,
+      fatGPer100g: product.fat ?? null,
+      fiberGPer100g: product.fiber ?? null,
+    },
+    source: {
+      type: product.externalSource ?? "manual",
+      id: product.externalRef ?? "manual",
+    },
+    version: product.version,
+  };
 }
 
 export function toCatalogHttpError(
@@ -109,30 +168,22 @@ export function toCatalogHttpError(
   status: number;
   body: { error: { code: string; message: string; retryable: boolean }; meta: CatalogHttpMeta };
 } {
-  if (error instanceof CatalogHttpError)
+  if (error instanceof CatalogHttpError) {
     return {
       status: error.status,
-      body: {
-        error: { code: error.code, message: error.message, retryable: error.retryable },
-        meta,
-      },
+      body: { error: { code: error.code, message: error.message, retryable: error.retryable }, meta },
     };
-  if (error instanceof CatalogValidationError)
+  }
+  if (error instanceof CatalogValidationError) {
     return {
       status: 422,
-      body: {
-        error: { code: error.code, message: "Catalog input is invalid.", retryable: false },
-        meta,
-      },
+      body: { error: { code: error.code, message: "Catalog input is invalid.", retryable: false }, meta },
     };
+  }
   return {
     status: 500,
     body: {
-      error: {
-        code: "INTERNAL_ERROR",
-        message: "The request could not be completed.",
-        retryable: false,
-      },
+      error: { code: "INTERNAL_ERROR", message: "The request could not be completed.", retryable: false },
       meta,
     },
   };
