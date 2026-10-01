@@ -314,6 +314,8 @@ Response 200: item + version.
 
 ### POST /inventory/{itemId}/consume
 
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
+
 Request:
 ```json
 {"quantity":1,"reason":"used"}
@@ -327,6 +329,8 @@ Response 200:
 Se `remainingQuantity=0`, `removed=true` e la riga corrente viene eliminata. Il movimento storico resta.
 
 ### POST /inventory/{itemId}/waste
+
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
 
 Request:
 ```json
