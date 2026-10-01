@@ -304,7 +304,7 @@ app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) =
     try {
       upstream=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id))+"/expiration/confirm",{
         method:"POST",
-        headers:{"content-type":"application/json","x-user-id":userId,"authorization":req.header("authorization")??"","x-idempotency-key":idempotencyKey},
+        headers:{"content-type":"application/json","x-user-id":userId,"x-family-id":String(x.family_id ?? ""),"authorization":req.header("authorization")??"","x-idempotency-key":idempotencyKey},
         body:JSON.stringify({expiresAt:x.estimated_expires_at,source:"estimated"}),
       });
     } catch {
