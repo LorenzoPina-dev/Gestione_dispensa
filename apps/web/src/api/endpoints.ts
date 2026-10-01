@@ -121,17 +121,28 @@ export async function resolveProductBarcode(
   refresh = false,
 ): Promise<BarcodeResolutionDto> {
   try {
+    const normalizedValue = value.trim();
+    if (identifierType !== "BARCODE") {
+      throw new ApiError(400, {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Only BARCODE resolution is supported by this endpoint.",
+          retryable: false,
+        },
+        meta: { requestId: "", traceId: "", schemaVersion: "1.0" },
+      });
+    }
     const result = await apiRequest<{ resolution: "cache" | "provider"; product: ProductDto }>(
       "/catalog/barcodes/resolve",
       {
         method: "POST",
-        body: { identifierType, value, ...(refresh ? { refresh: true } : {}) },
+        body: { barcode: normalizedValue },
       },
     );
     return {
       status: "MATCHED",
       identifierType,
-      normalizedValue: value.trim(),
+      normalizedValue,
       product: result.product,
     };
   } catch (error) {
