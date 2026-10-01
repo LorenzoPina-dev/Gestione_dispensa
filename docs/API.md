@@ -57,17 +57,10 @@ Mutazione:
 ### Errore standard
 
 ```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Request validation failed",
-    "details": [
-      {"field": "quantity", "reason": "must_be_positive"}
-    ],
-    "requestId": "uuid"
-  }
-}
+{"error":{"code":"VALIDATION_ERROR","message":"Request validation failed","details":[{"field":"quantity","reason":"must_be_positive"}],"retryable":false,"requestId":"uuid"},"meta":{"requestId":"uuid","traceId":"uuid","schemaVersion":"1.0"}}
 ```
+
+Il Gateway normalizza sia gli errori propri sia quelli provenienti dai microservizi nello stesso envelope. `meta.requestId` e `error.requestId` si riferiscono alla richiesta pubblica; `meta.traceId` è il trace distribuito.
 
 Codici minimi:
 
@@ -85,7 +78,8 @@ Codici minimi:
 | 503 | SERVICE_UNAVAILABLE | servizio temporaneamente non disponibile |
 | 504 | UPSTREAM_TIMEOUT | timeout downstream |
 
-Un endpoint non può inventare un diverso formato errore.
+Un endpoint pubblico non può inventare un diverso formato errore.
+
 
 ## 2. Identity
 
