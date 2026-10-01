@@ -82,12 +82,7 @@ export default function Onboarding({ user, onComplete }: Props) {
     setBackendNote(null);
     setCreateError(null);
     try {
-      const result = await api.createFamily({
-        displayName: familyName.trim(),
-        locale: "it-IT",
-        timezone: "Europe/Rome",
-        unitSystem: "METRIC",
-      });
+      const result = await api.createFamily(familyName);
       const resolvedFamilyId = result.familyId;
       setSubmitting(false);
       setStep("create_done");
