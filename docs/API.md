@@ -593,7 +593,7 @@ Request: stesso schema. Response 200.
 
 ### POST /ocr/jobs
 
-Multipart: campo `file` obbligatorio; `type` = `receipt` | `pantry_image`.
+Multipart: campo `file` obbligatorio; `type` = `receipt` | `pantry_image`; `familyId` obbligatorio.
 Response 202:
 ```json
 {"data":{"jobId":"uuid","status":"queued","type":"receipt","objectKey":"ocr/..."}}
