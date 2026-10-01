@@ -426,6 +426,39 @@ export function markNotificationRead(
   });
 }
 
+// --- OCR --------------------------------------------------------------------
+
+export async function createOcrJob(input: {
+  familyId: string;
+  type: "receipt" | "pantry_image";
+  file: File;
+}): Promise<{ jobId: string; status: string; type: string; objectKey: string }> {
+  const form = new FormData();
+  form.set("familyId", input.familyId);
+  form.set("type", input.type);
+  form.set("file", input.file, input.file.name);
+  return apiRequest("/ocr/jobs", { method: "POST", body: form });
+}
+
+export async function listOcrJobs(familyId: string, status?: string): Promise<{ items: Array<{ jobId: string; status: string; type: string; progress: number; draftId: string | null; error: string | null }>; nextCursor: string | null }> {
+  return apiRequest("/ocr/jobs", { query: { familyId, ...(status ? { status } : {}) } });
+}
+
+export async function getOcrJob(jobId: string): Promise<{ jobId: string; status: string; type: string; progress: number; draftId: string | null; error: string | null }> {
+  return apiRequest(`/ocr/jobs/${jobId}`);
+}
+
+export async function getOcrDraft(draftId: string): Promise<{ draftId: string; jobId: string; type: string; confidence: number; items: Array<{ name: string; barcode: string | null; quantity: number | null; unit: string | null; priceMinor: number | null; currency: string | null; confidence: number; productId?: string }>; }> {
+  return apiRequest(`/ocr/drafts/${draftId}`);
+}
+
+export function rejectOcrDraft(draftId: string): Promise<{ draftId: string; status: "rejected" }> {
+  return apiRequest(`/ocr/drafts/${draftId}/reject`, { method: "POST", body: {} });
+}
+
+export function confirmOcrDraft(draftId: string, items: Array<{ name: string; productId?: string | null; quantity: number; unit: string; priceMinor?: number | null; currency?: string | null }>): Promise<{ draftId: string; status: "confirmed"; applied: false }> {
+  return apiRequest(`/ocr/drafts/${draftId}/confirm`, { method: "POST", body: { items } });
+}
 // --- Inventory history / dashboard ------------------------------------------
 
 export function listMovements(familyId: string, stockItemId: string): Promise<{ movements: MovementDto[] }> {
