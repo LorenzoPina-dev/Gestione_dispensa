@@ -219,22 +219,23 @@ function reportIssue(message: string, err: unknown, retry: () => Promise<void>):
 
 async function syncCreate(familyId: string, item: StockItem): Promise<void> {
   const operationId = `inventory-create:${familyId}:${item.id}`;
-  const product = await api.createProduct({
+  const productId = item.productId ?? (await api.createProduct({
     idempotencyKey: operationId + ":product",
     canonicalName: item.name,
     brand: item.brand ?? null,
     defaultUnit: normalizeUnit(item.unit),
     category: item.category,
+    barcodes: item.barcode ? [item.barcode] : undefined,
     calories: item.calories,
     protein: item.protein,
     carbs: item.carbs,
     fat: item.fat,
     fiber: item.fiber,
-  });
+  })).id;
   await api.createStockItem({
     idempotencyKey: operationId + ":stock",
     familyId,
-    productId: product.id,
+    productId,
     quantity: totalQuantity(item),
     unit: normalizeUnit(item.unit),
     reorderPoint: item.reorderPoint,
