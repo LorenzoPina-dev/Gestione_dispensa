@@ -379,7 +379,7 @@ async function coreGet(path: string, authorization?: string, query?: Record<stri
     ["/families", familyBaseUrl], ["/family-invites", familyBaseUrl], ["/invites", familyBaseUrl],
     ["/inventory", inventoryBaseUrl], ["/shopping", shoppingBaseUrl],
     ["/products", catalogBaseUrl], ["/catalog", catalogBaseUrl], ["/notifications", notificationsBaseUrl],
-    ["/privacy", privacyBaseUrl], ["/jobs", jobsBaseUrl], ["/identity", identityBaseUrl], ["/meta", identityBaseUrl],
+    ["/privacy", privacyBaseUrl], ["/identity", identityBaseUrl], ["/meta", identityBaseUrl],
   ];
   const entry = table.find(([prefix]) => normalized === prefix || normalized.startsWith(`${prefix}/`));
   const result = entry ? await callBase(entry[1], normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
