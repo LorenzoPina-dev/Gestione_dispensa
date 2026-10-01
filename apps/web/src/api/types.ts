@@ -36,6 +36,8 @@ export interface ManagedMembershipDto { id: string; familyId: string; userId: st
 export type InviteRole = "MANAGER" | "MEMBER" | "VIEWER";
 export interface CreatedInviteDto { inviteId: string; email?: string; role: InviteRole; status: "CREATED" | "pending"; expiresAt: string; fallbackCode?: string; qrPayload?: string; }
 export interface JoinAttemptDto { id: string; inviteId: string; userId?: string; state: "PENDING_AUTHENTICATION" | "PENDING_REVIEW" | "ACCEPTED" | "REJECTED" | "EXPIRED"; expiresAt: string; familyId?: string; role?: InviteRole; }
+export interface AcceptInviteResultDto { familyId: string; userId: string; role: InviteRole; joinedAt: string; version: number; }
+
 export type ProductUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";
 export interface ProductDto { id: string; canonicalName: string; brand?: string; defaultUnit: ProductUnit; status: "ACTIVE"; provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN"; version: number; category?: string; photoUrl?: string; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number; createdAt: string; updatedAt: string; }
 export type BarcodeResolutionStatus = "MATCHED" | "UNKNOWN" | "DEGRADED";
