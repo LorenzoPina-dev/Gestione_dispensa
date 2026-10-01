@@ -91,26 +91,22 @@ async function ensureUser(req: IncomingMessage, id: string): Promise<UserRow> {
   return result.rows[0]!;
 }
 
-/** Forma attesa dal frontend (UserDto): id, name, email, preferredUsername, activeFamilyId, roles. */
-function toUserDto(req: IncomingMessage, u: UserRow) {
+/** Canonical public Identity DTO from docs/API.md. */
+function toUserDto(_req: IncomingMessage, u: UserRow) {
   return {
-    id: u.id,
+    userId: u.id,
     subject: u.subject,
-    email: u.email ?? decodedHeader(req, "x-user-email") ?? null,
-    name: u.display_name ?? decodedHeader(req, "x-user-name") ?? null,
-    preferredUsername: decodedHeader(req, "x-user-username") ?? null,
+    email: u.email,
+    displayName: u.display_name,
     avatarUrl: u.avatar_url,
     locale: u.locale,
     timezone: u.timezone,
-    // L'appartenenza alle famiglie è di service-family: il frontend la risolve con GET /families.
-    activeFamilyId: null,
-    roles: [] as string[],
     createdAt: u.created_at,
     updatedAt: u.updated_at,
   };
 }
 
-const PROFILE_PATHS = new Set(["/api/v1/auth/me", "/api/v1/me", "/api/v1/identity/me"]);
+const PROFILE_PATHS = new Set(["/api/v1/identity/me"]);
 
 const server = createServer(async (req, res) => {
   const requestId = String(req.headers["x-request-id"] ?? randomUUID());
