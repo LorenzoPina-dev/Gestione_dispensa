@@ -202,6 +202,11 @@ export async function createProduct(input: {
   defaultUnit?: ProductUnit;
   category?: string;
   barcodes?: string[];
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
 }): Promise<ProductDto> {
   const result = await apiRequest<{
     productId: string;
@@ -225,7 +230,18 @@ export async function createProduct(input: {
       name: input.canonicalName,
       ...(input.defaultUnit ? { defaultUnit: input.defaultUnit } : {}),
       ...(input.brand ? { brand: input.brand } : {}),
-      ...(input.category ? { category: input.category } : {}),
+      ...(input.category ? { category: input.category } : {}),      ...(input.calories !== undefined || input.protein !== undefined || input.carbs !== undefined || input.fat !== undefined || input.fiber !== undefined
+        ? {
+            nutrition: {
+              ...(input.calories !== undefined ? { kcalPer100g: input.calories } : {}),
+              ...(input.protein !== undefined ? { proteinGPer100g: input.protein } : {}),
+              ...(input.carbs !== undefined ? { carbsGPer100g: input.carbs } : {}),
+              ...(input.fat !== undefined ? { fatGPer100g: input.fat } : {}),
+              ...(input.fiber !== undefined ? { fiberGPer100g: input.fiber } : {}),
+            },
+          }
+        : {}),
+
       ...(input.barcodes && input.barcodes.length > 0 ? { barcodes: input.barcodes } : {}),
     },
   });
