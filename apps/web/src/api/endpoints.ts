@@ -171,16 +171,27 @@ export async function listFamilyMembers(familyId: string): Promise<{ memberships
 export function updateFamilyMembership(
   familyId: string,
   membershipId: string,
-  input: { role: MembershipRole | "ADMIN"; status: "ACTIVE" | "SUSPENDED" },
+  version: number,
+  input: { role: MembershipRole | "ADMIN"; status?: "ACTIVE" | "SUSPENDED" },
 ): Promise<ManagedMembershipDto> {
-  return apiRequest(`/families/${familyId}/members/${membershipId}`, { method: "PATCH", body: { role: input.role.toLowerCase() } });
+  return apiRequest(`/families/${familyId}/members/${membershipId}`, {
+    method: "PATCH",
+    ifMatch: version,
+    query: { familyId },
+    body: { role: input.role.toLowerCase() },
+  });
 }
 
-export function removeFamilyMembership(
+export async function removeFamilyMembership(
   familyId: string,
   membershipId: string,
-): Promise<ManagedMembershipDto> {
-  return apiRequest(`/families/${familyId}/members/${membershipId}`, { method: "DELETE" });
+  version: number,
+): Promise<void> {
+  await apiRequest<void>(`/families/${familyId}/members/${membershipId}`, {
+    method: "DELETE",
+    ifMatch: version,
+    query: { familyId },
+  });
 }
 
 // --- Catalog -----------------------------------------------------------------
@@ -451,10 +462,10 @@ export async function getNutritionSummary(
 }
 
 export async function listFamilyInvites(familyId: string): Promise<{ invites: Array<{ id?: string; inviteId?: string; role: InviteRole; status: "CREATED"|"REVOKED"|"CONSUMED"|"EXPIRED"; expiresAt: string; fallbackCode?: string; createdAt: string }> }> {
-  const result = await apiRequest<{ items: Array<{ inviteId: string; role: "admin"|"member"; status: string; expiresAt: string; createdAt: string }>; nextCursor: string | null }>(`/families/${familyId}/invites`);
+  const result = await apiRequest<{ items: Array<{ inviteId: string; role: "admin"|"member"|"viewer"; status: string; expiresAt: string; createdAt: string }>; nextCursor: string | null }>(`/families/${familyId}/invites`);
   return { invites: result.items.map((i) => ({
     inviteId: i.inviteId,
-    role: i.role === "admin" ? "MANAGER" : "MEMBER",
+    role: i.role === "admin" ? "MANAGER" : i.role === "viewer" ? "VIEWER" : "MEMBER",
     status: i.status === "pending" ? "CREATED" : i.status === "revoked" ? "REVOKED" : i.status === "accepted" ? "CONSUMED" : "EXPIRED",
     expiresAt: i.expiresAt,
     createdAt: i.createdAt,
