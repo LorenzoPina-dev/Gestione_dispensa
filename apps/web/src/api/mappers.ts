@@ -32,7 +32,7 @@ export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
 
 export function mapShoppingItemDtoToUi(dto: ShoppingItemDto): ShoppingItem {
   return {
-    id: dto.id,
+    id: dto.itemId,
     displayName: dto.displayName ?? dto.label,
     quantity: dto.quantity,
     unit: dto.unit,
