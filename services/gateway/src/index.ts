@@ -231,8 +231,8 @@ async function dashboardView(familyId: string, authorization?: string) {
     serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr/jobs", authorization, { familyId, status: "NEEDS_REVIEW" }),
   ]);
   return composeCommon(familyId, family, members, pantry, shopping, notifications, {
-    suggestedRecipes: recipes.suggestions ?? [],
-    pendingOcrReviews: ocr.jobs ?? [],
+    suggestedRecipes: recipes.items ?? [],
+    pendingOcrReviews: ocr.items ?? [],
   });
 }
 
@@ -285,8 +285,8 @@ async function familyView(familyId: string, authorization?: string) {
   return {
     familyId,
     family: family.family ?? family,
-    members: members.memberships ?? [],
-    invites: invites.invites ?? [],
+    members: members.items ?? [],
+    invites: invites.items ?? [],
     navigationSummary: navigationSummary(undefined, undefined, notifications),
   };
 }
@@ -298,7 +298,7 @@ async function notificationsView(familyId: string, authorization?: string) {
   ]);
   return {
     familyId,
-    notifications: notifications.notifications ?? [],
+    notifications: notifications.items ?? [],
     navigationSummary: navigationSummary(pantry, undefined, notifications),
   };
 }
