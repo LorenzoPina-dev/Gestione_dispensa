@@ -50,7 +50,22 @@ export async function createFamilyInvite(familyId: string, input: { role: Invite
 }
 export function resolveInvite(token: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve", { method: "POST", body: { token, browserBindingHash } }); }
 export function resolveInviteByCode(code: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve-code", { method: "POST", body: { code, browserBindingHash } }); }
-export function acceptInvite(attemptId: string, consentVersion: string): Promise<AcceptInviteResultDto> { return apiRequest(`/invites/${attemptId}/accept`, { method: "POST", body: { consentVersion } }); }
+export async function acceptInvite(attemptId: string, consentVersion: string): Promise<AcceptInviteResultDto> {
+  const result = await apiRequest<{
+    familyId: string;
+    userId: string;
+    role: "admin" | "member" | "viewer";
+    joinedAt: string;
+    version: number;
+  }>(`/invites/${attemptId}/accept`, { method: "POST", body: { consentVersion } });
+  return {
+    familyId: result.familyId,
+    userId: result.userId,
+    role: result.role === "admin" ? "MANAGER" : result.role === "viewer" ? "VIEWER" : "MEMBER",
+    joinedAt: result.joinedAt,
+    version: result.version,
+  };
+}
 interface FamiliesHttpResponse { items?: UserFamilySummaryDto[]; nextCursor?: string | null; }
 export interface FamiliesResult { families: UserFamilySummaryDto[]; nextCursor: string | null; }
 export async function listFamilies(): Promise<FamiliesResult> { const result = await apiRequest<FamiliesHttpResponse>("/families"); return { families: (result.items ?? []).map((f) => ({ ...f, displayName: f.name })), nextCursor: result.nextCursor ?? null }; }
