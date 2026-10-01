@@ -552,6 +552,7 @@ quantity numeric(14,3) NOT NULL CHECK(quantity > 0)
 unit varchar(16) NOT NULL
 source varchar(32) NOT NULL -- manual|inventory
 source_movement_id UUID NULL
+nutrition_snapshot JSONB NULL -- immutable Catalog snapshot captured when the diary entry is recorded
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 version integer NOT NULL
