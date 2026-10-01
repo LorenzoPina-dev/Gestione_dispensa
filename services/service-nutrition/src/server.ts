@@ -1,12 +1,14 @@
 import express, { type Request, type Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
+import { loadNutritionSnapshot, nutrientMultiplier } from "./catalog-client.js";
 
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
 const port = Number(process.env.PORT ?? 3402);
+const catalogBaseUrl = process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 type Body = Record<string, unknown>;
