@@ -26,6 +26,10 @@ function actor(req: Request): string {
   return String(req.header("x-user-id") ?? "").trim();
 }
 
+function familyContext(req: Request): string | null {
+  return String(req.header("x-family-id") ?? req.query.familyId ?? req.body?.familyId ?? "").trim() || null;
+}
+
 function requireInternal(req: Request, res: Response): boolean {
   if (!internalServiceToken) {
     fail(res, 503, "SERVICE_UNAVAILABLE", "Internal service authentication is not configured.");
@@ -164,10 +168,11 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
   const productId = typeof body.productId === "string" ? body.productId : "";
   const storage = normalizeStorage(body.storedAt);
   const opened = body.opened;
+  const familyId = familyContext(req);
 
   if (!userId) return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
-  if (!itemId || !productId || typeof body.storedAt !== "string" || typeof opened !== "boolean" || !key(req)) {
-    return fail(res,400,"VALIDATION_ERROR","itemId, productId, storedAt, opened and X-Idempotency-Key are required.");
+  if (!itemId || !productId || !familyId || typeof body.storedAt !== "string" || typeof opened !== "boolean" || !key(req)) {
+    return fail(res,400,"VALIDATION_ERROR","itemId, productId, familyId, storedAt, opened and X-Idempotency-Key are required.");
   }
 
   const client = await pool.connect();
@@ -190,9 +195,9 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
     const predictionId = crypto.randomUUID();
     const response = { data: { predictionId, status: "queued" }, version: 1 };
     await client.query(
-      `insert into shelf_life_domain.predictions(id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status)
-       values($1,$2,$3,now(),0,'pending','pending','queued')`,
-      [predictionId,itemId,productId],
+      `insert into shelf_life_domain.predictions(id,user_id,family_id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status)
+       values($1,$2,$3,$4,now(),0,'pending','pending','queued')`,
+      [predictionId,userId,familyId,itemId,productId],
     );
     await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,null,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null});
     await finishIdempotency(client,req,202,response);
@@ -263,7 +268,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
 
 app.get("/api/v1/shelf-life/predictions/:predictionId", async (req,res) => {
   const userId=actor(req); if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
-  const q=await pool.query("select id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status,version from shelf_life_domain.predictions where id=$1",[req.params.predictionId]);
+  const q=await pool.query("select id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status,version from shelf_life_domain.predictions where id=$1 and user_id=$2",[req.params.predictionId,userId]);
   if(!q.rowCount)return fail(res,404,"NOT_FOUND","Prediction not found.");
   const x=q.rows[0];
   return res.json({data:{
@@ -285,7 +290,7 @@ app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) =
     if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}
     if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
 
-    const q=await client.query("select * from shelf_life_domain.predictions where id=$1 for update",[req.params.predictionId]);
+    const q=await client.query("select * from shelf_life_domain.predictions where id=$1 and user_id=$2 for update",[req.params.predictionId,userId]);
     if(!q.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","Prediction not found.");}
     const x=q.rows[0];
     if(x.status==="applied"){
