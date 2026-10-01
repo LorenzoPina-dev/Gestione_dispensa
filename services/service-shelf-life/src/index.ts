@@ -147,63 +147,9 @@ function confidenceFor(rule: { min_days: number; max_days: number; product_categ
 }
 
 async function init(): Promise<void> {
-  await pool.query(`create schema if not exists shelf_life_domain`);
-  await pool.query(`create table if not exists shelf_life_domain.rules(
-    id uuid primary key default gen_random_uuid(),
-    product_category varchar(120) null,
-    storage varchar(32) not null,
-    opened boolean not null,
-    min_days integer not null check(min_days>=0),
-    max_days integer not null check(max_days>=min_days),
-    model_version varchar(64) not null,
-    active boolean not null default true,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-  )`);
-  await pool.query(`create unique index if not exists shelf_rules_unique
-    on shelf_life_domain.rules(coalesce(product_category,''),storage,opened,model_version)`);
-  await pool.query(`create table if not exists shelf_life_domain.predictions(
-    id uuid primary key default gen_random_uuid(),
-    item_id uuid not null,
-    product_id uuid not null,
-    estimated_expires_at timestamptz not null,
-    confidence numeric(5,4) not null check(confidence between 0 and 1),
-    basis varchar(200) not null,
-    model_version varchar(64) not null,
-    status varchar(32) not null check(status in ('queued','completed','applied','superseded','failed')),
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists shelf_life_domain.idempotency_keys(
-    key varchar(255) primary key,
-    actor_user_id uuid not null,
-    family_id uuid null,
-    request_hash varchar(64) not null,
-    status varchar(16) not null check(status in ('processing','completed','failed')),
-    response_status integer null,
-    response_body jsonb null,
-    created_at timestamptz not null default now(),
-    expires_at timestamptz not null
-  )`);
-  await pool.query(`create table if not exists shelf_life_domain.outbox_events(
-    event_id uuid primary key,
-    event_type varchar(128) not null,
-    schema_version integer not null,
-    aggregate_id uuid not null,
-    family_id uuid null,
-    correlation_id uuid not null,
-    occurred_at timestamptz not null,
-    payload jsonb not null,
-    published_at timestamptz null,
-    attempts integer not null default 0,
-    last_error text null,
-    created_at timestamptz not null
-  )`);
-  await pool.query("create index if not exists shelf_predictions_item_status_idx on shelf_life_domain.predictions(item_id,status)");
-  await pool.query("create index if not exists shelf_predictions_product_idx on shelf_life_domain.predictions(product_id,created_at desc)");
-  await pool.query("create index if not exists shelf_outbox_publish_idx on shelf_life_domain.outbox_events(published_at,created_at)");
+  await pool.query("select 1");
 }
+
 
 app.get("/health/live", (_req,res) => res.json({ status:"ok", service:"service-shelf-life" }));
 app.get("/health/ready", async (_req,res) => {
