@@ -132,11 +132,11 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
       return {
         inviteId: created.inviteId,
         role: created.role,
-        status: created.status,
+        status: created.status === "pending" ? "CREATED" : created.status,
         expiresAt: created.expiresAt,
         fallbackCode: created.fallbackCode,
         createdAt: new Date().toISOString(),
-        qrPayload: created.qrPayload,   // ← QUESTA RIGA MANCA
+        ...(created.qrPayload ? { qrPayload: created.qrPayload } : {}),
       };
     },
     [effectiveFamilyId],
