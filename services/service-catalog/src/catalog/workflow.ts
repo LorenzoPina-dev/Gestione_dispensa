@@ -114,10 +114,11 @@ export class CatalogWorkflowService {
     identifierType: IdentifierType,
     value: string,
     traceId: string,
+    refresh = false,
   ): Promise<BarcodeResolution> {
     const normalizedValue = normalizeIdentifier(identifierType, value);
 
-    const local = await this.lookup.findByIdentifier({ identifierType, normalizedValue });
+    const local = refresh ? undefined : await this.lookup.findByIdentifier({ identifierType, normalizedValue });
     if (local !== undefined) {
       return { status: "MATCHED", resolution: "cache", identifierType, normalizedValue, product: local };
     }
