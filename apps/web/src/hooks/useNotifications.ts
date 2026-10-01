@@ -38,10 +38,19 @@ export function useNotifications(familyId?: string | null, initialNotifications?
     api.listNotifications(familyId)
       .then((result) => {
         if (cancelled) return;
-        const mapped = result.notifications.map((n) => ({
-          id: n.id, category: n.category, title: n.title, body: n.body,
-          createdAt: n.createdAt, ...(n.readAt ? { readAt: n.readAt } : {}),
-        }));
+        const mapped = result.notifications.map((n) => {
+          const type = String(n.type ?? "").toLowerCase();
+          const category = n.category
+            ?? (type.includes("invite") ? "INVITE" : type.includes("reorder") || type.includes("stock") || type.includes("expiration") ? "REORDER" : "SYSTEM");
+          return {
+            id: n.id ?? n.notificationId ?? "",
+            category,
+            title: n.title,
+            body: n.body,
+            createdAt: n.createdAt,
+            ...(n.readAt ? { readAt: n.readAt } : {}),
+          };
+        });
         // Le notifiche già lette al load non vanno ri-sincronizzate: sono già lette sul server.
         for (const n of mapped) if (n.readAt) syncedReadIdsRef.current.add(n.id);
         setNotificationsState(mapped);
