@@ -114,8 +114,6 @@ export function acceptInvite(attemptId: string, consentVersion: string): Promise
 interface FamiliesHttpResponse {
   items?: UserFamilySummaryDto[];
   nextCursor?: string | null;
-  /** Legacy response shape accepted during the contract transition. */
-  families?: UserFamilySummaryDto[];
 }
 
 export interface FamiliesResult {
@@ -129,8 +127,8 @@ export interface FamiliesResult {
  * Current backend contract:
  *   { items: UserFamilySummaryDto[], nextCursor: string | null }
  *
- * The web domain historically consumed:
- *   { families: UserFamilySummaryDto[] }
+ * The HTTP adapter converts the transport pagination envelope to the
+ * web-domain collection used by the UI.
  *
  * Keeping this adapter at the HTTP boundary prevents every page/hook from
  * having to know about the transport-level pagination shape.
@@ -138,7 +136,7 @@ export interface FamiliesResult {
 export async function listFamilies(): Promise<FamiliesResult> {
   const result = await apiRequest<FamiliesHttpResponse>("/families");
 
-  const families = (Array.isArray(result.items) ? result.items : Array.isArray(result.families) ? result.families : []).map((family) => ({ ...family, displayName: family.displayName ?? family.name }));
+  const families = (Array.isArray(result.items) ? result.items : []).map((family) => ({ ...family, displayName: family.displayName ?? family.name }));
 
   return {
     families,
