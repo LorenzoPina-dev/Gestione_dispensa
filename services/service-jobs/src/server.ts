@@ -19,12 +19,13 @@ app.post("/api/v1/internal/jobs", async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const type = typeof body.type === "string" ? body.type.trim() : "";
   const deduplicationKey = typeof body.deduplicationKey === "string" ? body.deduplicationKey.trim() : "";
+  const transportIdempotencyKey = String(req.header("x-idempotency-key") ?? "").trim();
   const payload = typeof body.payload === "object" && body.payload !== null && !Array.isArray(body.payload)
     ? body.payload
     : null;
 
-  if (!type || !deduplicationKey || payload === null) {
-    return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "type, payload and deduplicationKey are required.", retryable: false } });
+  if (!type || !deduplicationKey || payload === null || transportIdempotencyKey.length < 8) {
+    return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "type, payload, deduplicationKey and X-Idempotency-Key are required.", retryable: false } });
   }
 
   try {
