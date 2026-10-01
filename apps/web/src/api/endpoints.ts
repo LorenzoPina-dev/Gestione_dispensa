@@ -81,14 +81,9 @@ export function createFamily(input: {
 }): Promise<FamilyCreationResultDto> {
   // The family-service HTTP contract expects `name`, while the web domain
   // uses `displayName`. Translate the field only at the transport boundary.
-  return apiRequest("/families", {
+  return apiRequest<FamilyCreationResultDto>("/families", {
     method: "POST",
-    body: {
-      name: input.displayName,
-      locale: input.locale,
-      timezone: input.timezone,
-      unitSystem: input.unitSystem,
-    },
+    body: { name: input.displayName },
   });
 }
 
@@ -144,11 +139,7 @@ export interface FamiliesResult {
 export async function listFamilies(): Promise<FamiliesResult> {
   const result = await apiRequest<FamiliesHttpResponse>("/families");
 
-  const families = Array.isArray(result.items)
-    ? result.items
-    : Array.isArray(result.families)
-      ? result.families
-      : [];
+  const families = (Array.isArray(result.items) ? result.items : Array.isArray(result.families) ? result.families : []).map((family) => ({ ...family, displayName: family.displayName ?? family.name }));
 
   return {
     families,
