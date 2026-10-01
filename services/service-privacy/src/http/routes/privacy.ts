@@ -19,7 +19,7 @@ export function buildPrivacyRouter(deps: PrivacyRouteDependencies): Router {
   const router = Router();
 
   router
-    .route("/privacy/erasure")
+    .route("/privacy/erase")
     .post(
       asyncHandler(async (req, res) => {
         const principal = await resolvePrincipal(req, verifier);
@@ -68,7 +68,6 @@ export function buildPrivacyRouter(deps: PrivacyRouteDependencies): Router {
     );
   });
   router.route("/privacy/consents").get(listConsents).put(updateConsent).all(methodNotAllowed);
-  router.route("/privacy/consent").get(listConsents).put(updateConsent).all(methodNotAllowed);
 
   router
     .route("/privacy/export")
