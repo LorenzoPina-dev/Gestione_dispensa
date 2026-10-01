@@ -654,6 +654,24 @@ Una prediction non sostituisce una data dichiarata.
 
 Body `{}`. Response 200 con prediction applicata. Il service Inventory resta owner della current pantry state.
 
+## 12A. Shelf-Life internal processing
+
+The worker does not access `shelf_life_db` directly. It calls the owner service using the internal service credential.
+
+### POST /internal/shelf-life/predictions/{predictionId}/process
+
+Headers:
+`Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`
+
+Request:
+```json
+{"itemId":"uuid","productId":"uuid","storedAt":"fridge","opened":false,"category":"dairy"}
+```
+
+Response 200: completed prediction. A missing active rule returns 422 `PREDICTION_UNAVAILABLE`.
+
+This endpoint is backend-only and is never exposed through the Gateway.
+
 ## 13. Privacy
 
 ### GET /privacy/consents
