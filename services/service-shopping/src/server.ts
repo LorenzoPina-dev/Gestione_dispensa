@@ -58,7 +58,7 @@ app.get("/api/v1/shopping/lists/:listId", async (req,res) => {
   if(!q.rowCount)return fail(res,404,"NOT_FOUND","Shopping list not found.");
   const items=await pool.query(`select * from shopping_domain.items where list_id=$1 order by created_at`,[req.params.listId]);
   const l=q.rows[0];
-  return json(res,200,{data:{listId:l.id,name:l.name,status:l.status,items:items.rows.map(x=>({itemId:x.id,productId:x.product_id,label:x.label,quantity:Number(x.quantity),unit:x.unit,checked:x.checked})),version:l.version}});
+  return json(res,200,{data:{listId:l.id,name:l.name,status:l.status,items:items.rows.map(x=>({itemId:x.id,listId:l.id,productId:x.product_id,label:x.label,quantity:Number(x.quantity),unit:x.unit,checked:x.checked,version:x.version})),version:l.version}});
 });
 
 app.post("/api/v1/shopping/lists/:listId/items", async (req,res) => {
@@ -69,7 +69,7 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req,res) => {
   try{await c.query("begin");const l=await c.query(`select * from shopping_domain.lists where id=$1 for update`,[req.params.listId]);if(!l.rowCount){await c.query("rollback");return fail(res,404,"NOT_FOUND","Shopping list not found.");}
     const q=await c.query(`insert into shopping_domain.items(id,list_id,product_id,label,quantity,unit) values($1,$2,$3,$4,$5,$6) returning *`,[id,req.params.listId,productId,label,quantity,unit]);
     await c.query(`update shopping_domain.lists set version=version+1,updated_at=now() where id=$1`,[req.params.listId]);await c.query("commit");
-    const x=q.rows[0];return json(res,201,{data:{itemId:x.id,productId:x.product_id,label:x.label,quantity:Number(x.quantity),unit:x.unit,checked:x.checked},version:l.rows[0].version+1});
+    const x=q.rows[0];return json(res,201,{data:{itemId:x.id,listId:req.params.listId,productId:x.product_id,label:x.label,quantity:Number(x.quantity),unit:x.unit,checked:x.checked,version:x.version},version:l.rows[0].version+1});
   }catch(e){await c.query("rollback");return fail(res,400,"VALIDATION_ERROR",String(e));}finally{c.release();}
 });
 
@@ -78,7 +78,7 @@ app.patch("/api/v1/shopping/lists/:listId/items/:itemId", async(req,res)=>{
   if(typeof state!=="boolean")return fail(res,400,"VALIDATION_ERROR","checked is required.");
   const q=await pool.query(`update shopping_domain.items set checked=$1,version=version+1,updated_at=now() where id=$2 and list_id=$3 returning *`,[state,req.params.itemId,req.params.listId]);
   if(!q.rowCount)return fail(res,404,"NOT_FOUND","Shopping item not found.");
-  const x=q.rows[0];return json(res,200,{data:{itemId:x.id,productId:x.product_id,label:x.label,quantity:Number(x.quantity),unit:x.unit,checked:x.checked},version:x.version});
+  const x=q.rows[0];return json(res,200,{data:{itemId:x.id,listId:req.params.listId,productId:x.product_id,label:x.label,quantity:Number(x.quantity),unit:x.unit,checked:x.checked,version:x.version},version:x.version});
 });
 
 app.delete("/api/v1/shopping/lists/:listId/items/:itemId",async(req,res)=>{
