@@ -198,7 +198,7 @@ app.get("/api/v1/stores/:storeId/offers", async(req,res)=>{
 app.post("/api/v1/stores/:storeId/offers", async(req,res)=>{
   if(!actor(req)||!key(req))return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key and authentication are required.");
   const b=req.body as Body;const type=String(b.type??"");const value=Number(b.value);const from=new Date(String(b.validFrom??""));const to=new Date(String(b.validTo??""));
-  if(typeof b.productId!=="string"||!["percentage","fixed"].includes(type)||!Number.isFinite(value)||value<0||type==="percentage"&&value>100||Number.isNaN(from.getTime())||Number.isNaN(to.getTime())||from>=to)return fail(res,400,"VALIDATION_ERROR","Invalid offer.");
+  if(typeof b.productId!=="string"||!["percentage","fixed"].includes(type)||!Number.isFinite(value)||value<0||type==="percentage"&&value>100||value<=0||Number.isNaN(from.getTime())||Number.isNaN(to.getTime())||from>=to)return fail(res,400,"VALIDATION_ERROR","Invalid offer.");
   const client=await pool.connect();
   try{await client.query("begin");const idem=await beginIdempotency(client,req,b);if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}
     const store=await client.query("select id from stores_domain.stores where id=$1",[req.params.storeId]);if(!store.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","Store not found.");}
