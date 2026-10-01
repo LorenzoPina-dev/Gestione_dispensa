@@ -107,7 +107,9 @@ app.post("/api/v1/ocr/jobs", upload.single("file"), async (req, res) => {
   const actor = userId(req);
   const type = String(req.body?.type ?? "");
   const file = req.file;
+  const family = familyId(req);
   if (!actor) return fail(res, 401, "UNAUTHENTICATED", "Authenticated user required.");
+  if (!family) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");
   if (!file) return fail(res, 400, "VALIDATION_ERROR", "file is required.");
   if (type !== "receipt" && type !== "pantry_image") return fail(res, 400, "VALIDATION_ERROR", "type must be receipt or pantry_image.");
   if (idempotencyKey(req) === null) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.");
@@ -120,7 +122,7 @@ app.post("/api/v1/ocr/jobs", upload.single("file"), async (req, res) => {
       filename: file.originalname,
       size: file.size,
       mimeType: file.mimetype,
-      familyId: familyId(req),
+      familyId: family,
     });
     if (idem.kind === "missing") {
       await client.query("rollback");
@@ -148,7 +150,7 @@ app.post("/api/v1/ocr/jobs", upload.single("file"), async (req, res) => {
     await client.query(
       `insert into ocr_domain.ocr_jobs(id,user_id,family_id,type,object_key,status,progress)
        values($1,$2,$3,$4,$5,'queued',0)`,
-      [jobId, actor, familyId(req), type, objectKey],
+      [jobId, actor, family, type, objectKey],
     );
     const response = { data: { jobId, status: "queued", type, objectKey }, version: 1 };
     await finishIdempotency(client, req, 202, response);
@@ -162,7 +164,7 @@ app.post("/api/v1/ocr/jobs", upload.single("file"), async (req, res) => {
       await redis.lPush("q:ocr-processing", JSON.stringify({
         eventId: crypto.randomUUID(),
         eventType: "OCR_JOB_REQUESTED",
-        data: { jobId, familyId: familyId(req), userId: actor, objectKey, type },
+        data: { jobId, familyId: family, userId: actor, objectKey, type },
       }));
       await redis.quit();
     } catch {
