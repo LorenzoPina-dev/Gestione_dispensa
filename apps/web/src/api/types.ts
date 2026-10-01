@@ -32,6 +32,49 @@ export interface Envelope<T> {
 // --- Auth & Identity --------------------------------------------------------
 
 export interface UserDto {
+  userId: string;
+  subject: string;
+  email?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  locale: string;
+  timezone: string;
+  createdAt: string;
+  updatedAt: string;
+}*
+ * TypeScript mirror of the ACTUAL backend HTTP surface in services/http.ts — not
+ * docs/openapi.yaml, whose documented paths/shapes (`GET /inventory`, `/shopping-lists/active`,
+ * PROPOSED/ACCEPTED states, etc.) turned out not to match the real, already-wired routes.
+ * These types mirror the real domain `Product`/`StockItem`/`ShoppingItem`/... interfaces in
+ * services/{catalog,inventory,shopping,family}/service.ts and invites.ts.
+ */
+
+export interface Meta {
+  requestId: string;
+  traceId: string;
+  schemaVersion: string;
+}
+
+export interface ApiErrorBody {
+  code: string;
+  message: string;
+  retryable: boolean;
+  details?: Array<Record<string, unknown>>;
+}
+
+export interface ErrorEnvelope {
+  error: ApiErrorBody;
+  meta: Meta;
+}
+
+export interface Envelope<T> {
+  data: T;
+  meta: Meta;
+}
+
+// --- Auth & Identity --------------------------------------------------------
+
+export interface UserDto {
   id: string;
   email?: string;
   name?: string;
