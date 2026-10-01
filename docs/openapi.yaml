@@ -430,6 +430,27 @@ paths:
       parameters: [{$ref: '#/components/parameters/RecipeId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses:
         '204': {description: Deleted}
+  /recipes/{recipeId}/add-missing:
+    post:
+      operationId: postRecipesRecipeIdAddMissing
+      tags: [Recipes]
+      parameters:
+        - {$ref: '#/components/parameters/RecipeId'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [familyId]
+              additionalProperties: false
+              properties:
+                familyId: {$ref: '#/components/schemas/Uuid'}
+      responses:
+        '200': {description: Missing ingredients added, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /recipes/suggestions:
     get:
       operationId: getRecipesSuggestions
