@@ -199,7 +199,7 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
        values($1,$2,$3,$4,now(),0,'pending','pending','queued')`,
       [predictionId,userId,familyId,itemId,productId],
     );
-    await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,null,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null});
+    await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null});
     await finishIdempotency(client,req,202,response);
     await client.query("commit");
 
@@ -257,7 +257,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
        where id=$1 returning *`,
       [id,expires.toISOString(),confidence,`product_category+storage+opened:${storage}:${opened}`,rule.model_version],
     );
-    await emitOutbox(client,"ShelfLifePredictionCompleted",id,null,{predictionId:id,estimatedExpiresAt:expires.toISOString(),confidence,modelVersion:rule.model_version});
+    await emitOutbox(client,"ShelfLifePredictionCompleted",id,current.rows[0].family_id ?? null,{predictionId:id,estimatedExpiresAt:expires.toISOString(),confidence,modelVersion:rule.model_version});
     await client.query("commit");
     return res.status(200).json({ data: q.rows[0], version: q.rows[0].version });
   } catch (error) {
@@ -323,7 +323,7 @@ app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) =
     if(!updated.rowCount){await client.query("rollback");return fail(res,409,"CONFLICT","Prediction state changed before apply.");}
     const u=updated.rows[0];
     const response={data:{predictionId:u.id,itemId:u.item_id,estimatedExpiresAt:u.estimated_expires_at,confidence:Number(u.confidence),basis:u.basis,status:"applied"},version:Number(u.version)};
-    await emitOutbox(client,"ShelfLifePredictionApplied",String(u.id),null,response);
+    await emitOutbox(client,"ShelfLifePredictionApplied",String(u.id),u.family_id ?? null,response);
     await finishIdempotency(client,req,200,response);
     await client.query("commit");
     return res.json(response);
