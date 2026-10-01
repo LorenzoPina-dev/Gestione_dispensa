@@ -12,7 +12,7 @@ const DEFAULT_UNIT_FALLBACK = "pz";
  */
 export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
   return {
-    id: dto.id,
+    id: dto.id ?? dto.itemId ?? "",
     name: dto.productName || `Prodotto ${dto.productId.slice(0, 8)}`,
     ...(dto.brand ? { brand: dto.brand } : {}),
     batches: dto.batches?.length ? dto.batches : [{ quantity: dto.quantity }],
@@ -21,7 +21,7 @@ export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
     location: mapLocation(dto.location),
     category: dto.category || "Generale",
     provenance: dto.provenance || "UNKNOWN",
-    version: dto.version,
+    version: dto.version ?? 1,
     ...(dto.calories != null ? { calories: dto.calories } : {}),
     ...(dto.protein != null ? { protein: dto.protein } : {}),
     ...(dto.carbs != null ? { carbs: dto.carbs } : {}),
@@ -33,13 +33,13 @@ export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
 export function mapShoppingItemDtoToUi(dto: ShoppingItemDto): ShoppingItem {
   return {
     id: dto.id,
-    displayName: dto.displayName,
+    displayName: dto.displayName ?? dto.label,
     quantity: dto.quantity,
     unit: dto.unit,
     // Real backend states (SUGGESTED/ACCEPTED/SNOOZED/IGNORED/COMPLETED) already match the UI's
     // ShoppingItemState 1:1, unlike the old openapi.yaml-based mapping — no translation needed.
-    state: dto.state,
-    sourceType: dto.sourceType,
+    state: dto.state ?? (dto.checked ? "COMPLETED" : "SUGGESTED"),
+    sourceType: dto.sourceType ?? "MANUAL",
     ...(dto.sourceRef ? { sourceRef: dto.sourceRef } : {}),
     version: dto.version,
   };
@@ -47,9 +47,9 @@ export function mapShoppingItemDtoToUi(dto: ShoppingItemDto): ShoppingItem {
 
 export function mapActiveShoppingListDtoToUi(dto: ActiveShoppingListDto): ShoppingList {
   return {
-    id: dto.list.id,
+    id: dto.list.listId,
     name: dto.list.name,
-    status: dto.list.status,
+    status: dto.list.status === "open" ? "ACTIVE" : "ARCHIVED",
     version: dto.list.version,
     items: dto.items.map(mapShoppingItemDtoToUi),
   };
