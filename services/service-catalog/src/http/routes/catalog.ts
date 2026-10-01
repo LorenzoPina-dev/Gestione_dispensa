@@ -88,6 +88,20 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     .all(methodNotAllowed);
 
   router
+    .route("/catalog/barcodes/:barcode")
+    .get(
+      asyncHandler(async (req, res) => {
+        await respond(
+          res,
+          req.meta,
+          controller.lookupBarcode("BARCODE", req.params.barcode as string, req.meta),
+          toCatalogHttpError,
+        );
+      }),
+    )
+    .all(methodNotAllowed);
+
+  router
     .route("/catalog/barcodes/resolve")
     .post(
       asyncHandler(async (req, res) => {
