@@ -74,9 +74,48 @@ for (const root of roots) {
   }
 }
 
-if (onlyDocs.length || onlyOpenApi.length || legacyHits.length) {
-  console.error(JSON.stringify({ onlyDocs, onlyOpenApi, legacyHits }, null, 2));
-  process.exit(1);
+// Physical schema coverage: every table introduced by a service migration must be represented in DATA.md.
+const data = await readFile("docs/DATA.md", "utf8");
+const migrationRoots = (await readdir("services", { withFileTypes: true }))
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => "services/" + entry.name);
+const physicalTables = new Set();
+const migrationServices = [];
+for (const serviceRoot of migrationRoots) {
+  const migrationsDir = serviceRoot + "/migrations";
+  try {
+    const files = await readdir(migrationsDir);
+    if (!files.some((file) => /^\d+_.+\.sql$/.test(file))) continue;
+    migrationServices.push(serviceRoot);
+    for (const file of files.filter((name) => /^\d+_.+\.sql$/.test(name))) {
+      const sql = await readFile(migrationsDir + "/" + file, "utf8");
+      for (const match of sql.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-zA-Z0-9_.]+)/gi)) {
+        physicalTables.add(match[1].toLowerCase());
+      }
+    }
+  } catch {
+    // Service has no migrations directory.
+  }
+}
+const technicalTables = new Set(["schema_migrations", "outbox_events", "idempotency_keys"]);
+const dataMissingTables = [...physicalTables].filter((table) => !technicalTables.has(table) && !data.toLowerCase().includes(table));
+
+// Migration startup contract: every service with migrations must ship a runner and execute it in Docker.
+const migrationRuntimeMissing = [];
+for (const serviceRoot of migrationServices) {
+  const migratePath = serviceRoot + "/src/migrate.ts";
+  const dockerPath = serviceRoot + "/Dockerfile";
+  try {
+    await readFile(migratePath, "utf8");
+    const docker = await readFile(dockerPath, "utf8");
+    if (!docker.includes("dist/migrate.js")) migrationRuntimeMissing.push(serviceRoot + ": Dockerfile does not run dist/migrate.js");
+  } catch {
+    migrationRuntimeMissing.push(serviceRoot + ": missing migrate.ts or Dockerfile");
+  }
 }
 
-console.log("Contract audit passed: " + documented.size + " documented operations match OpenAPI and no legacy application paths were found.");
+if (onlyDocs.length || onlyOpenApi.length || legacyHits.length || dataMissingTables.length || migrationRuntimeMissing.length) {
+  console.error(JSON.stringify({ onlyDocs, onlyOpenApi, legacyHits, dataMissingTables, migrationRuntimeMissing }, null, 2));
+  process.exit(1);
+}
+console.log("Contract audit passed: " + documented.size + " documented operations match OpenAPI; " + physicalTables.size + " physical tables are covered by DATA.md; migrations have runtime startup coverage; no legacy application paths were found.");
