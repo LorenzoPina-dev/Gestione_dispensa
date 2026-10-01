@@ -349,9 +349,9 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
 
     if (!isBarcodeDetectorAvailable()) {
       setCameraError(
-        "Questo browser non espone la decodifica barcode nativa. Inserisci il codice manualmente.",
+        "Non riesco a leggere automaticamente il barcode da questa immagine su questo browser. Nessuna ricerca prodotto è stata eseguita. Inserisci il codice manualmente per avviare la ricerca.",
       );
-      setState("NOT_FOUND");
+      setState("MANUAL_REQUIRED");
       return;
     }
 
@@ -365,25 +365,30 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
         maxDimension: 1600,
       });
 
-      if (hit && hit.validated) {
-        await processBarcode(hit.rawValue);
-        return;
-      }
       if (hit) {
-        // Letto ma non valido-GS1: mostriamo come "da confermare" senza pretendere
-        // che il prodotto esista — spesso è un barcode parzialmente ostruito.
-        setManualCode(hit.rawValue);
-        setCameraError(
-          `Ho letto "${hit.rawValue}" ma non supera il check digit GS1. Verifica il codice e correggilo se serve.`,
-        );
-        setState("NOT_FOUND");
+        // Il check-digit GS1 è un filtro di qualità della lettura, non un prerequisito
+        // per interrogare il catalogo/OFF: un barcode letto correttamente può essere
+        // comunque non-validabile lato client (es. formato non-GS1 o codice con cifre
+        // alterate). Lasciamo al backend decidere se quel codice esiste.
+        const normalized = hit.rawValue.trim().replaceAll("-", "");
+        if (!/^(?:\\d{8}|\\d{12}|\\d{13}|\\d{14})$/.test(normalized)) {
+          setManualCode(hit.rawValue);
+          setCameraError(
+            `Ho letto "${hit.rawValue}", ma il codice non ha una lunghezza/formato supportato per la ricerca automatica. Correggilo o inseriscilo manualmente.`,
+          );
+          setState("MANUAL_REQUIRED");
+          return;
+        }
+
+        setManualCode(normalized);
+        await processBarcode(normalized);
         return;
       }
 
       setCameraError(
-        "Nessun barcode leggibile nell'immagine. Prova con una foto più nitida, senza riflessi, con il codice ben centrato e che occupi almeno un terzo dell'inquadratura.",
+        "Nessun barcode leggibile nell'immagine. In questo caso non posso interrogare il catalogo o Open Food Facts perché non ho ancora un codice. Prova con una foto più nitida oppure inserisci il codice manualmente.",
       );
-      setState("NOT_FOUND");
+      setState("MANUAL_REQUIRED");
     } catch (err) {
       console.error("[barcode] decodifica file fallita:", err);
       setState("DEGRADED");
@@ -569,7 +574,7 @@ function BarcodeScanner({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () =
           <div className="rounded-xl p-4 text-center space-y-2" style={{ backgroundColor: "#f0ddd5" }}>
             <p className="font-medium text-sm" style={{ color: "#c4623a" }}>Prodotto non trovato</p>
             <p className="text-xs" style={{ color: "#6b5e4e" }}>
-              Il codice <strong>{manualCode}</strong> non è presente né nel catalogo locale né su Open Food Facts. Inserisci i dati manualmente: verranno salvati e collegati a questo codice per le prossime scansioni.
+              Il server ha verificato il codice <strong>{manualCode}</strong> e non ha trovato un prodotto né nel catalogo locale né su Open Food Facts. Inserisci i dati manualmente: verranno salvati e collegati a questo codice per le prossime scansioni.
             </p>
           </div>
           {cameraError && (
