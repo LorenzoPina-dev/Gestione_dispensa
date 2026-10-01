@@ -44,8 +44,6 @@ export interface UseInventoryResult {
  *   backend is unreachable/errors, the hook exposes an empty/loading/error state; it never
  *   invents product data.
  */
-// services/web/src/hooks/useInventory.ts — sostituisci il blocco attorno alle righe 55-100
-
 export function useInventory(familyId?: string | null, initialStock?: StockItem[] | undefined): UseInventoryResult {
   const effectiveFamilyId = familyId ?? DEFAULT_FAMILY_ID ?? null;
   const [stock, setStockState] = useState<StockItem[]>([]);
