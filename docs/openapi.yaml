@@ -169,7 +169,7 @@ paths:
     delete:
       operationId: deleteFamiliesFamilyIdInvitesInviteId
       tags: [Families]
-      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/InviteId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      parameters: [{$ref: '#/components/parameters/FamilyId'}, {$ref: '#/components/parameters/InviteId'}, {$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses:
         '204': {description: Revoked}
         '404': {$ref: '#/components/responses/NotFound'}
