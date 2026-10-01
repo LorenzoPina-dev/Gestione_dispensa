@@ -189,17 +189,18 @@ export function removeFamilyMembership(
 export function createProduct(input: {
   canonicalName: string;
   brand?: string | null;
-  defaultUnit: ProductUnit;
+  defaultUnit?: ProductUnit;
   category?: string;
-  calories?: number;
-  protein?: number;
-  carbs?: number;
-  fat?: number;
-  fiber?: number;
+  barcodes: string[];
 }): Promise<ProductDto> {
   return apiRequest("/catalog/products", {
     method: "POST",
-    body: { name: input.canonicalName, brand: input.brand ?? undefined, defaultUnit: input.defaultUnit, ...(input.category ? { category: input.category } : {}) },
+    body: {
+      name: input.canonicalName,
+      ...(input.brand ? { brand: input.brand } : {}),
+      ...(input.category ? { category: input.category } : {}),
+      barcodes: input.barcodes,
+    },
   });
 }
 
