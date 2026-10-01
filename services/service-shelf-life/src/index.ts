@@ -184,8 +184,8 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
     if (idem.kind === "replay") { await client.query("commit"); return res.status(idem.status).json(idem.response); }
 
     const latest = await client.query(
-      "select id,status,version from shelf_life_domain.predictions where item_id=$1 and status in ('queued','completed','applied') order by created_at desc limit 1 for update",
-      [itemId],
+      "select id,status,version from shelf_life_domain.predictions where item_id=$1 and user_id=$2 and family_id=$3 and status in ('queued','completed','applied') order by created_at desc limit 1 for update",
+      [itemId,userId,familyId],
     );
     if (latest.rowCount && latest.rows[0].status === "queued") {
       const response = { data: { predictionId: latest.rows[0].id, status: "queued" }, version: Number(latest.rows[0].version) };
