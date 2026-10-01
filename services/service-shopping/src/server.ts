@@ -114,81 +114,8 @@ async function emitOutbox(
 }
 
 async function init(): Promise<void> {
-  await pool.query(`create schema if not exists shopping_domain`);
-
-  await pool.query(`create table if not exists shopping_domain.lists (
-    id uuid primary key,
-    family_id uuid not null,
-    name varchar(120) not null,
-    status varchar(16) not null default 'open' check(status in ('open','closed')),
-    created_by_user_id uuid not null,
-    version integer not null default 1,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-  )`);
-
-  await pool.query(`create table if not exists shopping_domain.items (
-    id uuid primary key,
-    list_id uuid not null references shopping_domain.lists(id) on delete cascade,
-    product_id uuid,
-    label varchar(300) not null,
-    quantity numeric(14,3) not null check(quantity > 0),
-    unit varchar(16) not null,
-    checked boolean not null default false,
-    source varchar(32) not null default 'manual',
-    version integer not null default 1,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-  `);
-
-  await pool.query(`create table if not exists shopping_domain.idempotency_keys (
-    key varchar(255) primary key,
-    actor_user_id uuid not null,
-    family_id uuid,
-    request_hash varchar(64) not null,
-    status varchar(16) not null,
-    response_status integer,
-    response_body jsonb,
-    created_at timestamptz not null,
-    expires_at timestamptz not null
-  `);
-
-  await pool.query(`create table if not exists shopping_domain.outbox_events (
-    event_id uuid primary key,
-    event_type varchar(128) not null,
-    schema_version integer not null,
-    aggregate_id uuid not null,
-    family_id uuid not null,
-    correlation_id uuid not null,
-    occurred_at timestamptz not null,
-    payload jsonb not null,
-    published_at timestamptz,
-    attempts integer not null default 0,
-    last_error text,
-    created_at timestamptz not null
-  `);
-
-  await pool.query("create index if not exists shopping_lists_family_status_idx on shopping_domain.lists(family_id,status,created_at desc)");
-  await pool.query("create index if not exists shopping_items_list_idx on shopping_domain.items(list_id,created_at)");
+  await pool.query("select 1");
 }
-
-const toList = (row: Record<string, unknown>, itemCount?: number): Record<string, unknown> => ({
-  listId: String(row.id),
-  name: String(row.name),
-  status: String(row.status) as ShoppingListStatus,
-  ...(itemCount !== undefined ? { itemCount } : {}),
-  version: Number(row.version),
-});
-
-const toItem = (row: Record<string, unknown>): Record<string, unknown> => ({
-  itemId: String(row.id),
-  productId: row.product_id === null ? null : String(row.product_id),
-  label: String(row.label),
-  quantity: Number(row.quantity),
-  unit: String(row.unit),
-  checked: Boolean(row.checked),
-  version: Number(row.version),
-});
 
 app.get("/health/live", (_req, res) => json(res, 200, { status: "ok", service: "service-shopping" }));
 
