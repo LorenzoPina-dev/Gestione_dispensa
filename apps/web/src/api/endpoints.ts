@@ -2,12 +2,27 @@ import { apiRequest, ApiError } from "./client";
 import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductUnit, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto } from "./types";
 
 export function getReadiness(): Promise<ReadinessDto> { return apiRequest<ReadinessDto>("/health/ready"); }
-export async function getCurrentUser(): Promise<UserDto> {
+export interface CurrentUserDto extends UserDto {
+  id: string;
+  name: string | null;
+  preferredUsername: string | null;
+  activeFamilyId?: string | null;
+  roles?: string[];
+}
+
+export async function getCurrentUser(): Promise<CurrentUserDto> {
   const user = await apiRequest<UserDto>("/identity/me");
-  return { ...user, id: user.userId, name: user.displayName, preferredUsername: user.displayName, activeFamilyId: undefined, roles: [] };
+  return {
+    ...user,
+    id: user.userId,
+    name: user.displayName ?? null,
+    preferredUsername: user.displayName ?? null,
+    activeFamilyId: null,
+    roles: [],
+  };
 }
 export function logoutSession(): Promise<void> { return apiRequest<void>("/auth/logout", { method: "POST" }); }
-export async function getFamily(): Promise<{ id: string; displayName: string } | null> { const f = (await listFamilies()).families[0]; return f ? { id: f.familyId, displayName: f.name } : null; }
+export async function getFamily(): Promise<{ id: string; displayName: string } | null> { const f = (await listFamilies()).families[0]; return f ? { id: f.familyId, displayName: f.displayName ?? f.name } : null; }
 export interface RegisterPayload { name: string; email: string; password: string; }
 export function registerUser(payload: RegisterPayload): Promise<{ success: boolean; message: string }> { return apiRequest("/auth/register", { method: "POST", body: payload }); }
 export function createFamily(input: { displayName: string; locale: string; timezone: string; unitSystem: "METRIC" | "IMPERIAL" }): Promise<FamilyCreationResultDto> { return apiRequest("/families", { method: "POST", body: { name: input.displayName } }); }
@@ -94,3 +109,60 @@ export function listMovements(familyId: string, stockItemId: string): Promise<{ 
 export async function listRecipes(familyId: string): Promise<{ recipes: RecipeDto[] }> { const r = await apiRequest<{ items: RecipeDto[]; nextCursor: string | null }>("/recipes", { query: { familyId } }); return { recipes: r.items }; }
 export async function listRecipeSuggestions(familyId: string): Promise<{ suggestions: RecipeMatchDto[] }> { const r = await apiRequest<{ items: RecipeMatchDto[]; nextCursor?: string | null }>("/recipes/suggestions", { query: { familyId } }); return { suggestions: r.items }; }
 export async function getRecipe(familyId: string, recipeId: string): Promise<{ recipe: RecipeDto }> { return { recipe: await apiRequest<RecipeDto>(`/recipes/${recipeId}`, { query: { familyId } }) }; }
+
+
+export async function resolveProductBarcode(
+  identifierType: string,
+  value: string,
+  refresh = false,
+): Promise<BarcodeResolutionDto> {
+  try {
+    const result = await apiRequest<{ resolution: "cache" | "provider"; product: ProductDto }>(
+      "/catalog/barcodes/resolve",
+      {
+        method: "POST",
+        body: { identifierType, value, ...(refresh ? { refresh: true } : {}) },
+      },
+    );
+    return {
+      status: "MATCHED",
+      identifierType,
+      normalizedValue: value.trim(),
+      product: result.product,
+    };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return { status: "UNKNOWN", identifierType, normalizedValue: value.trim() };
+    }
+    if (error instanceof ApiError && (error.status === 502 || error.code === "UPSTREAM_ERROR")) {
+      return { status: "DEGRADED", identifierType, normalizedValue: value.trim() };
+    }
+    throw error;
+  }
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  await apiRequest<{ accepted: boolean; message: string }>("/auth/reset-password", {
+    method: "POST",
+    body: { email: email.trim().toLowerCase() },
+  });
+}
+
+export async function getNutritionSummary(
+  familyId: string,
+  period: "today" | "week" = "today",
+): Promise<NutritionSummaryDto> {
+  return apiRequest<NutritionSummaryDto>("/nutrition/summary", {
+    query: { familyId, period },
+  });
+}
+
+export async function addRecipeMissingIngredients(
+  familyId: string,
+  recipeId: string,
+): Promise<{ itemIds: string[] }> {
+  return apiRequest<{ itemIds: string[] }>(`/recipes/${recipeId}/add-missing`, {
+    method: "POST",
+    body: { familyId },
+  });
+}
