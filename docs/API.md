@@ -227,6 +227,8 @@ Response 200:
 
 ### DELETE /families/{familyId}/invites/{inviteId}
 
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
+
 Response 204. Revoca il token; non modifica membership esistenti.
 
 ### POST /family-invites/resolve
