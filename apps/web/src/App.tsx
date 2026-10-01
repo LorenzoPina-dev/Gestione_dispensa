@@ -171,6 +171,7 @@ export default function App() {
       avatar: m.avatar || m.userId.slice(0, 2).toUpperCase(),
       role: normalizeFamilyRole(String(m.role)),
       status: m.status || "ACTIVE",
+      version: m.version,
     };
   });
 
