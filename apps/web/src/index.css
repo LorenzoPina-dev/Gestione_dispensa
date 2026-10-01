@@ -27,6 +27,17 @@ html, body, #root {
 
 * {
   box-sizing: border-box;
+  min-width: 0;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
