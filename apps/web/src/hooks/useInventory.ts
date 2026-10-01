@@ -60,15 +60,17 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
   // Tiene traccia dell'ultimo array di stock "sincronizzato", così il useEffect
   // sotto può calcolare il diff senza dover leggere lo state precedente da setState.
   const prevStockRef = useRef<StockItem[] | null>(null);
-  const skipNextSyncRef = useRef(false);
+  // Non-null while the current React state is being hydrated from the composite view.
+  // The sync effect must wait until that exact reference is committed.
+  const hydrationTargetRef = useRef<StockItem[] | null>(null);
 
   useEffect(() => {
     if (initialStock !== undefined) {
       // Hydration/revalidation from the composite view is authoritative remote state.
-      // Establish the baseline before React state changes so it can never be mistaken
-      // for a user mutation by the synchronization effect.
+      // Wait for this exact reference to become the committed React state before the
+      // synchronization effect considers any subsequent state change a user mutation.
+      hydrationTargetRef.current = initialStock;
       prevStockRef.current = initialStock;
-      skipNextSyncRef.current = true;
       setStockState(initialStock);
       setIsDemo(false);
       setDemoReason(null);
@@ -115,12 +117,18 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
   // Qui l'effect parte UNA VOLTA per ogni transizione reale di `stock`, e skippa il
   // primo popolamento grazie al confronto per reference con prevStockRef.
   useEffect(() => {
-    const prev = prevStockRef.current;
-    if (skipNextSyncRef.current) {
-      skipNextSyncRef.current = false;
+    // The hydration effect above and this effect run during the same commit. Before
+    // React commits the new remote array, stock still contains the previous state.
+    // Do nothing in that intermediate render. On the following render, the exact
+    // reference matches and becomes the new synchronization baseline.
+    if (hydrationTargetRef.current !== null) {
+      if (stock !== hydrationTargetRef.current) return;
+      hydrationTargetRef.current = null;
       prevStockRef.current = stock;
       return;
     }
+
+    const prev = prevStockRef.current;
     if (prev === null) return;
     if (prev === stock) return;
     prevStockRef.current = stock;
@@ -131,14 +139,14 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
         try {
           const result = await api.listStockItems(family);
           const canonical = result.items.map(mapStockItemDtoToUi);
-          skipNextSyncRef.current = true;
+          hydrationTargetRef.current = canonical;
           prevStockRef.current = canonical;
           setStockState(canonical);
         } catch (err) {
           reportIssue("Impossibile riallineare la dispensa con il server.", err, async () => {
             const result = await api.listStockItems(family);
             const canonical = result.items.map(mapStockItemDtoToUi);
-            skipNextSyncRef.current = true;
+            hydrationTargetRef.current = canonical;
             prevStockRef.current = canonical;
             setStockState(canonical);
           });
