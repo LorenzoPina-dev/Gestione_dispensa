@@ -536,7 +536,7 @@ export default function App() {
       <MobileBottomNav
         items={visibleNav}
         currentTab={currentTab}
-        onSelect={(nextTab) => setTab(nextTab)}
+        onSelect={(nextTab) => setTab(nextTab as Tab)}
         getBadge={navBadge}
       />
 
