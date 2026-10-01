@@ -197,27 +197,27 @@ export function parseCreateProductBody(
       brand?: string;
       defaultUnit: ProductUnit;
       category?: string;
-      barcodes: string[];
+      barcodes?: string[];
     }
   | undefined {
   if (
     typeof body.name !== "string" ||
     body.name.trim().length < 1 ||
-    body.name.trim().length > 300 ||
-    !Array.isArray(body.barcodes) ||
-    body.barcodes.length < 1 ||
-    !body.barcodes.every((value) => typeof value === "string" && /^[0-9]+$/.test(value) && value.length >= 8 && value.length <= 14)
+    body.name.trim().length > 300
   ) {
     return undefined;
   }
 
   if ((body.brand !== undefined && body.brand !== null && typeof body.brand !== "string") || (body.category !== undefined && body.category !== null && typeof body.category !== "string")) return undefined;
-  const barcodes = [...new Set((body.barcodes as string[]).map((value) => value.trim()))];
-  if (barcodes.length === 0) return undefined;
+  const validUnits = new Set<ProductUnit>(["g", "kg", "ml", "l", "piece", "pack"]);
+  const defaultUnit = body.defaultUnit === undefined ? "piece" : body.defaultUnit;
+  if (typeof defaultUnit !== "string" || !validUnits.has(defaultUnit as ProductUnit)) return undefined;
+  const barcodes = body.barcodes === undefined ? undefined : [...new Set(body.barcodes.map((value) => value.trim()))];
+  if (barcodes?.some((value) => !/^[0-9]+$/.test(value) || value.length < 8 || value.length > 14)) return undefined;
 
   return {
     canonicalName: body.name.trim(),
-    defaultUnit: "piece",
+    defaultUnit: defaultUnit as ProductUnit,
     ...(body.brand === null || body.brand === undefined
       ? {}
       : typeof body.brand === "string"
@@ -228,7 +228,7 @@ export function parseCreateProductBody(
       : typeof body.category === "string"
         ? { category: body.category.trim() }
         : {}),
-    barcodes,
+    ...(barcodes && barcodes.length > 0 ? { barcodes } : {}),
   };
 }
 
