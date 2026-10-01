@@ -278,37 +278,38 @@ raw_ref varchar(500) NULL
 Product IDs referenced by other domains are remote IDs; they are never cross-database foreign keys.
 ## 8. shopping_db
 
-### shopping_lists
+All authoritative Shopping tables use schema `shopping_domain`.
+
+### shopping_domain.lists
 
 ```text
 id UUID PK
 family_id UUID NOT NULL
 name varchar(120) NOT NULL
-status varchar NOT NULL -- open|closed|archived
+status varchar(16) NOT NULL -- open|closed
 created_by_user_id UUID NOT NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
-version integer NOT NULL
+version integer NOT NULL DEFAULT 1
 ```
 
-### shopping_items
+### shopping_domain.items
 
 ```text
 id UUID PK
-list_id UUID NOT NULL
+list_id UUID NOT NULL REFERENCES shopping_domain.lists(id) ON DELETE CASCADE
 product_id UUID NULL
 label varchar(300) NOT NULL
 quantity numeric(14,3) NOT NULL CHECK(quantity > 0)
-unit varchar(16) NULL
+unit varchar(16) NOT NULL
 checked boolean NOT NULL DEFAULT false
-source varchar(32) NOT NULL -- manual|low_stock|suggestion
+source varchar(32) NOT NULL DEFAULT 'manual'
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
-version integer NOT NULL
+version integer NOT NULL DEFAULT 1
 ```
 
-list_id è FK locale; product_id è remote Catalog ID.
-
+Only `list_id` is a local FK. `product_id` is a remote Catalog ID.
 ## 9. notifications_db
 
 ### notifications
