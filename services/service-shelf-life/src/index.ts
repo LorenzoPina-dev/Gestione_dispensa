@@ -163,10 +163,10 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
   const itemId = typeof body.itemId === "string" ? body.itemId : "";
   const productId = typeof body.productId === "string" ? body.productId : "";
   const storage = normalizeStorage(body.storedAt);
-  const opened = body.opened === true;
+  const opened = body.opened;
 
   if (!userId) return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
-  if (!itemId || !productId || typeof body.storedAt !== "string" || !key(req)) {
+  if (!itemId || !productId || typeof body.storedAt !== "string" || typeof opened !== "boolean" || !key(req)) {
     return fail(res,400,"VALIDATION_ERROR","itemId, productId, storedAt, opened and X-Idempotency-Key are required.");
   }
 
