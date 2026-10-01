@@ -8,6 +8,7 @@ app.use(express.json({ limit: "2mb" }));
 
 const port = Number(process.env.PORT ?? 3405);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 const maxUploadBytes = 10 * 1024 * 1024;
 
 const redisUrl = process.env.REDIS_URL ?? "redis://redis:6379";
@@ -27,6 +28,17 @@ function userId(req: Request): string {
   return String(req.header("x-user-id") ?? "").trim();
 }
 
+async function authorizeFamily(user: string, family: string, write: boolean): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
+  try {
+    const response = await fetch(`${familyServiceBaseUrl}/families/${encodeURIComponent(family)}/members`, { headers: { "x-user-id": user, accept: "application/json" }, signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." };
+    const payload = await response.json() as { items?: Array<{ userId: string; role: string; status: string }> };
+    const member = payload.items?.find((item) => item.userId === user);
+    if (!member || member.status !== "ACTIVE") return { ok: false, status: 403, code: "FORBIDDEN", message: "User is not an active member of the family." };
+    if (write && member.role === "viewer") return { ok: false, status: 403, code: "FORBIDDEN", message: "Viewer role is read-only." };
+    return { ok: true };
+  } catch { return { ok: false, status: 503, code: "FAMILY_AUTH_UNAVAILABLE", message: "Family authorization service is unavailable." }; }
+}
 function idempotencyKey(req: Request): string | null {
   const value = String(req.header("x-idempotency-key") ?? "").trim();
   return value.length >= 8 ? value : null;
@@ -275,6 +287,7 @@ app.post("/api/v1/ocr/jobs", async (req, res) => {
   const file = form.file;
   if (!file) return fail(res, 400, "VALIDATION_ERROR", "file is required.");
   if (!familyId) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");
+  const familyAccess = await authorizeFamily(actor, familyId, true); if (!familyAccess.ok) return fail(res, familyAccess.status, familyAccess.code, familyAccess.message);
   if (type !== "receipt" && type !== "pantry_image") return fail(res, 400, "VALIDATION_ERROR", "type must be receipt or pantry_image.");
   if (!idempotencyKey(req)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.");
 
@@ -332,6 +345,7 @@ app.get("/api/v1/ocr/jobs", async (req, res) => {
   const status = String(req.query.status ?? "").trim().toLowerCase();
   if (!actor) return fail(res, 401, "UNAUTHENTICATED", "Authenticated user required.");
   if (!family) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");
+  const familyAccess = await authorizeFamily(actor, family, false); if (!familyAccess.ok) return fail(res, familyAccess.status, familyAccess.code, familyAccess.message);
   const allowed = ["queued","processing","completed","failed","cancelled","needs_review"];
   if (status && !allowed.includes(status)) return fail(res, 400, "VALIDATION_ERROR", "Invalid OCR status.");
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
