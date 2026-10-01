@@ -578,7 +578,6 @@ paths:
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file, type], properties: {file: {type: string, format: binary}, type: {type: string, enum: [receipt, pantry_image]}}}}}}
       responses:
         '202': {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
-  /ocr/jobs:
     get:
       operationId: getOcrJobs
       tags: [OCR]
