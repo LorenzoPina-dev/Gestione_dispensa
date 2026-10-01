@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { FamilyMember, Invite, Role } from "../types";
 import * as api from "../api/endpoints";
 import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
-import { reportSyncIssue } from "../lib/syncBus";
 import type { InviteRole, ManagedMembershipDto, MembershipRole } from "../api/types";
 
 export type SetMembers = React.Dispatch<React.SetStateAction<FamilyMember[]>>;
@@ -18,13 +17,6 @@ export interface UseFamilyMembersResult {
 }
 
 const API_ROLE_TO_UI: Record<MembershipRole, Role> = {
-  OWNER: "OWNER",
-  MANAGER: "MANAGER",
-  MEMBER: "MEMBER",
-  VIEWER: "VIEWER",
-};
-
-const UI_ROLE_TO_API: Record<Role, MembershipRole | "ADMIN"> = {
   OWNER: "OWNER",
   MANAGER: "MANAGER",
   MEMBER: "MEMBER",
@@ -56,15 +48,9 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [familyName, setFamilyName] = useState("Famiglia");
-  const isDemoRef = useRef(isDemo);
-  isDemoRef.current = isDemo;
-  const familyIdRef = useRef(effectiveFamilyId);
-  familyIdRef.current = effectiveFamilyId;
-  const prevMembersRef = useRef<FamilyMember[] | null>(null);
 
   useEffect(() => {
     if (initialMembers !== undefined) {
-      prevMembersRef.current = initialMembers;
       setMembersState(initialMembers);
       if (initialFamilyName) setFamilyName(initialFamilyName);
       setIsDemo(false);
@@ -73,7 +59,6 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
     }
     if (!effectiveFamilyId) {
       setMembersState([]);
-      prevMembersRef.current = [];
       setIsDemo(false);
       setLoading(false);
       return;
@@ -88,7 +73,6 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
         const res = await api.listFamilyMembers(effectiveFamilyId);
         if (cancelled) return;
         const mapped = res.memberships.filter((m) => m.status !== "REMOVED").map(mapMembershipToUi);
-        prevMembersRef.current = mapped;
         setMembersState(mapped);
         setIsDemo(false);
       } catch {
@@ -103,14 +87,7 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
     return () => { cancelled = true; };
   }, [effectiveFamilyId, initialMembers, initialFamilyName]);
 
-  useEffect(() => {
-    const prev = prevMembersRef.current;
-    if (prev === null) return;
-    if (prev === members) return;
-    prevMembersRef.current = members;
-    if (isDemoRef.current || !familyIdRef.current) return;
-    void syncMembersDiff(familyIdRef.current, prev, members);
-  }, [members]);
+
 
   const setMembers = useCallback<SetMembers>((updater) => {
     setMembersState((prev) =>
@@ -144,40 +121,6 @@ export function useFamilyMembers(familyId?: string | null, initialMembers?: Fami
   return { members, setMembers, isDemo, loading, syncInviteCreated, familyName };
 }
 
-async function syncMembersDiff(familyId: string, prev: FamilyMember[], next: FamilyMember[]): Promise<void> {
-  const prevById = new Map(prev.map((m) => [m.id, m]));
-  for (const member of next) {
-    const before = prevById.get(member.id);
-    if (before === undefined) continue; // creation happens via invites, not directly
-    if (before.role !== member.role) {
-      const role = member.role;
-      await api
-        .updateFamilyMembership(familyId, member.id, { role: UI_ROLE_TO_API[role], status: "ACTIVE" })
-        .catch((err) =>
-          reportSyncIssue({
-            domain: "family",
-            message: `Cambio ruolo di "${member.name}" non salvato sul server.`,
-            retryable: true,
-            retry: () =>
-              api.updateFamilyMembership(familyId, member.id, { role: UI_ROLE_TO_API[role], status: "ACTIVE" }).then(() => undefined),
-          }),
-        );
-    }
-    if (before.status !== "REMOVED" && member.status === "REMOVED") {
-      await api
-        .removeFamilyMembership(familyId, member.id)
-        .catch((err) =>
-          reportSyncIssue({
-            domain: "family",
-            message: `Rimozione di "${member.name}" non salvata sul server.`,
-            retryable: true,
-            retry: () => api.removeFamilyMembership(familyId, member.id).then(() => undefined),
-          }),
-        );
-    }
-  }
-}
-
 function mapMembershipToUi(dto: ManagedMembershipDto): FamilyMember {
   const shortId = dto.userId.slice(0, 8);
   const name = dto.name || `Utente ${shortId}`;
@@ -188,6 +131,7 @@ function mapMembershipToUi(dto: ManagedMembershipDto): FamilyMember {
     avatar: dto.avatar || shortId.slice(0, 2).toUpperCase(),
     role: API_ROLE_TO_UI[dto.role] ?? "MEMBER",
     status: dto.status === "REMOVED" ? "REMOVED" : dto.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE",
+    version: dto.version,
     joinedAt: dto.joinedAt || new Date().toISOString(),
   };
 }
