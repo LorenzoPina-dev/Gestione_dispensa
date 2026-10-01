@@ -19,16 +19,16 @@ Tutti i database PostgreSQL applicativi usano UTC e `timestamptz`. Le tabelle pr
 | identity_db | Identity | PostgreSQL | users, outbox_events, idempotency_keys |
 | family_db | Family | PostgreSQL | families, members, invites, outbox_events, idempotency_keys |
 | inventory_db | Inventory | PostgreSQL | pantry_items, pantry_lots, movements, outbox_events, idempotency_keys |
-| shopping_db | Shopping | PostgreSQL | shopping_lists, shopping_items, outbox_events, idempotency_keys |
-| catalog_db | Catalog | PostgreSQL | products, product_barcodes, product_sources, outbox_events, idempotency_keys |
-| notifications_db | Notifications | PostgreSQL | notifications, preferences, outbox_events, idempotency_keys |
+| shopping_db | Shopping | PostgreSQL | shopping_domain.lists, shopping_domain.items, shopping_domain.outbox_events, shopping_domain.idempotency_keys |
+| catalog_db | Catalog | PostgreSQL | products, product_identifiers, data_sources, data_provenance, outbox_events, idempotency_keys |
+| notifications_db | Notifications | PostgreSQL | notifications_domain.notifications, notifications_domain.preferences, notifications_domain.outbox_events, notifications_domain.idempotency_keys |
 | privacy_db | Privacy | PostgreSQL | consents, privacy_jobs, erasure_requests, outbox_events, idempotency_keys |
-| jobs_db | Jobs | PostgreSQL | jobs, job_attempts, dead_letters, outbox_events |
-| recipes_db | Recipes | PostgreSQL | recipes, recipe_ingredients, recipe_steps, outbox_events, idempotency_keys |
-| nutrition_db | Nutrition | PostgreSQL | targets, diary_entries, outbox_events, idempotency_keys |
-| stores_db | Stores | PostgreSQL | stores, prices, offers, outbox_events, idempotency_keys |
-| shelf_life_db | Shelf-Life | PostgreSQL | rules, predictions, outbox_events, idempotency_keys |
-| ocr_db | OCR | PostgreSQL | ocr_jobs, ocr_drafts, ocr_draft_items, outbox_events, idempotency_keys |
+| jobs_db | Jobs | PostgreSQL | jobs, job_attempts, dead_letter_jobs, audit_events, inbox_events |
+| recipes_db | Recipes | PostgreSQL | recipes_domain.recipes, recipes_domain.recipe_ingredients, recipes_domain.recipe_steps, recipes_domain.outbox_events, recipes_domain.idempotency_keys |
+| nutrition_db | Nutrition | PostgreSQL | nutrition_domain.targets, nutrition_domain.diary_entries, nutrition_domain.outbox_events, nutrition_domain.idempotency_keys |
+| stores_db | Stores | PostgreSQL | stores_domain.stores, stores_domain.prices, stores_domain.offers, stores_domain.outbox_events, stores_domain.idempotency_keys |
+| shelf_life_db | Shelf-Life | PostgreSQL | shelf_life_domain.rules, shelf_life_domain.predictions, shelf_life_domain.outbox_events, shelf_life_domain.idempotency_keys |
+| ocr_db | OCR | PostgreSQL | ocr_domain.ocr_jobs, ocr_domain.ocr_drafts, ocr_domain.ocr_draft_items, ocr_domain.outbox_events, ocr_domain.idempotency_keys |
 | off_lookup_db | OFF Lookup | MongoDB | products cache/read-through, sync metadata |
 
 ## 3. Convenzioni comuni
