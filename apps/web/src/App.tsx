@@ -162,17 +162,20 @@ export default function App() {
       ? { id: "", name: "Spesa", status: "ACTIVE" as const, version: 0, items: [] }
       : undefined;
 
-  const initialMembers = composite.data?.members?.map((m) => ({
-    id: m.id,
-    name: m.name || `Utente ${m.userId.slice(0, 8)}`,
-    email: m.email || "",
-    avatar: m.avatar || m.userId.slice(0, 2).toUpperCase(),
-    role: m.role as Role,
-    status: m.status,
-  }));
+  const initialMembers = composite.data?.members?.map((m) => {
+    const memberId = m.id || m.userId;
+    return {
+      id: memberId,
+      name: m.name || `Utente ${m.userId.slice(0, 8)}`,
+      email: m.email || "",
+      avatar: m.avatar || m.userId.slice(0, 2).toUpperCase(),
+      role: normalizeFamilyRole(String(m.role)),
+      status: m.status || "ACTIVE",
+    };
+  });
 
   const initialNotifications = composite.data?.notifications?.map((n) => ({
-    id: n.id,
+    id: n.id ?? n.notificationId ?? "",
     category: n.category,
     title: n.title,
     body: n.body,
@@ -185,7 +188,7 @@ export default function App() {
   const family = useFamilyMembers(
     familyId,
     initialMembers,
-    composite.data?.family?.displayName,
+    composite.data?.family?.displayName ?? composite.data?.family?.name,
   );
   const notificationState = useNotifications(familyId, initialNotifications);
 
@@ -363,7 +366,7 @@ export default function App() {
               className="text-[10px] mt-0.5"
               style={{ color: colors.inkMuted }}
             >
-              Famiglia Ferretti
+              {family.familyName}
             </p>
           </div>
 
