@@ -256,7 +256,7 @@ export function createStockItem(input: {
   location?: string;
   expiresAt?: string;
 }): Promise<StockItemDto> {
-  return apiRequest("/inventory/items", { method: "POST", body: { productId: input.productId, quantity: input.quantity, unit: input.unit, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}), ...(input.location ? { location: input.location } : {}), ...(input.packageId ? { lotCode: input.packageId } : {}) } });
+  return apiRequest("/inventory/items", { method: "POST", query: { familyId: input.familyId }, body: { productId: input.productId, quantity: input.quantity, unit: input.unit, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}), ...(input.location ? { location: input.location } : {}), ...(input.packageId ? { lotCode: input.packageId } : {}) } });
 }
 
 export function recordMovement(
@@ -274,6 +274,7 @@ export function recordMovement(
   return apiRequest(path, {
     method: "POST",
     ifMatch: version,
+    query: { familyId: input.familyId },
     body: { quantity: input.quantity, reason: input.kind === "WASTE" ? "spoiled" : "used" },
   });
 }
@@ -342,6 +343,7 @@ export function updateShoppingItemState(
   return apiRequest(`/shopping/lists/${listId}/items/${itemId}`, {
     method: "PATCH",
     ifMatch: version,
+    query: { familyId },
     body: { checked: state === "ACCEPTED" || state === "COMPLETED" },
   });
 }
