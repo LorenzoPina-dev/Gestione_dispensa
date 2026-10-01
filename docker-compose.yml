@@ -335,11 +335,22 @@ services:
     networks: [backend, messaging]
   service-ocr:
     build: { context: ., dockerfile: services/service-ocr/Dockerfile }
-    environment: { PORT: 3405, SERVICE_NAME: service-ocr, DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db" }
-    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      PORT: 3405
+      SERVICE_NAME: service-ocr
+      DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
+      REDIS_URL: "redis://redis:6379"
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minio}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-miniochange}"
+      MINIO_BUCKET: gestione-dispensa
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
-    networks: [backend, data]
+    networks: [backend, data, messaging]
 
   off-lookup:
     build:
