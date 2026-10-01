@@ -114,6 +114,7 @@ app.get("/health/ready", async (_req, res) => {
  * the gateway fans out to the owning API domains in parallel and returns one view model.
  * Domain services can later move behind these calls without changing the Web contract.
  */
+app.get("/api/v1/dashboard", requireGatewayAuth, (req, res) => composite(req, res, dashboardView));
 app.get("/api/v1/views/dashboard-today", (req, res) => composite(req, res, dashboardView));
 app.get("/api/v1/views/pantry-screen", (req, res) => composite(req, res, pantryView));
 app.get("/api/v1/views/shopping-screen", (req, res) => composite(req, res, shoppingView));
