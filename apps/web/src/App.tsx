@@ -175,14 +175,24 @@ export default function App() {
     };
   });
 
-  const initialNotifications = composite.data?.notifications?.map((n) => ({
-    id: n.id ?? n.notificationId ?? "",
-    category: n.category,
-    title: n.title,
-    body: n.body,
-    createdAt: n.createdAt,
-    ...(n.readAt ? { readAt: n.readAt } : {}),
-  }));
+  const initialNotifications = composite.data?.notifications?.map((n) => {
+    const type = String(n.type ?? "").toLowerCase();
+    const category =
+      n.category ??
+      (type.includes("invite")
+        ? "INVITE"
+        : type.includes("reorder") || type.includes("stock") || type.includes("expiration")
+          ? "REORDER"
+          : "SYSTEM");
+    return {
+      id: n.id ?? n.notificationId ?? "",
+      category,
+      title: n.title,
+      body: n.body,
+      createdAt: n.createdAt,
+      ...(n.readAt ? { readAt: n.readAt } : {}),
+    };
+  });
 
   const inventory = useInventory(familyId, initialStock);
   const shopping = useShoppingList(familyId, initialShopping);
