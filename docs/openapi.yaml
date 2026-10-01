@@ -227,16 +227,7 @@ paths:
       responses:
         '200': {description: Invite preview, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
-  /family-invites/{token}/accept:
-    post:
-      operationId: postFamilyInvitesTokenAccept
-      tags: [Families]
-      parameters: [{$ref: '#/components/parameters/Token'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
-      responses:
-        '201': {description: Membership created, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '409': {$ref: '#/components/responses/Conflict'}
+
   /inventory:
     get:
       operationId: getInventory
