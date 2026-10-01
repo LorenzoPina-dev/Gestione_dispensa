@@ -122,6 +122,7 @@ id UUID PK
 family_id UUID NOT NULL
 user_id UUID NOT NULL
 role varchar NOT NULL -- owner|admin|member|viewer
+status varchar NOT NULL -- ACTIVE|SUSPENDED|REMOVED
 joined_at timestamptz NOT NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
@@ -136,13 +137,15 @@ UNIQUE(family_id,user_id)
 ```text
 id UUID PK
 family_id UUID NOT NULL
-email varchar NOT NULL
-role varchar NOT NULL -- admin|member
+email varchar NULL
+role varchar NOT NULL -- admin|member|viewer
 token_hash varchar(128) UNIQUE NOT NULL
 status varchar NOT NULL -- pending|accepted|revoked|expired
 expires_at timestamptz NOT NULL
 accepted_by_user_id UUID NULL
 accepted_at timestamptz NULL
+fallback_code varchar(64) NULL
+created_by_user_id UUID NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 version integer NOT NULL
@@ -209,45 +212,70 @@ Il movimento storico può riferirsi a un pantry_item_id non più presente. `lot_
 
 ## 7. catalog_db
 
+All authoritative Catalog tables use the public schema in the current migration set.
+
 ### products
 
 ```text
 id UUID PK
-name varchar(300) NOT NULL
-brand varchar(200) NULL
+canonical_name varchar(300) NOT NULL
+brand_id UUID NULL REFERENCES brands(id)
+default_unit varchar(16) NOT NULL -- g|kg|ml|l|piece|pack
+status varchar(32) NOT NULL -- ACTIVE
+provenance_quality varchar(32) NOT NULL -- VERIFIED|IMPORTED|ESTIMATED|UNKNOWN
+version integer NOT NULL
 category varchar(120) NULL
-image_object_key varchar(500) NULL
-nutrition JSONB NULL
+photo_url varchar(1000) NULL
+calories_per_100 numeric(12,3) NULL
+protein_per_100 numeric(12,3) NULL
+carbs_per_100 numeric(12,3) NULL
+fat_per_100 numeric(12,3) NULL
+fiber_per_100 numeric(12,3) NULL
+nutrition_confidence varchar(32) NULL
+external_source varchar(128) NULL
+external_ref varchar(255) NULL
+external_synced_at timestamptz NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
-version integer NOT NULL
 ```
 
-### product_barcodes
+### product_identifiers
 
 ```text
 id UUID PK
-product_id UUID NOT NULL
-barcode varchar(64) NOT NULL UNIQUE
-type varchar(32) NOT NULL DEFAULT 'ean'
+product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE
+source_id UUID NOT NULL REFERENCES data_sources(id)
+identifier_type varchar(32) NOT NULL
+normalized_value varchar(100) NOT NULL
+is_verified boolean NOT NULL DEFAULT false
 created_at timestamptz NOT NULL
+UNIQUE(source_id,identifier_type,normalized_value)
 ```
 
-### product_sources
+### data_sources
 
 ```text
 id UUID PK
-product_id UUID NOT NULL
-provider varchar(64) NOT NULL
-external_id varchar(255) NOT NULL
-raw_hash varchar(64) NULL
-last_seen_at timestamptz NOT NULL
-metadata JSONB NULL
-UNIQUE(provider,external_id)
+kind varchar(32) NOT NULL
+name varchar(128) NOT NULL
+created_at timestamptz NOT NULL
+UNIQUE(kind,name)
 ```
 
-product_id è FK solo all'interno di catalog_db.
+### data_provenance
 
+```text
+id UUID PK
+entity_type varchar(64) NOT NULL
+entity_id UUID NOT NULL
+source_id UUID NOT NULL REFERENCES data_sources(id)
+observed_at timestamptz NOT NULL
+source_version varchar(128) NOT NULL
+confidence numeric(5,4) NOT NULL CHECK(confidence BETWEEN 0 AND 1)
+raw_ref varchar(500) NULL
+```
+
+Product IDs referenced by other domains are remote IDs; they are never cross-database foreign keys.
 ## 8. shopping_db
 
 ### shopping_lists
