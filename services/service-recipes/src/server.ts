@@ -12,14 +12,33 @@ const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://ser
 
 type Body = Record<string, unknown>;
 
-const errorBody = (code: string, message: string) => ({
-  error: { code, message, details: [], requestId: crypto.randomUUID() },
-});
+const errorBody = (code: string, message: string) => {
+  const retryable = new Set(["FAMILY_AUTH_UNAVAILABLE","UPSTREAM_ERROR","SERVICE_UNAVAILABLE","INTERNAL_ERROR"]).has(code);
+  return {
+    error: { code, message, details: [], retryable, requestId: crypto.randomUUID() },
+    meta: { requestId: crypto.randomUUID(), traceId: crypto.randomUUID(), schemaVersion: "1.0" },
+  };
+};
 
-function context(req: express.Request): { userId: string; familyId: string } | null {
+type RequestContext = {
+  userId: string;
+  familyId: string;
+  requestId: string;
+  correlationId: string;
+  causationId: string | null;
+};
+
+function context(req: express.Request): RequestContext | null {
   const userId = String(req.header("x-user-id") ?? "").trim();
   const familyId = String(req.query.familyId ?? req.body?.familyId ?? req.header("x-family-id") ?? "").trim();
-  return userId && familyId ? { userId, familyId } : null;
+  if (!userId || !familyId) return null;
+  return {
+    userId,
+    familyId,
+    requestId: String(req.header("x-request-id") ?? crypto.randomUUID()),
+    correlationId: String(req.header("x-correlation-id") ?? crypto.randomUUID()),
+    causationId: req.header("x-causation-id"),
+  };
 }
 async function authorizeFamily(ctx: { userId: string; familyId: string }, write: boolean): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
   try {
@@ -41,9 +60,15 @@ function key(req: express.Request): string | null {
 }
 
 function match(req: express.Request): number | null {
-  const value = req.header("if-match");
+  const value = req.header("if-match")?.trim();
   if (!value) return null;
-  const parsed = Number(value.replace(/^W\/?/i, "").replace(/"/g, ""));
+  const normalized = value.replace(/^W\//i, "").replace(/^"|"$/g, "").trim();
+  const versionMatch = normalized.match(/^version-(\d+)$/i);
+  if (versionMatch) {
+    const version = Number(versionMatch[1]);
+    return Number.isInteger(version) && version >= 1 ? version : null;
+  }
+  const parsed = Number(normalized);
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
 }
 
@@ -92,11 +117,11 @@ async function finishIdempotency(client: PoolClient, req: express.Request, statu
   );
 }
 
-async function outbox(client: PoolClient, eventType: string, aggregateId: string, familyId: string, userId: string, payload: unknown): Promise<void> {
+async function outbox(client: PoolClient, eventType: string, aggregateId: string, ctx: RequestContext, payload: unknown): Promise<void> {
   await client.query(
-    `insert into recipes_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
-     values($1,$2,1,$3,$4,$5,now(),$6::jsonb,now())`,
-    [crypto.randomUUID(), eventType, aggregateId, familyId, userId, JSON.stringify(toEventPayload(payload))],
+    `insert into recipes_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,causation_id,occurred_at,payload,created_at)
+     values($1,$2,1,$3,$4,$5,$6,now(),$7::jsonb,now())`,
+    [crypto.randomUUID(), eventType, aggregateId, ctx.familyId, ctx.correlationId, ctx.causationId, JSON.stringify(toEventPayload(payload))],
   );
 }
 
@@ -122,12 +147,10 @@ app.get("/health/ready", async (_req, res) => {
 });
 
 app.get("/api/v1/recipes", async (req, res) => {
-  const initialContext = context(req);
-  if (!initialContext) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
-  const access = await authorizeFamily(initialContext, false);
-  if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
   const ctx = context(req);
   if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
+  const access = await authorizeFamily(ctx, false);
+  if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
   const q = String(req.query.q ?? "").trim();
   const result = await pool.query(
@@ -194,9 +217,10 @@ app.post("/api/v1/recipes", async (req, res) => {
     }
     const full = await client.query("select version from recipes_domain.recipes where id=$1",[id]);
     const response = { data: { ...(await loadRecipeFromClient(client,id,ctx.familyId)), version: Number(full.rows[0].version) }, version: Number(full.rows[0].version) };
-    await outbox(client,"RecipeCreated",id,ctx.familyId,ctx.userId,response);
+    await outbox(client, "RecipeCreated", id, ctx, response);
     await finishIdempotency(client,req,201,response);
     await client.query("commit");
+    res.setHeader("ETag", `"version-${response.version}"`);
     return res.status(201).json(response);
   } catch (error) {
     await client.query("rollback");
@@ -204,13 +228,17 @@ app.post("/api/v1/recipes", async (req, res) => {
   } finally { client.release(); }
 });
 
-app.get("/api/v1/recipes/:recipeId", async (req,res) => {
-  const ctx = context(req); if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required.")); const access = await authorizeFamily(ctx,false); if (!access.ok) return res.status(access.status).json(errorBody(access.code,access.message));
+app.get("/api/v1/recipes/:recipeId", async (req, res) => {
   const ctx = context(req);
-  if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR","familyId is required."));
-  const recipe = await loadRecipe(req.params.recipeId,ctx.familyId);
-  if (!recipe) return res.status(404).json(errorBody("NOT_FOUND","Recipe not found."));
-  return res.json({ data: recipe });
+  if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
+  const access = await authorizeFamily(ctx, false);
+  if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
+
+  const recipe = await loadRecipe(req.params.recipeId, ctx.familyId);
+  if (!recipe) return res.status(404).json(errorBody("NOT_FOUND", "Recipe not found."));
+
+  res.setHeader("ETag", `"version-${recipe.version}"`);
+  return res.json({ data: recipe, version: recipe.version });
 });
 
 app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
@@ -232,7 +260,7 @@ app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
       for(const raw of body.ingredients){const item=raw as Record<string,unknown>;const name=typeof item.name==="string"?item.name.trim():"";const q=Number(item.quantity);const unit=typeof item.unit==="string"?item.unit:"";if(!name||!Number.isFinite(q)||q<=0||!unit){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","Invalid ingredient."));}await client.query("insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit) values($1,$2,$3,$4,$5,$6)",[crypto.randomUUID(),req.params.recipeId,item.productId??null,name,q,unit]);}
     }
     if(Object.hasOwn(body,"steps")){if(!Array.isArray(body.steps)||!body.steps.every((x)=>typeof x==="string")){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","steps must be an array of strings."));}await client.query("delete from recipes_domain.recipe_steps where recipe_id=$1",[req.params.recipeId]);for(const [pos,instruction] of (body.steps as string[]).entries())await client.query("insert into recipes_domain.recipe_steps(id,recipe_id,position,instruction) values($1,$2,$3,$4)",[crypto.randomUUID(),req.params.recipeId,pos+1,instruction]);}
-    const full=await loadRecipeFromClient(client,req.params.recipeId,ctx.familyId);const response={data:full,version:full.version};await outbox(client,"RecipeUpdated",req.params.recipeId,ctx.familyId,ctx.userId,response);await finishIdempotency(client,req,200,response);await client.query("commit");return res.json(response);
+    const full=await loadRecipeFromClient(client,req.params.recipeId,ctx.familyId);const response={data:full,version:full.version};await outbox(client, "RecipeUpdated", req.params.recipeId, ctx, response);await finishIdempotency(client,req,200,response);await client.query("commit");res.setHeader("ETag", `"version-${response.version}"`);return res.json(response);
   }catch(error){await client.query("rollback");return res.status(500).json(errorBody("INTERNAL_ERROR",error instanceof Error?error.message:"Unable to update recipe."));}finally{client.release();}
 });
 
@@ -241,20 +269,59 @@ app.delete("/api/v1/recipes/:recipeId",async(req,res)=>{
   if (ctx) { const access = await authorizeFamily(ctx,true); if (!access.ok) return res.status(access.status).json(errorBody(access.code,access.message)); }const version=match(req);if(!ctx||!key(req)||version===null)return res.status(400).json(errorBody("VALIDATION_ERROR","familyId, X-Idempotency-Key and If-Match are required."));
   const client=await pool.connect();try{await client.query("begin");const idem=await beginIdempotency(client,req,ctx.userId,ctx.familyId,{recipeId:req.params.recipeId});if(idem.kind==="conflict"){await client.query("rollback");return res.status(409).json(errorBody("CONFLICT","Idempotency key conflict."));}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).end();}if(idem.kind==="missing"){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","X-Idempotency-Key is required."));}
     const current=await client.query("select version from recipes_domain.recipes where id=$1 and family_id=$2 for update",[req.params.recipeId,ctx.familyId]);if(!current.rowCount){await client.query("rollback");return res.status(404).json(errorBody("NOT_FOUND","Recipe not found."));}if(Number(current.rows[0].version)!==version){await client.query("rollback");return res.status(412).json(errorBody("PRECONDITION_FAILED","Recipe version changed."));}
-    await client.query("delete from recipes_domain.recipes where id=$1",[req.params.recipeId]);await outbox(client,"RecipeDeleted",req.params.recipeId,ctx.familyId,ctx.userId,{recipeId:req.params.recipeId});await finishIdempotency(client,req,204,null);await client.query("commit");return res.status(204).end();
+    await client.query("delete from recipes_domain.recipes where id=$1",[req.params.recipeId]);await outbox(client, "RecipeDeleted", req.params.recipeId, ctx, { recipeId: req.params.recipeId });await finishIdempotency(client,req,204,null);await client.query("commit");return res.status(204).end();
   }catch(error){await client.query("rollback");return res.status(500).json(errorBody("INTERNAL_ERROR",error instanceof Error?error.message:"Unable to delete recipe."));}finally{client.release();}
 });
 
-app.get("/api/v1/recipes/suggestions",async(req,res)=>{
-  const ctx=context(req);
-  if (ctx) { const access = await authorizeFamily(ctx,false); if (!access.ok) return res.status(access.status).json(errorBody(access.code,access.message)); }if(!ctx)return res.status(400).json(errorBody("VALIDATION_ERROR","familyId is required."));
-  const q=await pool.query("select id from recipes_domain.recipes where family_id=$1 order by updated_at desc limit $2",[ctx.familyId,Math.min(Math.max(Number(req.query.limit??20),1),100)]);
-  const items=await Promise.all(q.rows.map(async row=>{const recipe=await loadRecipe(String(row.id),ctx.familyId);return {recipeId:recipe?.recipeId??String(row.id),score:1,missingIngredients:[]};}));
-  return res.json({items});
+app.get("/api/v1/recipes/suggestions", async (req, res) => {
+  const ctx = context(req);
+  if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
+  const access = await authorizeFamily(ctx, false);
+  if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
+
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
+  const q = await pool.query(
+    "select id from recipes_domain.recipes where family_id=$1 order by updated_at desc limit $2",
+    [ctx.familyId, limit],
+  );
+  const items = await Promise.all(q.rows.map(async (row) => {
+    const recipe = await loadRecipe(String(row.id), ctx.familyId);
+    return { recipeId: recipe?.recipeId ?? String(row.id), score: 1, missingIngredients: [] };
+  }));
+  return res.json({ items });
 });
 
-
 app.use((_req,res)=>res.status(404).json(errorBody("NOT_FOUND","Route not found.")));
+
+type Recipe = {
+  recipeId: string;
+  title: string;
+  servings: number;
+  ingredients: Array<{ productId: string | null; name: string; quantity: number; unit: string }>;
+  steps: string[];
+  version: number;
+};
+
+async function loadRecipe(id: string, familyId: string): Promise<Recipe | null> {
+  const result = await pool.query(
+    "select id,title,servings,version from recipes_domain.recipes where id=$1 and family_id=$2",
+    [id, familyId],
+  );
+  const recipe = result.rows[0];
+  if (!recipe) return null;
+  const [ingredients, steps] = await Promise.all([
+    pool.query("select product_id,name,quantity,unit from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at", [id]),
+    pool.query("select position,instruction from recipes_domain.recipe_steps where recipe_id=$1 order by position", [id]),
+  ]);
+  return {
+    recipeId: String(recipe.id),
+    title: String(recipe.title),
+    servings: Number(recipe.servings),
+    ingredients: ingredients.rows.map((row) => ({ productId: row.product_id === null ? null : String(row.product_id), name: String(row.name), quantity: Number(row.quantity), unit: String(row.unit) })),
+    steps: steps.rows.map((row) => String(row.instruction)),
+    version: Number(recipe.version),
+  };
+}
 
 async function loadRecipeFromClient(client: PoolClient,id:string,familyId:string){
   const recipeResult=await client.query("select id,title,servings,version from recipes_domain.recipes where id=$1 and family_id=$2",[id,familyId]);
