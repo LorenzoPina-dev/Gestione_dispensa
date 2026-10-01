@@ -597,7 +597,7 @@ Response 200:
 ```json
 {"data":{"jobId":"uuid","status":"completed","type":"receipt","progress":100,"draftId":"uuid","error":null}}
 ```
-Status: `queued` | `processing` | `completed` | `failed` | `cancelled`.
+Status: `queued` | `processing` | `completed` | `needs_review` | `failed` | `cancelled`.
 
 ### GET /ocr/drafts/{draftId}
 
