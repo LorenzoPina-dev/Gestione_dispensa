@@ -724,6 +724,29 @@ Response 200:
 {"data":{"jobId":"uuid","type":"shelf_life_prediction","status":"queued","attempt":0,"maxAttempts":5,"createdAt":"2026-09-30T15:30:00Z"}}
 ```
 
+## 14A. Operator Jobs
+
+### GET /admin/jobs/{jobId}
+
+Autenticazione OIDC obbligatoria e ruolo operator. Response 200:
+```json
+{"data":{"jobId":"uuid","status":"pending","attempt":0,"maxAttempts":5,"createdAt":"2026-09-30T15:30:00Z"}}
+```
+
+### POST /admin/dead-letters/{deadLetterId}/replay
+
+Autenticazione OIDC obbligatoria e ruolo operator.
+
+Request:
+```json
+{"reason":"manual recovery","approvalId":"approval-123"}
+```
+
+Response 200:
+```json
+{"data":{"replayId":"uuid","jobId":"uuid"},"version":1}
+```
+
 ## 15A. Screen Composite Views
 
 Questi endpoint sono read models ottimizzati per il browser. Non sono source of truth e non introducono ownership dati.
