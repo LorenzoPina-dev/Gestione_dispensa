@@ -44,6 +44,10 @@ version integer NOT NULL DEFAULT 1
 
 I timestamp sono generati dal server.
 
+### schema_migrations — bookkeeping tecnico
+
+Ogni database applicativo possiede la propria `schema_migrations(version, applied_at)` nel proprio schema pubblico. È usata esclusivamente dal migration runner e non è una tabella di dominio.
+
 ### Outbox
 
 ```text
@@ -465,8 +469,8 @@ UNIQUE(consumer_name,event_id)
 
 ```text
 id UUID PK
-owner_user_id UUID NULL
-family_id UUID NULL
+owner_user_id UUID NOT NULL
+family_id UUID NOT NULL
 title varchar(300) NOT NULL
 servings numeric(8,2) NOT NULL
 created_at timestamptz NOT NULL
@@ -531,7 +535,9 @@ source_movement_id è un ID remoto e non una FK.
 
 ## 14. stores_db
 
-### stores
+All authoritative Stores tables use schema `stores_domain`.
+
+### stores_domain.stores
 
 ```text
 id UUID PK
@@ -545,72 +551,83 @@ updated_at timestamptz NOT NULL
 version integer NOT NULL
 ```
 
-### prices
+### stores_domain.prices
 
 ```text
 id UUID PK
-store_id UUID NOT NULL
+store_id UUID NOT NULL REFERENCES stores_domain.stores(id) ON DELETE CASCADE
 product_id UUID NOT NULL
 amount_minor bigint NOT NULL CHECK(amount_minor >= 0)
-currency char(3) NOT NULL
+currency char(3) NOT NULL CHECK(currency ~ '^[A-Z]{3}$')
 observed_at timestamptz NOT NULL
 source varchar(64) NOT NULL
 created_at timestamptz NOT NULL
 ```
 
-### offers
+### stores_domain.offers
 
 ```text
 id UUID PK
-store_id UUID NOT NULL
+store_id UUID NOT NULL REFERENCES stores_domain.stores(id) ON DELETE CASCADE
 product_id UUID NOT NULL
 type varchar(32) NOT NULL -- percentage|fixed
-value numeric(12,4) NOT NULL
+value numeric(12,4) NOT NULL CHECK(value > 0)
 valid_from timestamptz NOT NULL
 valid_to timestamptz NOT NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 version integer NOT NULL
+CHECK(valid_from < valid_to)
+CHECK(type <> 'percentage' OR value <= 100)
 ```
+
+product_id is a remote Catalog ID; store_id is a local FK.
 
 ## 15. shelf_life_db
 
-### rules
+All authoritative Shelf-Life tables use schema `shelf_life_domain`.
+
+### shelf_life_domain.rules
 
 ```text
 id UUID PK
 product_category varchar(120) NULL
-storage varchar(32) NOT NULL
+storage varchar(32) NOT NULL -- PANTRY|FRIDGE|FREEZER|CELLAR|OTHER
 opened boolean NOT NULL
-min_days integer NOT NULL
-max_days integer NOT NULL
+min_days integer NOT NULL CHECK(min_days >= 0)
+max_days integer NOT NULL CHECK(max_days >= min_days)
 model_version varchar(64) NOT NULL
 active boolean NOT NULL DEFAULT true
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
+UNIQUE(product_category,storage,opened,model_version) using normalized NULL semantics
 ```
 
-### predictions
+### shelf_life_domain.predictions
 
 ```text
 id UUID PK
+user_id UUID NOT NULL
+family_id UUID NULL
 item_id UUID NOT NULL
 product_id UUID NOT NULL
 estimated_expires_at timestamptz NOT NULL
-confidence numeric(5,4) NOT NULL CHECK(confidence >= 0 AND confidence <= 1)
+confidence numeric(5,4) NOT NULL CHECK(confidence BETWEEN 0 AND 1)
 basis varchar(200) NOT NULL
 model_version varchar(64) NOT NULL
-status varchar NOT NULL -- queued|completed|applied|superseded|failed
+status varchar(32) NOT NULL -- queued|completed|applied|superseded|failed
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 version integer NOT NULL
 ```
 
-item_id e product_id sono ID remoti. Shelf-Life non modifica direttamente Inventory.
+`item_id` and `product_id` are remote IDs. Shelf-Life never writes Inventory state directly. `user_id`/`family_id` enforce read/apply ownership.
 
 ## 16. ocr_db
 
-### ocr_jobs
+All authoritative OCR tables use schema `ocr_domain`.
+
+### ocr_domain.ocr_jobs
 
 ```text
 id UUID PK
@@ -618,7 +635,7 @@ user_id UUID NOT NULL
 family_id UUID NULL
 type varchar(32) NOT NULL -- receipt|pantry_image
 object_key varchar(500) NOT NULL
-status varchar NOT NULL -- queued|processing|completed|failed|cancelled
+status varchar(32) NOT NULL -- queued|processing|completed|failed|cancelled|needs_review
 progress smallint NOT NULL CHECK(progress BETWEEN 0 AND 100)
 error_code varchar(100) NULL
 created_at timestamptz NOT NULL
@@ -626,31 +643,31 @@ updated_at timestamptz NOT NULL
 version integer NOT NULL
 ```
 
-### ocr_drafts
+### ocr_domain.ocr_drafts
 
 ```text
 id UUID PK
-job_id UUID NOT NULL
-confidence numeric(5,4) NOT NULL
-status varchar NOT NULL -- draft|confirmed|rejected
+job_id UUID NOT NULL REFERENCES ocr_domain.ocr_jobs(id) ON DELETE CASCADE
+confidence numeric(5,4) NOT NULL CHECK(confidence BETWEEN 0 AND 1)
+status varchar(32) NOT NULL -- draft|confirmed|rejected
 raw_result JSONB NOT NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 version integer NOT NULL
 ```
 
-### ocr_draft_items
+### ocr_domain.ocr_draft_items
 
 ```text
 id UUID PK
-draft_id UUID NOT NULL
+draft_id UUID NOT NULL REFERENCES ocr_domain.ocr_drafts(id) ON DELETE CASCADE
 name varchar(300) NOT NULL
 barcode varchar(64) NULL
 quantity numeric(14,3) NULL
 unit varchar(16) NULL
 price_minor bigint NULL
 currency char(3) NULL
-confidence numeric(5,4) NOT NULL
+confidence numeric(5,4) NOT NULL CHECK(confidence BETWEEN 0 AND 1)
 product_id UUID NULL
 ```
 
