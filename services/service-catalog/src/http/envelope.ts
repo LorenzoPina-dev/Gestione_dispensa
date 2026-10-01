@@ -42,8 +42,8 @@ export function sendFailure(res: Response, status: number, code: string, message
   res.status(status).json(failure(code, message, meta));
 }
 
-export function sendSuccess<T>(res: Response, status: number, data: T, meta: HttpMeta): void {
-  res.status(status).json({ data, meta });
+export function sendSuccess<T>(res: Response, status: number, data: T, meta: HttpMeta, version?: number): void {
+  res.status(status).json({ data, ...(version === undefined ? {} : { version }), meta });
 }
 
 /**
