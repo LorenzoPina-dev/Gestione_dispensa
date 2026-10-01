@@ -466,8 +466,9 @@ paths:
         '200': {description: Targets, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
     put:
       operationId: putNutritionTargets
+      parameters: [{$ref: '#/components/parameters/IfMatch'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       tags: [Nutrition]
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NutritionTargets'}}}}
       responses:
         '200': {description: Targets, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
