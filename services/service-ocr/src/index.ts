@@ -239,6 +239,35 @@ app.post("/api/v1/ocr/jobs", upload.single("file"), async (req, res) => {
   }
 });
 
+app.post("/api/v1/internal/ocr/jobs/:jobId/process", async (req,res)=>{
+  const token=process.env.INTERNAL_SERVICE_TOKEN?.trim()??"";
+  if(!token||req.header("authorization")!=="Bearer "+token)return fail(res,401,"UNAUTHENTICATED","Internal service authentication is required.");
+  const jobId=req.params.jobId;
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const job=await client.query("select * from ocr_domain.ocr_jobs where id=$1 for update",[jobId]);
+    if(!job.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","OCR job not found.");}
+    const j=job.rows[0];
+    if(j.status==="completed"||j.status==="cancelled"){await client.query("commit");return res.json({data:{jobId:j.id,status:j.status}});}
+    await client.query("update ocr_domain.ocr_jobs set status='needs_review',progress=100,updated_at=now(),version=version+1 where id=$1",[jobId]);
+    const draft=await client.query(
+      `insert into ocr_domain.ocr_drafts(job_id,confidence,status,raw_result)
+       values($1,0.0,'draft',$2::jsonb) returning *`,
+      [jobId,JSON.stringify({status:"needs_review",source:"ocr-engine",items:[]})],
+    );
+    await client.query(
+      `insert into ocr_domain.outbox_events
+       (event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
+       values($1,'OcrDraftReady',1,$2,$3,$4,now(),$5::jsonb,now())`,
+      [crypto.randomUUID(),jobId,j.family_id,crypto.randomUUID(),JSON.stringify({jobId,draftId:draft.rows[0]?.id??null})],
+    );
+    await client.query("commit");
+    return res.status(200).json({data:{jobId,status:"needs_review",draftId:draft.rows[0]?.id??null},version:j.version+1});
+  }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to process OCR job.");}
+  finally{client.release();}
+});
+
 app.get("/api/v1/ocr/jobs/:jobId", async (req, res) => {
   const actor = userId(req);
   if (!actor) return fail(res, 401, "UNAUTHENTICATED", "Authenticated user required.");
