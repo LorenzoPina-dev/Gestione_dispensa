@@ -46,13 +46,14 @@ export function logoutSession(): Promise<void> {
 
 export async function getFamily(): Promise<{ id: string; displayName: string } | null> {
   const result = await listFamilies();
-  if (result.families && result.families.length > 0) {
-    return {
-      id: result.families[0].familyId,
-      displayName: result.families[0].displayName,
-    };
-  }
-  return null;
+  const firstFamily = result.families[0];
+
+  return firstFamily
+    ? {
+        id: firstFamily.familyId,
+        displayName: firstFamily.displayName,
+      }
+    : null;
 }
 
 // Integrazione nella sezione Auth / Identity
@@ -106,8 +107,43 @@ export function acceptInvite(attemptId: string, consentVersion: string): Promise
   return apiRequest(`/invites/${attemptId}/accept`, { method: "POST", body: { consentVersion } });
 }
 
-export function listFamilies(): Promise<{ families: UserFamilySummaryDto[] }> {
-  return apiRequest("/families");
+interface FamiliesHttpResponse {
+  items?: UserFamilySummaryDto[];
+  nextCursor?: string | null;
+  /** Legacy response shape accepted during the contract transition. */
+  families?: UserFamilySummaryDto[];
+}
+
+export interface FamiliesResult {
+  families: UserFamilySummaryDto[];
+  nextCursor: string | null;
+}
+
+/**
+ * Normalizes the actual family-service response.
+ *
+ * Current backend contract:
+ *   { items: UserFamilySummaryDto[], nextCursor: string | null }
+ *
+ * The web domain historically consumed:
+ *   { families: UserFamilySummaryDto[] }
+ *
+ * Keeping this adapter at the HTTP boundary prevents every page/hook from
+ * having to know about the transport-level pagination shape.
+ */
+export async function listFamilies(): Promise<FamiliesResult> {
+  const result = await apiRequest<FamiliesHttpResponse>("/families");
+
+  const families = Array.isArray(result.items)
+    ? result.items
+    : Array.isArray(result.families)
+      ? result.families
+      : [];
+
+  return {
+    families,
+    nextCursor: result.nextCursor ?? null,
+  };
 }
 
 export function listFamilyMembers(familyId: string): Promise<{ memberships: ManagedMembershipDto[] }> {
