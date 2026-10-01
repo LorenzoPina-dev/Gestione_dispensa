@@ -41,7 +41,7 @@ function normalizeFamilyRole(role: string | undefined): Role {
     case "manager": return "MANAGER";
     case "member": return "MEMBER";
     case "viewer": return "VIEWER";
-    default: return "OWNER";
+    default: return "VIEWER";
   }
 }
 
