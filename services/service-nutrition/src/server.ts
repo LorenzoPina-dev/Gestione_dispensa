@@ -68,7 +68,7 @@ async function emitOutbox(client: PoolClient, type: string, aggregateId: string,
   await client.query(
     `insert into nutrition_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
      values($1,$2,1,$3,null,$4,now(),$5::jsonb,now())`,
-    [crypto.randomUUID(), type, aggregateId, userId, JSON.stringify(toEventPayload(payload))],
+    [crypto.randomUUID(), type, aggregateId, crypto.randomUUID(), JSON.stringify(toEventPayload({ actorUserId: userId, payload }))],
   );
 }
 
