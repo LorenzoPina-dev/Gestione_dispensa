@@ -557,6 +557,18 @@ paths:
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file, type], properties: {file: {type: string, format: binary}, type: {type: string, enum: [receipt, pantry_image]}}}}}}
       responses:
         '202': {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /ocr/jobs:
+    get:
+      operationId: getOcrJobs
+      tags: [OCR]
+      parameters:
+        - {$ref: '#/components/parameters/FamilyQuery'}
+        - {name: status, in: query, required: false, schema: {type: string, enum: [queued, processing, completed, failed, cancelled, needs_review]}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200': {description: OCR jobs, content: {application/json: {schema: {$ref: '#/components/schemas/JobListResponse'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
   /ocr/jobs/{jobId}:
     get:
       operationId: getOcrJobsJobId
@@ -813,6 +825,24 @@ components:
         storedAt: {type: string, enum: [pantry, fridge, freezer, cellar, other]}
         opened: {type: boolean}
         category: {type: [string, 'null'], maxLength: 120}
+    JobListResponse:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [jobId, status, type, progress, draftId, error]
+            additionalProperties: false
+            properties:
+              jobId: {$ref: '#/components/schemas/Uuid'}
+              status: {type: string, enum: [queued, processing, completed, failed, cancelled, needs_review]}
+              type: {type: string, enum: [receipt, pantry_image]}
+              progress: {type: integer, minimum: 0, maximum: 100}
+              draftId: {$ref: '#/components/schemas/Uuid'}
+              error: {type: [string, 'null']}
+        nextCursor: {type: [string, 'null']}
     CreateJob:
       type: object
       required: [type, payload, deduplicationKey]
