@@ -17,6 +17,7 @@ export interface FamilyMember {
   avatar: string;
   role: Role;
   status: MemberStatus;
+  version: number;
   joinedAt?: string;
 }
 
