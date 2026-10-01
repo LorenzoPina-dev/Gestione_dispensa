@@ -963,7 +963,7 @@ components:
         reason: {type: string, enum: [spoiled, expired, damaged, other]}
     CreateProduct:
       type: object
-      required: [name, barcodes]
+      required: [name]
       additionalProperties: false
       properties:
         name: {type: string, minLength: 1, maxLength: 300}
