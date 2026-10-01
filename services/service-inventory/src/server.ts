@@ -5,12 +5,25 @@ import {Pool,type PoolClient} from "pg";
 const port=Number(process.env.PORT??3312);
 const service="service-inventory";
 const pool=new Pool({connectionString:process.env.DATABASE_URL??"postgres://inventory:inventory@postgres:5432/inventory_db"});
+const familyServiceBaseUrl=(process.env.FAMILY_SERVICE_BASE_URL??"http://service-family:3311/api/v1").replace(/\/$/,"");
 type Ctx={userId:string;familyId:string;requestId:string;correlationId:string};
 const send=(r:ServerResponse,s:number,b:unknown,id:string)=>{r.statusCode=s;r.setHeader("content-type","application/json");r.setHeader("x-request-id",id);r.end(JSON.stringify(b));};
 const fail=(r:ServerResponse,s:number,c:string,m:string,id:string)=>send(r,s,{error:{code:c,message:m,details:[],requestId:id}},id);
 async function body(req:IncomingMessage){let x="";for await(const c of req)x+=c;return x?JSON.parse(x):{};}
 function ctx(req:IncomingMessage):Ctx|null{const userId=String(req.headers["x-user-id"]??""),familyId=String(req.headers["x-family-id"]??"");return userId&&familyId?{userId,familyId,requestId:String(req.headers["x-request-id"]??randomUUID()),correlationId:String(req.headers["x-correlation-id"]??randomUUID())}:null;}
 function dto(r:any){return{itemId:r.id,productId:r.product_id,lotId:r.lot_id,quantity:Number(r.quantity),unit:r.unit,expiresAt:r.expires_at,expirationSource:r.expiration_source,location:r.location,lotCode:r.lot_code,addedAt:r.added_at,openedAt:r.opened_at,updatedAt:r.updated_at,version:r.version};}
+async function authorizeFamily(cctx:Ctx, write:boolean):Promise<{ok:true}|{ok:false,status:number,code:string,message:string}|{ok:false,status:503,code:"FAMILY_AUTH_UNAVAILABLE",message:string}>{
+ try{
+  const response=await fetch(familyServiceBaseUrl+"/families/"+encodeURIComponent(cctx.familyId)+"/members",{headers:{"x-user-id":cctx.userId,"accept":"application/json"},signal:AbortSignal.timeout(2500)});
+  if(!response.ok)return {ok:false,status:503,code:"FAMILY_AUTH_UNAVAILABLE",message:"Family authorization service is unavailable."};
+  const payload=await response.json() as {items?:Array<{userId:string,role:string,status:string}>};
+  const member=payload.items?.find((x)=>x.userId===cctx.userId);
+  if(!member||member.status!=="ACTIVE")return {ok:false,status:403,code:"FORBIDDEN",message:"User is not an active member of the family."};
+  if(write&&member.role==="viewer")return {ok:false,status:403,code:"FORBIDDEN",message:"Viewer role is read-only."};
+  return {ok:true};
+ }catch{
+  return {ok:false,status:503,code:"FAMILY_AUTH_UNAVAILABLE",message:"Family authorization service is unavailable."};
+}
 const reqHash=(v:unknown)=>createHash("sha256").update(JSON.stringify(v)).digest("hex");
 async function idem(c:PoolClient,key:string,ctx:Ctx,b:unknown){const h=reqHash(b);const q=await c.query("select * from idempotency_keys where key=$1 for update",[key]);if(q.rowCount){const r=q.rows[0];if(r.actor_user_id!==ctx.userId||r.request_hash!==h)return {conflict:true};if(r.status==="completed")return {status:r.response_status,body:r.response_body};return null;}await c.query("insert into idempotency_keys(key,actor_user_id,family_id,request_hash,status,created_at,expires_at) values($1,$2,$3,$4,'processing',now(),now()+interval '24 hours')",[key,ctx.userId,ctx.familyId,h]);return null;}
 async function finish(c:PoolClient,key:string,s:number,b:unknown){await c.query("update idempotency_keys set status='completed',response_status=$2,response_body=$3 where key=$1",[key,s,JSON.stringify(b)]);}
