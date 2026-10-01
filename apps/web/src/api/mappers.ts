@@ -13,6 +13,7 @@ const DEFAULT_UNIT_FALLBACK = "pz";
 export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
   return {
     id: dto.id ?? dto.itemId ?? "",
+    productId: dto.productId,
     name: dto.productName || `Prodotto ${dto.productId.slice(0, 8)}`,
     ...(dto.brand ? { brand: dto.brand } : {}),
     batches: dto.batches?.length ? dto.batches : [{ quantity: dto.quantity }],
