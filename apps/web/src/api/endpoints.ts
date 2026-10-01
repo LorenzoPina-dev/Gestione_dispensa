@@ -409,8 +409,8 @@ export function markNotificationRead(
 
 // --- Inventory history / dashboard ------------------------------------------
 
-export function listMovements(stockItemId: string): Promise<{ movements: MovementDto[] }> {
-  return apiRequest(`/inventory/${stockItemId}/movements`);
+export function listMovements(familyId: string, stockItemId: string): Promise<{ movements: MovementDto[] }> {
+  return apiRequest(`/inventory/${stockItemId}/movements`, { query: { familyId } });
 }
 
 // --- Recipes -----------------------------------------------------------------
