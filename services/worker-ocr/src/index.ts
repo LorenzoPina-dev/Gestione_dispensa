@@ -1,9 +1,11 @@
 import { createClient } from "redis";
-import { Pool } from "pg";
-import crypto from "node:crypto";
 
 const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
-const pool = new Pool({ connectionString: process.env.OCR_DATABASE_URL ?? process.env.DATABASE_URL });
+const queue = "q:ocr-processing";
+const base = (process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1").replace(/\/$/, "");
+const token = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
+
+if (!token) throw new Error("INTERNAL_SERVICE_TOKEN is required.");
 
 await redis.connect();
 
@@ -12,15 +14,14 @@ const shutdown = async () => {
   if (stopping) return;
   stopping = true;
   await redis.quit().catch(() => undefined);
-  await pool.end().catch(() => undefined);
 };
-process.once("SIGINT", shutdown);
-process.once("SIGTERM", shutdown);
+process.once("SIGINT", () => void shutdown());
+process.once("SIGTERM", () => void shutdown());
 
-console.log(JSON.stringify({ worker: "worker-ocr", queue: "q:ocr-processing" }));
+console.log(JSON.stringify({ worker: "worker-ocr", queue, owner: "service-ocr" }));
 
 while (!stopping) {
-  const item = await redis.brPop("q:ocr-processing", 1);
+  const item = await redis.brPop(queue, 1);
   if (!item) continue;
 
   try {
@@ -30,75 +31,37 @@ while (!stopping) {
     const jobId = event.data?.jobId;
     if (!jobId) continue;
 
-    const client = await pool.connect();
-    try {
-      await client.query("begin");
+    const response = await fetch(
+      base + "/internal/ocr/jobs/" + encodeURIComponent(jobId) + "/process",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer " + token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          familyId: event.data?.familyId ?? null,
+          userId: event.data?.userId ?? null,
+          objectKey: event.data?.objectKey ?? null,
+          type: event.data?.type ?? "receipt",
+        }),
+        signal: AbortSignal.timeout(30000),
+      },
+    );
 
-      const job = await client.query(
-        "select id,type,status,version from ocr_domain.ocr_jobs where id=$1 for update",
-        [jobId],
-      );
-      if (!job.rowCount) {
-        await client.query("rollback");
-        continue;
-      }
-
-      if (job.rows[0].status === "completed" || job.rows[0].status === "cancelled") {
-        await client.query("commit");
-        continue;
-      }
-
-      await client.query(
-        "update ocr_domain.ocr_jobs set status='needs_review',progress=100,updated_at=now(),version=version+1 where id=$1",
-        [jobId],
-      );
-
-      const draft = await client.query(
-        `insert into ocr_domain.ocr_drafts(id,job_id,confidence,status,raw_result)
-         values($1,$2,0,'draft',$3::jsonb)
-         on conflict(job_id) do nothing
-         returning id`,
-        [
-          crypto.randomUUID(),
-          jobId,
-          JSON.stringify({
-            status: "needs_review",
-            source: "worker-ocr",
-            objectKey: event.data?.objectKey ?? null,
-            items: [],
-          }),
-        ],
-      );
-
-      if (draft.rowCount) {
-        await client.query(
-          `insert into ocr_domain.ocr_draft_items(id,draft_id,name,quantity,unit,confidence)
-           values($1,$2,'Da verificare',1,'piece',0)`,
-          [crypto.randomUUID(), draft.rows[0].id],
-        );
-      }
-
-      await client.query(
-        `insert into ocr_domain.outbox_events
-          (event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
-         values($1,'OcrDraftReady',1,$2,$3,$4,now(),$5::jsonb,now())`,
-        [
-          crypto.randomUUID(),
-          jobId,
-          event.data?.familyId ?? null,
-          crypto.randomUUID(),
-          JSON.stringify({ jobId, draftId: draft.rows[0]?.id ?? null }),
-        ],
-      );
-
-      await client.query("commit");
-    } catch (error) {
-      await client.query("rollback");
-      console.error("ocr_worker_error", error);
-    } finally {
-      client.release();
+    if (!response.ok) {
+      console.error(JSON.stringify({
+        worker: "worker-ocr",
+        event: "ocr_processing_failed",
+        jobId,
+        status: response.status,
+      }));
     }
   } catch (error) {
-    console.error("ocr_worker_parse_error", error);
+    console.error(JSON.stringify({
+      worker: "worker-ocr",
+      event: "processing_error",
+      error: error instanceof Error ? error.message : String(error),
+    }));
   }
 }
