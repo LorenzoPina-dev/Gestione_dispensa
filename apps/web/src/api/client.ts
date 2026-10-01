@@ -267,8 +267,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const { method = "GET", body, idempotencyKey, ifMatch, query, signal } = options;
   const isPublic = PUBLIC_API_PATHS.has(path);
 
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
   const trace = newTraceContext();
   headers.traceparent = `00-${trace.traceId}-${trace.spanId}-01`;
   headers["X-Request-Id"] = trace.requestId;
@@ -289,7 +290,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     response = await fetch(buildUrl(path, query), {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
       signal: combinedSignal,
     });
   } catch (cause) {
