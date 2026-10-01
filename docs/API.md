@@ -461,9 +461,13 @@ Response 200 recipe completo.
 
 ### PATCH /recipes/{recipeId}
 
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
+
 Request: campi recipe modificabili. Response 200.
 
 ### DELETE /recipes/{recipeId}
+
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
 
 Response 204.
 
@@ -493,6 +497,8 @@ Response 200:
 ```
 
 ### PUT /nutrition/targets
+
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
 
 Request: stessi campi numerici, tutti obbligatori. Response 200.
 
