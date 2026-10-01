@@ -199,7 +199,7 @@ export default function App() {
   const family = useFamilyMembers(
     familyId,
     initialMembers,
-    composite.data?.family?.displayName ?? composite.data?.family?.name,
+    composite.data?.family?.name,
   );
   const notificationState = useNotifications(familyId, initialNotifications);
 
