@@ -149,7 +149,7 @@ async function syncShoppingDiff(familyId: string, prev: ShoppingList, next: Shop
     const targetState = changed[0].to;
     const allSameTarget = changed.every((c) => c.to === targetState);
     if (allSameTarget) {
-      await syncBatch(familyId, listId, changed.map((c) => c.id), targetState, next.version);
+      await syncBatch(familyId, listId, changed.map((c) => ({ itemId: c.id, version: c.version })), targetState, next.version);
     } else {
       for (const c of changed) await syncSingle(familyId, listId, c.id, c.to, c.version);
     }
@@ -160,8 +160,14 @@ async function syncShoppingDiff(familyId: string, prev: ShoppingList, next: Shop
 
   for (const item of prev.items) {
     if (!nextById.has(item.id)) {
-      // Removed client-side only (no delete-item endpoint documented); treat as IGNORED.
-      await syncSingle(familyId, listId, item.id, "IGNORED", item.version);
+      await api.deleteShoppingItem(familyId, listId, item.id, item.version).catch((err) =>
+        reportIssue(
+          "shopping",
+          `Rimozione di "${item.displayName}" non salvata sul server.`,
+          err,
+          () => api.deleteShoppingItem(familyId, listId, item.id, item.version),
+        ),
+      );
     }
   }
 }
@@ -195,14 +201,14 @@ async function syncSingle(
 async function syncBatch(
   familyId: string,
   listId: string,
-  itemIds: string[],
+  items: Array<{ itemId: string; version: number }>,
   state: UiItemState,
   listVersion: number,
 ): Promise<void> {
   const action = state === "ACCEPTED" ? "ACCEPT" : "REJECT";
-  let batch = beginShoppingBatchAction(action, itemIds, listVersion);
+  let batch = beginShoppingBatchAction(action, items.map((item) => item.itemId), listVersion);
   try {
-    const result = await api.batchUpdateShoppingItems(familyId, listId, itemIds, state);
+    const result = await api.batchUpdateShoppingItems(familyId, listId, items, state);
     batch = resolveShoppingBatchResult(
       batch,
       result.failedItemIds.length === 0
@@ -214,16 +220,16 @@ async function syncBatch(
         domain: "shopping",
         message: `${result.failedItemIds.length} articoli non aggiornati sul server.`,
         retryable: true,
-        retry: () => syncBatch(familyId, listId, result.failedItemIds, state, listVersion),
+        retry: () => syncBatch(familyId, listId, items.filter((item) => result.failedItemIds.includes(item.itemId)), state, listVersion),
       });
     }
   } catch (err) {
     batch = resolveShoppingBatchResult(batch, { outcome: classifyOutcome(err) });
     reportIssue(
       "shopping",
-      `Azione su ${itemIds.length} articoli non salvata sul server.`,
+      `Azione su ${items.length} articoli non salvata sul server.`,
       err,
-      () => syncBatch(familyId, listId, itemIds, state, listVersion),
+      () => syncBatch(familyId, listId, items, state, listVersion),
     );
   } finally {
     console.debug(`[shopping] batch ${batch.action}: ${batch.message}`);
