@@ -34,6 +34,17 @@ type Tab = "oggi" | "dispensa" | "spesa" | "ricette" | "nutrienti" | "famiglia" 
 const CAN_WRITE: Role[] = ["OWNER", "MANAGER", "MEMBER"];
 const CAN_MANAGE_FAMILY: Role[] = ["OWNER", "MANAGER"];
 
+function normalizeFamilyRole(role: string | undefined): Role {
+  switch (role?.toLowerCase()) {
+    case "owner": return "OWNER";
+    case "admin":
+    case "manager": return "MANAGER";
+    case "member": return "MEMBER";
+    case "viewer": return "VIEWER";
+    default: return "OWNER";
+  }
+}
+
 /**
  * Session bootstrap is deliberately tolerant of a missing family.
  * A valid authenticated user with zero families is a normal state: it means onboarding
@@ -99,7 +110,7 @@ export default function App() {
           name: apiUser.displayName || apiUser.email || "Utente",
           email: apiUser.email || "",
           avatar: (apiUser.displayName || apiUser.email || "U").slice(0, 2).toUpperCase(),
-          role: (active?.role as Role) || "OWNER",
+          role: normalizeFamilyRole(active?.role),
           hasFamilyId: active?.familyId || null,
         };
 
