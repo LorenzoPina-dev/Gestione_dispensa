@@ -122,7 +122,7 @@ export default function Spesa({ list, setList, currentUserName }: Props) {
       {/* Batch action bar */}
       {selected.size > 0 && (
         <div
-          className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+          className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-2xl"
           style={{ backgroundColor: colors.terracottaLight }}
         >
           <span className="text-sm font-semibold" style={{ color: colors.terracotta }}>
