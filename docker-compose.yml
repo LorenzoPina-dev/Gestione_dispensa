@@ -273,7 +273,7 @@ services:
 
   service-recipes:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
-    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
+    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -347,6 +347,7 @@ services:
       MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minio}"
       MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-miniochange}"
       MINIO_BUCKET: gestione-dispensa
+      FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
