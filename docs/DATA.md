@@ -316,7 +316,9 @@ version integer NOT NULL DEFAULT 1
 Only `list_id` is a local FK. `product_id` is a remote Catalog ID.
 ## 9. notifications_db
 
-### notifications
+All authoritative Notifications tables use schema `notifications_domain`.
+
+### notifications_domain.notifications
 
 ```text
 id UUID PK
@@ -327,26 +329,34 @@ title varchar(200) NOT NULL
 body text NOT NULL
 payload JSONB NULL
 read_at timestamptz NULL
-created_at timestamptz NOT NULL
+created_at timestamptz NOT NULL DEFAULT now()
 expires_at timestamptz NULL
-version integer NOT NULL
+version integer NOT NULL DEFAULT 1
 ```
 
-### preferences
+### notifications_domain.preferences
 
 ```text
 user_id UUID PK
-expiration boolean NOT NULL
-low_stock boolean NOT NULL
-offers boolean NOT NULL
-family boolean NOT NULL
-system boolean NOT NULL
-in_app boolean NOT NULL
-email boolean NOT NULL
-push boolean NOT NULL
-updated_at timestamptz NOT NULL
-version integer NOT NULL
+expiration boolean NOT NULL DEFAULT true
+low_stock boolean NOT NULL DEFAULT true
+offers boolean NOT NULL DEFAULT false
+family boolean NOT NULL DEFAULT true
+system boolean NOT NULL DEFAULT true
+in_app boolean NOT NULL DEFAULT true
+email boolean NOT NULL DEFAULT false
+push boolean NOT NULL DEFAULT false
+updated_at timestamptz NOT NULL DEFAULT now()
+version integer NOT NULL DEFAULT 1
 ```
+
+### notifications_domain.idempotency_keys
+
+Same common Idempotency contract as section 3, scoped to notifications_db.
+
+### notifications_domain.outbox_events
+
+Same common Outbox contract as section 3, scoped to notifications_db.
 
 ## 10. privacy_db
 
@@ -692,7 +702,7 @@ Il dump OpenFoodFacts vive qui. Nessun servizio tratta questa collection come pa
 
 ## 18. MinIO
 
-Object key:
+Object keys currently used by the application:
 
 ```text
 products/{productId}/{assetId}
@@ -701,7 +711,7 @@ privacy/{userId}/{jobId}
 attachments/{ownerType}/{ownerId}/{assetId}
 ```
 
-Il DB owner conserva object key, checksum, content type, size e ownership.
+`object_key` is authoritative only as a reference from the owning domain record. Checksum/content-type/size metadata are not yet separate authoritative tables and MUST NOT be assumed to be persisted unless explicitly added to the owner migration and this contract.
 
 ## 19. Regole di integrità non negoziabili
 
