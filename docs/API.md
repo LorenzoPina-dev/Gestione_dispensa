@@ -373,6 +373,14 @@ Response 200:
 ```
 404 se nessun provider trova il barcode.
 
+### POST /catalog/barcodes/resolve
+
+Request: body `{barcode}` con il barcode numerico.
+
+Response 200: `{data:{resolution,product}}`.
+
+Il lookup è read-only; 404 se il prodotto non è disponibile, 502 se il provider è irraggiungibile.
+
 ### POST /catalog/products
 
 Headers: `X-Idempotency-Key` obbligatorio.
