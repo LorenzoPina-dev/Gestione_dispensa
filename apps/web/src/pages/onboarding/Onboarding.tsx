@@ -88,7 +88,7 @@ export default function Onboarding({ user, onComplete }: Props) {
         timezone: "Europe/Rome",
         unitSystem: "METRIC",
       });
-      const resolvedFamilyId = result.family.id;
+      const resolvedFamilyId = result.familyId;
       setSubmitting(false);
       setStep("create_done");
       onComplete({ ...user, hasFamilyId: resolvedFamilyId, role: "OWNER" });
