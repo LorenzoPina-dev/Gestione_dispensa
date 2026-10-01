@@ -214,12 +214,19 @@ async function composite(
   }
 }
 
+async function getActiveShopping(familyId: string, authorization?: string): Promise<Record<string, any> | undefined> {
+  const lists = await serviceGet(shoppingBaseUrl, "/shopping/lists", authorization, { familyId });
+  const active = Array.isArray(lists.items) ? lists.items.find((item: any) => item.status === "open") : undefined;
+  if (!active) return undefined;
+  return serviceGet(shoppingBaseUrl, `/shopping/lists/${encodeURIComponent(String(active.listId))}`, authorization);
+}
+
 async function dashboardView(familyId: string, authorization?: string) {
   const [family, members, pantry, shopping, recipes, notifications, ocr] = await Promise.all([
     coreGet(`/families/${encodeURIComponent(familyId)}`, authorization),
     coreGet(`/families/${encodeURIComponent(familyId)}/members`, authorization),
     coreGet("/inventory", authorization, { familyId }),
-    coreGet("/shopping-lists/active", authorization, { familyId }),
+    getActiveShopping(familyId, authorization),
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
     serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr-jobs", authorization, { familyId, status: "NEEDS_REVIEW" }),
@@ -242,7 +249,7 @@ async function pantryView(familyId: string, authorization?: string) {
 async function shoppingView(familyId: string, authorization?: string) {
   const [shopping, pantry, notifications] = await Promise.all([
     coreGet("/shopping-lists/active", authorization, { familyId }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    coreGet("/inventory", authorization, { familyId }),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, shopping, notifications);
