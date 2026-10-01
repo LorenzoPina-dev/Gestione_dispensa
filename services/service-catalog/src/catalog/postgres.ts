@@ -1,10 +1,10 @@
-import type {
-  CatalogRepository,
-  CatalogUpdatedEvent,
-  IdentifierType,
-  Product,
-  ProductProvenance,
+import {
   CatalogVersionConflictError,
+  type CatalogRepository,
+  type CatalogUpdatedEvent,
+  type IdentifierType,
+  type Product,
+  type ProductProvenance,
 } from "./service.js";
 import type {
   CatalogCandidateRepository,
@@ -438,7 +438,7 @@ function mapProduct(row: ProductRow): Product {
     defaultUnit: row.default_unit,
     status: row.status,
     provenanceQuality: row.provenance_quality as Product["provenanceQuality"],
-    version: row.version as 1,
+    version: Number(row.version),
     ...(row.category ? { category: row.category } : {}),
     ...(row.photo_url ? { photoUrl: row.photo_url } : {}),
     ...(row.calories_per_100 != null ? { calories: Number(row.calories_per_100) } : {}),
