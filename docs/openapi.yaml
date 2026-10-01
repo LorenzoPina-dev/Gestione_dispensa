@@ -1100,6 +1100,26 @@ components:
         productId: {$ref: '#/components/schemas/Uuid'}
         quantity: {type: number, exclusiveMinimum: 0}
         unit: {type: string, enum: [g, kg]}
+    NutritionSummary:
+      type: object
+      required: [caloriesKcal, proteinG, carbsG, fatG, period, totals]
+      additionalProperties: false
+      properties:
+        caloriesKcal: {type: number, minimum: 0}
+        proteinG: {type: number, minimum: 0}
+        carbsG: {type: number, minimum: 0}
+        fatG: {type: number, minimum: 0}
+        period: {type: string, enum: [today, week]}
+        totals:
+          type: object
+          required: [calories, protein, carbs, fat, fiber]
+          additionalProperties: false
+          properties:
+            calories: {type: number, minimum: 0}
+            protein: {type: number, minimum: 0}
+            carbs: {type: number, minimum: 0}
+            fat: {type: number, minimum: 0}
+            fiber: {type: number, minimum: 0}
     CreateStore:
       type: object
       required: [name]
