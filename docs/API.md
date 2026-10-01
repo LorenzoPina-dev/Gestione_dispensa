@@ -220,8 +220,9 @@ Request:
 
 Response 201:
 ```json
-{"data":{"inviteId":"uuid","email":"invitee@example.com","role":"member","status":"pending","expiresAt":"2026-10-01T15:30:00Z"},"version":1}
+{"data":{"inviteId":"uuid","email":"invitee@example.com","role":"member","status":"pending","expiresAt":"2026-10-01T15:30:00Z","fallbackCode":"123456","qrPayload":"opaque-token"},"version":1}
 ```
+`fallbackCode` e `qrPayload` sono restituiti alla creazione e non vengono persistiti in chiaro.
 
 ### GET /families/{familyId}/invites
 
@@ -233,6 +234,37 @@ Response 200:
 ### DELETE /families/{familyId}/invites/{inviteId}
 
 Response 204. Revoca il token; non modifica membership esistenti.
+
+### POST /family-invites/resolve
+
+Request:
+```json
+{"token":"opaque-token","browserBindingHash":"hex-hash"}
+```
+Crea un `join attempt` temporaneo e non modifica la membership. Response 200:
+```json
+{"data":{"id":"uuid","inviteId":"uuid","userId":"uuid","state":"PENDING_REVIEW","expiresAt":"2026-10-01T15:45:00Z","familyId":"uuid","role":"MEMBER"},"version":1}
+```
+
+### POST /family-invites/resolve-code
+
+Request:
+```json
+{"code":"123456","browserBindingHash":"hex-hash"}
+```
+Stesso comportamento di `resolve`, usando il codice alternativo.
+
+### POST /invites/{attemptId}/accept
+
+Request:
+```json
+{"consentVersion":"privacy-consent-v1"}
+```
+Response 201:
+```json
+{"data":{"familyId":"uuid","userId":"uuid","role":"member","joinedAt":"2026-10-01T15:30:00Z"},"version":1}
+```
+Il `join attempt` e l'invito vengono consumati atomicamente; la chiamata richiede `X-Idempotency-Key`.
 
 ### GET /family-invites/{token}
 
