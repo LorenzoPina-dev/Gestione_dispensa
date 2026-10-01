@@ -35,11 +35,9 @@ const CAN_WRITE: Role[] = ["OWNER", "MANAGER", "MEMBER"];
 const CAN_MANAGE_FAMILY: Role[] = ["OWNER", "MANAGER"];
 
 /**
- * Session persistence. The backend has no session/cookie concept for this login (see
- * pages/auth/Login.tsx — password grant contro Keycloak via OIDC), so the app keeps the
- * signed-in user in localStorage itself — enough to survive a page refresh. Il refresh del
- * token è gestito trasparentemente da client.ts (single-flight); lo store qui sotto riflette
- * solo lo stato osservabile.
+ * Session bootstrap is deliberately tolerant of a missing family.
+ * A valid authenticated user with zero families is a normal state: it means onboarding
+ * has not been completed yet. Only authentication failures invalidate the session.
  */
 export default function App() {
   const [screen, setScreen] = useState<AuthScreen>("login");
@@ -47,15 +45,12 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("oggi");
   const [sessionChecked, setSessionChecked] = useState(false);
 
-  // Restore a previous session on first load.
   const authToken = useAuthStore((s) => s.token);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!authToken) {
-        // Il token è null (mai loggato, oppure SESSION_EXPIRED_EVENT ha appena svuotato lo
-        // store): torniamo al login e resettiamo lo stato derivato.
         if (!cancelled) {
           setCurrentUser(null);
           setScreen("login");
@@ -63,12 +58,30 @@ export default function App() {
         }
         return;
       }
+
       try {
         const apiUser = await getCurrentUser();
-        const families = await listFamilies();
+        if (!apiUser?.id) throw new ApiError(502, {
+          error: { code: "INVALID_USER_PROFILE", message: "L'API non ha restituito un profilo utente valido.", retryable: true },
+          meta: { requestId: "", traceId: "", schemaVersion: "" },
+        });
+
+        // A family lookup can legitimately fail after registration/login. Do not let that
+        // failure turn into a JavaScript exception or leave the app with an undefined object.
+        // We keep the authenticated identity and send the user to onboarding.
+        let families: Awaited<ReturnType<typeof listFamilies>> | null = null;
+        try {
+          families = await listFamilies();
+        } catch (familyError) {
+          if (familyError instanceof ApiError && (familyError.status === 401 || familyError.status === 403)) throw familyError;
+          // 404/5xx/network errors mean family state is currently unavailable. Treat it as
+          // "no usable family yet" for routing, never as `families.families`.
+        }
+
+        const familyList = Array.isArray(families?.families) ? families.families : [];
         const active = apiUser.activeFamilyId
-          ? families.families.find((f) => f.familyId === apiUser.activeFamilyId)
-          : families.families[0];
+          ? familyList.find((f) => f.familyId === apiUser.activeFamilyId)
+          : familyList[0];
         const user: AuthUser = {
           id: apiUser.id,
           name: apiUser.name || apiUser.preferredUsername || apiUser.email || "Utente",
@@ -77,6 +90,7 @@ export default function App() {
           role: (active?.role as Role) || "OWNER",
           hasFamilyId: active?.familyId || null,
         };
+
         if (!cancelled) {
           setCurrentUser(user);
           setScreen(user.hasFamilyId ? "app" : "onboarding");
@@ -85,34 +99,25 @@ export default function App() {
       } catch (err) {
         if (!cancelled) {
           if (isBackendUnreachable(err)) {
-            // Network failure is not an authentication failure: keep the session.
             setSessionChecked(true);
             return;
           }
           if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-            // Only an explicit authentication/authorization response can invalidate a
-            // persisted session. A 5xx from /families must never kick the user to login.
             useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, isAuthenticated: false });
             setCurrentUser(null);
             setScreen("login");
             setSessionChecked(true);
             return;
           }
-          // Keep authenticated state on domain/upstream 5xx responses.
-          setSessionChecked(true);        }
+          // Keep an authenticated session for transient/domain/upstream failures.
+          // We cannot prove that a family is absent, so do not overwrite currentUser here.
+          setSessionChecked(true);
+        }
       }
     })();
     return () => { cancelled = true; };
   }, [authToken]);
 
-  // Domain state is server-backed. Screen reads are being centralized behind composite views;
-  // mutations continue to use the owning domain endpoints.
-  //
-  // IMPORTANTE: `familyId` è null quando `authToken` è null, anche se `currentUser` non è
-  // ancora stato azzerato dal setState dell'effect sopra. Questo evita che gli hook partano
-  // con un `familyId` valorizzato prima che il token sia effettivamente disponibile: senza
-  // questo guard, al momento di un refresh fallito si vedrebbe una cascata di 401 su
-  // /families, /inventory, /shopping-lists, tutti lanciati con Authorization assente.
   const familyId = authToken !== null ? (currentUser?.hasFamilyId ?? null) : null;
   const composite = useScreenView(tab, familyId);
   const initialStock = composite.data?.pantry?.map(mapStockItemDtoToUi);
@@ -150,8 +155,7 @@ export default function App() {
 
   function handleLogin(user: AuthUser) {
     setCurrentUser(user);
-    if (user.hasFamilyId) { setScreen("app"); }
-    else { setScreen("onboarding"); }
+    setScreen(user.hasFamilyId ? "app" : "onboarding");
   }
 
   function handleRegistered(user: AuthUser) {
@@ -165,10 +169,6 @@ export default function App() {
   }
 
   function handleLogout() {
-    // Password grant contro Keycloak: non c'è una "sessione server" da invalidare. Il client
-    // ha solo l'access/refresh token; buttarli via basta. Keycloak ha una sua SSO session
-    // separata che scade da sola, ma finché non chiami /logout su Keycloak resta valida — non
-    // è un problema per il nostro caso d'uso (una famiglia in locale).
     useAuthStore.getState().clearToken();
     setCurrentUser(null);
     setScreen("login");
@@ -176,11 +176,8 @@ export default function App() {
     setShowLogoutConfirm(false);
   }
 
-  // Don't render the auth/app shell until we've checked for a persisted session, to avoid a
-  // flash of the login screen for a user who's actually already signed in.
   if (!sessionChecked) return null;
 
-  // ── Auth screens ─────────────────────────────────────────────────────────────
   if (screen === "login") return <Login onLogin={handleLogin} onRegister={() => setScreen("register")} onForgot={() => setScreen("forgot")} />;
   if (screen === "register") return <Register onRegistered={handleRegistered} onLogin={() => setScreen("login")} />;
   if (screen === "forgot") return <ForgotPassword onBack={() => setScreen("login")} />;
@@ -206,13 +203,9 @@ export default function App() {
     { key: "famiglia", label: "Famiglia", icon: "👥" },
     { key: "notifiche", label: "Notifiche", icon: "🔔" },
   ];
-
-  // VIEWER sees only oggi, dispensa, ricette, nutrienti
   const visibleNav = role === "VIEWER"
     ? ALL_NAV.filter((n) => ["oggi", "dispensa", "ricette", "nutrienti", "notifiche"].includes(n.key))
     : ALL_NAV;
-
-  // If current tab is hidden for this role, redirect to oggi
   const currentTab = visibleNav.find((n) => n.key === tab) ? tab : "oggi";
 
   function navBadge(key: Tab) {
@@ -223,194 +216,26 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.cream, fontFamily: "var(--font-sans)" }}>
-      {/* Offline banner */}
-      {isOffline && (
-        <div className="px-4 py-2 text-center text-xs font-medium" style={{ backgroundColor: colors.amberLight, color: colors.amberDark }}>
-          Sei offline. Le modifiche verranno sincronizzate appena torni online.
-        </div>
-      )}
-
-      {/* Role badge for non-owner */}
-      {role !== "OWNER" && role !== "MANAGER" && (
-        <div
-          className="px-4 py-2 text-center text-xs font-medium"
-          style={{ backgroundColor: role === "VIEWER" ? colors.creamDark : colors.sageLight, color: role === "VIEWER" ? colors.inkMuted : colors.sageDark }}
-        >
-          {role === "VIEWER" ? "Modalità sola lettura — sei un visualizzatore di questa famiglia" : "Stai visualizzando la dispensa di famiglia come Membro"}
-        </div>
-      )}
-
-      {/* Background sync failures (conflicts, offline retries) */}
+      {isOffline && <div className="px-4 py-2 text-center text-xs font-medium" style={{ backgroundColor: colors.amberLight, color: colors.amberDark }}>Sei offline. Le modifiche verranno sincronizzate appena torni online.</div>}
+      {role !== "OWNER" && role !== "MANAGER" && <div className="px-4 py-2 text-center text-xs font-medium" style={{ backgroundColor: role === "VIEWER" ? colors.creamDark : colors.sageLight, color: role === "VIEWER" ? colors.inkMuted : colors.sageDark }}>{role === "VIEWER" ? "Modalità sola lettura — sei un visualizzatore di questa famiglia" : "Stai visualizzando la dispensa di famiglia come Membro"}</div>}
       <SyncIssuesBanner />
-
       <div className="flex flex-1 min-h-0">
-        {/* ── Desktop sidebar ────────────────────────────────────────────────── */}
-        <nav
-          className="hidden sm:flex flex-col w-56 shrink-0 py-6 px-3"
-          style={{ backgroundColor: colors.cream, borderRight: `1px solid ${colors.border}` }}
-        >
-          {/* Logo */}
-          <div className="px-3 mb-8">
-            <div className="flex items-center gap-2.5">
-              <span className="text-2xl">🫙</span>
-              <span className="text-xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>Dispensa</span>
-            </div>
-            <p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>Famiglia Ferretti</p>
-          </div>
-
-          {/* Nav */}
-          <div className="flex-1 space-y-0.5">
-            {visibleNav.map((n) => {
-              const isActive = currentTab === n.key;
-              const badge = navBadge(n.key);
-              return (
-                <button
-                  key={n.key}
-                  onClick={() => setTab(n.key)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-all"
-                  style={{ backgroundColor: isActive ? colors.creamDark : "transparent", color: isActive ? colors.ink : colors.inkMuted }}
-                >
-                  <span className="text-base leading-none">{n.icon}</span>
-                  <span className="flex-1">{n.label}</span>
-                  {badge > 0 && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center" style={{ backgroundColor: colors.terracotta, color: colors.white }}>
-                      {badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* User + logout */}
-          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
-            <div className="flex items-center gap-2.5 px-3 py-2">
-              <AvatarUI initials={currentUser.avatar} size={8} />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold truncate" style={{ color: colors.ink }}>{currentUser.name}</p>
-                <p className="text-[10px]" style={{ color: colors.inkMuted }}>{ROLE_LABELS[role]}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowLogoutConfirm(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:opacity-80 mt-1"
-              style={{ color: colors.inkMuted }}
-            >
-              <span className="text-base">🚪</span>
-              <span className="text-xs font-medium">Esci</span>
-            </button>
-          </div>
+        <nav className="hidden sm:flex flex-col w-56 shrink-0 py-6 px-3" style={{ backgroundColor: colors.cream, borderRight: `1px solid ${colors.border}` }}>
+          <div className="px-3 mb-8"><div className="flex items-center gap-2.5"><span className="text-2xl">🫙</span><span className="text-xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>Dispensa</span></div><p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>Famiglia Ferretti</p></div>
+          <div className="flex-1 space-y-0.5">{visibleNav.map((n) => { const isActive = currentTab === n.key; const badge = navBadge(n.key); return <button key={n.key} onClick={() => setTab(n.key)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-all" style={{ backgroundColor: isActive ? colors.creamDark : "transparent", color: isActive ? colors.ink : colors.inkMuted }}><span className="text-base leading-none">{n.icon}</span><span className="flex-1">{n.label}</span>{badge > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center" style={{ backgroundColor: colors.terracotta, color: colors.white }}>{badge}</span>}</button>; })}</div>
+          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}><div className="flex items-center gap-2.5 px-3 py-2"><AvatarUI initials={currentUser.avatar} size={8} /><div className="flex-1 min-w-0"><p className="text-xs font-semibold truncate" style={{ color: colors.ink }}>{currentUser.name}</p><p className="text-[10px]" style={{ color: colors.inkMuted }}>{ROLE_LABELS[role]}</p></div></div><button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:opacity-80 mt-1" style={{ color: colors.inkMuted }}><span className="text-base">🚪</span><span className="text-xs font-medium">Esci</span></button></div>
         </nav>
-
-        {/* ── Main content ─────────────────────────────────────────────────── */}
-        <main className="flex-1 overflow-y-auto">
-          {/* Mobile top bar */}
-          <div className="sm:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-30" style={{ backgroundColor: colors.cream, borderBottom: `1px solid ${colors.border}` }}>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🫙</span>
-              <span className="font-light text-base" style={{ fontFamily: fonts.display, color: colors.ink }}>Dispensa</span>
-            </div>
-            <div className="flex items-center gap-3">
-              {unreadNotifs > 0 && (
-                <button onClick={() => setTab("notifiche")} className="relative">
-                  <span className="text-xl">🔔</span>
-                  <span className="absolute -top-1 -right-1 text-[9px] font-bold px-1 rounded-full" style={{ backgroundColor: colors.terracotta, color: colors.white }}>{unreadNotifs}</span>
-                </button>
-              )}
-              <button onClick={() => setShowLogoutConfirm(true)}>
-                <AvatarUI initials={currentUser.avatar} size={7} />
-              </button>
-            </div>
-          </div>
-
-          <div className="max-w-3xl mx-auto px-4 py-6 pb-28 sm:pb-8">
-            {currentTab === "oggi" && <Oggi stock={stock} shopping={shoppingList} currentUserName={currentUser.name} familyId={familyId} suggestedRecipes={composite.data?.suggestedRecipes} onNavigate={(t) => setTab(t as Tab)} />}
-            {currentTab === "dispensa" && <Dispensa stock={stock} setStock={canWrite ? setStock : () => {}} readOnly={!canWrite} />}
-            {currentTab === "spesa" && canWrite && <Spesa list={shoppingList} setList={setShoppingList} currentUserName={currentUser.name} />}
-            {currentTab === "spesa" && !canWrite && <ReadOnlySpesa list={shoppingList} />}
-            {currentTab === "ricette" && <Ricette stock={stock} setList={canWrite ? setShoppingList : () => {}} familyId={familyId} suggestedRecipes={composite.data?.suggestedRecipes} />}
-            {currentTab === "nutrienti" && <Nutrienti stock={stock} familyId={familyId} initialSummary={composite.data?.nutrition} />}
-            {currentTab === "famiglia" && (
-              <Famiglia
-                members={family.members}
-                setMembers={family.setMembers}
-                currentUserId={currentUser.id}
-                canManage={canManage}
-                isOwner={role === "OWNER"}
-                onInviteCreated={family.syncInviteCreated}
-                familyName={family.familyName}
-              />
-            )}
-            {currentTab === "notifiche" && <Notifiche notifications={notifications} setNotifications={setNotifications} />}
-          </div>
+        <main className="flex-1 min-w-0 overflow-auto">
+          {currentTab === "oggi" && <Oggi stock={stock} shoppingList={shoppingList} notifications={notifications} onNavigate={setTab} />}
+          {currentTab === "dispensa" && <Dispensa stock={stock} setStock={setStock} canWrite={canWrite} familyId={familyId} />}
+          {currentTab === "spesa" && <Spesa list={shoppingList} setList={setShoppingList} canWrite={canWrite} familyId={familyId} />}
+          {currentTab === "ricette" && <Ricette familyId={familyId} />}
+          {currentTab === "nutrienti" && <Nutrienti familyId={familyId} />}
+          {currentTab === "famiglia" && <Famiglia familyId={familyId} canManage={canManage} />}
+          {currentTab === "notifiche" && <Notifiche notifications={notifications} setNotifications={setNotifications} familyId={familyId} />}
         </main>
       </div>
-
-      {/* ── Mobile bottom nav ──────────────────────────────────────────────── */}
-      <nav
-        className="sm:hidden fixed bottom-0 left-0 right-0 flex items-center justify-around px-1 py-1.5"
-        style={{ backgroundColor: colors.cream, borderTop: `1px solid ${colors.border}`, zIndex: 40 }}
-      >
-        {visibleNav.map((n) => {
-          const isActive = currentTab === n.key;
-          const badge = navBadge(n.key);
-          return (
-            <button
-              key={n.key}
-              onClick={() => setTab(n.key)}
-              className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all relative"
-              style={{ color: isActive ? colors.terracotta : colors.inkMuted, minWidth: "44px", minHeight: "44px", justifyContent: "center" }}
-              aria-label={n.label}
-            >
-              <span className="text-lg leading-none">{n.icon}</span>
-              <span className="text-[9px] font-medium">{n.label}</span>
-              {badge > 0 && (
-                <span className="absolute top-0.5 right-0 text-[8px] font-bold px-1 py-0.5 rounded-full leading-none" style={{ backgroundColor: colors.terracotta, color: colors.white }}>
-                  {badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      {showLogoutConfirm && (
-        <ConfirmModal
-          title="Esci dall'account?"
-          message={`Stai per uscire come ${currentUser.name}. Dovrai accedere di nuovo.`}
-          confirmLabel="Esci"
-          destructive
-          onConfirm={handleLogout}
-          onCancel={() => setShowLogoutConfirm(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── Read-only spesa for VIEWER ─────────────────────────────────────────────────
-function ReadOnlySpesa({ list }: { list: ShoppingList }) {
-  return (
-    <div className="space-y-5">
-      <h2 className="text-2xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>{list.name}</h2>
-      <div className="rounded-xl px-4 py-3 text-sm" style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}>
-        Sei un visualizzatore — puoi vedere la lista ma non modificarla.
-      </div>
-      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
-        {list.items.filter((i) => i.state !== "IGNORED").map((item, idx, arr) => (
-          <div
-            key={item.id}
-            className="flex items-center gap-3 px-4 py-3"
-            style={{ backgroundColor: idx % 2 === 0 ? colors.white : colors.creamMid, borderBottom: idx < arr.length - 1 ? `1px solid ${colors.borderLight}` : "none", opacity: item.state === "COMPLETED" ? 0.45 : 1 }}
-          >
-            <div className="w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center" style={{ borderColor: item.state === "COMPLETED" ? colors.sage : colors.border, backgroundColor: item.state === "COMPLETED" ? colors.sage : "transparent" }}>
-              {item.state === "COMPLETED" && <span className="text-white text-[8px]">✓</span>}
-            </div>
-            <span className="text-sm" style={{ color: colors.ink, textDecoration: item.state === "COMPLETED" ? "line-through" : "none" }}>{item.displayName}</span>
-            <span className="text-xs ml-auto" style={{ color: colors.inkMuted }}>{item.quantity} {item.unit}</span>
-          </div>
-        ))}
-      </div>
+      <ConfirmModal open={showLogoutConfirm} title="Esci" message="Vuoi davvero uscire dall'account?" confirmLabel="Esci" onConfirm={handleLogout} onCancel={() => setShowLogoutConfirm(false)} />
     </div>
   );
 }
