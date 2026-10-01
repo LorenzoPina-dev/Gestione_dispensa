@@ -85,6 +85,14 @@ export interface CatalogClock {
   now(): Date;
 }
 
+export class CatalogVersionConflictError extends Error {
+  public readonly code = "VERSION_CONFLICT";
+  public constructor() {
+    super("Product version changed.");
+    this.name = "CatalogVersionConflictError";
+  }
+}
+
 export class CatalogValidationError extends Error {
   public readonly code = "VALIDATION_ERROR";
   public readonly issues: readonly string[];
@@ -213,5 +221,6 @@ function validate(command: CreateManualProductCommand, canonicalName: string): s
   if (command.traceId.trim().length < 16) issues.push("traceId is required");
   if (!["g", "kg", "ml", "l", "piece", "pack"].includes(command.defaultUnit))
     issues.push("defaultUnit is invalid");
+  if (command.barcodes.length < 1) issues.push("barcodes are required");
   return issues;
 }
