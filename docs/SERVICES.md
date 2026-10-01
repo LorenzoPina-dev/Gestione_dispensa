@@ -24,23 +24,27 @@ Questo documento è normativo. Un dominio ha **un solo owner**. Directory, worke
 
 ## 2. Workers
 
-Workers are execution processes, not domain owners:
+Workers are execution processes, not domain owners.
 
-- worker-core;
-- worker-ocr;
-- worker-shelf-life;
-- worker-off-sync;
-- worker-notifications;
-- worker-integrations;
-- scheduler;
-- search-indexer.
+### Runtime-enabled in this release
+- worker-ocr
+- worker-shelf-life
+
+### Present but not runtime-enabled
+- worker-core: legacy reconciliation still references the pre-2.0 Inventory model; it MUST NOT be started.
+- worker-notifications: recipient resolution still references the pre-2.0 Family/notification model; it MUST NOT be started.
+- worker-off-sync: exploratory read-through only; it is not an authoritative synchronization mechanism.
+- worker-integrations: deprecated implementation under migration.
+- scheduler: no executable runtime contract in this release.
+- search-indexer: rebuildable projection component, not required in the request path.
+
+A process may become runtime-enabled only after its source, DB/API boundary, migration, health contract and tests conform to this document.
 
 A worker may write only:
 1. its own execution metadata through Jobs, or
 2. the DB of its domain owner through that owner's service contract.
 
 It must never receive credentials for another service's DB.
-
 ## 3. Canonical port rule
 
 The ports above are internal Docker/network ports. They are not browser-facing.
