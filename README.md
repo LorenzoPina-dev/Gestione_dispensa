@@ -5,7 +5,7 @@ Gestione Dispensa is a modular household food-management platform. The backend h
 ## Target architecture
 
 - HTTPS entrypoint: NGINX `:8443`
-- API Gateway: `:3000`
+- API Gateway interno: `:3300` (esposto al browser solo tramite NGINX `:8443`)
 - Keycloak for identity
 - One bounded-context service per domain
 - Database ownership per service
@@ -19,17 +19,22 @@ Gestione Dispensa is a modular household food-management platform. The backend h
 
 ## Backend services
 
-`identity`, `users`, `families`, `products`, `barcode`, `vision`, `inventory`, `expiration`, `shopping`, `stores`, `offers`, `recipes`, `nutrition`, `notifications`, `media`, `search`, `analytics`.
+Canonical services:
 
-Workers handle OFF ingestion, image processing, offer synchronization, expiration jobs, notifications and analytics projections.
+`service-identity`, `service-family`, `service-inventory`, `service-catalog`, `service-shopping`, `service-recipes`, `service-nutrition`, `service-stores`, `service-notifications`, `service-ocr`, `service-shelf-life`, `service-privacy`, `service-jobs`, plus `off-lookup`.
 
+Workers currently runnable in the baseline:
+
+`worker-ocr` and `worker-shelf-life`.
+
+Additional worker/search runtimes may be added only when their consumer contract and executable runtime are present; they are not treated as active services merely because source packages exist.
 ## Incremental development
 
-Every service owns its Dockerfile, package manifest, TypeScript project and runtime. A change to `services/service-inventory` is built with:
+Every service owns its Dockerfile, package manifest, TypeScript project and runtime. Each service owns its Dockerfile, package manifest, TypeScript project, migration set and runtime. For example:
 
 ```bash
-docker compose build inventory
-docker compose up -d inventory
+docker compose build service-inventory
+docker compose up -d service-inventory
 ```
 
 It must not rebuild unrelated services.
