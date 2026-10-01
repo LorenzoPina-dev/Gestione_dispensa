@@ -24,6 +24,44 @@ tags:
   - name: Privacy
   - name: Composite
 paths:
+  /auth/register:
+    post:
+      operationId: register
+      tags: [Identity]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterRequest'}
+      responses:
+        '201': {description: Registration accepted, content: {application/json: {schema: {$ref: '#/components/schemas/RegisterResponse'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '502': {$ref: '#/components/responses/BadGateway'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [Identity]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResetPasswordRequest'}
+      responses:
+        '202': {description: Reset accepted, content: {application/json: {schema: {$ref: '#/components/schemas/ResetPasswordResponse'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Identity]
+      requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
+      responses:
+        '204': {description: Logout accepted}
+        '401': {$ref: '#/components/responses/Unauthorized'}
   /identity/me:
     get:
       operationId: getIdentityMe
@@ -631,6 +669,40 @@ components:
         avatarUrl: {type: [string, 'null'], maxLength: 1000}
         locale: {type: string, maxLength: 16}
         timezone: {type: string, maxLength: 64}
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, password]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        email: {type: string, format: email, maxLength: 320}
+        password: {type: string, minLength: 8, maxLength: 200}
+    RegisterResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [success, message]
+          properties:
+            success: {type: boolean}
+            message: {type: string}
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: {type: string, format: email, maxLength: 320}
+    ResetPasswordResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [accepted, message]
+          properties:
+            accepted: {type: boolean}
+            message: {type: string}
     ProfileResponse:
       allOf:
         - {$ref: '#/components/schemas/DataResponse'}
