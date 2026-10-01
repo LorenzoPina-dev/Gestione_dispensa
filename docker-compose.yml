@@ -296,12 +296,32 @@ services:
 
   service-shelf-life:
     build: { context: ., dockerfile: services/service-shelf-life/Dockerfile }
-    environment: { PORT: 3404, SERVICE_NAME: service-shelf-life, DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db" }
-    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      PORT: 3404
+      SERVICE_NAME: service-shelf-life
+      DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
+      REDIS_URL: "redis://redis:6379"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
+      INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-inventory: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
-    networks: [backend, data]
+    networks: [backend, data, messaging]
 
+  worker-shelf-life:
+    build: { context: ., dockerfile: services/worker-shelf-life/Dockerfile }
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      SHELF_LIFE_SERVICE_BASE_URL: "http://service-shelf-life:3404/api/v1"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
+    depends_on:
+      redis: { condition: service_healthy }
+      service-shelf-life: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [backend, data, messaging]
   service-ocr:
     build: { context: ., dockerfile: services/service-ocr/Dockerfile }
     environment: { PORT: 3405, SERVICE_NAME: service-ocr, DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db" }
