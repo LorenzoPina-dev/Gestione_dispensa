@@ -207,6 +207,28 @@ app.post("/api/v1/internal/ocr/jobs/:jobId/process", async (req,res)=>{
   finally{client.release();}
 });
 
+app.get("/api/v1/ocr/jobs", async (req, res) => {
+  const actor = userId(req);
+  const family = String(req.query.familyId ?? req.header("x-family-id") ?? "").trim();
+  const status = String(req.query.status ?? "").trim().toLowerCase();
+  if (!actor) return fail(res, 401, "UNAUTHENTICATED", "Authenticated user required.");
+  if (!family) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");
+  const allowed = ["queued","processing","completed","failed","cancelled","needs_review"];
+  if (status && !allowed.includes(status)) return fail(res, 400, "VALIDATION_ERROR", "Invalid OCR status.");
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+  try {
+    const q = await pool.query(
+      "select j.id,j.status,j.type,j.progress,j.error_code,j.version, coalesce((select d.id::text from ocr_domain.ocr_drafts d where d.job_id=j.id order by d.created_at desc limit 1),'') as draft_id from ocr_domain.ocr_jobs j where j.user_id=$1 and j.family_id=$2 and ($3='' or j.status=$3) order by j.created_at desc limit $4",
+      [actor, family, status, limit],
+    );
+    return res.json({
+      items: q.rows.map((row) => ({ jobId: row.id, status: row.status, type: row.type, progress: Number(row.progress), draftId: row.draft_id || null, error: row.error_code ?? null })),
+      nextCursor: null,
+    });
+  } catch {
+    return fail(res, 500, "INTERNAL_ERROR", "Unable to list OCR jobs.");
+  }
+});
 app.get("/api/v1/ocr/jobs/:jobId", async (req, res) => {
   const actor = userId(req);
   if (!actor) return fail(res, 401, "UNAUTHENTICATED", "Authenticated user required.");
@@ -245,14 +267,23 @@ app.get("/api/v1/ocr/drafts/:draftId", async (req,res) => {
   );
   if(!q.rowCount)return fail(res,404,"NOT_FOUND","OCR draft not found.");
   const row=q.rows[0];
-  const raw=(typeof row.raw_result==="object"&&row.raw_result!==null)?row.raw_result as Record<string,unknown>:{};
+  const items=await pool.query("select name,barcode,quantity,unit,price_minor,currency,confidence,product_id from ocr_domain.ocr_draft_items where draft_id=$1 order by id",[req.params.draftId]);
   return res.json({
     data:{
       draftId:row.id,
       jobId:row.job_id,
       type:row.type,
       confidence:Number(row.confidence),
-      items:Array.isArray(raw.items)?raw.items:[],
+      items:items.rows.map((item)=>({
+        name:item.name,
+        barcode:item.barcode,
+        quantity:item.quantity===null?null:Number(item.quantity),
+        unit:item.unit,
+        priceMinor:item.price_minor===null?null:Number(item.price_minor),
+        currency:item.currency,
+        confidence:Number(item.confidence),
+        ...(item.product_id?{productId:item.product_id}:{}),
+      })),
     },
     version:Number(row.version),
   });
