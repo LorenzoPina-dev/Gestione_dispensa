@@ -37,7 +37,7 @@ export function getReadiness(): Promise<ReadinessDto> {
 // --- Auth / Identity ---------------------------------------------------------
 
 export function getCurrentUser(): Promise<UserDto> {
-  return apiRequest<UserDto>("/auth/me");
+  return apiRequest<UserDto>("/identity/me");
 }
 
 export function logoutSession(): Promise<void> {
