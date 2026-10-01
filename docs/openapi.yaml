@@ -1099,7 +1099,7 @@ components:
         meal: {type: string, enum: [breakfast, snack, lunch, dinner, other]}
         productId: {$ref: '#/components/schemas/Uuid'}
         quantity: {type: number, exclusiveMinimum: 0}
-        unit: {type: string, maxLength: 16}
+        unit: {type: string, enum: [g, kg]}
     CreateStore:
       type: object
       required: [name]
