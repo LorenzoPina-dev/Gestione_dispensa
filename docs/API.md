@@ -185,7 +185,7 @@ Response 200:
 
 Response 200:
 ```json
-{"items":[{"userId":"uuid","role":"member","joinedAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
+{"items":[{"userId":"uuid","role":"member","status":"ACTIVE","version":3,"joinedAt":"2026-09-30T15:30:00Z"}],"nextCursor":null}
 ```
 
 ### PATCH /families/{familyId}/members/{userId}
