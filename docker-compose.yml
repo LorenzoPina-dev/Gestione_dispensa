@@ -37,6 +37,7 @@ services:
       IDENTITY_SERVICE_BASE_URL: "http://service-identity:3310/api/v1"
       FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
       INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1"
+      FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
       SHOPPING_SERVICE_BASE_URL: "http://service-shopping:3313/api/v1"
       CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1"
       NOTIFICATIONS_SERVICE_BASE_URL: "http://service-notifications:3315/api/v1"
@@ -227,7 +228,7 @@ services:
 
   service-shopping:
     build: { context: ., dockerfile: services/service-shopping/Dockerfile }
-    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db" }
+    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -249,7 +250,7 @@ services:
 
   service-notifications:
     build: { context: ., dockerfile: services/service-notifications/Dockerfile }
-    environment: { PORT: 3315, SERVICE_NAME: service-notifications, DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db" }
+    environment: { PORT: 3315, SERVICE_NAME: service-notifications, DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
