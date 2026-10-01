@@ -15,7 +15,7 @@ export async function loadNutritionSnapshot(
   authorization: string | undefined,
   productId: string,
 ): Promise<NutritionSnapshot | null> {
-  const url = new URL("/catalog/products/" + encodeURIComponent(productId), baseUrl.replace(/\/$/, "") + "/");
+  const url = new URL("catalog/products/" + encodeURIComponent(productId), baseUrl.replace(/\/$/, "") + "/");
   const headers: Record<string, string> = { Accept: "application/json" };
   if (authorization) headers.Authorization = authorization;
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(2500) });
