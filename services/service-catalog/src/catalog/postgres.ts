@@ -331,6 +331,22 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
          FROM products p LEFT JOIN brands b ON b.id=p.brand_id WHERE p.id=$1`,
         [row.id],
       );
+      await insertOutbox(transaction, {
+        eventId: crypto.randomUUID(),
+        eventType: "ProductCreated",
+        eventVersion: 1,
+        aggregateType: "product",
+        aggregateId: row.id,
+        actorId: "system",
+        traceId: input.traceId,
+        payload: {
+          productId: row.id,
+          name: input.match.canonicalName,
+          brand: input.match.brand ?? null,
+          category: input.match.category ?? null,
+          barcodes: [input.normalizedValue],
+        },
+      });
       await transaction.commit();
       return fresh.rows[0] ? mapProduct(fresh.rows[0]) : mapProduct({ ...row, brand: input.match.brand ?? null });
     } catch (error) {
