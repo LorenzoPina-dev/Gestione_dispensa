@@ -79,6 +79,34 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
   router.route("/catalog/products").get(listProducts).post(createProduct).all(methodNotAllowed);
 
   router
+    .route("/catalog/products/:productId")
+    .get(
+      asyncHandler(async (req, res) => {
+        await respond(res, req.meta, controller.getProduct(req.params.productId as string, req.meta), toCatalogHttpError);
+      }),
+    )
+    .all(methodNotAllowed);
+
+  router
+    .route("/catalog/barcodes/resolve")
+    .post(
+      asyncHandler(async (req, res) => {
+        const parsed = parseResolveBarcodeBody(req.body);
+        if (parsed === undefined) {
+          sendFailure(res, 400, "VALIDATION_ERROR", "barcode is required.", req.meta);
+          return;
+        }
+        await respond(
+          res,
+          req.meta,
+          controller.lookupBarcode(parsed.identifierType, parsed.value, req.meta),
+          toCatalogHttpError,
+        );
+      }),
+    )
+    .all(methodNotAllowed);
+
+  router
     .route("/products/:productId")
     .get(
       asyncHandler(async (req, res) => {
