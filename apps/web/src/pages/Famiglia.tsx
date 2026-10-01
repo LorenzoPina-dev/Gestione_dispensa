@@ -144,6 +144,7 @@ export default function Famiglia({
   const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
   const [consentRevoked, setConsentRevoked] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [savingRole, setSavingRole] = useState(false);
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -199,17 +200,46 @@ export default function Famiglia({
     }
   }
 
-  function confirmRemove(id: string) {
+  async function confirmRemove(id: string) {
+    const target = members.find((member) => member.id === id);
+    if (!familyId || !target) return;
     setRemovingId(id);
-    setMembers((m) => m.map((mem) => (mem.id === id ? { ...mem, status: "REMOVED" as const } : mem)));
-    setRemovingId(null);
-    setRemoveConfirmId(null);
+    try {
+      await api.removeFamilyMembership(familyId, id, target.version);
+      setMembers((current) => current.filter((member) => member.id !== id));
+      setRemoveConfirmId(null);
+    } catch (error) {
+      console.error("[family] member removal failed", error);
+      setInviteError(error instanceof Error ? error.message : "Rimozione del membro non riuscita.");
+    } finally {
+      setRemovingId(null);
+    }
   }
 
-  function confirmRoleChange() {
-    if (!changeRoleFor) return;
-    setMembers((m) => m.map((mem) => (mem.id === changeRoleFor.id ? { ...mem, role: newRoleValue } : mem)));
-    setChangeRoleFor(null);
+  async function confirmRoleChange() {
+    if (!changeRoleFor || !familyId) return;
+    setSavingRole(true);
+    try {
+      const updated = await api.updateFamilyMembership(
+        familyId,
+        changeRoleFor.id,
+        changeRoleFor.version,
+        { role: newRoleValue },
+      );
+      setMembers((current) =>
+        current.map((member) =>
+          member.id === changeRoleFor.id
+            ? { ...member, role: updated.role, version: updated.version, status: updated.status }
+            : member,
+        ),
+      );
+      setChangeRoleFor(null);
+    } catch (error) {
+      console.error("[family] member role update failed", error);
+      setInviteError(error instanceof Error ? error.message : "Aggiornamento del ruolo non riuscito.");
+    } finally {
+      setSavingRole(false);
+    }
   }
 
   const removeTarget = members.find((m) => m.id === removeConfirmId);
@@ -450,8 +480,8 @@ export default function Famiglia({
               <button onClick={() => setChangeRoleFor(null)} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}>
                 Annulla
               </button>
-              <button onClick={confirmRoleChange} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ backgroundColor: colors.terracotta, color: colors.white }}>
-                Salva ruolo
+              <button disabled={savingRole} onClick={confirmRoleChange} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ backgroundColor: colors.terracotta, color: colors.white }}>
+                {savingRole ? "Salvataggio…" : "Salva ruolo"}
               </button>
             </div>
           </div>
