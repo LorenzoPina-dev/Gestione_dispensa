@@ -1573,13 +1573,14 @@ components:
       properties: {name: {type: string, minLength: 1, maxLength: 120}}
     CreateShoppingItem:
       type: object
-      required: [label, quantity]
+      required: [label, quantity, unit]
       additionalProperties: false
       properties:
         productId: {type: [string, 'null'], format: uuid}
         label: {type: string, minLength: 1, maxLength: 300}
         quantity: {type: number, exclusiveMinimum: 0}
-        unit: {type: [string, 'null'], maxLength: 16}
+        unit: {type: string, minLength: 1, maxLength: 16}
+        source: {type: string, enum: [manual, recipe, low_stock]}
     PatchShoppingItem:
       type: object
       minProperties: 1
