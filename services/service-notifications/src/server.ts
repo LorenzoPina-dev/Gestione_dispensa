@@ -84,62 +84,8 @@ async function emitOutbox(client: PoolClient, type: string, aggregateId: string,
   );
 }
 
-async function init() {
-  await pool.query(`create schema if not exists notifications_domain`);
-  await pool.query(`create table if not exists notifications_domain.notifications(
-    id uuid primary key,
-    user_id uuid not null,
-    family_id uuid,
-    type varchar(64) not null,
-    title varchar(200) not null,
-    body text not null,
-    payload jsonb,
-    read_at timestamptz,
-    created_at timestamptz not null default now(),
-    expires_at timestamptz,
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists notifications_domain.preferences(
-    user_id uuid primary key,
-    expiration boolean not null default true,
-    low_stock boolean not null default true,
-    offers boolean not null default false,
-    family boolean not null default true,
-    system boolean not null default true,
-    in_app boolean not null default true,
-    email boolean not null default false,
-    push boolean not null default false,
-    updated_at timestamptz not null default now(),
-    version integer not null default 1
-  )`);
-  await pool.query(`create table if not exists notifications_domain.idempotency_keys(
-    key varchar(255) primary key,
-    actor_user_id uuid not null,
-    family_id uuid,
-    request_hash varchar(64) not null,
-    status varchar(16) not null check(status in ('processing','completed','failed')),
-    response_status integer,
-    response_body jsonb,
-    created_at timestamptz not null default now(),
-    expires_at timestamptz not null
-  )`);
-  await pool.query(`create table if not exists notifications_domain.outbox_events(
-    event_id uuid primary key,
-    event_type varchar(128) not null,
-    schema_version integer not null,
-    aggregate_id uuid not null,
-    family_id uuid,
-    correlation_id uuid not null,
-    occurred_at timestamptz not null,
-    payload jsonb not null,
-    published_at timestamptz,
-    attempts integer not null default 0,
-    last_error text,
-    created_at timestamptz not null
-  )`);
-  await pool.query("create index if not exists notifications_user_read_created_idx on notifications_domain.notifications(user_id,read_at,created_at desc)");
-  await pool.query("create index if not exists notifications_family_user_created_idx on notifications_domain.notifications(family_id,user_id,created_at desc)");
-  await pool.query("create index if not exists notifications_outbox_publish_idx on notifications_domain.outbox_events(published_at,created_at)");
+async function init(): Promise<void> {
+  await pool.query("select 1");
 }
 
 app.get("/health/live", (_req, res) => res.json({ status: "ok", service: "service-notifications" }));
