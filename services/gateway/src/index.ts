@@ -561,7 +561,7 @@ function normalizeGatewayError(body: unknown, status: number): Record<string, un
       message: typeof error.message === "string" ? error.message : "The request could not be completed.",
       details: Array.isArray(error.details) ? error.details : [],
       retryable: typeof error.retryable === "boolean" ? error.retryable : status >= 500,
-      requestId: typeof error.requestId === "string" ? error.requestId : ctx.requestId,
+      requestId: typeof error.requestId === "string" ? error.requestId : ctx?.requestId ?? "",
     },
   }) as Record<string, unknown>;
 }
