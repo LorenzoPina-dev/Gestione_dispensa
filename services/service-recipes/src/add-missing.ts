@@ -237,7 +237,7 @@ export function registerAddMissingIngredientsRoute(app: express.Express, pool: P
           shoppingBase,
           "/shopping/lists",
           { ...headers, "content-type": "application/json", "x-idempotency-key": childKey(key, "shopping-list") },
-          { method: "POST", body: JSON.stringify({ familyId: ctx.familyId, name: "Spesa da ricette" }) },
+          { method: "POST", body: JSON.stringify({ name: "Spesa da ricette" }) },
         );
         const createdData = (created.payload as { data?: { listId?: string } } | null)?.data;
         if (!created.response.ok || !createdData?.listId) {
@@ -256,7 +256,6 @@ export function registerAddMissingIngredientsRoute(app: express.Express, pool: P
           {
             method: "POST",
             body: JSON.stringify({
-              familyId: ctx.familyId,
               productId: need.ingredient.productId ?? null,
               label: need.ingredient.name,
               quantity: need.quantity,
@@ -274,21 +273,6 @@ export function registerAddMissingIngredientsRoute(app: express.Express, pool: P
       }
 
       const response = { data: { itemIds }, version: 1 };
-      const client = await pool.connect();
-      try {
-        await client.query("begin");
-        await client.query(
-          "insert into recipes_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,causation_id,occurred_at,payload,created_at) values($1,$2,1,$3,$4,$5,$6,now(),$7::jsonb,now())",
-          [crypto.randomUUID(), "RecipeMissingIngredientsAddedToShopping", req.params.recipeId, ctx.familyId, crypto.randomUUID(), idempotencyKey(req), JSON.stringify(response)],
-        );
-        await client.query("commit");
-      } catch (error) {
-        await client.query("rollback");
-        throw error;
-      } finally {
-        client.release();
-      }
-
       await setIdempotency(pool, req, "completed", response);
       return res.status(200).json(response);
     } catch (error) {
