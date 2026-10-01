@@ -1,15 +1,19 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Pool } from "pg";
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL is required.");
-const pool = new Pool({ connectionString: url });
-const client = await pool.connect();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const migrationsDir = join(process.cwd(), "migrations");
+
 try {
-  const sql = await readFile(join(process.cwd(), "migrations", "001_initial.sql"), "utf8");
-  await client.query(sql);
+  const files = (await readdir(migrationsDir))
+    .filter((file) => /^\d+_.+\.sql$/.test(file))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  for (const file of files) {
+    await pool.query(await readFile(join(migrationsDir, file), "utf8"));
+    console.log(JSON.stringify({ service: "catalog", migration: file, status: "ok" }));
+  }
 } finally {
-  client.release();
   await pool.end();
 }
