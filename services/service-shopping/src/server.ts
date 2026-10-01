@@ -109,8 +109,15 @@ async function emitOutbox(
     `insert into shopping_domain.outbox_events
       (event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
      values($1,$2,1,$3,$4,$5,now(),$6::jsonb,now())`,
-    [eventId, type, aggregateId, familyId, crypto.randomUUID(), JSON.stringify(payload)],
+    [eventId, type, aggregateId, familyId, crypto.randomUUID(), JSON.stringify(toEventPayload(payload))],
   );
+}
+
+function toEventPayload(payload: unknown): unknown {
+  if (typeof payload === "object" && payload !== null && Object.hasOwn(payload as object, "data")) {
+    return (payload as { data: unknown }).data;
+  }
+  return payload;
 }
 
 async function init(): Promise<void> {
