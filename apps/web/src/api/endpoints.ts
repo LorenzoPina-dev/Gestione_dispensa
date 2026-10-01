@@ -188,7 +188,7 @@ export function createProduct(input: {
   fat?: number;
   fiber?: number;
 }): Promise<ProductDto> {
-  return apiRequest("/products", {
+  return apiRequest("/catalog/products", {
     method: "POST",
     body: { ...input, brand: input.brand ?? undefined },
   });
@@ -197,7 +197,7 @@ export function createProduct(input: {
 // --- Inventory ---------------------------------------------------------------
 
 export function listStockItems(familyId: string): Promise<{ items: StockItemDto[] }> {
-  return apiRequest("/inventory/items", { query: { familyId } });
+  return apiRequest("/inventory", { query: { familyId } });
 }
 
 export function createStockItem(input: {
@@ -225,17 +225,26 @@ export function recordMovement(
     occurredAt: string;
   },
 ): Promise<RecordMovementResultDto> {
-  return apiRequest(`/inventory/items/${stockItemId}/movements`, {
+  const path = input.kind === "WASTE" ? `/inventory/${stockItemId}/waste` : `/inventory/${stockItemId}/consume`;
+  return apiRequest(path, {
     method: "POST",
     ifMatch: version,
-    body: { ...input, source: "web-app", clientOperationId: newIdempotencyKey() },
+    body: { quantity: input.quantity, reason: input.kind === "WASTE" ? "spoiled" : "used" },
   });
 }
 
 // --- Shopping ----------------------------------------------------------------
 
 export function getActiveShoppingList(familyId: string): Promise<ActiveShoppingListDto> {
-  return apiRequest("/shopping-lists/active", { query: { familyId } });
+  const result = await apiRequest<{ items: Array<{ listId: string; name: string; status: string; itemCount: number; version: number }>; nextCursor: string | null }>("/shopping/lists", { query: { familyId } });
+  const active = result.items.find((item) => item.status === "open");
+  if (!active) {
+    throw new ApiError(404, {
+      error: { code: "NOT_FOUND", message: "No active shopping list exists.", retryable: false },
+      meta: { requestId: "", traceId: "", schemaVersion: "2.0" },
+    });
+  }
+  return apiRequest<ActiveShoppingListDto>(`/shopping/lists/${active.listId}`);
 }
 
 export function createShoppingList(familyId: string, name: string): Promise<{
@@ -246,7 +255,7 @@ export function createShoppingList(familyId: string, name: string): Promise<{
   status: "ACTIVE";
   version: number;
 }> {
-  return apiRequest("/shopping-lists", { method: "POST", body: { familyId, name } });
+  return apiRequest("/shopping/lists", { method: "POST", body: { familyId, name } });
 }
 
 export function addShoppingItem(
@@ -261,9 +270,9 @@ export function addShoppingItem(
     sourceRef?: string;
   },
 ): Promise<AddShoppingItemResultDto> {
-  return apiRequest(`/shopping-lists/${listId}/items`, {
+  return apiRequest(`/shopping/lists/${listId}/items`, {
     method: "POST",
-    body: { familyId, ...input },
+    body: { familyId, label: input.displayName, quantity: input.quantity, unit: input.unit, ...(input.productId ? { productId: input.productId } : {}) },
   });
 }
 
@@ -274,7 +283,7 @@ export function updateShoppingItemState(
   version: number,
   state: ShoppingItemState,
 ): Promise<ShoppingItemDto> {
-  return apiRequest(`/shopping-lists/${listId}/items/${itemId}`, {
+  return apiRequest(`/shopping/lists/${listId}/items/${itemId}`, {
     method: "PATCH",
     ifMatch: version,
     body: { familyId, state },
@@ -287,7 +296,7 @@ export function batchUpdateShoppingItems(
   itemIds: string[],
   state: ShoppingItemState,
 ): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> {
-  return apiRequest(`/shopping-lists/${listId}/batch-action`, {
+  return apiRequest(`/shopping/lists/${listId}/batch-action`, {
     method: "POST",
     body: { familyId, itemIds, state },
   });
@@ -371,5 +380,5 @@ export function resolveProductBarcode(
   identifierType: "EAN8" | "EAN13" | "GTIN12" | "GTIN14" | "SKU" | "BARCODE",
   value: string,
 ): Promise<BarcodeResolutionDto> {
-  return apiRequest("/products/resolve-barcode", { method: "POST", body: { identifierType, value } });
+  return apiRequest("/catalog/barcodes/resolve", { method: "POST", body: { barcode: value } });
 }
