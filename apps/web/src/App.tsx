@@ -49,6 +49,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       if (!authToken) {
         if (!cancelled) {
@@ -61,27 +62,38 @@ export default function App() {
 
       try {
         const apiUser = await getCurrentUser();
-        if (!apiUser?.id) throw new ApiError(502, {
-          error: { code: "INVALID_USER_PROFILE", message: "L'API non ha restituito un profilo utente valido.", retryable: true },
-          meta: { requestId: "", traceId: "", schemaVersion: "" },
-        });
 
-        // A family lookup can legitimately fail after registration/login. Do not let that
-        // failure turn into a JavaScript exception or leave the app with an undefined object.
-        // We keep the authenticated identity and send the user to onboarding.
-        let families: Awaited<ReturnType<typeof listFamilies>> | null = null;
-        try {
-          families = await listFamilies();
-        } catch (familyError) {
-          if (familyError instanceof ApiError && (familyError.status === 401 || familyError.status === 403)) throw familyError;
-          // 404/5xx/network errors mean family state is currently unavailable. Treat it as
-          // "no usable family yet" for routing, never as `families.families`.
+        if (!apiUser?.id) {
+          throw new ApiError(502, {
+            error: {
+              code: "INVALID_USER_PROFILE",
+              message: "L'API non ha restituito un profilo utente valido.",
+              retryable: true,
+            },
+            meta: { requestId: "", traceId: "", schemaVersion: "" },
+          });
         }
 
-        const familyList = Array.isArray(families?.families) ? families.families : [];
+        let familyList: Awaited<ReturnType<typeof listFamilies>>["families"] = [];
+
+        try {
+          const families = await listFamilies();
+          familyList = Array.isArray(families?.families) ? families.families : [];
+        } catch (familyError) {
+          if (
+            familyError instanceof ApiError &&
+            (familyError.status === 401 || familyError.status === 403)
+          ) {
+            throw familyError;
+          }
+          // The identity is still valid. With no usable family data, send the user
+          // through onboarding rather than dereferencing an undefined response.
+        }
+
         const active = apiUser.activeFamilyId
           ? familyList.find((f) => f.familyId === apiUser.activeFamilyId)
           : familyList[0];
+
         const user: AuthUser = {
           id: apiUser.id,
           name: apiUser.name || apiUser.preferredUsername || apiUser.email || "Utente",
@@ -102,26 +114,43 @@ export default function App() {
             setSessionChecked(true);
             return;
           }
+
           if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-            useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, isAuthenticated: false });
+            useAuthStore.setState({
+              token: null,
+              refreshToken: null,
+              expiresAt: null,
+              user: null,
+              isAuthenticated: false,
+            });
             setCurrentUser(null);
             setScreen("login");
             setSessionChecked(true);
             return;
           }
-          // Keep an authenticated session for transient/domain/upstream failures.
-          // We cannot prove that a family is absent, so do not overwrite currentUser here.
+
+          // Preserve the authenticated session on transient/domain/upstream failures.
           setSessionChecked(true);
         }
       }
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   }, [authToken]);
 
   const familyId = authToken !== null ? (currentUser?.hasFamilyId ?? null) : null;
   const composite = useScreenView(tab, familyId);
+
   const initialStock = composite.data?.pantry?.map(mapStockItemDtoToUi);
-  const initialShopping = composite.data?.shopping ? mapActiveShoppingListDtoToUi(composite.data.shopping) : (composite.data?.shopping === null ? { id: "", name: "Spesa", status: "ACTIVE" as const, version: 0, items: [] } : undefined);
+
+  const initialShopping = composite.data?.shopping
+    ? mapActiveShoppingListDtoToUi(composite.data.shopping)
+    : composite.data?.shopping === null
+      ? { id: "", name: "Spesa", status: "ACTIVE" as const, version: 0, items: [] }
+      : undefined;
+
   const initialMembers = composite.data?.members?.map((m) => ({
     id: m.id,
     name: m.name || `Utente ${m.userId.slice(0, 8)}`,
@@ -130,15 +159,29 @@ export default function App() {
     role: m.role as Role,
     status: m.status,
   }));
-  const initialNotifications = composite.data?.notifications?.map((n) => ({ id:n.id, category:n.category, title:n.title, body:n.body, createdAt:n.createdAt, ...(n.readAt ? {readAt:n.readAt} : {}) }));
+
+  const initialNotifications = composite.data?.notifications?.map((n) => ({
+    id: n.id,
+    category: n.category,
+    title: n.title,
+    body: n.body,
+    createdAt: n.createdAt,
+    ...(n.readAt ? { readAt: n.readAt } : {}),
+  }));
+
   const inventory = useInventory(familyId, initialStock);
   const shopping = useShoppingList(familyId, initialShopping);
-  const family = useFamilyMembers(familyId, initialMembers, composite.data?.family?.displayName);
+  const family = useFamilyMembers(
+    familyId,
+    initialMembers,
+    composite.data?.family?.displayName,
+  );
+  const notificationState = useNotifications(familyId, initialNotifications);
+
   const stock = inventory.stock;
   const setStock = inventory.setStock;
   const shoppingList = shopping.list;
   const setShoppingList = shopping.setList;
-  const notificationState = useNotifications(familyId, initialNotifications);
   const notifications = notificationState.notifications;
   const setNotifications = notificationState.setNotifications;
 
@@ -148,9 +191,14 @@ export default function App() {
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
     const onOffline = () => setIsOffline(true);
+
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
+
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
   }, []);
 
   function handleLogin(user: AuthUser) {
@@ -178,10 +226,32 @@ export default function App() {
 
   if (!sessionChecked) return null;
 
-  if (screen === "login") return <Login onLogin={handleLogin} onRegister={() => setScreen("register")} onForgot={() => setScreen("forgot")} />;
-  if (screen === "register") return <Register onRegistered={handleRegistered} onLogin={() => setScreen("login")} />;
-  if (screen === "forgot") return <ForgotPassword onBack={() => setScreen("login")} />;
-  if (screen === "onboarding" && currentUser) return <Onboarding user={currentUser} onComplete={handleOnboardingComplete} />;
+  if (screen === "login") {
+    return (
+      <Login
+        onLogin={handleLogin}
+        onRegister={() => setScreen("register")}
+        onForgot={() => setScreen("forgot")}
+      />
+    );
+  }
+
+  if (screen === "register") {
+    return (
+      <Register
+        onRegistered={handleRegistered}
+        onLogin={() => setScreen("login")}
+      />
+    );
+  }
+
+  if (screen === "forgot") {
+    return <ForgotPassword onBack={() => setScreen("login")} />;
+  }
+
+  if (screen === "onboarding" && currentUser) {
+    return <Onboarding user={currentUser} onComplete={handleOnboardingComplete} />;
+  }
 
   if (!currentUser) return null;
 
@@ -189,12 +259,20 @@ export default function App() {
   const canWrite = CAN_WRITE.includes(role);
   const canManage = CAN_MANAGE_FAMILY.includes(role);
 
-  const expiredCount = stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d <= 0; }).length;
-  const expiringCount = stock.filter((s) => { const d = expiryDays(s.batches); return d !== null && d > 0 && d <= 5; }).length;
+  const expiredCount = stock.filter((s) => {
+    const d = expiryDays(s.batches);
+    return d !== null && d <= 0;
+  }).length;
+
+  const expiringCount = stock.filter((s) => {
+    const d = expiryDays(s.batches);
+    return d !== null && d > 0 && d <= 5;
+  }).length;
+
   const unreadNotifs = notifications.filter((n) => !n.readAt).length;
   const urgentBadge = expiredCount + expiringCount;
 
-  const ALL_NAV: { key: Tab; label: string; icon: string; roles?: Role[] }[] = [
+  const ALL_NAV: { key: Tab; label: string; icon: string }[] = [
     { key: "oggi", label: "Oggi", icon: "🏠" },
     { key: "dispensa", label: "Dispensa", icon: "🏺" },
     { key: "spesa", label: "Spesa", icon: "🛒" },
@@ -203,9 +281,14 @@ export default function App() {
     { key: "famiglia", label: "Famiglia", icon: "👥" },
     { key: "notifiche", label: "Notifiche", icon: "🔔" },
   ];
-  const visibleNav = role === "VIEWER"
-    ? ALL_NAV.filter((n) => ["oggi", "dispensa", "ricette", "nutrienti", "notifiche"].includes(n.key))
-    : ALL_NAV;
+
+  const visibleNav =
+    role === "VIEWER"
+      ? ALL_NAV.filter((n) =>
+          ["oggi", "dispensa", "ricette", "nutrienti", "notifiche"].includes(n.key),
+        )
+      : ALL_NAV;
+
   const currentTab = visibleNav.find((n) => n.key === tab) ? tab : "oggi";
 
   function navBadge(key: Tab) {
@@ -215,27 +298,207 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: colors.cream, fontFamily: "var(--font-sans)" }}>
-      {isOffline && <div className="px-4 py-2 text-center text-xs font-medium" style={{ backgroundColor: colors.amberLight, color: colors.amberDark }}>Sei offline. Le modifiche verranno sincronizzate appena torni online.</div>}
-      {role !== "OWNER" && role !== "MANAGER" && <div className="px-4 py-2 text-center text-xs font-medium" style={{ backgroundColor: role === "VIEWER" ? colors.creamDark : colors.sageLight, color: role === "VIEWER" ? colors.inkMuted : colors.sageDark }}>{role === "VIEWER" ? "Modalità sola lettura — sei un visualizzatore di questa famiglia" : "Stai visualizzando la dispensa di famiglia come Membro"}</div>}
+    <div
+      className="flex flex-col h-full"
+      style={{ backgroundColor: colors.cream, fontFamily: "var(--font-sans)" }}
+    >
+      {isOffline && (
+        <div
+          className="px-4 py-2 text-center text-xs font-medium"
+          style={{
+            backgroundColor: colors.amberLight,
+            color: colors.amberDark,
+          }}
+        >
+          Sei offline. Le modifiche verranno sincronizzate appena torni online.
+        </div>
+      )}
+
+      {role !== "OWNER" && role !== "MANAGER" && (
+        <div
+          className="px-4 py-2 text-center text-xs font-medium"
+          style={{
+            backgroundColor: role === "VIEWER" ? colors.creamDark : colors.sageLight,
+            color: role === "VIEWER" ? colors.inkMuted : colors.sageDark,
+          }}
+        >
+          {role === "VIEWER"
+            ? "Modalità sola lettura — sei un visualizzatore di questa famiglia"
+            : "Stai visualizzando la dispensa di famiglia come Membro"}
+        </div>
+      )}
+
       <SyncIssuesBanner />
+
       <div className="flex flex-1 min-h-0">
-        <nav className="hidden sm:flex flex-col w-56 shrink-0 py-6 px-3" style={{ backgroundColor: colors.cream, borderRight: `1px solid ${colors.border}` }}>
-          <div className="px-3 mb-8"><div className="flex items-center gap-2.5"><span className="text-2xl">🫙</span><span className="text-xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>Dispensa</span></div><p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>Famiglia Ferretti</p></div>
-          <div className="flex-1 space-y-0.5">{visibleNav.map((n) => { const isActive = currentTab === n.key; const badge = navBadge(n.key); return <button key={n.key} onClick={() => setTab(n.key)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-all" style={{ backgroundColor: isActive ? colors.creamDark : "transparent", color: isActive ? colors.ink : colors.inkMuted }}><span className="text-base leading-none">{n.icon}</span><span className="flex-1">{n.label}</span>{badge > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center" style={{ backgroundColor: colors.terracotta, color: colors.white }}>{badge}</span>}</button>; })}</div>
-          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}><div className="flex items-center gap-2.5 px-3 py-2"><AvatarUI initials={currentUser.avatar} size={8} /><div className="flex-1 min-w-0"><p className="text-xs font-semibold truncate" style={{ color: colors.ink }}>{currentUser.name}</p><p className="text-[10px]" style={{ color: colors.inkMuted }}>{ROLE_LABELS[role]}</p></div></div><button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:opacity-80 mt-1" style={{ color: colors.inkMuted }}><span className="text-base">🚪</span><span className="text-xs font-medium">Esci</span></button></div>
+        <nav
+          className="hidden sm:flex flex-col w-56 shrink-0 py-6 px-3"
+          style={{
+            backgroundColor: colors.cream,
+            borderRight: `1px solid ${colors.border}`,
+          }}
+        >
+          <div className="px-3 mb-8">
+            <div className="flex items-center gap-2.5">
+              <span className="text-2xl">🫙</span>
+              <span
+                className="text-xl font-light"
+                style={{ fontFamily: fonts.display, color: colors.ink }}
+              >
+                Dispensa
+              </span>
+            </div>
+            <p
+              className="text-[10px] mt-0.5"
+              style={{ color: colors.inkMuted }}
+            >
+              Famiglia Ferretti
+            </p>
+          </div>
+
+          <div className="flex-1 space-y-0.5">
+            {visibleNav.map((n) => {
+              const isActive = currentTab === n.key;
+              const badge = navBadge(n.key);
+
+              return (
+                <button
+                  key={n.key}
+                  onClick={() => setTab(n.key)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-all"
+                  style={{
+                    backgroundColor: isActive ? colors.creamDark : "transparent",
+                    color: isActive ? colors.ink : colors.inkMuted,
+                  }}
+                >
+                  <span className="text-base leading-none">{n.icon}</span>
+                  <span className="flex-1">{n.label}</span>
+                  {badge > 0 && (
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                      style={{
+                        backgroundColor: colors.terracotta,
+                        color: colors.white,
+                      }}
+                    >
+                      {badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            className="mt-4 pt-4"
+            style={{ borderTop: `1px solid ${colors.border}` }}
+          >
+            <div className="flex items-center gap-2.5 px-3 py-2">
+              <AvatarUI initials={currentUser.avatar} size={8} />
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-xs font-semibold truncate"
+                  style={{ color: colors.ink }}
+                >
+                  {currentUser.name}
+                </p>
+                <p className="text-[10px]" style={{ color: colors.inkMuted }}>
+                  {ROLE_LABELS[role]}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowLogoutConfirm(true)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:opacity-80 mt-1"
+              style={{ color: colors.inkMuted }}
+            >
+              <span className="text-base">🚪</span>
+              <span className="text-xs font-medium">Esci</span>
+            </button>
+          </div>
         </nav>
+
         <main className="flex-1 min-w-0 overflow-auto">
-          {currentTab === "oggi" && <Oggi stock={stock} shoppingList={shoppingList} notifications={notifications} onNavigate={setTab} />}
-          {currentTab === "dispensa" && <Dispensa stock={stock} setStock={setStock} canWrite={canWrite} familyId={familyId} />}
-          {currentTab === "spesa" && <Spesa list={shoppingList} setList={setShoppingList} canWrite={canWrite} familyId={familyId} />}
-          {currentTab === "ricette" && <Ricette familyId={familyId} />}
-          {currentTab === "nutrienti" && <Nutrienti familyId={familyId} />}
-          {currentTab === "famiglia" && <Famiglia familyId={familyId} canManage={canManage} />}
-          {currentTab === "notifiche" && <Notifiche notifications={notifications} setNotifications={setNotifications} familyId={familyId} />}
+          {currentTab === "oggi" && (
+            <Oggi
+              stock={stock}
+              shopping={shoppingList}
+              currentUserName={currentUser.name}
+              onNavigate={(nextTab: string) => {
+                if (ALL_NAV.some((n) => n.key === nextTab)) {
+                  setTab(nextTab as Tab);
+                }
+              }}
+              familyId={familyId}
+              suggestedRecipes={composite.data?.suggestedRecipes}
+            />
+          )}
+
+          {currentTab === "dispensa" && (
+            <Dispensa
+              stock={stock}
+              setStock={setStock}
+              readOnly={!canWrite}
+            />
+          )}
+
+          {currentTab === "spesa" && (
+            <Spesa
+              list={shoppingList}
+              setList={setShoppingList}
+              currentUserName={currentUser.name}
+            />
+          )}
+
+          {currentTab === "ricette" && (
+            <Ricette
+              stock={stock}
+              setList={setShoppingList}
+              familyId={familyId}
+              suggestedRecipes={composite.data?.suggestedRecipes}
+            />
+          )}
+
+          {currentTab === "nutrienti" && (
+            <Nutrienti
+              stock={stock}
+              familyId={familyId}
+              initialSummary={composite.data?.nutrition}
+            />
+          )}
+
+          {currentTab === "famiglia" && (
+            <Famiglia
+              members={family.members}
+              setMembers={family.setMembers}
+              currentUserId={currentUser.id}
+              canManage={canManage}
+              isOwner={role === "OWNER"}
+              onInviteCreated={family.syncInviteCreated}
+              familyName={family.familyName}
+              familyId={familyId}
+            />
+          )}
+
+          {currentTab === "notifiche" && (
+            <Notifiche
+              notifications={notifications}
+              setNotifications={setNotifications}
+            />
+          )}
         </main>
       </div>
-      <ConfirmModal open={showLogoutConfirm} title="Esci" message="Vuoi davvero uscire dall'account?" confirmLabel="Esci" onConfirm={handleLogout} onCancel={() => setShowLogoutConfirm(false)} />
+
+      {showLogoutConfirm && (
+        <ConfirmModal
+          title="Esci"
+          message="Vuoi davvero uscire dall'account?"
+          confirmLabel="Esci"
+          onConfirm={handleLogout}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
     </div>
   );
 }
