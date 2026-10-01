@@ -25,7 +25,29 @@ export async function listFamilyInvites(familyId: string): Promise<{ invites: Ar
     })),
   };
 }
-export function createFamilyInvite(familyId: string, input: { role: InviteRole; expiresInSeconds: number }): Promise<CreatedInviteDto> { return apiRequest(`/families/${familyId}/invites`, { method: "POST", body: input }); }
+export async function createFamilyInvite(familyId: string, input: { role: InviteRole; expiresInSeconds: number }): Promise<CreatedInviteDto> {
+  const result = await apiRequest<{
+    inviteId: string;
+    email?: string;
+    role: "admin" | "member" | "viewer";
+    status: string;
+    expiresAt: string;
+    fallbackCode?: string;
+    qrPayload?: string;
+  }>(`/families/${familyId}/invites`, { method: "POST", body: {
+    role: input.role === "MANAGER" ? "admin" : input.role === "VIEWER" ? "viewer" : "member",
+    expiresInSeconds: input.expiresInSeconds,
+  } });
+  return {
+    inviteId: result.inviteId,
+    email: result.email,
+    role: result.role === "admin" ? "MANAGER" : result.role === "viewer" ? "VIEWER" : "MEMBER",
+    status: result.status === "pending" ? "CREATED" : "CREATED",
+    expiresAt: result.expiresAt,
+    fallbackCode: result.fallbackCode,
+    qrPayload: result.qrPayload,
+  };
+}
 export function resolveInvite(token: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve", { method: "POST", body: { token, browserBindingHash } }); }
 export function resolveInviteByCode(code: string, browserBindingHash: string): Promise<JoinAttemptDto> { return apiRequest("/family-invites/resolve-code", { method: "POST", body: { code, browserBindingHash } }); }
 export function acceptInvite(attemptId: string, consentVersion: string): Promise<JoinAttemptDto> { return apiRequest(`/invites/${attemptId}/accept`, { method: "POST", body: { consentVersion } }); }
