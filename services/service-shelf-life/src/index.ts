@@ -301,6 +301,10 @@ app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) =
   const userId=actor(req), idempotencyKey=key(req);
   if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
   if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
+  const familyId=familyContext(req);
+  if(!familyId)return fail(res,400,"VALIDATION_ERROR","familyId is required.");
+  const familyAccess=await authorizeFamily(userId,familyId,true);
+  if(!familyAccess.ok)return fail(res,familyAccess.status,familyAccess.code,familyAccess.message);
 
   const client=await pool.connect();
   try {
