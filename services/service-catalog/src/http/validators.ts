@@ -211,6 +211,7 @@ export function parseCreateProductBody(
     return undefined;
   }
 
+  if ((body.brand !== undefined && body.brand !== null && typeof body.brand !== "string") || (body.category !== undefined && body.category !== null && typeof body.category !== "string")) return undefined;
   const barcodes = [...new Set((body.barcodes as string[]).map((value) => value.trim()))];
   if (barcodes.length === 0) return undefined;
 
@@ -276,11 +277,11 @@ export function parsePatchProductBody(
   }
   if (Object.hasOwn(body, "brand")) {
     if (body.brand !== null && typeof body.brand !== "string") return undefined;
-    patch.brand = body.brand === null ? null : body.brand.trim();
+    patch.brand = body.brand === null ? null : (body.brand as string).trim();
   }
   if (Object.hasOwn(body, "category")) {
     if (body.category !== null && typeof body.category !== "string") return undefined;
-    patch.category = body.category === null ? null : body.category.trim();
+    patch.category = body.category === null ? null : (body.category as string).trim();
   }
   if (Object.hasOwn(body, "imageObjectKey")) {
     if (body.imageObjectKey !== null && typeof body.imageObjectKey !== "string") return undefined;
