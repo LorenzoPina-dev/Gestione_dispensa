@@ -148,8 +148,25 @@ export async function listFamilies(): Promise<FamiliesResult> {
 }
 
 export async function listFamilyMembers(familyId: string): Promise<{ memberships: ManagedMembershipDto[] }> {
-  const result = await apiRequest<{ items: ManagedMembershipDto[]; nextCursor: string | null }>(`/families/${familyId}/members`);
-  return { memberships: result.items };
+  const result = await apiRequest<{ items: Array<{ userId: string; role: "owner" | "admin" | "member" | "viewer"; joinedAt: string }>; nextCursor: string | null }>(`/families/${familyId}/members`);
+  return {
+    memberships: result.items.map((member) => ({
+      id: member.userId,
+      familyId,
+      userId: member.userId,
+      role:
+        member.role === "owner"
+          ? "OWNER"
+          : member.role === "admin"
+            ? "MANAGER"
+            : member.role === "viewer"
+              ? "VIEWER"
+              : "MEMBER",
+      status: "ACTIVE",
+      version: 1,
+      joinedAt: member.joinedAt,
+    })),
+  };
 }
 
 export function updateFamilyMembership(
