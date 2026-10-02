@@ -35,7 +35,25 @@ after(async()=>{
 
 describe("service-jobs / real PostgreSQL integration",()=>{
   it("reads a real job row through the repository mapping",async()=>{
-
+    const dbFactory={
+      transaction:async()=>{
+        const client=await pool.connect();
+        await client.query("begin");
+        return {
+          query:async(text:string,values:any[]=[])=>({rows:(await client.query(text,values)).rows}),
+          commit:async()=>{await client.query("commit");client.release();},
+          rollback:async()=>{await client.query("rollback");client.release();}
+        };
+      }
+    } as any;
+    const repo=new PostgresJobAdminRepository(dbFactory);
+    const snapshot=await repo.getJob(jobId);
+    assert.ok(snapshot);
+    assert.equal(snapshot?.id,jobId);
+    assert.equal(snapshot?.capability,"shelf_life_prediction");
+    assert.equal(snapshot?.status,"PENDING");
+    assert.equal(snapshot?.maxAttempts,5);
+    assert.deepEqual(snapshot?.payload,{itemId:assert.match(snapshot?.payload?.itemId??"","/.+/")});
   });
 
   it("replays a real DLQ record and creates a new PENDING job row",async()=>{
