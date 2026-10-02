@@ -1,6 +1,8 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Pool } from "pg";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const databaseUrl = process.env.FAMILY_TEST_DATABASE_URL;
 if (!databaseUrl) {
@@ -10,6 +12,7 @@ if (!databaseUrl) {
 }
 
 const pool = new Pool({ connectionString: databaseUrl });
+const execFileAsync = promisify(execFile);
 
 async function columns(tableName: string): Promise<Set<string>> {
   const result = await pool.query(
@@ -23,6 +26,14 @@ describe("service-family / real migration contract", () => {
   before(async () => {
     const ready = await pool.query("SELECT 1");
     assert.equal(ready.rows[0]["?column?"], 1);
+    await execFileAsync("node", ["dist/migrate.js"], {
+      cwd: process.cwd(),
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+    });
+    await execFileAsync("node", ["dist/migrate.js"], {
+      cwd: process.cwd(),
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+    });
   });
 
   after(async () => {
