@@ -93,22 +93,7 @@ export function buildPrivacyRouter(deps: PrivacyRouteDependencies): Router {
     )
     .all(methodNotAllowed);
 
-  router
-    .route("/privacy/export/:exportId")
-    .get(
-      asyncHandler(async (req, res) => {
-        const principal = await resolvePrincipal(req, verifier);
-        await respond(
-          res,
-          req.meta,
-          exportService
-            .download(principal, req.params.exportId as string, req.meta.traceId)
-            .then((data) => ({ data, meta: req.meta })),
-          toPrivacyExportHttpError,
-        );
-      }),
-    )
-    .all(methodNotAllowed);
+
 
   return router;
 }
