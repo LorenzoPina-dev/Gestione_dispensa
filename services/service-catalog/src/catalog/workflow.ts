@@ -27,7 +27,7 @@ export interface ExternalProductMatch {
   readonly fat?: number;
   readonly fiber?: number;
   readonly quantityValue?: number;
-  readonly quantityUnit?: ProductUnit;
+  readonly quantityUnit?: string;
   readonly quantityLabel?: string;
   readonly servingSize?: string;
   readonly servingQuantity?: number;
