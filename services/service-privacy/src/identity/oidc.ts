@@ -61,6 +61,10 @@ export class OidcTokenVerifier {
     fetchImpl: FetchLike = fetch,
     options: { discoveryUrl?: string; jwksUrl?: string } = {},
   ): Promise<OidcTokenVerifier> {
+    if (options.jwksUrl) {
+      return new OidcTokenVerifier(issuer, audience, createRemoteJWKSet(new URL(options.jwksUrl)));
+    }
+
     const discoveryUrl = options.discoveryUrl
       ? new URL(options.discoveryUrl)
       : new URL(".well-known/openid-configuration", ensureTrailingSlash(issuer));
@@ -77,8 +81,7 @@ export class OidcTokenVerifier {
       throw new Error("OIDC discovery document is invalid.");
     }
 
-    const jwksUrl = options.jwksUrl ?? discovery.jwks_uri;
-    return new OidcTokenVerifier(issuer, audience, createRemoteJWKSet(new URL(jwksUrl)));
+    return new OidcTokenVerifier(issuer, audience, createRemoteJWKSet(new URL(discovery.jwks_uri)));
   }
 
   public async verifyAuthorizationHeader(authorization: string | undefined): Promise<Principal> {
