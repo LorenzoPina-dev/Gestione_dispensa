@@ -10,7 +10,7 @@ Upload -> MinIO -> job vision/OCR -> draft con confidence -> conferma utente -> 
 Upload MinIO -> OCR job -> OCR DB -> draft prodotti/prezzi -> conferma -> Catalog/Inventory/Stores.
 
 ## Scadenza
-Inventory identifica il lotto -> Shelf-Life stima se manca la data reale -> prediction marcata estimated -> Notifications secondo policy. Una data dichiarata ha priorità.
+Inventory identifica il lotto -> Shelf-Life stima se manca la data reale -> prediction marcata estimated -> Notifications secondo policy. Una data dichiarata ha priorità; quando il prodotto è stato aperto, `openedAt` modifica il profilo e l'ancoraggio della stima.
 
 ## Consumo/scarto
 Inventory aggiorna atomicamente quantità e movimento. A zero rimuove la riga dallo stato corrente; il ledger storico resta.
@@ -62,7 +62,7 @@ Inventory accepts a declared expiration date, sets expiration_source=declared an
 ## 10. Shelf-Life estimation
 When Inventory creates or reads a current pantry item without `expiresAt`, it asynchronously requests a Shelf-Life prediction. Catalog classification uses Open Food Facts taxonomy and product-name fallback to assign a specific shelf-life category (for example confectionery, chocolate, biscuits, dry staples, canned/preserved, fresh meat/fish and dairy). Existing Open Food Facts products are reclassified by Catalog migration when their category is missing.
 
-Shelf-Life applies a strict precedence: declared package date > category-specific profile compatible with storage/opened state > generic baseline only when the category is unknown. A recognized category with an incompatible storage state does not receive a generic estimate.
+Shelf-Life applies a strict precedence: declared package date > exact product-specific profile > category-specific profile compatible with storage/opened state > generic baseline only when the category is unknown. A recognized category with an incompatible storage state does not receive a generic estimate.
 
 Each profile contains a conservative minimum, a recommended target and a maximum window. The recommended target is used as the single UI date, while confidence and basis identify how that date was produced. The estimate is anchored to Inventory `added_at` for existing items instead of resetting the clock at every retry/read. Worker executes the profile, stores confidence/basis/modelVersion, then applies the completed prediction through the Inventory owner API. Inventory sets `expiration_source=estimated`. A later declared date can replace it. The estimation is asynchronous and does not block the original pantry mutation.
 
