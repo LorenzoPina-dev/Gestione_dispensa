@@ -22,7 +22,15 @@ const erasureRepository:any={
   failErasure:async()=>{throw new Error("unused")},
   upsertConsent:async(x:any)=>{consentStore.set(x.userId+":"+x.purpose,x);return x;},
   listConsents:async(uid:string)=>[...consentStore.values()].filter(x=>x.userId===uid),
-  upsertConsentsAtomic:async({consents}:any)=>{for(const x of consents)consentStore.set(x.userId+":"+x.purpose,x);return consents;}
+  upsertConsentsAtomic:async({consents,idempotencyKey,requestHash}:any)=>{
+    const state=(erasureRepository as any)._consentIdem ?? ((erasureRepository as any)._consentIdem=new Map());
+    const prior=state.get(idempotencyKey);
+    if(prior && prior.requestHash!==requestHash)return{consents:[],replay:false,conflict:true};
+    if(prior)return{consents:prior.consents,replay:true,conflict:false};
+    for(const x of consents)consentStore.set(x.userId+":"+x.purpose,x);
+    state.set(idempotencyKey,{requestHash,consents});
+    return{consents,replay:false,conflict:false};
+  }
 };
 const audit={append:async()=>{}};
 const ownership={getMembership:async()=>({familyId:"family-1",userId,role:"OWNER",status:"ACTIVE"})};
@@ -84,6 +92,12 @@ describe("service-privacy / real Express HTTP adapter",()=>{
     assert.equal(x.response.status,200);
     assert.deepEqual(x.body?.data,{analytics:true,personalization:false,notifications:true});
     assert.equal(x.body?.version,1);
+    const replay=await request("/api/v1/privacy/consents",{method:"PUT",headers:{authorization,"content-type":"application/json","idempotency-key":"privacy-consents-1"},body:JSON.stringify({analytics:true,personalization:false,notifications:true})});
+    assert.equal(replay.response.status,200);
+    assert.deepEqual(replay.body?.data,x.body?.data);
+    const conflict=await request("/api/v1/privacy/consents",{method:"PUT",headers:{authorization,"content-type":"application/json","idempotency-key":"privacy-consents-1"},body:JSON.stringify({analytics:false,personalization:false,notifications:true})});
+    assert.equal(conflict.response.status,409);
+    assert.equal(conflict.body?.error?.code,"IDEMPOTENCY_CONFLICT");
   });
 
   it("rejects undocumented consent fields",async()=>{
