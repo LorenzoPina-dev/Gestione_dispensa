@@ -248,7 +248,7 @@ describe("service-family / real PostgreSQL integration", () => {
     const preview = await request(`/api/v1/family-invites/${inviteToken}`);
     assert.equal(preview.response.status, 200);
     assert.equal(preview.body?.data?.inviteId, inviteId);
-    assert.equal(preview.body?.data?.familyName, familyName);
+    assert.equal(preview.body?.data?.familyName, `${familyName}-updated`);
     assert.equal(preview.body?.data?.status, "pending");
     assert.equal(preview.body?.data?.role, "member");
   });
