@@ -385,6 +385,7 @@ services:
       OFF_LOOKUP_MONGO_URL: "mongodb://mongodb:27017"
       OFF_LOOKUP_MONGO_DB: off_lookup_db
       OFF_LOOKUP_MONGO_COLLECTION: products
+      OFF_LOOKUP_API_REFRESH_COOLDOWN_MS: "600000"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on: { mongodb: { condition: service_healthy } }
     healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"], interval: 10s, timeout: 3s, retries: 5, start_period: 10s }
