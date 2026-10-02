@@ -156,7 +156,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
           COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
           p.external_source, p.external_ref
          FROM products p LEFT JOIN brands b ON b.id=p.brand_id
-         WHERE p.id=$1 AND p.status='ACTIVE' FOR UPDATE`,
+         WHERE p.id=$1 AND p.status='ACTIVE' FOR UPDATE OF p`,
         [input.productId],
       );
       const row = current.rows[0];
