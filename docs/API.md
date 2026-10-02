@@ -299,7 +299,7 @@ Request:
   "lotCode":"LOT-123"
 }
 ```
-`productId` è Catalog ID. Se `expiresAt` è omesso il sistema può avviare Shelf-Life; non è lecito creare direttamente una data stimata nel client.
+`productId` è Catalog ID. Se `expiresAt` è omesso Inventory avvia automaticamente e in modo asincrono Shelf-Life; non è lecito creare direttamente una data stimata nel client. La prediction completata viene applicata automaticamente dall’esecuzione backend e diventa `expirationSource=estimated`.
 
 Response 201: item + version.
 
