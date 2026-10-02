@@ -64,7 +64,7 @@ export interface ProductDto {
   fat?: number;
   fiber?: number;
   quantityValue?: number;
-  quantityUnit?: ProductUnit;
+  quantityUnit?: string;
   quantityLabel?: string;
   servingSize?: string;
   servingQuantity?: number;
