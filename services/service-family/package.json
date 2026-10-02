@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:http",
     "test:http": "node --import tsx --test test/http.test.ts",
-    "test:integration": "node --import tsx --test test/integration.test.ts"
+    "test:integration": "node --import tsx --test test/integration.test.ts",
+    "test:migration": "node --import tsx --test test/migration.test.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"
