@@ -252,6 +252,13 @@ carbs_per_100 numeric(12,3) NULL
 fat_per_100 numeric(12,3) NULL
 fiber_per_100 numeric(12,3) NULL
 nutrition_confidence varchar(32) NULL
+quantity_value numeric(12,3) NULL -- normalized numeric package quantity from OFF product_quantity when available
+quantity_unit varchar(16) NULL -- original OFF package unit; may be outside InventoryUnit
+quantity_label varchar(120) NULL -- original human-readable OFF quantity field
+serving_size varchar(120) NULL
+serving_quantity numeric(12,3) NULL
+images_json JSONB NULL -- normalized front/ingredients/nutrition/packaging image URLs
+openfoodfacts_raw JSONB NULL -- complete original OFF product object, excluding private cache metadata
 external_source varchar(128) NULL
 external_ref varchar(255) NULL
 external_synced_at timestamptz NULL
@@ -270,6 +277,7 @@ normalized_value varchar(100) NOT NULL
 is_verified boolean NOT NULL DEFAULT false
 created_at timestamptz NOT NULL
 UNIQUE(source_id,identifier_type,normalized_value)
+UNIQUE(identifier_type,normalized_value) -- barcode is globally unambiguous in Catalog
 ```
 
 ### data_sources
@@ -853,7 +861,8 @@ Gli indici possono essere aggiunti se il benchmark lo dimostra, ma non devono al
 ### Catalog
 - barcode non ambiguo: uno stesso barcode non può riferirsi contemporaneamente a due prodotti canonici senza un conflitto esplicito;
 - provider provenance è tracciata;
-- raw provider payload non è source of truth.
+- openfoodfacts_raw conserva il documento provider per visualizzazione e forward compatibility; non è la source of truth del Catalogo;
+- i campi normalizzati del Catalogo restano il contratto stabile consumato dagli altri servizi.
 
 ### Shopping
 - quantity > 0;

@@ -48,6 +48,13 @@ interface ProductRow {
   carbs_per_100?: string | number | null;
   fat_per_100?: string | number | null;
   fiber_per_100?: string | number | null;
+  quantity_value?: string | number | null;
+  quantity_unit?: Product["quantityUnit"] | null;
+  quantity_label?: string | null;
+  serving_size?: string | null;
+  serving_quantity?: string | number | null;
+  images_json?: string | Record<string, unknown> | null;
+  openfoodfacts_raw?: string | Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   barcodes_json?: string | null;
@@ -65,7 +72,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   public async listActive(): Promise<Product[]> {
     const result = await this.database.transaction();
     try {
-      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at, COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id = p.id), '[]') AS barcodes_json, p.external_source, p.external_ref FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.quantity_value, p.quantity_unit, p.quantity_label, p.serving_size, p.serving_quantity, p.images_json, p.openfoodfacts_raw, p.created_at, p.updated_at, COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id = p.id), '[]') AS barcodes_json, p.external_source, p.external_ref FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.status = 'ACTIVE' ORDER BY p.canonical_name ASC`);
       await result.commit(); return rows.rows.map(mapProduct);
     } catch (error) { await result.rollback(); throw error; }
   }
@@ -73,7 +80,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   public async getById(productId: string): Promise<Product | undefined> {
     const result = await this.database.transaction();
     try {
-      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+      const rows = await result.query<ProductRow>(`SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.quantity_value, p.quantity_unit, p.quantity_label, p.serving_size, p.serving_quantity, p.images_json, p.openfoodfacts_raw, p.created_at, p.updated_at,
         COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id = p.id), '[]') AS barcodes_json,
         p.external_source, p.external_ref
         FROM products p LEFT JOIN brands b ON b.id = p.brand_id WHERE p.id = $1 AND p.status = 'ACTIVE'`, [productId]);
@@ -152,7 +159,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
       const current = await transaction.query<ProductRow>(
         `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality,
           p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100,
-          p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+          p.fat_per_100, p.fiber_per_100, p.quantity_value, p.quantity_unit, p.quantity_label, p.serving_size, p.serving_quantity, p.images_json, p.openfoodfacts_raw, p.created_at, p.updated_at,
           COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
           p.external_source, p.external_ref
          FROM products p LEFT JOIN brands b ON b.id=p.brand_id
@@ -208,7 +215,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
       const fresh = await transaction.query<ProductRow>(
         `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality,
           p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100,
-          p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+          p.fat_per_100, p.fiber_per_100, p.quantity_value, p.quantity_unit, p.quantity_label, p.serving_size, p.serving_quantity, p.images_json, p.openfoodfacts_raw, p.created_at, p.updated_at,
           COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
           p.external_source, p.external_ref
          FROM products p LEFT JOIN brands b ON b.id=p.brand_id WHERE p.id=$1`,
@@ -238,7 +245,7 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
   }): Promise<Product | undefined> {
     const result = await this.database.query<ProductRow>(
       `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status,
-          p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+          p.provenance_quality, p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100, p.fat_per_100, p.fiber_per_100, p.quantity_value, p.quantity_unit, p.quantity_label, p.serving_size, p.serving_quantity, p.images_json, p.openfoodfacts_raw, p.created_at, p.updated_at,
           COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
           p.external_source, p.external_ref
        FROM product_identifiers i
@@ -269,7 +276,7 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
     const transaction = await this.database.transaction();
     try {
       await transaction.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["catalog-barcode:" + input.identifierType + ":" + input.normalizedValue]);
-      const existing = await transaction.query<ProductRow>("SELECT p.id,p.canonical_name,b.name AS brand,p.default_unit,p.status,p.provenance_quality,p.version,p.category,p.photo_url,p.calories_per_100,p.protein_per_100,p.carbs_per_100,p.fat_per_100,p.fiber_per_100,p.created_at,p.updated_at,COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,p.external_source,p.external_ref FROM product_identifiers i JOIN products p ON p.id=i.product_id LEFT JOIN brands b ON b.id=p.brand_id WHERE i.identifier_type=$1 AND i.normalized_value=$2 AND p.status=$3 LIMIT 1", [input.identifierType, input.normalizedValue, "ACTIVE"]);
+      const existing = await transaction.query<ProductRow>("SELECT p.id,p.canonical_name,b.name AS brand,p.default_unit,p.status,p.provenance_quality,p.version,p.category,p.photo_url,p.calories_per_100,p.protein_per_100,p.carbs_per_100,p.fat_per_100,p.fiber_per_100,p.quantity_value,p.quantity_unit,p.quantity_label,p.serving_size,p.serving_quantity,p.images_json,p.openfoodfacts_raw,p.created_at,p.updated_at,COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,p.external_source,p.external_ref FROM product_identifiers i JOIN products p ON p.id=i.product_id LEFT JOIN brands b ON b.id=p.brand_id WHERE i.identifier_type=$1 AND i.normalized_value=$2 AND p.status=$3 LIMIT 1", [input.identifierType, input.normalizedValue, "ACTIVE"]);
       if (existing.rows[0]) {
         await transaction.commit();
         return mapProduct(existing.rows[0]);
@@ -282,8 +289,9 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
         `INSERT INTO products
           (canonical_name, brand_id, default_unit, status, provenance_quality,
            calories_per_100, protein_per_100, carbs_per_100, fat_per_100, fiber_per_100,
-           nutrition_confidence, photo_url, category, external_source, external_ref, external_synced_at)
-         VALUES ($1, $2, $3, 'ACTIVE', 'IMPORTED', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
+           nutrition_confidence, photo_url, category, external_source, external_ref, external_synced_at,
+           quantity_value, quantity_unit, quantity_label, serving_size, serving_quantity, images_json, openfoodfacts_raw)
+         VALUES ($1, $2, $3, 'ACTIVE', 'IMPORTED', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb)
          RETURNING id, canonical_name, default_unit, status, provenance_quality, version,
            category, photo_url, calories_per_100, protein_per_100, carbs_per_100, fat_per_100,
            fiber_per_100, created_at, updated_at`,
@@ -303,7 +311,14 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
           // shelf-life rule immediately -- see services/inventory/shelf-life-client.ts.
           input.match.category ?? null,
           input.match.source,
-          input.match.sourceVersion,
+          input.match.sourceRef ?? input.normalizedValue,
+          input.match.quantityValue ?? null,
+          input.match.quantityUnit ?? null,
+          input.match.quantityLabel ?? null,
+          input.match.servingSize ?? null,
+          input.match.servingQuantity ?? null,
+          JSON.stringify(input.match.images ?? null),
+          JSON.stringify(input.match.openFoodFacts ?? null),
         ],
       );
       const row = inserted.rows[0];
@@ -325,7 +340,7 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
       const fresh = await transaction.query<ProductRow>(
         `SELECT p.id, p.canonical_name, b.name AS brand, p.default_unit, p.status, p.provenance_quality,
           p.version, p.category, p.photo_url, p.calories_per_100, p.protein_per_100, p.carbs_per_100,
-          p.fat_per_100, p.fiber_per_100, p.created_at, p.updated_at,
+          p.fat_per_100, p.fiber_per_100, p.quantity_value, p.quantity_unit, p.quantity_label, p.serving_size, p.serving_quantity, p.images_json, p.openfoodfacts_raw, p.created_at, p.updated_at,
           COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,
           p.external_source, p.external_ref
          FROM products p LEFT JOIN brands b ON b.id=p.brand_id WHERE p.id=$1`,
@@ -471,10 +486,31 @@ function mapProduct(row: ProductRow): Product {
     ...(row.carbs_per_100 != null ? { carbs: Number(row.carbs_per_100) } : {}),
     ...(row.fat_per_100 != null ? { fat: Number(row.fat_per_100) } : {}),
     ...(row.fiber_per_100 != null ? { fiber: Number(row.fiber_per_100) } : {}),
+    ...(row.quantity_value != null ? { quantityValue: Number(row.quantity_value) } : {}),
+    ...(row.quantity_unit ? { quantityUnit: row.quantity_unit } : {}),
+    ...(row.quantity_label ? { quantityLabel: row.quantity_label } : {}),
+    ...(row.serving_size ? { servingSize: row.serving_size } : {}),
+    ...(row.serving_quantity != null ? { servingQuantity: Number(row.serving_quantity) } : {}),
+    ...(parseJsonObject(row.images_json) ? { images: parseJsonObject(row.images_json) } : {}),
+    ...(parseJsonObject(row.openfoodfacts_raw) ? { openFoodFacts: parseJsonObject(row.openfoodfacts_raw) } : {}),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
     barcodes: row.barcodes_json ? JSON.parse(row.barcodes_json) as string[] : [],
     ...(row.external_source ? { externalSource: row.external_source } : {}),
     ...(row.external_ref ? { externalRef: row.external_ref } : {}),
   };
+}
+
+
+function parseJsonObject(value: string | Record<string, unknown> | null | undefined): Record<string, unknown> | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "object") return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }

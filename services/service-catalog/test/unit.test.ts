@@ -152,6 +152,47 @@ describe("service-catalog / pure catalog rules", () => {
   });
 });
 
+describe("service-catalog / rich barcode public contract", () => {
+  it("keeps rich external product data available through the controller", async () => {
+    const richProduct = product({
+      quantityValue: 1,
+      quantityUnit: "l",
+      quantityLabel: "1 L",
+      servingSize: "100 ml",
+      servingQuantity: 100,
+      images: { front: "https://example.test/front.jpg", ingredients: "https://example.test/ingredients.jpg" },
+      openFoodFacts: {
+        code: "8001234567890",
+        product_name: "Latte intero",
+        ingredients_text: "Milk",
+        allergens_tags: ["en:milk"],
+        nutriments: { "energy-kcal_100g": 62, proteins_100g: 3.2 },
+      },
+    });
+    const lookup = {
+      findByIdentifier: async () => richProduct,
+      persistExternalMatch: async () => richProduct,
+    };
+    const workflow = new CatalogWorkflowService(
+      lookup,
+      { applyImportedCandidate: async (input) => input.candidate },
+    );
+    const repo = new MemoryCatalogRepository();
+    repo.existing = richProduct;
+    const catalog = new CatalogService(repo, { next: () => "id" }, { now: () => new Date("2026-10-02T00:00:00Z") });
+    const controller = new CatalogController(catalog, workflow);
+
+    const response = await controller.lookupBarcode("BARCODE", "8001234567890", meta);
+    assert.equal(response.data.product.name, "Latte intero");
+    assert.equal(response.data.product.package.value, 1);
+    assert.equal(response.data.product.package.unit, "l");
+    assert.equal(response.data.product.images.front, "https://example.test/front.jpg");
+    assert.equal(response.data.product.openFoodFacts?.ingredients_text, "Milk");
+    assert.deepEqual(response.data.product.openFoodFacts?.allergens_tags, ["en:milk"]);
+    assert.deepEqual(response.data.product.openFoodFacts?.nutriments, { "energy-kcal_100g": 62, proteins_100g: 3.2 });
+  });
+});
+
 describe("service-catalog / barcode workflow", () => {
   it("uses the local catalog first and does not call the external boundary on a cache hit", async () => {
     let externalCalls = 0;

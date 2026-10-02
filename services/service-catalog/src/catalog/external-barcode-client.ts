@@ -22,8 +22,23 @@ interface OffLookupProduct {
   readonly product_name_it?: string;
   readonly brands?: string;
   readonly image_front_url?: string;
+  readonly image_front_small_url?: string;
+  readonly image_front_thumb_url?: string;
+  readonly image_ingredients_url?: string;
+  readonly image_ingredients_small_url?: string;
+  readonly image_ingredients_thumb_url?: string;
+  readonly image_nutrition_url?: string;
+  readonly image_nutrition_small_url?: string;
+  readonly image_nutrition_thumb_url?: string;
+  readonly image_packaging_url?: string;
+  readonly image_packaging_small_url?: string;
+  readonly image_packaging_thumb_url?: string;
   readonly image_url?: string;
   readonly quantity?: string;
+  readonly product_quantity?: string | number;
+  readonly product_quantity_unit?: string;
+  readonly serving_quantity?: string | number;
+  readonly serving_quantity_unit?: string;
   readonly nutriments?: Record<string, unknown>;
   readonly nutrition_data_per?: string;
   readonly categories_tags?: readonly string[];
@@ -202,8 +217,38 @@ function toExternalMatch(body: OffLookupHitBody): ExternalProductMatch | undefin
   const category = normalizeOffCategory(
     Array.isArray(p.categories_tags) ? (p.categories_tags as string[]) : undefined,
   );
-  const rawUnit = parseDefaultUnit(typeof p.quantity === "string" ? p.quantity : undefined);
+  const quantityLabel = typeof p.quantity === "string" && p.quantity.trim()
+    ? p.quantity.trim()
+    : p.product_quantity != null
+      ? String(p.product_quantity) + (p.product_quantity_unit ? " " + p.product_quantity_unit : "")
+      : undefined;
+  const quantity = parseQuantity(
+    p.product_quantity != null ? String(p.product_quantity) : quantityLabel,
+    typeof p.product_quantity_unit === "string" ? p.product_quantity_unit : undefined,
+  );
+  const rawUnit = parseDefaultUnit(
+    p.product_quantity_unit
+      ? String(p.product_quantity) + " " + p.product_quantity_unit
+      : quantityLabel,
+  );
   const defaultUnit: ProductUnit = KNOWN_UNITS.includes(rawUnit) ? rawUnit : "piece";
+  const rawProduct = Object.fromEntries(Object.entries(p).filter(([key]) => key !== "_cache_meta"));
+  const servingQuantity = parseSimpleQuantity(p.serving_quantity);
+  const servingSize = typeof p.serving_size === "string" && p.serving_size.trim() ? p.serving_size.trim() : undefined;
+  const images = compactImages({
+    front: firstString(p.image_front_url, p.image_front_small_url, p.image_front_thumb_url, findSelectedImage(rawProduct, "front")),
+    frontSmall: firstString(p.image_front_small_url, findSelectedImage(rawProduct, "front", "200")),
+    frontThumb: firstString(p.image_front_thumb_url, findSelectedImage(rawProduct, "front", "100")),
+    ingredients: firstString(p.image_ingredients_url, findSelectedImage(rawProduct, "ingredients")),
+    ingredientsSmall: firstString(p.image_ingredients_small_url, findSelectedImage(rawProduct, "ingredients", "200")),
+    ingredientsThumb: firstString(p.image_ingredients_thumb_url, findSelectedImage(rawProduct, "ingredients", "100")),
+    nutrition: firstString(p.image_nutrition_url, findSelectedImage(rawProduct, "nutrition")),
+    nutritionSmall: firstString(p.image_nutrition_small_url, findSelectedImage(rawProduct, "nutrition", "200")),
+    nutritionThumb: firstString(p.image_nutrition_thumb_url, findSelectedImage(rawProduct, "nutrition", "100")),
+    packaging: firstString(p.image_packaging_url, findSelectedImage(rawProduct, "packaging")),
+    packagingSmall: firstString(p.image_packaging_small_url, findSelectedImage(rawProduct, "packaging", "200")),
+    packagingThumb: firstString(p.image_packaging_thumb_url, findSelectedImage(rawProduct, "packaging", "100")),
+  });
 
   return {
     canonicalName: name,
@@ -215,9 +260,78 @@ function toExternalMatch(body: OffLookupHitBody): ExternalProductMatch | undefin
     ...(carbs !== undefined ? { carbs } : {}),
     ...(fat !== undefined ? { fat } : {}),
     ...(fiber !== undefined ? { fiber } : {}),
+    ...(quantity !== undefined ? { quantityValue: quantity } : {}),
+    ...(quantityLabel ? { quantityLabel } : {}),
+    ...(p.product_quantity_unit && p.product_quantity_unit.trim()
+      ? { quantityUnit: p.product_quantity_unit.trim() }
+      : rawUnit !== "piece"
+        ? { quantityUnit: rawUnit }
+        : {}),
+    ...(servingSize ? { servingSize } : {}),
+    ...(servingQuantity !== undefined ? { servingQuantity } : {}),
+    ...(images ? { images } : {}),
     ...(category ? { category } : {}),
+    openFoodFacts: rawProduct,
     source: "openfoodfacts",
     sourceVersion: body.source === "cache" ? "off-dump-v1" : "off-api-v3",
+    sourceRef: body.code,
     confidence: hasNutrients ? 0.85 : 0.6,
   };
 }
+
+
+function parseQuantity(quantity: string | undefined, explicitUnit?: string): number | undefined {
+  if (!quantity) return undefined;
+  if (explicitUnit) {
+    const value = Number(quantity.replace(",", ".").replace(/[^0-9.]/g, ""));
+    return Number.isFinite(value) ? value : undefined;
+  }
+  const matches = [...quantity.replace(",", ".").matchAll(/(\d+(?:\.\d+)?)\s*(kg|g|mg|ml|cl|l)\b/gi)];
+  const match = matches.at(-1);
+  return match ? Number(match[1]) : undefined;
+}
+
+function compactImages(input: Record<string, unknown>): Record<string, string> | undefined {
+  const entries = Object.entries(input).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+
+function parseSimpleQuantity(value: string | number | undefined): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const match = /\d+(?:[.,]\d+)?/.exec(value);
+  if (!match) return undefined;
+  const parsed = Number(match[0].replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function firstString(...values: Array<unknown>): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function findSelectedImage(product: Record<string, unknown>, kind: string, preferredSize?: string): string | undefined {
+  const images = product.images;
+  if (!isRecord(images)) return undefined;
+  const selected = images.selected;
+  if (!isRecord(selected)) return undefined;
+  return findUrl(selected[kind], preferredSize);
+}
+
+function findUrl(value: unknown, preferredSize?: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const preferred = preferredSize ? value[preferredSize] : undefined;
+  if (typeof preferred === "string" && preferred.trim()) return preferred.trim();
+  if (isRecord(preferred) && typeof preferred.url === "string") return preferred.url.trim();
+  if (typeof value.url === "string" && value.url.trim()) return value.url.trim();
+  for (const child of Object.values(value)) {
+    const found = findUrl(child, preferredSize);
+    if (found) return found;
+  }
+  return undefined;
+}
+

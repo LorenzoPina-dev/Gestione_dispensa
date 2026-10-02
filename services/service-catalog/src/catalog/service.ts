@@ -1,5 +1,20 @@
 export type ProductUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";
 export type ProductQuality = "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+
+export interface ProductImages {
+  front?: string;
+  frontSmall?: string;
+  frontThumb?: string;
+  ingredients?: string;
+  ingredientsSmall?: string;
+  ingredientsThumb?: string;
+  nutrition?: string;
+  nutritionSmall?: string;
+  nutritionThumb?: string;
+  packaging?: string;
+  packagingSmall?: string;
+  packagingThumb?: string;
+}
 export type IdentifierType = "EAN8" | "EAN13" | "GTIN12" | "GTIN14" | "SKU" | "BARCODE";
 
 export interface CreateManualProductCommand {
@@ -35,6 +50,13 @@ export interface Product {
   carbs?: number;
   fat?: number;
   fiber?: number;
+  quantityValue?: number;
+  quantityUnit?: string;
+  quantityLabel?: string;
+  servingSize?: string;
+  servingQuantity?: number;
+  images?: ProductImages;
+  openFoodFacts?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
   barcodes: string[];

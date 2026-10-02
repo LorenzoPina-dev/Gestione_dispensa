@@ -31,6 +31,26 @@ type Candidate = {
   carbs?: number;
   fat?: number;
   fiber?: number;
+  quantityValue?: number;
+  quantityUnit?: string;
+  quantityLabel?: string;
+  servingSize?: string;
+  servingQuantity?: number;
+  images?: {
+    front?: string;
+    frontSmall?: string;
+    frontThumb?: string;
+    ingredients?: string;
+    ingredientsSmall?: string;
+    ingredientsThumb?: string;
+    nutrition?: string;
+    nutritionSmall?: string;
+    nutritionThumb?: string;
+    packaging?: string;
+    packagingSmall?: string;
+    packagingThumb?: string;
+  };
+  openFoodFacts?: Record<string, unknown>;
   provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
 };
 
@@ -99,7 +119,27 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const result = await api.resolveProductBarcode("BARCODE", normalized);
       if (result.status === "MATCHED" && result.product) {
         const p = result.product;
-        setCandidate({ productId: p.id, name: p.canonicalName, brand: p.brand, unit: p.defaultUnit as StockItem["unit"], category: p.category, photoUrl: p.photoUrl, calories: p.calories, protein: p.protein, carbs: p.carbs, fat: p.fat, fiber: p.fiber, provenanceQuality: p.provenanceQuality });
+        setCandidate({
+          productId: p.id,
+          name: p.canonicalName,
+          brand: p.brand,
+          unit: p.defaultUnit as StockItem["unit"],
+          category: p.category,
+          photoUrl: p.photoUrl,
+          calories: p.calories,
+          protein: p.protein,
+          carbs: p.carbs,
+          fat: p.fat,
+          fiber: p.fiber,
+          quantityValue: p.quantityValue,
+          quantityUnit: p.quantityUnit,
+          quantityLabel: p.quantityLabel,
+          servingSize: p.servingSize,
+          servingQuantity: p.servingQuantity,
+          images: p.images,
+          openFoodFacts: p.openFoodFacts,
+          provenanceQuality: p.provenanceQuality,
+        });
         setState("CANDIDATE");
         return;
       }
@@ -205,7 +245,155 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 }
 
 function CandidateView({ candidate, code, onCorrect, onConfirm }: { candidate: Candidate; code: string; onCorrect: () => void; onConfirm: () => void }) {
-  return <div className="space-y-4"><Message>Barcode rilevato: {code}</Message><div className="rounded-2xl p-5" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}><div className="flex gap-3">{candidate.photoUrl && <img src={candidate.photoUrl} alt={candidate.name} className="w-16 h-16 rounded-xl object-cover" />}<div><p className="font-semibold">{candidate.name}</p>{candidate.brand && <p className="text-sm" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}<p className="text-xs mt-2" style={{ color: "#6b5e4e" }}>Fonte: {candidate.provenanceQuality === "VERIFIED" ? "catalogo locale" : "Open Food Facts"}</p></div></div></div><p className="text-xs" style={{ color: "#6b5e4e" }}>Questa è solo un'anteprima. Nessun prodotto è ancora stato inserito nella scorta.</p><div className="flex gap-3"><button onClick={onCorrect} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Correggi</button><button onClick={onConfirm} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Conferma prodotto</button></div></div>;
+  const raw = candidate.openFoodFacts ?? {};
+  const nutriments = isRecord(raw.nutriments) ? raw.nutriments : {};
+  const frontImage = candidate.images?.front ?? candidate.photoUrl;
+  const imageEntries = Object.entries(candidate.images ?? {}).filter(([, value]) => typeof value === "string" && value.length > 0) as Array<[string, string]>;
+
+  return (
+    <div className="space-y-4">
+      <Message>Barcode rilevato: {code}</Message>
+
+      <div className="rounded-2xl p-5 space-y-5" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
+        {frontImage && (
+          <img src={frontImage} alt={candidate.name} className="w-full max-h-72 rounded-xl object-contain bg-white" />
+        )}
+
+        <div>
+          <p className="text-xl font-semibold">{candidate.name}</p>
+          {candidate.brand && <p className="text-sm mt-1" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}
+          <p className="text-xs mt-2" style={{ color: "#6b5e4e" }}>
+            Fonte: {candidate.provenanceQuality === "VERIFIED" ? "catalogo locale" : "Open Food Facts"}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <InfoCell label="Quantità confezione" value={candidate.quantityLabel ?? (candidate.quantityValue != null && candidate.quantityUnit ? String(candidate.quantityValue) + " " + candidate.quantityUnit : "—")} />
+          <InfoCell label="Unità" value={candidate.quantityUnit ?? candidate.unit ?? "—"} />
+          <InfoCell label="Categoria" value={candidate.category ?? "—"} />
+          <InfoCell label="Serving size" value={candidate.servingSize ?? "—"} />
+        </div>
+
+        {Object.keys(nutriments).length > 0 && (
+          <div>
+            <p className="text-xs font-semibold mb-2" style={{ color: "#6b5e4e" }}>Valori nutrizionali Open Food Facts</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {Object.entries(nutriments).slice(0, 18).map(([key, value]) => (
+                <InfoCell key={key} label={humanizeOffKey(key)} value={formatOffValue(value)} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <OpenFoodFactsSection raw={raw} images={imageEntries} />
+      </div>
+
+      <p className="text-xs" style={{ color: "#6b5e4e" }}>
+        Questi dati provengono da Open Food Facts e vengono conservati integralmente nel Catalogo.
+        Nessun prodotto viene inserito nella scorta fino alla conferma.
+      </p>
+
+      <div className="flex gap-3">
+        <button onClick={onCorrect} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Correggi</button>
+        <button onClick={onConfirm} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Conferma prodotto</button>
+      </div>
+    </div>
+  );
+}
+
+function OpenFoodFactsSection({ raw, images }: { raw: Record<string, unknown>; images: Array<[string, string]> }) {
+  const stringValue = (key: string) => typeof raw[key] === "string" ? raw[key] as string : undefined;
+  const arrayValue = (key: string) => Array.isArray(raw[key]) ? (raw[key] as unknown[]).filter((v): v is string => typeof v === "string") : [];
+
+  const ingredients = stringValue("ingredients_text_it") ?? stringValue("ingredients_text");
+  const allergens = arrayValue("allergens_tags");
+  const traces = arrayValue("traces_tags");
+  const labels = arrayValue("labels_tags");
+  const categories = arrayValue("categories_tags");
+  const countries = arrayValue("countries_tags");
+  const stores = arrayValue("stores_tags");
+  const packaging = stringValue("packaging_text") ?? stringValue("packaging");
+  const nutriscore = stringValue("nutriscore_grade") ?? stringValue("nutrition_grades");
+  const nova = raw.nova_group != null ? String(raw.nova_group) : undefined;
+  const ecoscore = stringValue("ecoscore_grade");
+  const origins = stringValue("origins");
+
+  return (
+    <div className="space-y-4">
+      {images.length > 1 && (
+        <div>
+          <p className="text-xs font-semibold mb-2" style={{ color: "#6b5e4e" }}>Immagini disponibili</p>
+          <div className="grid grid-cols-3 gap-2">
+            {images.map(([name, src]) => (
+              <a key={name} href={src} target="_blank" rel="noreferrer" className="block">
+                <img src={src} alt={name} className="w-full h-24 rounded-lg object-cover bg-white border" />
+                <span className="block text-[10px] mt-1 truncate" style={{ color: "#6b5e4e" }}>{humanizeOffKey(name)}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(ingredients || allergens.length || traces.length || labels.length || categories.length || countries.length || stores.length || packaging || nutriscore || nova || ecoscore || origins) && (
+        <div>
+          <p className="text-xs font-semibold mb-2" style={{ color: "#6b5e4e" }}>Informazioni prodotto</p>
+          <div className="space-y-2">
+            {ingredients && <InfoCell label="Ingredienti" value={ingredients} />}
+            {packaging && <InfoCell label="Packaging" value={packaging} />}
+            {origins && <InfoCell label="Origine" value={origins} />}
+            {allergens.length > 0 && <InfoCell label="Allergeni" value={allergens.map(cleanTag).join(", ")} />}
+            {traces.length > 0 && <InfoCell label="Tracce" value={traces.map(cleanTag).join(", ")} />}
+            {labels.length > 0 && <InfoCell label="Etichette" value={labels.map(cleanTag).join(", ")} />}
+            {categories.length > 0 && <InfoCell label="Categorie" value={categories.map(cleanTag).join(", ")} />}
+            {countries.length > 0 && <InfoCell label="Paesi" value={countries.map(cleanTag).join(", ")} />}
+            {stores.length > 0 && <InfoCell label="Negozi" value={stores.map(cleanTag).join(", ")} />}
+            {nutriscore && <InfoCell label="Nutri-Score" value={nutriscore.toUpperCase()} />}
+            {nova && <InfoCell label="NOVA" value={nova} />}
+            {ecoscore && <InfoCell label="Eco-Score" value={ecoscore.toUpperCase()} />}
+          </div>
+        </div>
+      )}
+
+      <details className="rounded-xl overflow-hidden" style={{ backgroundColor: "#f5f0e8", border: "1px solid #d8cfc0" }}>
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Tutti i dati originali Open Food Facts</summary>
+        <pre className="px-4 pb-4 text-[10px] leading-4 overflow-x-auto whitespace-pre-wrap break-words" style={{ color: "#4b4035" }}>
+{JSON.stringify(raw, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
+function InfoCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg p-2" style={{ backgroundColor: "#f5f0e8" }}>
+      <p className="text-[10px]" style={{ color: "#6b5e4e" }}>{label}</p>
+      <p className="text-xs font-medium mt-0.5 break-words" style={{ color: "#1a1510" }}>{value}</p>
+    </div>
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function humanizeOffKey(key: string): string {
+  return key
+    .replace(/_100g$/, " / 100 g")
+    .replace(/_/g, " ")
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatOffValue(value: unknown): string {
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
+  return JSON.stringify(value);
+}
+
+function cleanTag(value: string): string {
+  return value.replace(/^\w+:/, "").replaceAll("-", " ");
 }
 
 function ConfirmStock({ candidate, qty, setQty, expiry, setExpiry, location, setLocation, onBack, onSave }: { candidate: Candidate; qty: string; setQty: (v: string) => void; expiry: string; setExpiry: (v: string) => void; location: StorageLocation; setLocation: (v: StorageLocation) => void; onBack: () => void; onSave: () => void }) {

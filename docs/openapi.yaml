@@ -334,7 +334,7 @@ paths:
         - {name: barcode, in: path, required: true, schema: {type: string, pattern: '^(?:[0-9]{8}|[0-9]{12}|[0-9]{13}|[0-9]{14})}}
         - {name: refresh, in: query, required: false, schema: {type: boolean, default: false}}
       responses:
-        '200': {description: Resolved product, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '200': {description: Resolved product, content: {application/json: {schema: {$ref: '#/components/schemas/CatalogBarcodeResponse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /catalog/barcodes/resolve:
     post:
@@ -343,7 +343,7 @@ paths:
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/BarcodeRequest'}}}}
       responses:
-        '200': {description: Resolved product, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '200': {description: Resolved product, content: {application/json: {schema: {$ref: '#/components/schemas/CatalogBarcodeResponse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /shopping/lists:
     get:
@@ -3485,6 +3485,81 @@ components:
         data: {}
         version: {type: integer, minimum: 1}
       additionalProperties: false
+    CatalogProduct:
+      type: object
+      required: [productId, name, brand, category, barcodes, imageObjectKey, nutrition, package, serving, images, openFoodFacts, source, version]
+      additionalProperties: false
+      properties:
+        productId: {$ref: '#/components/schemas/Uuid'}
+        name: {type: string}
+        brand: {type: [string, 'null']}
+        category: {type: [string, 'null']}
+        barcodes: {type: array, items: {type: string, pattern: '^[0-9]+$'}}
+        imageObjectKey: {type: [string, 'null']}
+        nutrition:
+          type: object
+          required: [kcalPer100g, proteinGPer100g, carbsGPer100g, fatGPer100g, fiberGPer100g]
+          additionalProperties: false
+          properties:
+            kcalPer100g: {type: [number, 'null'], minimum: 0}
+            proteinGPer100g: {type: [number, 'null'], minimum: 0}
+            carbsGPer100g: {type: [number, 'null'], minimum: 0}
+            fatGPer100g: {type: [number, 'null'], minimum: 0}
+            fiberGPer100g: {type: [number, 'null'], minimum: 0}
+        package:
+          type: object
+          required: [value, unit, label]
+          additionalProperties: false
+          properties:
+            value: {type: [number, 'null']}
+            unit: {type: [string, 'null']}
+            label: {type: [string, 'null']}
+        serving:
+          type: object
+          required: [size, quantity]
+          additionalProperties: false
+          properties:
+            size: {type: [string, 'null']}
+            quantity: {type: [number, 'null']}
+        images:
+          type: object
+          required: [front, frontSmall, frontThumb, ingredients, ingredientsSmall, ingredientsThumb, nutrition, nutritionSmall, nutritionThumb, packaging, packagingSmall, packagingThumb]
+          additionalProperties: false
+          properties:
+            front: {type: [string, 'null']}
+            frontSmall: {type: [string, 'null']}
+            frontThumb: {type: [string, 'null']}
+            ingredients: {type: [string, 'null']}
+            ingredientsSmall: {type: [string, 'null']}
+            ingredientsThumb: {type: [string, 'null']}
+            nutrition: {type: [string, 'null']}
+            nutritionSmall: {type: [string, 'null']}
+            nutritionThumb: {type: [string, 'null']}
+            packaging: {type: [string, 'null']}
+            packagingSmall: {type: [string, 'null']}
+            packagingThumb: {type: [string, 'null']}
+        openFoodFacts: {type: [object, 'null'], additionalProperties: true}
+        source:
+          type: object
+          required: [type, id]
+          additionalProperties: false
+          properties:
+            type: {type: string}
+            id: {type: string}
+        version: {type: integer, minimum: 1}
+    CatalogBarcodeResponse:
+      type: object
+      required: [data, meta]
+      additionalProperties: false
+      properties:
+        data:
+          type: object
+          required: [resolution, product]
+          additionalProperties: false
+          properties:
+            resolution: {type: string, enum: [cache, provider]}
+            product: {$ref: '#/components/schemas/CatalogProduct'}
+        meta: {$ref: '#/components/schemas/Meta'}
     Meta:
       type: object
       required: [requestId, traceId, schemaVersion]
