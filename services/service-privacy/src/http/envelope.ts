@@ -35,7 +35,7 @@ export function applyCorrelationHeaders(res: Response, meta: HttpMeta): void {
 }
 
 export function failure(code: string, message: string, meta: HttpMeta): HttpErrorBody {
-  return { error: { code, message, retryable: false, details: [] }, meta };
+  return { error: { code, message, retryable: false, details: [], requestId: meta.requestId }, meta };
 }
 
 export function sendFailure(res: Response, status: number, code: string, message: string, meta: HttpMeta): void {
