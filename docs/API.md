@@ -296,16 +296,17 @@ Request:
   "unit":"L",
   "expiresAt":"2026-10-05T00:00:00Z",
   "location":"fridge",
+  "openedAt":null,
   "lotCode":"LOT-123"
 }
 ```
-`productId` è Catalog ID. Se `expiresAt` è omesso Inventory avvia automaticamente e in modo asincrono Shelf-Life; non è lecito creare direttamente una data stimata nel client. La prediction completata viene applicata automaticamente dall’esecuzione backend e diventa `expirationSource=estimated`.
+`productId` è Catalog ID. `openedAt` è opzionale: quando valorizzato rappresenta il momento in cui il prodotto è stato aperto e viene usato per la stima Shelf-Life aperta. Se `expiresAt` è omesso Inventory avvia automaticamente e in modo asincrono Shelf-Life; non è lecito creare direttamente una data stimata nel client. La prediction completata viene applicata automaticamente dal backend e diventa `expirationSource=estimated`.
 
 Response 201: item + version.
 
 ### PATCH /inventory/{itemId}
 
-Request: almeno uno tra `quantity`, `location`, `expiresAt`, `lotCode`.
+Request: almeno uno tra `quantity`, `location`, `openedAt`, `expiresAt`, `lotCode`.
 Response 200: item + version.
 
 ### POST /inventory/{itemId}/consume
