@@ -146,7 +146,7 @@ async function putMinioObject(objectKey: string, data: Buffer, contentType: stri
       "X-Amz-Date": amzDate,
       Authorization: authorization,
     },
-    body: data,
+    body: new Uint8Array(data),
   });
   if (!response.ok) {
     throw new Error("MinIO upload failed with HTTP " + response.status);
