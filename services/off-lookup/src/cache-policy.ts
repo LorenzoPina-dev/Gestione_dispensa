@@ -1,5 +1,6 @@
 import type { ProductDocument } from "./mongo-product-repository.js";
 
+export const CURRENT_CACHE_SCHEMA_VERSION = 2;
 export const CURRENT_CACHE_ENRICHMENT_VERSION = 1;
 
 export interface CacheMetadata {
