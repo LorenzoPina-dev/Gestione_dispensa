@@ -230,7 +230,16 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
     try {
       await redis.connect().catch(() => undefined);
       if (redis.isOpen) {
-        await redis.lPush(queue,JSON.stringify({data:{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null}}));
+        await redis.lPush(queue,JSON.stringify({data:{
+          predictionId,
+          itemId,
+          productId,
+          storage,
+          opened,
+          category:typeof body.category==="string"?body.category:null,
+          userId,
+          familyId,
+        }}));
       }
     } catch { /* durable queued prediction remains */ }
 
