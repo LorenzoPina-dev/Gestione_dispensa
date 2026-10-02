@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS shelf_life_domain.rules (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- The table may already exist from an older 001 migration that did not have
+-- product_category. CREATE TABLE IF NOT EXISTS does not alter an existing table.
+ALTER TABLE shelf_life_domain.rules
+  ADD COLUMN IF NOT EXISTS product_category varchar(120) NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS shelf_rules_unique
   ON shelf_life_domain.rules(coalesce(product_category,''),storage,opened,model_version);
 
