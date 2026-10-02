@@ -1,5 +1,5 @@
 import { apiRequest, ApiError, newIdempotencyKey } from "./client";
-import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductUnit, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto } from "./types";
+import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductImagesDto, ProductUnit, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto } from "./types";
 
 export function getReadiness(): Promise<ReadinessDto> { return apiRequest<ReadinessDto>("/health/ready"); }
 export interface CurrentUserDto extends UserDto {
