@@ -17,6 +17,8 @@ const audience = "account";
 class MemoryRepository implements CatalogRepository {
   private readonly products = new Map<string, Product>();
 
+  get size(): number { return this.products.size; }
+
   async listActive(): Promise<Product[]> {
     return [...this.products.values()];
   }
@@ -127,7 +129,7 @@ describe("service-catalog / real Express HTTP adapter", () => {
     });
     assert.equal(response.status, 400);
     assert.equal(body?.error?.code, "VALIDATION_ERROR");
-    assert.equal(repo["products"].size, 0);
+    assert.equal(repo.size, 0);
   });
 
   it("requires idempotency for product creation", async () => {
