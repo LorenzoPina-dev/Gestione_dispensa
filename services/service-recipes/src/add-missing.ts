@@ -1,11 +1,12 @@
 import express, { type Request } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
+import { calculateMissingIngredients, unitInfo, type MissingIngredient, type StockItem } from "./add-missing-domain.js";
 
 type Context = { userId: string; familyId: string };
 type Body = Record<string, unknown>;
-type Ingredient = { productId?: string | null; name: string; quantity: number; unit: string };
-type Stock = { productId?: string; quantity?: number; unit?: string };
+type Ingredient = MissingIngredient;
+type Stock = StockItem;
 
 function context(req: Request): Context | null {
   const userId = String(req.header("x-user-id") ?? "").trim();
@@ -24,18 +25,6 @@ function hash(value: unknown): string {
 
 function childKey(parent: string, suffix: string): string {
   return crypto.createHash("sha256").update(parent + ":" + suffix).digest("hex").slice(0, 64);
-}
-
-function unitInfo(unit: string): { family: "mass" | "volume" | "count"; factor: number } | null {
-  switch (unit.toLowerCase()) {
-    case "kg": return { family: "mass", factor: 1000 };
-    case "g": return { family: "mass", factor: 1 };
-    case "l": return { family: "volume", factor: 1000 };
-    case "ml": return { family: "volume", factor: 1 };
-    case "piece": return { family: "count", factor: 1 };
-    case "pack": return { family: "count", factor: 1 };
-    default: return null;
-  }
 }
 
 function errorBody(code: string, message: string) {
@@ -189,31 +178,7 @@ export function registerAddMissingIngredientsRoute(app: express.Express, pool: P
       }
 
       const stock = (inventory.payload as { items: Stock[] }).items;
-      const needs: Array<{ ingredient: Ingredient; quantity: number; index: number }> = [];
-
-      ingredients.forEach((ingredient, index) => {
-        const target = unitInfo(ingredient.unit);
-        if (!target || ingredient.quantity <= 0) return;
-
-        let availableBase = 0;
-        if (ingredient.productId) {
-          for (const item of stock) {
-            if (String(item.productId ?? "") !== String(ingredient.productId)) continue;
-            const source = unitInfo(String(item.unit ?? ""));
-            if (!source || source.family !== target.family) continue;
-            availableBase += Number(item.quantity ?? 0) * source.factor;
-          }
-        }
-
-        const deficitBase = Math.max(0, ingredient.quantity * target.factor - availableBase);
-        if (deficitBase > 0) {
-          needs.push({
-            ingredient,
-            quantity: Number((deficitBase / target.factor).toFixed(3)),
-            index,
-          });
-        }
-      });
+      const needs = calculateMissingIngredients(ingredients, stock);
 
       if (needs.length === 0) {
         const response = { data: { itemIds: [] }, version: 1 };
