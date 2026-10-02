@@ -233,8 +233,20 @@ function toExternalMatch(body: OffLookupHitBody): ExternalProductMatch | undefin
   );
   const defaultUnit: ProductUnit = KNOWN_UNITS.includes(rawUnit) ? rawUnit : "piece";
   const rawProduct = Object.fromEntries(Object.entries(p).filter(([key]) => key !== "_cache_meta"));
+  const packageUnit = typeof p.product_quantity_unit === "string" && p.product_quantity_unit.trim()
+    ? p.product_quantity_unit.trim()
+    : rawUnit !== "piece"
+      ? rawUnit
+      : undefined;
+  const servingUnit = typeof p.serving_quantity_unit === "string" && p.serving_quantity_unit.trim()
+    ? p.serving_quantity_unit.trim()
+    : undefined;
   const servingQuantity = parseSimpleQuantity(p.serving_quantity);
-  const servingSize = typeof p.serving_size === "string" && p.serving_size.trim() ? p.serving_size.trim() : undefined;
+  const servingSize = typeof p.serving_size === "string" && p.serving_size.trim()
+    ? p.serving_size.trim()
+    : servingQuantity !== undefined && servingUnit
+      ? `${servingQuantity} ${servingUnit}`
+      : undefined;
   const images = compactImages({
     front: firstString(p.image_front_url, p.image_front_small_url, p.image_front_thumb_url, findSelectedImage(rawProduct, "front")),
     frontSmall: firstString(p.image_front_small_url, findSelectedImage(rawProduct, "front", "200")),
@@ -262,13 +274,10 @@ function toExternalMatch(body: OffLookupHitBody): ExternalProductMatch | undefin
     ...(fiber !== undefined ? { fiber } : {}),
     ...(quantity !== undefined ? { quantityValue: quantity } : {}),
     ...(quantityLabel ? { quantityLabel } : {}),
-    ...(p.product_quantity_unit && p.product_quantity_unit.trim()
-      ? { quantityUnit: p.product_quantity_unit.trim() }
-      : rawUnit !== "piece"
-        ? { quantityUnit: rawUnit }
-        : {}),
+    ...(packageUnit ? { quantityUnit: packageUnit } : {}),
     ...(servingSize ? { servingSize } : {}),
     ...(servingQuantity !== undefined ? { servingQuantity } : {}),
+    ...(servingUnit ? { servingUnit } : {}),
     ...(images ? { images } : {}),
     ...(category ? { category } : {}),
     openFoodFacts: rawProduct,
