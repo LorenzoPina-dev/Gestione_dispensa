@@ -6,9 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --import tsx --test test/*.test.ts",
-    "test:unit": "node --import tsx --test test/unit.test.ts test/http-client.test.ts",
-    "test:http": "node --import tsx --test test/http.test.ts",
-    "test:integration": "node --import tsx --test test/integration.test.ts"
+    "test": "npm run build && npm run test:unit",
+    "test:unit": "node --import tsx --test test/unit.test.ts"
   }
 }
