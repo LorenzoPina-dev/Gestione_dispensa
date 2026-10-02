@@ -133,20 +133,20 @@ app.get("/api/v1/notifications", async (req, res) => {
     [familyId, userId, unreadOnly, limit+1, Number(req.query.cursor ?? 0)],
   );
 
+  const offset=Number(req.query.cursor ?? 0);
+  const hasNext=q.rows.length>limit;
+  const rows=hasNext?q.rows.slice(0,limit):q.rows;
   return res.json({
-    items: q.rows.map((row) => ({
+    items: rows.map((row)=>({
       notificationId: row.id,
       type: row.type,
       title: row.title,
       body: row.body,
-      ...(row.payload ? { payload: row.payload } : {}),
       readAt: row.read_at,
       createdAt: row.created_at,
-      version: row.version,
     })),
-    nextCursor: null,
+    nextCursor: hasNext ? String(offset+limit) : null,
   });
-});
 
 app.post("/api/v1/notifications/:notificationId/read", async (req, res) => {
   const userId = actor(req);
@@ -179,7 +179,6 @@ app.post("/api/v1/notifications/:notificationId/read", async (req, res) => {
         type: row.type,
         title: row.title,
         body: row.body,
-        ...(row.payload ? { payload: row.payload } : {}),
         readAt: row.read_at,
         createdAt: row.created_at,
       },
