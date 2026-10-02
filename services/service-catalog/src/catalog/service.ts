@@ -55,6 +55,7 @@ export interface Product {
   quantityLabel?: string;
   servingSize?: string;
   servingQuantity?: number;
+  servingUnit?: string;
   images?: ProductImages;
   openFoodFacts?: Record<string, unknown>;
   createdAt: Date;
