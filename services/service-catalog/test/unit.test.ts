@@ -9,7 +9,7 @@ import {
   parseResolveBarcodeBody,
 } from "../src/http/validators.js";
 
-const meta = { requestId: "request-123456789", traceId: "trace-123456789", schemaVersion: "1.0" as const };
+const meta = { requestId: "request-123456789", traceId: "trace-1234567890", schemaVersion: "1.0" as const };
 const principal = {
   subject: "user-1",
   issuer: "issuer",
@@ -112,7 +112,7 @@ describe("service-catalog / pure catalog rules", () => {
       defaultUnit: "l",
       barcodes: ["8001234567890", "8001234567890"],
       actorId: "user-1",
-      traceId: "trace-123456789",
+      traceId: "trace-1234567890",
     });
 
     assert.equal(created.id, "id-1");
@@ -146,7 +146,7 @@ describe("service-catalog / pure catalog rules", () => {
       1,
       { name: "New name" },
       "user-1",
-      "trace-123456789",
+      "trace-1234567890",
     );
     assert.equal(result, undefined);
   });
@@ -169,7 +169,7 @@ describe("service-catalog / barcode workflow", () => {
       applyImportedCandidate: async (input) => input.candidate,
     }, external);
 
-    const result = await workflow.resolveBarcode("BARCODE", "8001234567890", "trace-123456789");
+    const result = await workflow.resolveBarcode("BARCODE", "8001234567890", "trace-1234567890");
     assert.equal(result.status, "MATCHED");
     assert.equal(result.resolution, "cache");
     assert.equal(externalCalls, 0);
@@ -196,7 +196,7 @@ describe("service-catalog / barcode workflow", () => {
       { lookup: async () => externalProduct },
     );
 
-    const result = await workflow.resolveBarcode("BARCODE", "8001234567890", "trace-123456789");
+    const result = await workflow.resolveBarcode("BARCODE", "8001234567890", "trace-1234567890");
     assert.equal(result.status, "MATCHED");
     assert.equal(result.resolution, "provider");
     assert.equal(result.product?.provenanceQuality, "IMPORTED");
@@ -210,7 +210,7 @@ describe("service-catalog / barcode workflow", () => {
       { lookup: async () => { throw new Error("network"); } },
     );
 
-    const result = await workflow.resolveBarcode("BARCODE", "8001234567890", "trace-123456789");
+    const result = await workflow.resolveBarcode("BARCODE", "8001234567890", "trace-1234567890");
     assert.equal(result.status, "DEGRADED");
     assert.equal(result.product, undefined);
   });
@@ -232,7 +232,7 @@ describe("service-catalog / barcode workflow", () => {
       source: "openfoodfacts",
       productId: undefined,
       brand: undefined,
-    }, "user-1", "trace-123456789");
+    }, "user-1", "trace-1234567890");
 
     await workflow.submitImportedCandidate({
       canonicalName: "Review me",
@@ -241,7 +241,7 @@ describe("service-catalog / barcode workflow", () => {
       source: "openfoodfacts",
       productId: undefined,
       brand: undefined,
-    }, "user-1", "trace-123456789");
+    }, "user-1", "trace-1234567890");
 
     assert.equal(candidates[0].requiresReview, false);
     assert.equal(candidates[1].requiresReview, true);
