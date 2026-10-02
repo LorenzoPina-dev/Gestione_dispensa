@@ -660,13 +660,33 @@ product_category varchar(120) NULL
 storage varchar(32) NOT NULL -- PANTRY|FRIDGE|FREEZER|CELLAR|OTHER
 opened boolean NOT NULL
 min_days integer NOT NULL CHECK(min_days >= 0)
-max_days integer NOT NULL CHECK(max_days >= min_days)
+target_days integer NULL CHECK(target_days >= min_days)
+max_days integer NOT NULL CHECK(max_days >= target_days)
 model_version varchar(64) NOT NULL
 active boolean NOT NULL DEFAULT true
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 UNIQUE(product_category,storage,opened,model_version) using normalized NULL semantics
 ```
+
+### shelf_life_domain.product_profiles
+
+```text
+id UUID PK
+product_id UUID NOT NULL -- remote Catalog ID, never a cross-database FK
+storage varchar(32) NOT NULL -- PANTRY|FRIDGE|FREEZER|CELLAR|OTHER
+opened boolean NOT NULL
+min_days integer NOT NULL CHECK(min_days >= 0)
+target_days integer NOT NULL CHECK(target_days >= min_days)
+max_days integer NOT NULL CHECK(max_days >= target_days)
+model_version varchar(64) NOT NULL
+active boolean NOT NULL DEFAULT true
+created_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+UNIQUE(product_id,storage,opened,model_version)
+```
+
+`product_profiles` overrides category rules for an exact Catalog product/storage/opened combination.
 
 ### shelf_life_domain.predictions
 
