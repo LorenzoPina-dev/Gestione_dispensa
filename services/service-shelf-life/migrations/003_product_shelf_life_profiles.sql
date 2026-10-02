@@ -1,11 +1,10 @@
 -- Product-category shelf-life profiles.
--- The stored target is the recommended estimate inside the min/max uncertainty window.
--- These are heuristics for unopened/adequately stored products; a manufacturer-declared date
--- always remains authoritative and the user can override the estimate.
+-- target_days is the recommended point estimate inside the min/max uncertainty window.
+-- These profiles are heuristics; a manufacturer-declared date remains authoritative.
 ALTER TABLE shelf_life_domain.rules
   ADD COLUMN IF NOT EXISTS target_days integer NULL;
 
--- Complete the legacy baseline rules created by 002.
+-- Complete legacy baseline rules created by earlier migrations.
 UPDATE shelf_life_domain.rules
 SET target_days = CASE
   WHEN product_category IS NULL AND storage='PANTRY' AND opened=false THEN 60
@@ -22,7 +21,6 @@ SET target_days = CASE
 END
 WHERE model_version='baseline-v1' AND target_days IS NULL;
 
--- Fresh / chilled foods.
 INSERT INTO shelf_life_domain.rules(product_category,storage,opened,min_days,target_days,max_days,model_version,active) VALUES
 ('fresh-meat-fish','FRIDGE',false,1,2,3,'profiles-v2',true),
 ('fresh-meat-fish','FRIDGE',true,1,1,2,'profiles-v2',true),
@@ -42,8 +40,6 @@ INSERT INTO shelf_life_domain.rules(product_category,storage,opened,min_days,tar
 ('bakery-fresh','PANTRY',true,1,2,3,'profiles-v2',true),
 ('bakery-fresh','FRIDGE',false,2,5,7,'profiles-v2',true),
 ('bakery-fresh','FRIDGE',true,1,3,5,'profiles-v2',true),
-
--- Shelf-stable foods.
 ('confectionery-candy','PANTRY',false,540,730,1095,'profiles-v2',true),
 ('confectionery-candy','PANTRY',true,90,180,365,'profiles-v2',true),
 ('chewing-gum','PANTRY',false,365,730,1095,'profiles-v2',true),
@@ -70,18 +66,12 @@ INSERT INTO shelf_life_domain.rules(product_category,storage,opened,min_days,tar
 ('shelf-stable-beverages','FRIDGE',true,2,5,7,'profiles-v2',true),
 ('pantry-indefinite','PANTRY',false,730,1095,1825,'profiles-v2',true),
 ('pantry-indefinite','PANTRY',true,180,365,730,'profiles-v2',true),
-
--- Predictions created by the previous generic estimator are derived data and must not
--- survive recalibration. Declared Inventory dates are independent and are never touched here.
-UPDATE shelf_life_domain.predictions
-SET status='superseded', updated_at=now(), version=version+1
-WHERE status IN ('queued','completed','applied')
-  AND model_version IN ('pending','baseline-v1');
-
--- Frozen packaged foods.
 ('frozen-general','FREEZER',false,90,180,365,'profiles-v2',true),
 ('frozen-general','FREEZER',true,30,90,180,'profiles-v2',true)
 ON CONFLICT DO NOTHING;
 
-INSERT INTO schema_migrations(version) VALUES ('003_product_shelf_life_profiles')
-ON CONFLICT DO NOTHING;
+-- Predictions created by previous generic estimators are derived data and are superseded.
+UPDATE shelf_life_domain.predictions
+SET status='superseded', updated_at=now(), version=version+1
+WHERE status IN ('queued','completed','applied')
+  AND model_version IN ('pending','baseline-v1');
