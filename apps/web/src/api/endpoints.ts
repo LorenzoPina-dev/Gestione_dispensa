@@ -199,11 +199,11 @@ function isProductUnit(value: string | null | undefined): value is ProductUnit {
 function mapCatalogBarcodeProduct(p: CatalogBarcodeProductDto): ProductDto {
   return {
     id: p.productId,
-    canonicalName: p.name,
+    canonicalName: p.name.trim() || `Prodotto ${p.productId.slice(0, 8)}`,
     ...(p.brand ? { brand: p.brand } : {}),
     defaultUnit: isProductUnit(p.package.unit) ? p.package.unit : "piece",
     status: "ACTIVE",
-    provenanceQuality: "IMPORTED",
+    provenanceQuality: p.source.type === "manual" ? "VERIFIED" : "IMPORTED",
     version: p.version,
     ...(p.category ? { category: p.category } : {}),
     ...(p.imageObjectKey ? { photoUrl: p.imageObjectKey } : {}),
