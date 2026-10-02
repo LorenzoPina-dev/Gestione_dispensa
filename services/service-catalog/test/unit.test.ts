@@ -160,6 +160,7 @@ describe("service-catalog / rich barcode public contract", () => {
       quantityLabel: "1 L",
       servingSize: "100 ml",
       servingQuantity: 100,
+      servingUnit: "ml",
       images: { front: "https://example.test/front.jpg", ingredients: "https://example.test/ingredients.jpg" },
       openFoodFacts: {
         code: "8001234567890",
@@ -186,6 +187,9 @@ describe("service-catalog / rich barcode public contract", () => {
     assert.equal(response.data.product.name, "Latte intero");
     assert.equal(response.data.product.package.value, 1);
     assert.equal(response.data.product.package.unit, "l");
+    assert.equal(response.data.product.serving.size, "100 ml");
+    assert.equal(response.data.product.serving.quantity, 100);
+    assert.equal(response.data.product.serving.unit, "ml");
     assert.equal(response.data.product.images.front, "https://example.test/front.jpg");
     assert.equal(response.data.product.openFoodFacts?.ingredients_text, "Milk");
     assert.deepEqual(response.data.product.openFoodFacts?.allergens_tags, ["en:milk"]);
