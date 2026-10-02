@@ -128,6 +128,26 @@ export class PostgresPrivacyErasureRepository implements PrivacyErasureRepositor
     }));
   }
 
+  public async upsertConsentsAtomic(input: { userId: string; consents: readonly PrivacyConsent[] }): Promise<readonly PrivacyConsent[]> {
+    const transaction = await this.database.transaction();
+    try {
+      for (const consent of input.consents) {
+        await transaction.query(
+          `INSERT INTO privacy_consents (user_id, purpose, granted, consent_version, updated_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id, purpose)
+           DO UPDATE SET granted = $3, consent_version = $4, updated_at = $5`,
+          [input.userId, consent.purpose, consent.granted, consent.consentVersion, new Date(consent.updatedAt)],
+        );
+      }
+      await transaction.commit();
+      return input.consents;
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
   private async transition(
     id: string,
     sql: string,
