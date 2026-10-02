@@ -413,10 +413,9 @@ app.post("/api/v1/internal/ocr/jobs/:jobId/process", async (req, res) => {
     await client.query("commit");
   } catch (error) {
     await client.query("rollback");
-    client.release();
     return fail(res, 500, "INTERNAL_ERROR", error instanceof Error ? error.message : "Unable to start OCR job.");
   } finally {
-    if (!client.released) client.release();
+    client.release();
   }
 
   let provider: OcrProviderResult;
@@ -429,8 +428,8 @@ app.post("/api/v1/internal/ocr/jobs/:jobId/process", async (req, res) => {
       objectKey: String(job.object_key),
     });
   } catch (error) {
-    const failed = await pool.query(
-      "update ocr_domain.ocr_jobs set status='failed',progress=100,error_code=$2,updated_at=now(),version=version+1 where id=$1 returning *",
+    await pool.query(
+      "update ocr_domain.ocr_jobs set status='failed',progress=100,error_code=$2,updated_at=now(),version=version+1 where id=$1",
       [req.params.jobId, "OCR_PROVIDER_UNAVAILABLE"],
     );
     return fail(res, 502, "UPSTREAM_ERROR", error instanceof Error ? error.message : "OCR provider failed.");
