@@ -35,6 +35,30 @@ export interface PublicProduct {
     fatGPer100g: number | null;
     fiberGPer100g: number | null;
   };
+  package: {
+    value: number | null;
+    unit: string | null;
+    label: string | null;
+  };
+  serving: {
+    size: string | null;
+    quantity: number | null;
+  };
+  images: {
+    front: string | null;
+    frontSmall: string | null;
+    frontThumb: string | null;
+    ingredients: string | null;
+    ingredientsSmall: string | null;
+    ingredientsThumb: string | null;
+    nutrition: string | null;
+    nutritionSmall: string | null;
+    nutritionThumb: string | null;
+    packaging: string | null;
+    packagingSmall: string | null;
+    packagingThumb: string | null;
+  };
+  openFoodFacts: Record<string, unknown> | null;
   source: { type: string; id: string };
   version: number;
 }
@@ -154,6 +178,30 @@ function toPublicProduct(product: Product): PublicProduct {
       fatGPer100g: product.fat ?? null,
       fiberGPer100g: product.fiber ?? null,
     },
+    package: {
+      value: product.quantityValue ?? null,
+      unit: product.quantityUnit ?? null,
+      label: product.quantityLabel ?? null,
+    },
+    serving: {
+      size: product.servingSize ?? null,
+      quantity: product.servingQuantity ?? null,
+    },
+    images: {
+      front: product.images?.front ?? null,
+      frontSmall: product.images?.frontSmall ?? null,
+      frontThumb: product.images?.frontThumb ?? null,
+      ingredients: product.images?.ingredients ?? null,
+      ingredientsSmall: product.images?.ingredientsSmall ?? null,
+      ingredientsThumb: product.images?.ingredientsThumb ?? null,
+      nutrition: product.images?.nutrition ?? null,
+      nutritionSmall: product.images?.nutritionSmall ?? null,
+      nutritionThumb: product.images?.nutritionThumb ?? null,
+      packaging: product.images?.packaging ?? null,
+      packagingSmall: product.images?.packagingSmall ?? null,
+      packagingThumb: product.images?.packagingThumb ?? null,
+    },
+    openFoodFacts: product.openFoodFacts ?? null,
     source: {
       type: product.externalSource ?? "manual",
       id: product.externalRef ?? "manual",
