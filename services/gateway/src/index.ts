@@ -48,7 +48,7 @@ const short = (value: unknown, max: number): string | undefined => (typeof value
  * size-limited and capped per IP. The browser sends the requestId/traceId of the failing call,
  * which lets you jump from a UI error straight to the backend trace (Grafana > Tempo / Loki).
  */
-app.post("/api/v1/client-errors", (req, res) => {
+app.post("/internal/client-errors", (req, res) => {
   const ip = req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
   const now = Date.now();
   const hit = beaconHits.get(ip);
@@ -81,11 +81,10 @@ app.use("/api/v1/views", requireGatewayAuth);
 // Devono stare PRIMA del ciclo sottostante, che impone requireGatewayAuth su /api/v1/auth.
 app.post("/api/v1/auth/register", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
-app.post("/api/v1/auth/logout", requireGatewayAuth, serviceProxy(identityBaseUrl));
-app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
+app.post("/api/v1/auth/logout", serviceProxy(identityBaseUrl));
 app.get("/api/v1/family-invites/:token", serviceProxy(familyBaseUrl));
 for (const [prefix, base] of [
-  ["/api/v1/identity", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
+  ["/api/v1/identity", identityBaseUrl],
   ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
   ["/api/v1/inventory", inventoryBaseUrl], ["/api/v1/shopping", shoppingBaseUrl],
   ["/api/v1/catalog", catalogBaseUrl],
