@@ -58,7 +58,10 @@ app.get(
       const result = await lookupService.lookup(barcode);
       switch (result.outcome) {
         case "hit": {
-          res.status(200).json({ code: barcode, source: result.source, product: result.product });
+          // _cache_meta is private implementation metadata and is not part of the OFF contract.
+          const { _cache_meta, ...product } = result.product;
+          void _cache_meta;
+          res.status(200).json({ code: barcode, source: result.source, product });
           return;
         }
         case "not_found": {
