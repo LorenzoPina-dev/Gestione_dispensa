@@ -30,8 +30,12 @@ for (const [service, files] of required) {
   const root = "services/" + service;
   const packageJson = JSON.parse(await readFile(root + "/package.json", "utf8"));
   for (const file of files) {
-    try { await readFile(root + "/" + file, "utf8"); }
-    catch { failures.push(service + ": missing " + file); }
+    try {
+      const content = await readFile(root + "/" + file, "utf8");
+      if (!content.trim()) failures.push(service + ": empty " + file);
+    } catch {
+      failures.push(service + ": missing " + file);
+    }
   }
 
   const scripts = packageJson.scripts ?? {};
