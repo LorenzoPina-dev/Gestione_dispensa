@@ -71,6 +71,13 @@ INSERT INTO shelf_life_domain.rules(product_category,storage,opened,min_days,tar
 ('pantry-indefinite','PANTRY',false,730,1095,1825,'profiles-v2',true),
 ('pantry-indefinite','PANTRY',true,180,365,730,'profiles-v2',true),
 
+-- Predictions created by the previous generic estimator are derived data and must not
+-- survive recalibration. Declared Inventory dates are independent and are never touched here.
+UPDATE shelf_life_domain.predictions
+SET status='superseded', updated_at=now(), version=version+1
+WHERE status IN ('queued','completed','applied')
+  AND model_version IN ('pending','baseline-v1');
+
 -- Frozen packaged foods.
 ('frozen-general','FREEZER',false,90,180,365,'profiles-v2',true),
 ('frozen-general','FREEZER',true,30,90,180,'profiles-v2',true)
