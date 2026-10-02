@@ -390,7 +390,7 @@ services:
     depends_on: { mongodb: { condition: service_healthy } }
     healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"], interval: 10s, timeout: 3s, retries: 5, start_period: 10s }
     restart: unless-stopped
-    networks: [backend, data]
+    networks: [backend, data, egress]
 
 volumes:
   keycloak_db:
@@ -405,6 +405,7 @@ volumes:
 
 networks:
   edge:
-  backend:
+  backend: { internal: true }
   data: { internal: true }
   messaging: { internal: true }
+  egress:
