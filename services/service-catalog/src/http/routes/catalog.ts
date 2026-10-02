@@ -110,6 +110,31 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     .all(methodNotAllowed);
 
   router
+    .route("/catalog/barcodes/resolve")
+    .post(
+      asyncHandler(async (req, res) => {
+        const principal = await resolvePrincipal(req, verifier);
+        if (!principal) {
+          sendFailure(res, 401, "UNAUTHENTICATED", "Authentication is required.", req.meta);
+          return;
+        }
+        const parsed = parseResolveBarcodeBody(req.body);
+        if (!parsed) {
+          sendFailure(res, 400, "VALIDATION_ERROR", "barcode is required.", req.meta);
+          return;
+        }
+
+        await respond(
+          res,
+          req.meta,
+          controller.lookupBarcode(parsed.identifierType, parsed.value, req.meta),
+          toCatalogHttpError,
+        );
+      }),
+    )
+    .all(methodNotAllowed);
+
+  router
     .route("/catalog/barcodes/:barcode")
     .get(
       asyncHandler(async (req, res) => {
@@ -129,31 +154,6 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
           res,
           req.meta,
           controller.lookupBarcode("BARCODE", barcode, req.meta, refresh),
-          toCatalogHttpError,
-        );
-      }),
-    )
-    .all(methodNotAllowed);
-
-  router
-    .route("/catalog/barcodes/resolve")
-    .post(
-      asyncHandler(async (req, res) => {
-        const principal = await resolvePrincipal(req, verifier);
-        if (!principal) {
-          sendFailure(res, 401, "UNAUTHENTICATED", "Authentication is required.", req.meta);
-          return;
-        }
-        const parsed = parseResolveBarcodeBody(req.body);
-        if (!parsed) {
-          sendFailure(res, 400, "VALIDATION_ERROR", "barcode is required.", req.meta);
-          return;
-        }
-
-        await respond(
-          res,
-          req.meta,
-          controller.lookupBarcode(parsed.identifierType, parsed.value, req.meta),
           toCatalogHttpError,
         );
       }),
