@@ -1,1 +1,100 @@
-import{describe,it}from"node:test";import assert from"node:assert/strict";const base=process.env.PRIVACY_TEST_URL??"http://127.0.0.1:3316";async function q(p:string,i:RequestInit={}){const r=await fetch(base+p,i);const t=await r.text();return{r,b:t?JSON.parse(t):undefined}};describe("privacy HTTP contract",()=>{it("health endpoints",async()=>{assert.equal((await q("/health/live")).r.status,200);assert.equal((await q("/health/ready")).r.status,200)});it("all protected endpoints reject missing authentication",async()=>{const cases:[string,string,RequestInit][]=[["GET","/api/v1/privacy/consents",{}],["PUT","/api/v1/privacy/consents",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({purpose:"analytics",granted:true,consentVersion:"v1"})}],["POST","/api/v1/privacy/export",{method:"POST",headers:{"content-type":"application/json","x-idempotency-key":"privacy-12345678"},body:JSON.stringify({familyId:"00000000-0000-4000-8000-000000000001"})}],["POST","/api/v1/privacy/erase",{method:"POST",headers:{"content-type":"application/json","x-idempotency-key":"erase-12345678"},body:JSON.stringify({familyId:"00000000-0000-4000-8000-000000000001",confirmed:true})}]];for(const [m,p,i]of cases){const x=await q(p,{...i,method:m});assert.equal(x.r.status,401,p);assert.equal(x.b.error.code,"UNAUTHENTICATED",p)}});it("undocumented export download is gone",async()=>{const x=await q("/api/v1/privacy/export/00000000-0000-4000-8000-000000000001");assert.equal(x.r.status,404)});it("unknown route is 404",async()=>{const x=await q("/api/v1/privacy/nope");assert.equal(x.r.status,404)})});
+import{after,before,describe,it}from"node:test";
+import assert from"node:assert/strict";
+import express from"express";
+import{createServer,type Server}from"node:http";
+import{generateKeyPair,exportJWK,SignJWT}from"jose";
+import{createTestTokenVerifier}from"../src/identity/oidc.js";
+import{PrivacyErasureService}from"../src/privacy/erasure.js";
+import{PrivacyExportService}from"../src/privacy/export.js";
+import{buildPrivacyRouter}from"../src/http/routes/privacy.js";
+import{corsMiddleware,requestMetaMiddleware}from"../src/http/middleware.js";
+
+const issuer="https://privacy-test.local/realms/dispensa";
+const audience="account";
+const userId="00000000-0000-4000-8000-000000000001";
+
+const consentStore=new Map<string,{userId:string;purpose:string;granted:boolean;consentVersion:string;updatedAt:number}>();
+const erasureRepository:any={
+  createOrGetErasure:async()=>({created:true,request:{id:"e1",familyId:"family-1",requesterId:userId,idempotencyKey:"erase-12345678",status:"REQUESTED",createdAt:1}}),
+  getErasure:async()=>undefined,
+  markProcessing:async()=>{throw new Error("unused")},
+  completeErasure:async()=>{throw new Error("unused")},
+  failErasure:async()=>{throw new Error("unused")},
+  upsertConsent:async(x:any)=>{consentStore.set(x.userId+":"+x.purpose,x);return x;},
+  listConsents:async(uid:string)=>[...consentStore.values()].filter(x=>x.userId===uid),
+  upsertConsentsAtomic:async({consents}:any)=>{for(const x of consents)consentStore.set(x.userId+":"+x.purpose,x);return consents;}
+};
+const audit={append:async()=>{}};
+const ownership={getMembership:async()=>({familyId:"family-1",userId,role:"OWNER",status:"ACTIVE"})};
+const erasure=new PrivacyErasureService(erasureRepository,ownership,{publish:async()=>{}},audit,()=>1700000000000);
+const exportService=new PrivacyExportService(
+  {createOrGetExport:async()=>({created:true,job:{id:"x",familyId:"f",ownerId:userId,idempotencyKey:"x",status:"PENDING",createdAt:1}})} as any,
+  ownership,
+  {publish:async()=>{}},
+  {} as any,
+  audit,
+  ()=>1700000000000,
+);
+
+let server:Server;
+let base="";
+let authorization="";
+
+async function request(path:string,init:RequestInit={}){const r=await fetch(base+path,init);const t=await r.text();let body;try{body=t?JSON.parse(t):undefined}catch{body=t}return{response:r,body}}
+
+before(async()=>{
+  const{publicKey,privateKey}=await generateKeyPair("RS256");
+  const jwk=await exportJWK(publicKey);
+  const verifier=createTestTokenVerifier(issuer,audience,{keys:[{...jwk,alg:"RS256",use:"sig"}]});
+  const token=await new SignJWT({scope:"openid profile"}).setProtectedHeader({alg:"RS256"}).setIssuer(issuer).setAudience(audience).setSubject(userId).setIssuedAt().setExpirationTime("1h").sign(privateKey);
+  authorization="Bearer "+token;
+  const app=express();app.use(corsMiddleware());app.use(requestMetaMiddleware());app.use(express.json({limit:"2mb"}));
+  app.use("/api/v1",buildPrivacyRouter({erasure,export:exportService,verifier}));
+  server=createServer(app);
+  await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
+  const address=server.address();assert.ok(address&&typeof address==="object");base="http://127.0.0.1:"+address.port;
+});
+
+after(async()=>{await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()));});
+
+describe("service-privacy / real Express HTTP adapter",()=>{
+  it("rejects protected requests without authentication",async()=>{
+    const x=await request("/api/v1/privacy/consents");
+    assert.equal(x.response.status,401);
+    assert.equal(x.body?.error?.code,"UNAUTHENTICATED");
+    assert.equal(x.body?.meta?.schemaVersion,"1.0");
+  });
+
+  it("returns the documented consent-set shape",async()=>{
+    consentStore.clear();
+    const x=await request("/api/v1/privacy/consents",{headers:{authorization}});
+    assert.equal(x.response.status,200);
+    assert.deepEqual(x.body?.data,{analytics:false,personalization:false,notifications:false});
+    assert.equal(x.body?.version,1);
+    assert.equal(x.body?.meta?.schemaVersion,"1.0");
+    assert.deepEqual(Object.keys(x.body?.data??{}).sort(),["analytics","notifications","personalization"]);
+  });
+
+  it("updates all documented consents atomically and idempotency is mandatory",async()=>{
+    const missingKey=await request("/api/v1/privacy/consents",{method:"PUT",headers:{authorization,"content-type":"application/json"},body:JSON.stringify({analytics:true,personalization:false,notifications:true})});
+    assert.equal(missingKey.response.status,400);
+    assert.equal(missingKey.body?.error?.code,"VALIDATION_ERROR");
+
+    const x=await request("/api/v1/privacy/consents",{method:"PUT",headers:{authorization,"content-type":"application/json","idempotency-key":"privacy-consents-1"},body:JSON.stringify({analytics:true,personalization:false,notifications:true})});
+    assert.equal(x.response.status,200);
+    assert.deepEqual(x.body?.data,{analytics:true,personalization:false,notifications:true});
+    assert.equal(x.body?.version,1);
+  });
+
+  it("rejects undocumented consent fields",async()=>{
+    const x=await request("/api/v1/privacy/consents",{method:"PUT",headers:{authorization,"content-type":"application/json","idempotency-key":"privacy-consents-2"},body:JSON.stringify({analytics:true,personalization:false,notifications:true,purpose:"analytics"})});
+    assert.equal(x.response.status,400);
+    assert.equal(x.body?.error?.code,"VALIDATION_ERROR");
+  });
+
+  it("uses 405 for an unsupported method on the consent route",async()=>{
+    const x=await request("/api/v1/privacy/consents",{method:"POST",headers:{authorization}});
+    assert.equal(x.response.status,405);
+    assert.equal(x.body?.error?.code,"METHOD_NOT_ALLOWED");
+  });
+});
