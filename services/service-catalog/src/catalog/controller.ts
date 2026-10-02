@@ -43,6 +43,7 @@ export interface PublicProduct {
   serving: {
     size: string | null;
     quantity: number | null;
+    unit: string | null;
   };
   images: {
     front: string | null;
@@ -186,6 +187,7 @@ function toPublicProduct(product: Product): PublicProduct {
     serving: {
       size: product.servingSize ?? null,
       quantity: product.servingQuantity ?? null,
+      unit: product.servingUnit ?? null,
     },
     images: {
       front: product.images?.front ?? null,
