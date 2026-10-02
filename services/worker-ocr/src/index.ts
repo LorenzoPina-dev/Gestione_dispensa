@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import { ocrProcessBody, parseOcrQueueMessage } from "./message.js";
 
 const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
 const queue = "q:ocr-processing";
@@ -25,10 +26,8 @@ while (!stopping) {
   if (!item) continue;
 
   try {
-    const event = JSON.parse(item.element) as {
-      data?: { jobId?: string; familyId?: string; userId?: string; objectKey?: string; type?: string };
-    };
-    const jobId = event.data?.jobId;
+    const event = parseOcrQueueMessage(item.element);
+    const jobId = event?.data?.jobId;
     if (!jobId) continue;
 
     const response = await fetch(
@@ -39,12 +38,7 @@ while (!stopping) {
           authorization: "Bearer " + token,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          familyId: event.data?.familyId ?? null,
-          userId: event.data?.userId ?? null,
-          objectKey: event.data?.objectKey ?? null,
-          type: event.data?.type ?? "receipt",
-        }),
+        body: JSON.stringify(ocrProcessBody(event!.data!)),
         signal: AbortSignal.timeout(30000),
       },
     );
