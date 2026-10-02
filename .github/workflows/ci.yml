@@ -135,3 +135,19 @@ jobs:
           CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
         working-directory: services/service-catalog
         run: npm run test:integration
+      - name: Start service-shopping against real PostgreSQL and real Family
+        run: |
+          nohup env DATABASE_URL="$SHOPPING_DATABASE_URL" PORT=3313 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 node services/service-shopping/dist/server.js > /tmp/service-shopping.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3313/health/ready >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/service-shopping.log
+          exit 1
+      - name: Run service-shopping real lifecycle
+        env:
+          SHOPPING_TEST_URL: http://127.0.0.1:3313
+          SHOPPING_TEST_FAMILY_URL: http://127.0.0.1:3311
+          SHOPPING_TEST_DATABASE_URL: ${{ env.SHOPPING_DATABASE_URL }}
+        working-directory: services/service-shopping
+        run: npm run test:integration
