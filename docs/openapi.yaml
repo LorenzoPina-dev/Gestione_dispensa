@@ -663,7 +663,7 @@ paths:
       operationId: postPrivacyExport
       tags: [Privacy]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyExportRequest'}}}}
       responses:
         '202': {description: Export job, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /privacy/erase:
