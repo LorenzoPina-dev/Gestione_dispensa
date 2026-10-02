@@ -21,6 +21,8 @@ jobs:
         run: npm ci --include=dev --ignore-scripts
       - name: Contract audit
         run: npm run contract:audit
+      - name: Architecture audit
+        run: npm run architecture:audit
       - run: npm run build
       - run: npm run typecheck
       - run: npm run test
