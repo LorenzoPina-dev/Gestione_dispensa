@@ -1,6 +1,7 @@
 import express from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
+import { isShoppingUnit, normalizeListName, parseIfMatch, positiveQuantity, validFamilyId, validIdempotencyKey } from "./validation.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -43,7 +44,7 @@ type RequestContext = {
 function requestContext(req: express.Request): RequestContext | null {
   const userId = String(req.header("x-user-id") ?? "").trim();
   const familyId = String(req.query.familyId ?? req.body?.familyId ?? req.header("x-family-id") ?? "").trim();
-  if (!userId || !familyId) return null;
+  if (!userId || !validFamilyId(familyId)) return null;
   return {
     userId,
     familyId,
@@ -71,20 +72,11 @@ async function authorizeFamily(ctx: { userId: string; familyId: string }, write:
 }
 function idempotencyKey(req: express.Request): string | null {
   const value = String(req.header("x-idempotency-key") ?? "").trim();
-  return value.length >= 8 ? value : null;
+  return validIdempotencyKey(value) ? value : null;
 }
 
 function ifMatch(req: express.Request): number | null {
-  const value = req.header("if-match")?.trim();
-  if (!value) return null;
-  const normalized = value.replace(/^W\//i, "").replace(/^"|"$/g, "").trim();
-  const versionMatch = normalized.match(/^version-(\d+)$/i);
-  if (versionMatch) {
-    const version = Number(versionMatch[1]);
-    return Number.isInteger(version) && version >= 1 ? version : null;
-  }
-  const parsed = Number(normalized);
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
+  return parseIfMatch(req.header("if-match"));
 }
 
 function hashBody(body: unknown): string {
@@ -238,7 +230,7 @@ app.post("/api/v1/shopping/lists", async (req, res) => {
   const ctx = requestContext(req);
   const body = req.body as Body;
   const key = idempotencyKey(req);
-  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const name = normalizeListName(body.name);
   if (ctx === null || name.length === 0 || name.length > 120 || key === null) {
     return fail(res, 400, "VALIDATION_ERROR", "familyId, name and X-Idempotency-Key are required.");
   }
@@ -303,9 +295,9 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
   }
   if (ctx === null || idempotencyKey(req) === null) return fail(res, 400, "VALIDATION_ERROR", "familyId and X-Idempotency-Key are required.");
   const label = typeof body.label === "string" ? body.label.trim() : "";
-  const quantity = Number(body.quantity);
+  const quantity = positiveQuantity(body.quantity);
   const unit = typeof body.unit === "string" ? body.unit : "";
-  if (!label || !Number.isFinite(quantity) || quantity <= 0 || !unit) return fail(res, 400, "VALIDATION_ERROR", "label, quantity and unit are required.");
+  if (!label || quantity === undefined || !isShoppingUnit(unit)) return fail(res, 400, "VALIDATION_ERROR", "label, quantity and unit are required.");
 
   const client = await pool.connect();
   try {
@@ -343,10 +335,10 @@ app.patch("/api/v1/shopping/lists/:listId/items/:itemId", async (req,res)=>{
     const row=current.rows[0];if(row.list_status!=="open"){await client.query("rollback");return fail(res,422,"BUSINESS_RULE_VIOLATION","Closed shopping lists cannot be modified.");}
     if(Number(row.version)!==ifMatch(req)){await client.query("rollback");return fail(res,412,"PRECONDITION_FAILED","Item version changed.");}
     const label=Object.hasOwn(body,"label")?String(body.label).trim():String(row.label);
-    const quantity=Object.hasOwn(body,"quantity")?Number(body.quantity):Number(row.quantity);
+    const quantity=Object.hasOwn(body,"quantity")?positiveQuantity(body.quantity):Number(row.quantity);
     const unit=Object.hasOwn(body,"unit")?String(body.unit):String(row.unit);
     const checked=Object.hasOwn(body,"checked")?body.checked===true:Boolean(row.checked);
-    if(!label||!Number.isFinite(quantity)||quantity<=0||!unit){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","Invalid shopping item.");}
+    if(!label||quantity===undefined||!isShoppingUnit(unit)){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","Invalid shopping item.");}
     const updated=await client.query(`update shopping_domain.items set label=$2,quantity=$3,unit=$4,checked=$5,updated_at=now(),version=version+1 where id=$1 returning *`,[row.id,label,quantity,unit,checked]);
     await client.query("update shopping_domain.lists set version=version+1,updated_at=now() where id=$1",[req.params.listId]);
     const response={data:toItem(updated.rows[0] as Record<string,unknown>),version:Number(updated.rows[0].version)};
