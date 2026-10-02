@@ -122,7 +122,7 @@ describe("service-catalog / real PostgreSQL flow", () => {
     assert.equal(result.product?.barcodes.includes(barcode), true);
 
     const row = await db.query(
-      "SELECT p.id,p.external_source,p.external_ref,p.quantity_value,p.quantity_unit,oe.actor_id " +
+      "SELECT p.id,p.external_source,p.external_ref,p.quantity_value,p.quantity_unit,p.quantity_label,p.serving_size,p.serving_quantity,p.serving_unit,oe.actor_id " +
       "FROM products p " +
       "JOIN product_identifiers pi ON pi.product_id=p.id " +
       "JOIN outbox_events oe ON oe.aggregate_id=p.id " +
@@ -133,8 +133,12 @@ describe("service-catalog / real PostgreSQL flow", () => {
     assert.equal(row.rows.length, 1);
     assert.equal(row.rows[0].external_source, "openfoodfacts");
     assert.equal(row.rows[0].external_ref, barcode);
-    assert.equal(Number(row.rows[0].quantity_value), 500);
+    assert.equal(Number(row.rows[0].quantity_value), 90);
     assert.equal(row.rows[0].quantity_unit, "g");
+    assert.equal(row.rows[0].quantity_label, "90 g");
+    assert.equal(row.rows[0].serving_size, "3 g");
+    assert.equal(Number(row.rows[0].serving_quantity), 3);
+    assert.equal(row.rows[0].serving_unit, "g");
     assert.equal(row.rows[0].actor_id, null);
 
     await db.query("DELETE FROM product_identifiers WHERE normalized_value=$1", [barcode]);
