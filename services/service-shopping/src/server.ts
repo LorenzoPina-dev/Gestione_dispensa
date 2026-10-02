@@ -155,13 +155,9 @@ function toEventPayload(payload: unknown): unknown {
 function toList(row: Record<string, unknown>, itemCount?: number): Record<string, unknown> {
   return {
     listId: String(row.id),
-    familyId: String(row.family_id),
     name: String(row.name),
     status: String(row.status),
     itemCount: itemCount ?? Number(row.item_count ?? 0),
-    createdByUserId: String(row.created_by_user_id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
     version: Number(row.version),
   };
 }
@@ -169,15 +165,11 @@ function toList(row: Record<string, unknown>, itemCount?: number): Record<string
 function toItem(row: Record<string, unknown>): Record<string, unknown> {
   return {
     itemId: String(row.id),
-    listId: String(row.list_id),
     productId: row.product_id === null || row.product_id === undefined ? null : String(row.product_id),
     label: String(row.label),
     quantity: Number(row.quantity),
     unit: row.unit === null || row.unit === undefined ? null : String(row.unit),
     checked: Boolean(row.checked),
-    source: String(row.source ?? "manual"),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
     version: Number(row.version),
   };
 }
@@ -218,8 +210,8 @@ app.get("/api/v1/shopping/lists", async (req, res) => {
       [ctx.familyId, limit, offset],
     );
     json(res, 200, {
-      items: result.rows.map((row) => toList(row, Number(row.item_count))),
-      nextCursor: result.rows.length === limit ? String(offset + limit) : null,
+      items: (result.rows.length>limit?result.rows.slice(0,limit):result.rows).map((row) => toList(row, Number(row.item_count))),
+      nextCursor: result.rows.length>limit ? String(offset + limit) : null,
     });
   } catch {
     fail(res, 500, "INTERNAL_ERROR", "Unable to list shopping lists.");
@@ -279,8 +271,11 @@ app.get("/api/v1/shopping/lists/:listId", async (req, res) => {
   const list = q.rows[0] as Record<string, unknown>;
   return json(res, 200, {
     data: {
-      ...toList(list, items.rowCount ?? 0),
+      listId: String(list.id),
+      name: String(list.name),
+      status: String(list.status),
       items: items.rows.map((row) => toItem(row as Record<string, unknown>)),
+      version: Number(list.version),
     },
     version: Number(list.version),
   });
