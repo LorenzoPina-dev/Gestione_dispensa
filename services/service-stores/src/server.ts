@@ -12,8 +12,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 type Body = Record<string, unknown>;
 
-const fail = (res: Response, status: number, code: string, message: string): Response =>
-  res.status(status).json({ error: { code, message, details: [], requestId: crypto.randomUUID() } });
+const fail = (res: Response, status: number, code: string, message: string): Response => { const requestId=crypto.randomUUID(); return res.status(status).json({error:{code,message,details:[],retryable:status>=502,requestId},meta:{requestId,traceId:requestId,schemaVersion:"1.0"}}); };
 
 const actor = (req: Request): string => String(req.header("x-user-id") ?? "").trim();
 const key = (req: Request): string | null => {
@@ -98,7 +97,7 @@ app.get("/api/v1/stores", async(req,res)=>{
     `select * from stores_domain.stores where ($1='' or lower(name) like lower('%'||$1||'%')) order by name asc limit $2 offset $3`,
     [q,l,o],
   );
-  return res.json({items:result.rows.map((x)=>storeDto(x as Record<string,unknown>)),nextCursor:result.rows.length===l?String(o+l):null});
+  const hasNext=result.rows.length>l;const rows=hasNext?result.rows.slice(0,l):result.rows;return res.json({items:rows.map((x)=>storeDto(x as Record<string,unknown>)),nextCursor:hasNext?String(o+l):null});
 });
 
 app.post("/api/v1/stores", async(req,res)=>{
@@ -119,7 +118,7 @@ app.post("/api/v1/stores", async(req,res)=>{
 app.get("/api/v1/stores/:storeId/prices", async(req,res)=>{
   const l=limit(req),o=cursor(req),productId=String(req.query.productId??"");
   const q=await pool.query("select * from stores_domain.prices where store_id=$1 and ($2='' or product_id=$2::uuid) order by observed_at desc limit $3 offset $4",[req.params.storeId,productId,l,o]);
-  return res.json({items:q.rows.map(x=>({priceId:x.id,productId:x.product_id,storeId:x.store_id,amountMinor:Number(x.amount_minor),currency:x.currency,observedAt:x.observed_at})),nextCursor:q.rows.length===l?String(o+l):null});
+  const hasNext=q.rows.length>l;const rows=hasNext?q.rows.slice(0,l):q.rows;return res.json({items:rows.map(x=>({priceId:x.id,productId:x.product_id,storeId:x.store_id,amountMinor:Number(x.amount_minor),currency:x.currency,observedAt:x.observed_at})),nextCursor:hasNext?String(o+l):null});
 });
 
 app.post("/api/v1/stores/:storeId/prices", async(req,res)=>{
@@ -137,7 +136,7 @@ app.post("/api/v1/stores/:storeId/prices", async(req,res)=>{
 app.get("/api/v1/stores/:storeId/offers", async(req,res)=>{
   const l=limit(req),o=cursor(req),productId=String(req.query.productId??""),active=req.query.active==="true";
   const q=await pool.query("select * from stores_domain.offers where store_id=$1 and ($2=false or valid_to>=now()) and ($3='' or product_id=$3::uuid) order by valid_to asc limit $4 offset $5",[req.params.storeId,active,productId,l,o]);
-  return res.json({items:q.rows.map(x=>({offerId:x.id,productId:x.product_id,storeId:x.store_id,type:x.type,value:Number(x.value),validFrom:x.valid_from,validTo:x.valid_to})),nextCursor:q.rows.length===l?String(o+l):null});
+  const hasNext=q.rows.length>l;const rows=hasNext?q.rows.slice(0,l):q.rows;return res.json({items:rows.map(x=>({offerId:x.id,productId:x.product_id,storeId:x.store_id,type:x.type,value:Number(x.value),validFrom:x.valid_from,validTo:x.valid_to})),nextCursor:hasNext?String(o+l):null});
 });
 
 app.post("/api/v1/stores/:storeId/offers", async(req,res)=>{
