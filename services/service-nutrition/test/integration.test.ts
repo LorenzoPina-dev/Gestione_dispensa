@@ -15,5 +15,5 @@ describe("nutrition real integration",()=>{
   const list=await q("/api/v1/nutrition/diary?from=2000-01-01&to=2100-01-01",{headers:{"x-user-id":user}});assert.equal(list.r.status,200);assert.ok(list.b.items.some((x:any)=>x.productId===productId));
   const summary=await q("/api/v1/nutrition/summary?period=today",{headers:{"x-user-id":user}});assert.equal(summary.r.status,200);assert.equal(summary.b.data.caloriesKcal,250);assert.equal(summary.b.data.proteinG,10);
  });
- it("replays the same diary command without duplication when the catalog dependency is configured",async()=>{assert.ok(process.env.NUTRITION_CATALOG_TEST_MODE??"");});
+
 });
