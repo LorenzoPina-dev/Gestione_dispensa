@@ -775,6 +775,19 @@ Query obbligatoria: `familyId`. Response 200: view con notifications, pantry e n
 
 Tutte le screen views sono GET autenticati. Se un downstream fallisce, il Gateway restituisce un errore documentato oppure una view parziale solo secondo la regola di `partialFailures`; non vengono sintetizzati dati domain falsi.
 
+## 14A. Client error telemetry
+
+### POST /client-errors
+
+Endpoint browser-side pubblico usato solo per telemetria. Non richiede OIDC e viene inoltrato dal Gateway all'osservabilità senza entrare nei domini applicativi.
+
+Request JSON:
+```json
+{"kind":"api_error","message":"...","stack":"...","apiPath":"/catalog/products","status":500,"code":"INTERNAL_ERROR","requestId":"uuid","traceId":"hex"}
+```
+
+Response: 204 No Content. Il payload non viene usato come source of truth e non modifica alcun dato di dominio.
+
 ## 15. Composite Views
 
 Sono esclusivamente GET e non sono source of truth.
