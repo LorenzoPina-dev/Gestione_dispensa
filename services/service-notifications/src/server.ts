@@ -39,7 +39,7 @@ async function authorizeFamily(userId: string, familyId: string): Promise<{ ok: 
 }
 function key(req: Request): string | null {
   const value = String(req.header("x-idempotency-key") ?? "").trim();
-  return value.length >= 8 ? value : null;
+  return validIdempotencyKey(value) ? value : null;
 }
 
 function requestHash(value: unknown): string {
