@@ -1,1 +1,26 @@
-{"name":"@gestione-dispensa/service-inventory","private":true,"version":"2.0.0","type":"module","scripts":{"build":"tsc","start":"node dist/server.js","dev":"tsx src/server.ts","typecheck":"tsc --noEmit"},"dependencies":{"pg":"^8.23.0"},"devDependencies":{"@types/node":"^22.0.0","@types/pg":"^8.11.10","tsx":"^4.19.0","typescript":"^5.7.0"}}
+{
+  "name": "@gestione-dispensa/service-inventory",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit",
+    "test:unit": "node --import tsx --test test/unit.test.ts",
+    "test:http": "node --import tsx --test test/http.test.ts",
+    "test:migration": "npm run build && node --import tsx --test test/migration.test.ts",
+    "test:integration": "node --import tsx --test test/integration.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
