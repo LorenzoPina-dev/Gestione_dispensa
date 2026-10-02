@@ -15,7 +15,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Clean install from committed lockfile
-        run: npm ci --ignore-scripts
+        run: npm ci --include=dev --ignore-scripts
       - name: Contract audit
         run: npm run contract:audit
       - name: Typecheck
