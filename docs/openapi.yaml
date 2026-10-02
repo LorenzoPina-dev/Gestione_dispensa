@@ -393,7 +393,7 @@ paths:
       operationId: postShoppingListsListIdClose
       tags: [Shopping]
       parameters: [{$ref: '#/components/parameters/ListId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
-      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false}}}}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PrivacyExportRequest'}}}}
       responses:
         '200': {description: Closed, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /recipes:
@@ -1199,11 +1199,18 @@ components:
         analytics: {type: boolean}
         personalization: {type: boolean}
         notifications: {type: boolean}
-    EraseRequest:
+    PrivacyExportRequest:
       type: object
-      required: [confirm]
+      required: [familyId]
       additionalProperties: false
       properties:
+        familyId: {$ref: '#/components/schemas/Uuid'}
+    EraseRequest:
+      type: object
+      required: [familyId, confirm]
+      additionalProperties: false
+      properties:
+        familyId: {$ref: '#/components/schemas/Uuid'}
         confirm: {type: boolean, const: true}
     MemberList:
       type: object
