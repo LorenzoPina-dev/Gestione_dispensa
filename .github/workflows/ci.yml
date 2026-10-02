@@ -89,3 +89,23 @@ jobs:
           FAMILY_TEST_URL: http://127.0.0.1:3311
           FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
         run: npm run test:integration -w @gestione-dispensa/service-family
+      - name: Run service-inventory migration suite against real PostgreSQL
+        env:
+          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
+        run: npm run test:migration -w @gestione-dispensa/service-inventory
+      - name: Start service-inventory against real PostgreSQL and real Family
+        run: |
+          nohup env DATABASE_URL="$INVENTORY_DATABASE_URL" PORT=3312 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 node services/service-inventory/dist/server.js > /tmp/service-inventory.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3312/health/ready >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/service-inventory.log
+          exit 1
+      - name: Run service-inventory real cross-service flow
+        env:
+          INVENTORY_TEST_URL: http://127.0.0.1:3312
+          INVENTORY_TEST_FAMILY_URL: http://127.0.0.1:3311
+          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
+        run: npm run test:integration -w @gestione-dispensa/service-inventory
+
