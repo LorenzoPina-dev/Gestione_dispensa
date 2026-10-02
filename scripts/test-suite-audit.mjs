@@ -35,7 +35,7 @@ for (const [service, files] of required) {
   const scripts = packageJson.scripts ?? {};
   if (files.length > 0 && !scripts.test) failures.push(service + ": missing npm test script");
   if (files.some((f) => f.includes("/unit.")) && !scripts["test:unit"]) failures.push(service + ": missing test:unit script");
-  if (files.some((f) => f.includes("/http.")) && !scripts["test:http"] && service !== "gateway") failures.push(service + ": missing test:http script");
+  if (files.some((f) => f.includes("/http.")) && !scripts["test:http"] ) failures.push(service + ": missing test:http script");
   if (files.some((f) => f.includes("migration.")) && !scripts["test:migration"]) failures.push(service + ": missing test:migration script");
   if (files.some((f) => f.includes("integration.")) && !scripts["test:integration"]) failures.push(service + ": missing test:integration script");
 }
