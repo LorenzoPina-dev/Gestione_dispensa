@@ -9,9 +9,10 @@
     "build:libs": "npm run build -w @gestione-dispensa/observability && npm run build -w @gestione-dispensa/worker-core",
     "typecheck": "npm run build:libs && npm run typecheck --workspaces --if-present",
     "build": "node scripts/build-workspaces.mjs",
-    "test": "npm run contract:audit && npm run test:policy && npm run build:libs && npm run test:unit --workspaces --if-present",
+    "test": "npm run contract:audit && npm run test:policy && npm run test:suites && npm run build:libs && npm run test:unit --workspaces --if-present",
     "contract:audit": "node scripts/contract-audit.mjs",
-    "test:policy": "node scripts/test-policy-audit.mjs"
+    "test:policy": "node scripts/test-policy-audit.mjs",
+    "test:suites": "node scripts/test-suite-audit.mjs"
   },
   "workspaces": [
     "apps/*",
