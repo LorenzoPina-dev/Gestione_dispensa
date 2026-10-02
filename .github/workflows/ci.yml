@@ -94,6 +94,11 @@ jobs:
           CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
         working-directory: services/service-catalog
         run: npm run test:migration
+      - name: Run service-shopping migration schema tests
+        env:
+          SHOPPING_TEST_DATABASE_URL: ${{ env.SHOPPING_DATABASE_URL }}
+        working-directory: services/service-shopping
+        run: npm run test:migration
       - name: Start service-family against the real test database
         run: |
           nohup env DATABASE_URL="$FAMILY_DATABASE_URL" PORT=3311 node services/service-family/dist/server.js > /tmp/service-family.log 2>&1 &
