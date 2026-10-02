@@ -34,6 +34,7 @@ export interface PrivacyErasureRepository {
   failErasure(id: string): Promise<ErasureRequest>;
   upsertConsent(input: PrivacyConsent): Promise<PrivacyConsent>;
   listConsents(userId: string): Promise<readonly PrivacyConsent[]>;
+  upsertConsentsAtomic(input: { userId: string; consents: readonly PrivacyConsent[] }): Promise<readonly PrivacyConsent[]>;
 }
 
 export interface FamilyOwnershipReader {
@@ -212,6 +213,43 @@ export class PrivacyErasureService {
 
   public async listConsents(principal: Principal | undefined): Promise<readonly PrivacyConsent[]> {
     return this.repository.listConsents(this.requireAuthenticated(principal).subject);
+  }
+
+  public async updateConsents(
+    principal: Principal | undefined,
+    values: { analytics: boolean; personalization: boolean; notifications: boolean },
+    traceId: string,
+  ): Promise<readonly PrivacyConsent[]> {
+    const actor = this.requireAuthenticated(principal);
+    const now = this.now();
+    const consents: readonly PrivacyConsent[] = [
+      { userId: actor.subject, purpose: "analytics", granted: values.analytics, consentVersion: "privacy-consents-v1", updatedAt: now },
+      { userId: actor.subject, purpose: "personalization", granted: values.personalization, consentVersion: "privacy-consents-v1", updatedAt: now },
+      { userId: actor.subject, purpose: "notifications", granted: values.notifications, consentVersion: "privacy-consents-v1", updatedAt: now },
+    ];
+    try {
+      const result = await this.repository.upsertConsentsAtomic({ userId: actor.subject, consents });
+      for (const consent of result) {
+        await this.audit.append({
+          actorId: actor.subject,
+          action: "privacy.consent.update",
+          resourceId: consent.purpose,
+          outcome: "SUCCESS",
+          traceId,
+        });
+      }
+      return result;
+    } catch (error) {
+      await this.audit.append({
+        actorId: actor.subject,
+        action: "privacy.consent.update",
+        resourceId: "consents",
+        outcome: "FAILED",
+        traceId,
+        reason: error instanceof Error ? error.message : "INVALID_CONSENT",
+      });
+      throw new PrivacyErasureError("INVALID_CONSENT", "The consents could not be stored.");
+    }
   }
 
   private async requireOwner(
