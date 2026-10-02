@@ -304,7 +304,6 @@ describe("service-catalog / HTTP mapping and validators", () => {
     const created = await controller.createProduct(principal, {
       canonicalName: "Latte",
       defaultUnit: "piece",
-      actorId: "ignored-by-controller" as never,
       traceId: meta.traceId,
     }, meta);
 
