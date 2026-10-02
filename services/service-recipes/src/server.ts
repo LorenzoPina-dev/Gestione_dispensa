@@ -38,7 +38,7 @@ function context(req: express.Request): RequestContext | null {
     familyId,
     requestId: String(req.header("x-request-id") ?? crypto.randomUUID()),
     correlationId: String(req.header("x-correlation-id") ?? crypto.randomUUID()),
-    causationId: req.header("x-causation-id"),
+    causationId: req.header("x-causation-id") ?? null,
   };
 }
 async function authorizeFamily(ctx: { userId: string; familyId: string }, write: boolean): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
