@@ -49,7 +49,14 @@ before(async () => {
         brands: "Marca, altra",
         quantity: "1 L",
         image_front_url: "https://example.test/latte.jpg",
+        image_ingredients_url: "https://example.test/ingredients.jpg",
         categories_tags: ["en:dairies"],
+        ingredients_text: "Milk, cream",
+        allergens_tags: ["en:milk"],
+        labels_tags: ["en:organic"],
+        nutriscore_grade: "a",
+        nova_group: 2,
+        serving_size: "100 ml",
         nutriments: {
           "energy-kcal_100g": 62,
           "proteins_100g": 3.2,
@@ -90,8 +97,18 @@ describe("service-catalog / HTTP Open Food Facts boundary", () => {
     assert.equal(result.defaultUnit, "l");
     assert.equal(result.category, "eggs-dairy");
     assert.equal(result.sourceVersion, "off-dump-v1");
+    assert.equal(result.sourceRef, "8001234567890");
+    assert.equal(result.quantityValue, 1);
+    assert.equal(result.quantityUnit, "l");
+    assert.equal(result.quantityLabel, "1 L");
+    assert.equal(result.servingSize, "100 ml");
     assert.equal(result.calories, 62);
     assert.equal(result.protein, 3.2);
+    assert.equal(result.images?.front, "https://example.test/latte.jpg");
+    assert.equal(result.images?.ingredients, "https://example.test/ingredients.jpg");
+    assert.equal((result.openFoodFacts?.ingredients_text as string), "Milk, cream");
+    assert.deepEqual(result.openFoodFacts?.allergens_tags, ["en:milk"]);
+    assert.equal(result.openFoodFacts?.nutriscore_grade, "a");
   });
 
   it("treats 404 as a clean miss and resets failures", async () => {
