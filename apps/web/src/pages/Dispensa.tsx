@@ -60,7 +60,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
           statusFilter === "tutti" ||
           st === statusFilter ||
           (statusFilter === "EXPIRING" && isLow);
-        const matchSearch = s.name.toLowerCase().includes(search.toLowerCase());
+        const matchSearch = String(s.name ?? "").toLowerCase().includes(search.toLowerCase());
         return matchLoc && matchStatus && matchSearch;
       })
       .sort((a, b) => {
@@ -404,7 +404,7 @@ function ConsumeQuantityModal({ item, value, error, onChange, onConfirm, onClose
   const available = item.batches.reduce((sum, b) => sum + b.quantity, 0);
 
   // Valori rapidi in base all'unità: grammi/ml → step da 50/100/250, pezzi/pack → 1/2/5.
-  const unit = item.unit.toLowerCase();
+  const unit = String(item.unit ?? "piece").toLowerCase();
   const quickValues =
     unit === "g" || unit === "kg"
       ? [50, 100, 250]
