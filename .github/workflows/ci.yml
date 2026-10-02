@@ -55,7 +55,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa
+      INVENTORY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
+      FAMILY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/family_db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,10 +65,27 @@ jobs:
           cache: npm
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - run: npm ci --ignore-scripts
-      - name: Prepare inventory database
+      - name: Prepare service databases from real migrations
         run: |
-          psql "$DATABASE_URL" -c "CREATE DATABASE inventory_db;"
-          psql "postgresql://dispensa:dispensa@localhost:5432/inventory_db" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-          psql "postgresql://dispensa:dispensa@localhost:5432/inventory_db" -f services/service-inventory/migrations/001_initial.sql
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE family_db;"
+          psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$INVENTORY_DATABASE_URL" -f services/service-inventory/migrations/001_initial.sql
+          psql "$FAMILY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$FAMILY_DATABASE_URL" -f services/service-family/migrations/001_initial.sql
       - run: npm run typecheck
       - run: npm run build
+      - name: Start service-family against the real test database
+        run: |
+          nohup env DATABASE_URL="$FAMILY_DATABASE_URL" PORT=3311 node services/service-family/dist/server.js > /tmp/service-family.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3311/health/ready >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/service-family.log
+          exit 1
+      - name: Run service-family real integration flow
+        env:
+          FAMILY_TEST_URL: http://127.0.0.1:3311
+          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
+        run: npm run test:integration -w @gestione-dispensa/service-family
