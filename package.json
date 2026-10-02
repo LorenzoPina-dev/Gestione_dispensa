@@ -12,7 +12,8 @@
     "test": "npm run contract:audit && npm run test:policy && npm run test:suites && npm run build:libs && npm run test:unit --workspaces --if-present",
     "contract:audit": "node scripts/contract-audit.mjs",
     "test:policy": "node scripts/test-policy-audit.mjs",
-    "test:suites": "node scripts/test-suite-audit.mjs"
+    "test:suites": "node scripts/test-suite-audit.mjs",
+    "architecture:audit": "node scripts/architecture-audit.mjs"
   },
   "workspaces": [
     "apps/*",
