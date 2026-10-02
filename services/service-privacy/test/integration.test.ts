@@ -72,7 +72,7 @@ describe("service-privacy / real domain integration",()=>{
     const repo=new PostgresPrivacyErasureRepository(db);
     const audit=new PostgresPrivacyAuditWriter(db);
     const service=new PrivacyErasureService(repo,ownership,jobsPublisher,audit,()=>1500);
-    const result=await service.updateConsents(principal,{analytics:false,personalization:true,notifications:true},"trace-consents");
+    const result=await service.updateConsents(principal,{analytics:false,personalization:true,notifications:true},"trace-consents","consents-"+randomUUID());
     assert.equal(result.length,3);
     const rows=await rawPool.query("select purpose,granted from privacy_consents where user_id=$1 order by purpose",[userId]);
     assert.deepEqual(rows.rows,[
@@ -80,6 +80,21 @@ describe("service-privacy / real domain integration",()=>{
       {purpose:"notifications",granted:true},
       {purpose:"personalization",granted:true},
     ]);
+  });
+  
+  it("replays the same consent idempotency key and rejects a changed request",async()=>{
+    const repo=new PostgresPrivacyErasureRepository(db);
+    const audit=new PostgresPrivacyAuditWriter(db);
+    const service=new PrivacyErasureService(repo,ownership,jobsPublisher,audit,()=>1600);
+    const key="consent-replay-"+randomUUID();
+    const values={analytics:true,personalization:false,notifications:true};
+    const first=await service.updateConsents(principal,values,"trace-replay-1",key);
+    const replay=await service.updateConsents(principal,values,"trace-replay-2",key);
+    assert.deepEqual(replay,first);
+    await assert.rejects(
+      ()=>service.updateConsents(principal,{analytics:false,personalization:false,notifications:true},"trace-conflict",key),
+      (error:any)=>error?.code==="IDEMPOTENCY_CONFLICT",
+    );
   });
 
   it("creates an erasure request after real Family owner authorization and publishes a real Jobs request",async()=>{
