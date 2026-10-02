@@ -55,7 +55,7 @@ export class OpenFoodFactsApiClient implements OffApiClient {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.offApi.timeoutMs);
     try {
-      const url = `${config.offApi.baseUrl.replace(/\/+$/, "")}/api/v3/product/${encodeURIComponent(barcode)}.json`;
+      const url = `${config.offApi.baseUrl.replace(/\/+$/, "")}/api/v3/product/${encodeURIComponent(barcode)}.json?product_type=food&lc=it&generate_images_urls=1`;
       const response = await fetch(url, {
         signal: controller.signal,
         headers: { "User-Agent": config.offApi.userAgent, Accept: "application/json" },
