@@ -163,7 +163,7 @@ describe("service-inventory / real cross-service integration", () => {
         ...authHeaders(),
         "content-type": "application/json",
         "x-idempotency-key": `stale-${randomUUID()}`,
-        "if-match": String(itemVersion - 1),
+        "if-match": "99",
       },
       body: JSON.stringify({ quantity: 1, reason: "used" }),
     });
