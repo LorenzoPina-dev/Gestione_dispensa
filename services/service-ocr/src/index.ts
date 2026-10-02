@@ -272,7 +272,7 @@ app.post("/api/v1/ocr/jobs", async (req, res) => {
   const actor = userId(req);
   if (!actor) return fail(res, 401, "UNAUTHENTICATED", "Authenticated user required.");
   if (String(req.header("content-type") ?? "").toLowerCase().split(";")[0] !== "multipart/form-data") {
-    return fail(res, 415, "UNSUPPORTED_MEDIA_TYPE", "multipart/form-data is required.");
+    return fail(res, 400, "VALIDATION_ERROR", "multipart/form-data is required.");
   }
 
   let form: MultipartForm;
