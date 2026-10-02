@@ -136,35 +136,59 @@ async function emitOutbox(
 }
 
 async function ruleFor(category: string | null, storage: Storage, opened: boolean) {
-  const result = await pool.query(
-    `select id,product_category,storage,opened,min_days,max_days,model_version,active
+  type Rule = {
+    id: string;
+    product_category: string | null;
+    storage: Storage;
+    opened: boolean;
+    min_days: number;
+    target_days: number | null;
+    max_days: number;
+    model_version: string;
+    active: boolean;
+  };
+
+  if (category) {
+    const specific = await pool.query<Rule>(
+      `select id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
+       from shelf_life_domain.rules
+       where active=true and product_category=$1 and storage=$2 and opened=$3
+       order by created_at desc
+       limit 1`,
+      [category, storage, opened],
+    );
+    if (specific.rows[0]) return specific.rows[0];
+
+    const known = await pool.query<{ id: string }>(
+      `select id from shelf_life_domain.rules where active=true and product_category=$1 limit 1`,
+      [category],
+    );
+    if (known.rows[0]) return undefined;
+  }
+
+  const generic = await pool.query<Rule>(
+    `select id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
      from shelf_life_domain.rules
-     where active=true
-       and storage=$2
-       and opened=$3
-       and (product_category=$1 or product_category is null)
-     order by case when product_category=$1 then 0 else 1 end
+     where active=true and product_category is null and storage=$1 and opened=$2
+     order by created_at desc
      limit 1`,
-    [category, storage, opened],
+    [storage, opened],
   );
-  return result.rows[0] as
-    | {
-        id: string;
-        product_category: string | null;
-        storage: Storage;
-        opened: boolean;
-        min_days: number;
-        max_days: number;
-        model_version: string;
-        active: boolean;
-      }
-    | undefined;
+  return generic.rows[0];
 }
 
 function confidenceFor(rule: { min_days: number; max_days: number; product_category: string | null }): number {
-  const categoryBonus = rule.product_category ? 0.1 : 0;
-  const rangePenalty = Math.min(0.15, Math.max(0, (rule.max_days - rule.min_days) / 500));
-  return Math.max(0.5, Math.min(0.99, 0.75 + categoryBonus - rangePenalty));
+  const categoryBonus = rule.product_category ? 0.12 : 0;
+  const rangePenalty = Math.min(0.2, Math.max(0, (rule.max_days - rule.min_days) / 500));
+  return Math.max(0.45, Math.min(0.95, 0.76 + categoryBonus - rangePenalty));
+}
+
+function parseOptionalIsoDate(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") return undefined;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return parsed.toISOString();
 }
 
 function toEventPayload(payload: unknown): unknown {
@@ -193,8 +217,10 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
   const storage = normalizeStorage(body.storedAt);
   const opened = body.opened;
   const familyId = familyContext(req);
+  const storedOn = parseOptionalIsoDate(body.storedOn);
 
   if (!userId) return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  if (body.storedOn !== undefined && storedOn === undefined) return fail(res,400,"VALIDATION_ERROR","storedOn is invalid.");
   if (!itemId || !productId || !familyId || storage === null || typeof opened !== "boolean" || !key(req)) {
     return fail(res,400,"VALIDATION_ERROR","itemId, productId, familyId, storedAt, opened and X-Idempotency-Key are required.");
   }
@@ -223,7 +249,7 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
        values($1,$2,$3,$4,$5,now(),0,'pending','pending','queued')`,
       [predictionId,userId,familyId,itemId,productId],
     );
-    await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null});
+    await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null,storedOn:storedOn ?? null});
     await finishIdempotency(client,req,202,response);
     await client.query("commit");
 
@@ -237,6 +263,7 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
           storage,
           opened,
           category:typeof body.category==="string"?body.category:null,
+          ...(storedOn ? { storedOn } : {}),
           userId,
           familyId,
         }}));
@@ -257,7 +284,9 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
   const storage = normalizeStorage(body.storedAt ?? body.storage);
   const opened = body.opened === true;
   const category = typeof body.category === "string" ? body.category.trim().toLowerCase() : null;
+  const storedOn = parseOptionalIsoDate(body.storedOn);
   if (storage === null) return fail(res,400,"VALIDATION_ERROR","storedAt is invalid.");
+  if (body.storedOn !== undefined && storedOn === undefined) return fail(res,400,"VALIDATION_ERROR","storedOn is invalid.");
   const client = await pool.connect();
   try {
     await client.query("begin");
@@ -281,15 +310,17 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
     const confidence = confidenceFor(rule);
     const minDays = Number(rule.min_days);
     const maxDays = Number(rule.max_days);
-    const estimatedDays = minDays === maxDays ? minDays : Math.round((minDays + maxDays) / 2);
-    const expires = new Date();
-    expires.setUTCDate(expires.getUTCDate() + estimatedDays);
+    const targetDays = rule.target_days == null
+      ? (minDays === maxDays ? minDays : Math.round((minDays + maxDays) / 2))
+      : Number(rule.target_days);
+    const expires = new Date(storedOn ?? new Date().toISOString());
+    expires.setUTCDate(expires.getUTCDate() + targetDays);
 
     const q = await client.query(
       `update shelf_life_domain.predictions
        set estimated_expires_at=$2,confidence=$3,basis=$4,model_version=$5,status='completed',updated_at=now(),version=version+1
        where id=$1 returning *`,
-      [id,expires.toISOString(),confidence,`product_category+storage+opened:${storage}:${opened}`,rule.model_version],
+      [id,expires.toISOString(),confidence,`category:${category ?? "unknown"}+storage:${storage}+opened:${opened}+target_days:${targetDays}`,rule.model_version],
     );
     await emitOutbox(client,"ShelfLifePredictionCompleted",id,current.rows[0].family_id ?? null,{predictionId:id,estimatedExpiresAt:expires.toISOString(),confidence,modelVersion:rule.model_version});
     await client.query("commit");
