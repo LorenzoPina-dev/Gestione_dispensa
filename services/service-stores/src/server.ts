@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
+import { isCurrency, isNonNegativeInteger, isOfferType, isPositiveOffer, isValidDate } from "./validation.js";
 
 const app = express();
 app.disable("x-powered-by");
