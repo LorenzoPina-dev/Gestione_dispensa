@@ -99,7 +99,7 @@ async function queueShelfLifePrediction(
         "content-type": "application/json",
         "x-user-id": ctx.userId,
         "x-family-id": ctx.familyId,
-        "x-idempotency-key": "inventory-shelf-life:v2:" + ctx.familyId + ":" + item.id,
+        "x-idempotency-key": "inventory-shelf-life:v3:" + ctx.familyId + ":" + item.id,
       },
       body: JSON.stringify({
         itemId: item.id,
