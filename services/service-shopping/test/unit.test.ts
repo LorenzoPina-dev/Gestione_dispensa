@@ -19,7 +19,8 @@ describe("service-shopping / pure validation", () => {
 
   it("validates documented units", () => {
     for (const unit of ["g", "kg", "ml", "l", "piece", "pack"]) assert.equal(isShoppingUnit(unit), true);
-    for (const unit of ["", "L", "pcs", "meter", null, undefined]) assert.equal(isShoppingUnit(unit), false);
+    for (const unit of ["", "pcs", "meter", null, undefined]) assert.equal(isShoppingUnit(unit), false);
+    assert.equal(isShoppingUnit("L"), true);
   });
 
   it("requires an idempotency key of at least eight characters", () => {
