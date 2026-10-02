@@ -248,6 +248,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
   const storage = normalizeStorage(body.storedAt ?? body.storage);
   const opened = body.opened === true;
   const category = typeof body.category === "string" ? body.category.trim().toLowerCase() : null;
+  if (storage === null) return fail(res,400,"VALIDATION_ERROR","storedAt is invalid.");
   const client = await pool.connect();
   try {
     await client.query("begin");
