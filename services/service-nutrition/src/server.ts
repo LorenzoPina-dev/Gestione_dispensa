@@ -110,7 +110,7 @@ app.put("/api/v1/nutrition/targets", async(req,res)=>{
   if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
   if(!idempotencyKey||version===null)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key and If-Match are required.");
   const body=req.body as Body;
-  for(const field of ["caloriesKcal","proteinG","carbsG","fatG"]) if(!isNonNegativeNumber(body[field])return fail(res,400,"VALIDATION_ERROR",`${field} must be non-negative.`);
+  for(const field of ["caloriesKcal","proteinG","carbsG","fatG"]) if(!isNonNegativeNumber(body[field])) return fail(res,400,"VALIDATION_ERROR",`${field} must be non-negative.`);
   const client=await pool.connect();
   try{
     await client.query("begin");
@@ -183,7 +183,7 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
     fiberG+=Number(snapshot.fiberGPer100g??0)*multiplier;
   }
   const round=(value:number)=>Number(value.toFixed(2));
-  return res.json({data:{caloriesKcal:round(caloriesKcal),proteinG:round(proteinG),carbsG:round(carbsG),fatG:round(fatG),period,totals:{calories:round(caloriesKcal),protein:round(proteinG),carbs:round(carbsG),fat:round(fatG),fiber:round(fiberG)}}});
+  return res.json({data:{caloriesKcal:round(caloriesKcal),proteinG:round(proteinG),carbsG:round(carbsG),fatG:round(fatG),period}});
 });
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
