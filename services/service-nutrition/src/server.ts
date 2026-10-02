@@ -150,15 +150,17 @@ app.get("/api/v1/nutrition/diary", async(req,res)=>{
 
 app.post("/api/v1/nutrition/diary", async(req,res)=>{
   const userId=actor(req),idempotencyKey=key(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
-  const body=req.body as Body;const quantity=body.quantity;const source=body.source===undefined?"manual":body.source;
-  if(typeof body.date!=="string"||typeof body.meal!=="string"||typeof body.productId!=="string"||!isPositiveNumber(quantity)||!isDiaryUnit(body.unit)||!isDiarySource(source))return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity, unit and a valid source are required.");
+  const body=req.body as Body;const quantity=body.quantity;
+  if(Object.keys(body).some((field)=>!["date","meal","productId","quantity","unit"].includes(field)))return fail(res,400,"VALIDATION_ERROR","Only date, meal, productId, quantity and unit are accepted.");
+  const source="manual";
+  if(typeof body.date!=="string"||typeof body.meal!=="string"||typeof body.productId!=="string"||!isPositiveNumber(quantity)||!isDiaryUnit(body.unit))return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity and unit are required.");
   const client=await pool.connect();
   try{await client.query("begin");const idem=await beginIdempotency(client,req,body);if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
     if (!isDiaryUnit(body.unit)) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","Nutrition diary entries require unit g or kg."); }
     const snapshot = await loadNutritionSnapshot(catalogBaseUrl, req.header("authorization") ?? undefined, String(body.productId));
     if (!snapshot) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Product nutrition data not found."); }
     const id=crypto.randomUUID();
-    const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) returning *`,[id,userId,body.date,body.meal,body.productId,quantity,body.unit,source,body.sourceMovementId??null,JSON.stringify(snapshot)]);
+    const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) returning *`,[id,userId,body.date,body.meal,body.productId,quantity,body.unit,source,null,JSON.stringify(snapshot)]);
     const x=q.rows[0];const response={data:{entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source},version:x.version};
     await emitOutbox(client,"NutritionEntryRecorded",id,userId,response);await finishIdempotency(client,req,201,response);await client.query("commit");return res.status(201).json(response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to record diary entry.");}finally{client.release();}
