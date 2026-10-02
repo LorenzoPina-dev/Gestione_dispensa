@@ -412,7 +412,7 @@ app.get("/api/v1/ocr/drafts/:draftId", async (req,res) => {
       confidence:Number(item.confidence),
       ...(item.product_id?{productId:item.product_id}:{}),
     })),
-  },version:Number(row.version)});
+  }});
 });
 
 app.post("/api/v1/ocr/drafts/:draftId/reject", async(req,res)=>{
