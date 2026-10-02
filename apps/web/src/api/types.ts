@@ -33,7 +33,46 @@ export interface JoinAttemptDto { id: string; inviteId: string; userId?: string;
 export interface AcceptInviteResultDto { familyId: string; userId: string; role: InviteRole; joinedAt: string; version: number; }
 
 export type ProductUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";
-export interface ProductDto { id: string; canonicalName: string; brand?: string; defaultUnit: ProductUnit; status: "ACTIVE"; provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN"; version: number; category?: string; photoUrl?: string; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number; createdAt: string; updatedAt: string; }
+export interface ProductImagesDto {
+  front?: string;
+  frontSmall?: string;
+  frontThumb?: string;
+  ingredients?: string;
+  ingredientsSmall?: string;
+  ingredientsThumb?: string;
+  nutrition?: string;
+  nutritionSmall?: string;
+  nutritionThumb?: string;
+  packaging?: string;
+  packagingSmall?: string;
+  packagingThumb?: string;
+}
+
+export interface ProductDto {
+  id: string;
+  canonicalName: string;
+  brand?: string;
+  defaultUnit: ProductUnit;
+  status: "ACTIVE";
+  provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+  version: number;
+  category?: string;
+  photoUrl?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
+  quantityValue?: number;
+  quantityUnit?: ProductUnit;
+  quantityLabel?: string;
+  servingSize?: string;
+  servingQuantity?: number;
+  images?: ProductImagesDto;
+  openFoodFacts?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
 export type BarcodeResolutionStatus = "MATCHED" | "UNKNOWN" | "DEGRADED";
 export interface BarcodeResolutionDto { status: BarcodeResolutionStatus; identifierType: string; normalizedValue: string; product?: ProductDto; }
 export type InventoryUnit = ProductUnit;
