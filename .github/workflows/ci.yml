@@ -58,6 +58,7 @@ jobs:
       FAMILY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/family_db
       INVENTORY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
       CATALOG_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/catalog_db
+      SHOPPING_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/shopping_db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,9 +72,11 @@ jobs:
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE family_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE catalog_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE shopping_db;"
           psql "$FAMILY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$CATALOG_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$SHOPPING_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
       - run: npm run typecheck
       - run: npm run build
       - name: Run service-family migration schema tests
