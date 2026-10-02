@@ -79,6 +79,7 @@ export class PrivacyErasureError extends Error {
     | "NOT_FOUND_OR_NOT_VISIBLE"
     | "CONFIRMATION_REQUIRED"
     | "INVALID_CONSENT"
+    | "IDEMPOTENCY_CONFLICT"
     | "ERASURE_FAILED";
 
   public constructor(code: PrivacyErasureError["code"], message: string) {
@@ -233,7 +234,8 @@ export class PrivacyErasureService {
       const requestHash = crypto.createHash("sha256").update(JSON.stringify(values)).digest("hex");
       const result = await this.repository.upsertConsentsAtomic({ userId: actor.subject, consents, idempotencyKey: idempotencyKey.trim(), requestHash });
       if (result.conflict) throw new PrivacyErasureError("IDEMPOTENCY_CONFLICT", "Idempotency key conflict.");
-      for (const consent of result) {
+      if (result.replay) return result.consents;
+      for (const consent of result.consents) {
         await this.audit.append({
           actorId: actor.subject,
           action: "privacy.consent.update",
