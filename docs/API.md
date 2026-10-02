@@ -369,15 +369,53 @@ Query opzionale: `refresh=false`.
 
 Response 200:
 ```json
-{"data":{"resolution":"cache","product":{"productId":"uuid","name":"Latte intero","brand":"Marca","barcodes":["8000000000000"],"source":{"type":"openfoodfacts","id":"123"}}}}
+{
+  "data": {
+    "resolution": "cache",
+    "product": {
+      "productId": "uuid",
+      "name": "Latte intero",
+      "brand": "Marca",
+      "category": "eggs-dairy",
+      "barcodes": ["8000000000000"],
+      "package": {"value": 1, "unit": "l", "label": "1 L"},
+      "serving": {"size": "100 ml", "quantity": 100},
+      "imageObjectKey": "https://images.openfoodfacts.org/...",
+      "images": {
+        "front": "https://images.openfoodfacts.org/...",
+        "frontSmall": "https://images.openfoodfacts.org/...",
+        "frontThumb": "https://images.openfoodfacts.org/...",
+        "ingredients": "https://images.openfoodfacts.org/...",
+        "nutrition": "https://images.openfoodfacts.org/...",
+        "packaging": "https://images.openfoodfacts.org/..."
+      },
+      "nutrition": {
+        "kcalPer100g": 62,
+        "proteinGPer100g": 3.2,
+        "carbsGPer100g": 4.8,
+        "fatGPer100g": 3.5,
+        "fiberGPer100g": 0
+      },
+      "openFoodFacts": {
+        "ingredients_text": "Milk",
+        "allergens_tags": ["en:milk"],
+        "nutriments": {"energy-kcal_100g": 62}
+      },
+      "source": {"type": "openfoodfacts", "id": "8000000000000"}
+    }
+  }
+}
 ```
+
+Il Catalogo conserva anche `openFoodFacts`, cioè il documento originale ricevuto da Open Food Facts, esclusi soltanto i metadati interni della cache. Questo permette al client di mostrare campi non ancora normalizzati senza perderli.
+
 404 se nessun provider trova il barcode.
 
 ### POST /catalog/barcodes/resolve
 
 Request: body `{barcode}` con il barcode numerico.
 
-Response 200: `{data:{resolution,product}}`.
+Response 200: `{data:{resolution,product}}` con lo stesso schema completo di `GET /catalog/barcodes/{barcode}`.
 
 Il lookup è read-only; 404 se il prodotto non è disponibile, 502 se il provider è irraggiungibile.
 
