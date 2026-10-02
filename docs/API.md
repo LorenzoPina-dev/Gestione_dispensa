@@ -535,10 +535,10 @@ Query: `period=today|week`, optional `familyId`.
 
 Response 200:
 ```json
-{"data":{"caloriesKcal":2200,"proteinG":120,"carbsG":250,"fatG":70,"period":"today"}}
+{"data":{"caloriesKcal":2200,"proteinG":120,"carbsG":250,"fatG":70,"period":"today","totals":{"calories":2200,"protein":120,"carbs":250,"fat":70,"fiber":30}}}
 ```
 
-This is a read-only composite nutrition summary used by the application dashboard. It does not replace the canonical nutrition targets or diary resources.
+This is a read-only nutrition summary used by the application dashboard. It does not replace the canonical nutrition targets or diary resources.
 
 ## 9. Stores / offers
 
