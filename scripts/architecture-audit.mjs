@@ -70,6 +70,9 @@ for (const [name, port] of canonical) {
       try { startup += "\n" + await readFile("services/" + name + "/entrypoint.sh", "utf8"); } catch {}
     }
     if (!startup.includes("dist/migrate.js")) failures.push(name + ": Docker startup does not execute migrations");
+    if (/insert into schema_migrations/i.test(startup) && !/on conflict/i.test(startup)) {
+      failures.push(name + ": migration bookkeeping must be idempotent");
+    }
   }
   if (block.includes("ports:")) failures.push(name + ": application service must not publish host ports");
   const portConfigured = name === "off-lookup" ? block.includes("OFF_LOOKUP_PORT: " + port) : block.includes("PORT: " + port);
@@ -120,6 +123,11 @@ for (const service of sqlMigrationServices) {
     failures.push(service + ": migration startup contract not visible in Dockerfile");
   }
 }
+
+if (!compose.includes("backend: { internal: true }")) failures.push("backend network must be internal");
+if (!compose.includes("egress:")) failures.push("explicit egress network is missing");
+const offLookupBlock = composeBlock("off-lookup");
+if (!offLookupBlock.includes("egress")) failures.push("off-lookup must use explicit egress network");
 
 if (failures.length) {
   console.error(JSON.stringify({ architectureAudit: "failed", failures }, null, 2));
