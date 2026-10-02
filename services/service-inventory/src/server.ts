@@ -64,7 +64,7 @@ function pagination(url: URL): { limit: number; offset: number } {
 
 async function queueShelfLifePrediction(
   ctx: Ctx,
-  item: { id: string; productId: string; location: string | null; expiresAt: unknown },
+  item: { id: string; productId: string; location: string | null; expiresAt: unknown; addedAt?: unknown },
   authorization?: string,
 ): Promise<void> {
   if (item.expiresAt) return;
@@ -108,6 +108,7 @@ async function queueShelfLifePrediction(
         storedAt: item.location ?? "altro",
         opened: false,
         ...(category ? { category } : {}),
+        ...(isoDate(item.addedAt) ? { storedOn: isoDate(item.addedAt) } : {}),
       }),
       signal: AbortSignal.timeout(5000),
     });
@@ -131,6 +132,13 @@ async function queueShelfLifePrediction(
   }
 }
 
+function isoDate(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+}
+
 function queueMissingShelfLifePredictions(
   ctx: Ctx,
   rows: Array<Record<string, unknown>>,
@@ -145,6 +153,7 @@ function queueMissingShelfLifePredictions(
         productId: String(row.product_id),
         location: row.location == null ? null : String(row.location),
         expiresAt: row.expires_at,
+        addedAt: row.added_at,
       },
       authorization,
     );
@@ -295,6 +304,7 @@ const server = createServer(async (req, res) => {
             productId: String(body.productId),
             location: body.location == null ? null : String(body.location),
             expiresAt: result.rows[0].expires_at,
+            addedAt: result.rows[0].added_at,
           },
           req.headers.authorization ? String(req.headers.authorization) : undefined,
         );
