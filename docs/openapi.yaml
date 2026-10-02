@@ -575,6 +575,7 @@ paths:
     get:
       operationId: getInternalOcrJobsRecoverable
       tags: [Internal]
+      security: [{internalServiceAuth: []}]
       parameters: [{name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}]
       responses:
         '200': {description: Recoverable OCR jobs, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
@@ -582,6 +583,7 @@ paths:
     post:
       operationId: postInternalOcrJobsJobIdProcess
       tags: [Internal]
+      security: [{internalServiceAuth: []}]
       parameters: [{name: jobId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
       requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
       responses:
@@ -642,6 +644,7 @@ paths:
     get:
       operationId: getInternalShelfLifePredictionsRecoverable
       tags: [Internal]
+      security: [{internalServiceAuth: []}]
       parameters: [{name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}]
       responses:
         '200': {description: Recoverable shelf-life predictions, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
