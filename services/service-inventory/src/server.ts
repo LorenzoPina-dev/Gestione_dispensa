@@ -7,6 +7,8 @@ const port = Number(process.env.PORT ?? 3312);
 const service = "service-inventory";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL ?? "postgres://inventory:inventory@postgres:5432/inventory_db" });
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
+const catalogServiceBaseUrl = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
+const shelfLifeServiceBaseUrl = (process.env.SHELF_LIFE_SERVICE_BASE_URL ?? "http://service-shelf-life:3404/api/v1").replace(/\/$/, "");
 
 type Ctx = { userId: string; familyId: string; requestId: string; correlationId: string };
 type AuthResult = { ok: true } | { ok: false; status: number; code: string; message: string };
@@ -57,6 +59,96 @@ function pagination(url: URL): { limit: number; offset: number } {
   const parsedCursor = cursor === null ? 0 : Number(cursor);
   const offset = Number.isInteger(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
   return { limit, offset };
+}
+
+
+async function queueShelfLifePrediction(
+  ctx: Ctx,
+  item: { id: string; productId: string; location: string | null; expiresAt: unknown },
+  authorization?: string,
+): Promise<void> {
+  if (item.expiresAt) return;
+
+  let category: string | undefined;
+  try {
+    const response = await fetch(
+      catalogServiceBaseUrl + "/catalog/products/" + encodeURIComponent(item.productId),
+      {
+        headers: {
+          accept: "application/json",
+          ...(authorization ? { authorization } : {}),
+          "x-user-id": ctx.userId,
+        },
+        signal: AbortSignal.timeout(3000),
+      },
+    );
+    if (response.ok) {
+      const payload = await response.json() as { data?: { category?: unknown } };
+      if (typeof payload.data?.category === "string" && payload.data.category.trim()) {
+        category = payload.data.category.trim();
+      }
+    }
+  } catch {
+    // The generic Shelf-Life rule remains available when Catalog is temporarily unavailable.
+  }
+
+  try {
+    const response = await fetch(shelfLifeServiceBaseUrl + "/shelf-life/predictions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": ctx.userId,
+        "x-family-id": ctx.familyId,
+        "x-idempotency-key": "inventory-shelf-life:v2:" + ctx.familyId + ":" + item.id,
+      },
+      body: JSON.stringify({
+        itemId: item.id,
+        productId: item.productId,
+        familyId: ctx.familyId,
+        storedAt: item.location ?? "altro",
+        opened: false,
+        ...(category ? { category } : {}),
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      console.warn(JSON.stringify({
+        service,
+        event: "shelf_life_queue_failed",
+        itemId: item.id,
+        productId: item.productId,
+        status: response.status,
+      }));
+    }
+  } catch (error) {
+    console.warn(JSON.stringify({
+      service,
+      event: "shelf_life_queue_unavailable",
+      itemId: item.id,
+      productId: item.productId,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
+}
+
+function queueMissingShelfLifePredictions(
+  ctx: Ctx,
+  rows: Array<Record<string, unknown>>,
+  authorization?: string,
+): void {
+  for (const row of rows) {
+    if (row.expires_at) continue;
+    void queueShelfLifePrediction(
+      ctx,
+      {
+        id: String(row.id),
+        productId: String(row.product_id),
+        location: row.location == null ? null : String(row.location),
+        expiresAt: row.expires_at,
+      },
+      authorization,
+    );
+  }
 }
 
 function dto(row: Record<string, unknown>) {
@@ -149,6 +241,7 @@ const server = createServer(async (req, res) => {
       const result = await pool.query("SELECT * FROM pantry_items WHERE family_id=$1 ORDER BY added_at DESC LIMIT $2 OFFSET $3", [ctx.familyId, limit + 1, offset]);
       const hasNext = result.rows.length > limit;
       const rows = hasNext ? result.rows.slice(0, limit) : result.rows;
+      queueMissingShelfLifePredictions(ctx, rows, req.headers.authorization ? String(req.headers.authorization) : undefined);
       return send(res, 200, { items: rows.map(dto), nextCursor: hasNext ? String(offset + limit) : null }, ctx.requestId);
     }
 
