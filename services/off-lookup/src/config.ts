@@ -40,6 +40,9 @@ export const config = {
       "GestioneDispensa-OffLookup/0.1 (+https://github.com/, family-local)",
     ),
     timeoutMs: numEnv("OFF_LOOKUP_API_TIMEOUT_MS", 4000),
+    // A failed refresh must not hammer Open Food Facts on every scan/F5. The previous cache
+    // remains authoritative for fallback purposes until this cooldown expires.
+    refreshCooldownMs: numEnv("OFF_LOOKUP_API_REFRESH_COOLDOWN_MS", 10 * 60 * 1000),
     maxConsecutiveFailures: numEnv("OFF_LOOKUP_API_MAX_CONSECUTIVE_FAILURES", 5),
     cooldownMs: numEnv("OFF_LOOKUP_API_COOLDOWN_MS", 30_000),
   },
