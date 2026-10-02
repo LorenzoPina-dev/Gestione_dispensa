@@ -537,6 +537,20 @@ services:
   service-ocr: { condition: service_healthy }
     restart: unless-stopped
     networks: [backend, messaging]
+  worker-notifications:
+    build: { context: ., dockerfile: services/worker-notifications/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db"
+      REDIS_URL: "redis://redis:6379"
+      EVENT_STREAM: "events:domain"
+      CONSUMER_GROUP: "notifications"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-notifications: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
   service-ocr:
     build: { context: ., dockerfile: services/service-ocr/Dockerfile }
     environment:
