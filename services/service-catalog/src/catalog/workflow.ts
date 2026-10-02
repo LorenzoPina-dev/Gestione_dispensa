@@ -26,6 +26,27 @@ export interface ExternalProductMatch {
   readonly carbs?: number;
   readonly fat?: number;
   readonly fiber?: number;
+  readonly quantityValue?: number;
+  readonly quantityUnit?: ProductUnit;
+  readonly quantityLabel?: string;
+  readonly servingSize?: string;
+  readonly servingQuantity?: number;
+  readonly images?: {
+    front?: string;
+    frontSmall?: string;
+    frontThumb?: string;
+    ingredients?: string;
+    ingredientsSmall?: string;
+    ingredientsThumb?: string;
+    nutrition?: string;
+    nutritionSmall?: string;
+    nutritionThumb?: string;
+    packaging?: string;
+    packagingSmall?: string;
+    packagingThumb?: string;
+  };
+  readonly openFoodFacts: Record<string, unknown>;
+  readonly sourceRef?: string;
   /** Canonical shelf-life category (see services/inventory/shelf-life-client.ts), when the provider derives one. */
   readonly category?: string;
   readonly source: string;
