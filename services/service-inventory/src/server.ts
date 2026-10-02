@@ -64,10 +64,11 @@ function pagination(url: URL): { limit: number; offset: number } {
 
 async function queueShelfLifePrediction(
   ctx: Ctx,
-  item: { id: string; productId: string; location: string | null; expiresAt: unknown; addedAt?: unknown },
+  item: { id: string; productId: string; location: string | null; expiresAt: unknown; addedAt?: unknown; openedAt?: unknown },
   authorization?: string,
+  force = false,
 ): Promise<void> {
-  if (item.expiresAt) return;
+  if (item.expiresAt && !force) return;
 
   let category: string | undefined;
   try {
@@ -106,9 +107,11 @@ async function queueShelfLifePrediction(
         productId: item.productId,
         familyId: ctx.familyId,
         storedAt: item.location ?? "altro",
-        opened: false,
+        opened: Boolean(isoDate(item.openedAt)),
         ...(category ? { category } : {}),
-        ...(isoDate(item.addedAt) ? { storedOn: isoDate(item.addedAt) } : {}),
+        ...((isoDate(item.openedAt) ?? isoDate(item.addedAt))
+          ? { storedOn: isoDate(item.openedAt) ?? isoDate(item.addedAt) }
+          : {}),
       }),
       signal: AbortSignal.timeout(5000),
     });
@@ -154,6 +157,7 @@ function queueMissingShelfLifePredictions(
         location: row.location == null ? null : String(row.location),
         expiresAt: row.expires_at,
         addedAt: row.added_at,
+        openedAt: row.opened_at,
       },
       authorization,
     );
@@ -276,10 +280,11 @@ const server = createServer(async (req, res) => {
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const quantity = positiveQuantity(body.quantity);
-      const allowedFields = ["productId", "quantity", "unit", "expiresAt", "location", "lotCode"];
+      const allowedFields = ["productId", "quantity", "unit", "expiresAt", "location", "lotCode", "openedAt"];
       if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
       if (!body.productId || !body.unit || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "productId, unit and positive quantity are required.", ctx.requestId);
       if (body.expiresAt !== undefined && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
+      if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
       const key = String(req.headers["x-idempotency-key"] ?? "");
@@ -291,7 +296,7 @@ const server = createServer(async (req, res) => {
         if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
         const id = randomUUID();
-        const result = await client.query("INSERT INTO pantry_items(id,family_id,product_id,quantity,unit,location,expires_at,expiration_source,lot_code,added_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now(),now()) RETURNING *", [id, ctx.familyId, String(body.productId), quantity, String(body.unit), body.location ?? null, body.expiresAt ? new Date(String(body.expiresAt)) : null, body.expiresAt ? "declared" : null, body.lotCode ?? null]);
+        const result = await client.query("INSERT INTO pantry_items(id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now()) RETURNING *", [id, ctx.familyId, String(body.productId), quantity, String(body.unit), body.location ?? null, body.openedAt == null ? null : new Date(String(body.openedAt)), body.expiresAt ? new Date(String(body.expiresAt)) : null, body.expiresAt ? "declared" : null, body.lotCode ?? null]);
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'add',$5,$6,'added',$7,now(),now())", [randomUUID(), ctx.familyId, id, body.productId, quantity, body.unit, ctx.userId]);
         await event(client, "PantryItemAdjusted", id, ctx, { action: "add", item: dto(result.rows[0]) });
         const output = { data: dto(result.rows[0]), version: Number(result.rows[0].version) };
@@ -305,6 +310,8 @@ const server = createServer(async (req, res) => {
             location: body.location == null ? null : String(body.location),
             expiresAt: result.rows[0].expires_at,
             addedAt: result.rows[0].added_at,
+            openedAt: result.rows[0].opened_at,
+            openedAt: result.rows[0].opened_at,
           },
           req.headers.authorization ? String(req.headers.authorization) : undefined,
         );
@@ -337,6 +344,9 @@ const server = createServer(async (req, res) => {
       if (Object.hasOwn(body, "expiresAt") && body.expiresAt !== null && !validIsoDate(body.expiresAt)) {
         return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
       }
+      if (Object.hasOwn(body, "openedAt") && body.openedAt !== null && !validIsoDate(body.openedAt)) {
+        return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
+      }
 
       const client = await pool.connect();
       try {
@@ -357,18 +367,37 @@ const server = createServer(async (req, res) => {
         const nextLocation = Object.hasOwn(body, "location") ? (body.location ?? null) : row.location;
         const nextExpiresAt = Object.hasOwn(body, "expiresAt") ? (body.expiresAt === null ? null : new Date(String(body.expiresAt))) : row.expires_at;
         const nextLotCode = Object.hasOwn(body, "lotCode") ? (body.lotCode ?? null) : row.lot_code;
+        const nextOpenedAt = Object.hasOwn(body, "openedAt") ? (body.openedAt === null ? null : new Date(String(body.openedAt))) : row.opened_at;
         const nextExpirationSource = Object.hasOwn(body, "expiresAt")
           ? (body.expiresAt === null ? null : "declared")
           : row.expiration_source;
 
         const updated = await client.query(
-          "UPDATE pantry_items SET quantity=$3,location=$4,expires_at=$5,expiration_source=$6,lot_code=$7,updated_at=now(),version=version+1 WHERE id=$1 AND family_id=$2 RETURNING *",
-          [row.id, ctx.familyId, nextQuantity, nextLocation, nextExpiresAt, nextExpirationSource, nextLotCode],
+          "UPDATE pantry_items SET quantity=$3,location=$4,opened_at=$5,expires_at=$6,expiration_source=$7,lot_code=$8,updated_at=now(),version=version+1 WHERE id=$1 AND family_id=$2 RETURNING *",
+          [row.id, ctx.familyId, nextQuantity, nextLocation, nextOpenedAt, nextExpiresAt, nextExpirationSource, nextLotCode],
         );
         const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
         await event(client, "PantryItemAdjusted", row.id, ctx, { action: "patch", item: output.data });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
+        const shouldReestimate =
+          nextExpirationSource !== "declared" &&
+          (nextExpiresAt === null || Object.hasOwn(body, "location") || Object.hasOwn(body, "openedAt"));
+        if (shouldReestimate) {
+          void queueShelfLifePrediction(
+            ctx,
+            {
+              id: String(row.id),
+              productId: String(row.product_id),
+              location: nextLocation == null ? null : String(nextLocation),
+              expiresAt: nextExpiresAt,
+              addedAt: row.added_at,
+              openedAt: nextOpenedAt,
+            },
+            req.headers.authorization ? String(req.headers.authorization) : undefined,
+            Object.hasOwn(body, "location") || Object.hasOwn(body, "openedAt"),
+          );
+        }
         return send(res, 200, output, ctx.requestId);
       } catch (error) {
         await client.query("ROLLBACK");
