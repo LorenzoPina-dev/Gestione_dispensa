@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PostgresClient } from "../src/db/postgres-client.js";
 import { PostgresCatalogRepository, PostgresCatalogLookupRepository, PostgresCatalogCandidateRepository } from "../src/catalog/postgres.js";
-import { CatalogService } from "../src/catalog/service.js";
+import { CatalogService, CatalogVersionConflictError } from "../src/catalog/service.js";
 import { CatalogWorkflowService } from "../src/catalog/workflow.js";
 
 const databaseUrl = process.env.CATALOG_TEST_DATABASE_URL;
@@ -115,15 +115,16 @@ describe("service-catalog / real PostgreSQL flow", () => {
     assert.equal(updated.canonicalName, "Integration Latte Updated");
     assert.equal(updated.version, 2);
 
-    const stale = await service.updateProduct(
-      productId,
-      1,
-      { name: "Should Not Apply" },
-      actorId,
-      traceId,
+    await assert.rejects(
+      () => service.updateProduct(
+        productId,
+        1,
+        { name: "Should Not Apply" },
+        actorId,
+        traceId,
+      ),
+      (error: unknown) => error instanceof CatalogVersionConflictError,
     );
-
-    await assert.rejects(async () => stale, /Unexpected|version|Catalog/i);
     const actual = await repository.getById(productId);
     assert.ok(actual);
     assert.equal(actual.canonicalName, "Integration Latte Updated");
@@ -167,7 +168,7 @@ describe("service-catalog / real PostgreSQL flow", () => {
             id: duplicateId,
             canonicalName: "",
             brand: undefined,
-            defaultUnit: "piece",
+            defaultUnit: "invalid" as Product["defaultUnit"],
             status: "ACTIVE",
             provenanceQuality: "VERIFIED",
             version: 1,
