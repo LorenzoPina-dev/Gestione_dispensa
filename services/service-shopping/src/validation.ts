@@ -11,7 +11,7 @@ export function positiveQuantity(value: unknown): number | undefined {
 }
 
 export function isShoppingUnit(value: unknown): value is ShoppingUnit {
-  return typeof value === "string" && SHOPPING_UNITS.includes(value as ShoppingUnit);
+  return typeof value === "string" && SHOPPING_UNITS.includes(value.toLowerCase() as ShoppingUnit);
 }
 
 export function validIdempotencyKey(value: unknown): value is string {
