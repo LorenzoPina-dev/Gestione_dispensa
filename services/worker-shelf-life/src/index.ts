@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import { parseShelfLifeQueueMessage, shelfLifeProcessBody } from "./message.js";
 
 const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
 const queue = "q:shelf-life-prediction";
@@ -27,17 +28,8 @@ while (!stopping) {
   if (!item) continue;
 
   try {
-    const event = JSON.parse(item.element) as {
-      data?: {
-        predictionId?: string;
-        itemId?: string;
-        productId?: string;
-        storage?: string;
-        opened?: boolean;
-        category?: string | null;
-      };
-    };
-    const data = event.data;
+    const event = parseShelfLifeQueueMessage(item.element);
+    const data = event?.data;
     if (!data?.predictionId || !data.itemId || !data.productId) continue;
 
     const response = await fetch(
@@ -48,13 +40,7 @@ while (!stopping) {
           authorization: "Bearer " + token,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          itemId: data.itemId,
-          productId: data.productId,
-          storedAt: data.storage,
-          opened: data.opened,
-          ...(data.category ? { category: data.category } : {}),
-        }),
+        body: JSON.stringify(shelfLifeProcessBody(data!)),
         signal: AbortSignal.timeout(10000),
       },
     );
