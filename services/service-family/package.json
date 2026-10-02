@@ -8,7 +8,9 @@
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "npm run test:http",
+    "test:http": "node --import tsx --test test/http.test.ts",
+    "test:integration": "node --import tsx --test test/integration.test.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"
