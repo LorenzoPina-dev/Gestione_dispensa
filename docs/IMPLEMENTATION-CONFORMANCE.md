@@ -1,5 +1,18 @@
 # Documentation & Implementation Conformance
 
+## Runtime base conformance gate
+
+La baseline architecture/microservices-v2 considera la struttura architetturale completa quando tutti questi vincoli sono verificabili automaticamente:
+
+1. Tutti i servizi canonici hanno package, Dockerfile, source, healthcheck e database proprietario quando applicabile.
+2. Ogni database applicativo esegue le proprie migration al bootstrap; il bookkeeping di schema_migrations è idempotente.
+3. Nessun servizio applicativo pubblica direttamente porte host; l'accesso esterno passa da Nginx -> Gateway.
+4. docker compose up -d --wait completa il bootstrap senza container canonici unhealthy.
+5. L'audit architetturale verifica database separation, servizi canonici, migration startup, porte, worker runtime e documentazione minima.
+6. Contract audit, build/typecheck e test suite restano gate distinti: il superamento strutturale non equivale automaticamente alla verifica funzionale end-to-end.
+
+Il gate è eseguibile con npm run architecture:audit ed è richiesto dalla CI della baseline.
+
 ## Purpose
 
 Questo documento separa tre concetti che non devono essere confusi:
