@@ -22,10 +22,6 @@ jobs:
       - name: Contract audit
         run: npm run contract:audit
       - run: npm run build
-      - name: Run service-family migration schema tests
-        env:
-          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
-        run: npm run test:migration -w @gestione-dispensa/service-family
       - run: npm run typecheck
       - run: npm run test
 
@@ -59,8 +55,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      INVENTORY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
       FAMILY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/family_db
+      INVENTORY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
       CATALOG_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/catalog_db
     steps:
       - uses: actions/checkout@v4
@@ -70,19 +66,31 @@ jobs:
           cache: npm
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - run: npm ci --ignore-scripts
-      - name: Prepare service databases from real migrations
+      - name: Prepare isolated service databases
         run: |
-          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE family_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE catalog_db;"
-          psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-          psql "$INVENTORY_DATABASE_URL" -f services/service-inventory/migrations/001_initial.sql
           psql "$FAMILY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-          psql "$FAMILY_DATABASE_URL" -f services/service-family/migrations/001_initial.sql
+          psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$CATALOG_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-          true
       - run: npm run typecheck
       - run: npm run build
+      - name: Run service-family migration schema tests
+        env:
+          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
+        working-directory: services/service-family
+        run: npm run test:migration
+      - name: Run service-inventory migration schema tests
+        env:
+          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
+        working-directory: services/service-inventory
+        run: npm run test:migration
+      - name: Run service-catalog migration schema tests
+        env:
+          CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
+        working-directory: services/service-catalog
+        run: npm run test:migration
       - name: Start service-family against the real test database
         run: |
           nohup env DATABASE_URL="$FAMILY_DATABASE_URL" PORT=3311 node services/service-family/dist/server.js > /tmp/service-family.log 2>&1 &
@@ -96,16 +104,8 @@ jobs:
         env:
           FAMILY_TEST_URL: http://127.0.0.1:3311
           FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
-        run: npm run test:integration -w @gestione-dispensa/service-family
-      - name: Run service-inventory migration suite against real PostgreSQL
-      - name: Run service-catalog migration suite against real PostgreSQL
-        env:
-          CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
-        working-directory: services/service-catalog
-        run: npm run test:migration
-        env:
-          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
-        run: npm run test:migration -w @gestione-dispensa/service-inventory
+        working-directory: services/service-family
+        run: npm run test:integration
       - name: Start service-inventory against real PostgreSQL and real Family
         run: |
           nohup env DATABASE_URL="$INVENTORY_DATABASE_URL" PORT=3312 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 node services/service-inventory/dist/server.js > /tmp/service-inventory.log 2>&1 &
@@ -116,14 +116,14 @@ jobs:
           cat /tmp/service-inventory.log
           exit 1
       - name: Run service-inventory real cross-service flow
+        env:
+          INVENTORY_TEST_URL: http://127.0.0.1:3312
+          INVENTORY_TEST_FAMILY_URL: http://127.0.0.1:3311
+          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
+        working-directory: services/service-inventory
+        run: npm run test:integration
       - name: Run service-catalog real repository flow
         env:
           CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
         working-directory: services/service-catalog
         run: npm run test:integration
-        env:
-          INVENTORY_TEST_URL: http://127.0.0.1:3312
-          INVENTORY_TEST_FAMILY_URL: http://127.0.0.1:3311
-          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
-        run: npm run test:integration -w @gestione-dispensa/service-inventory
-
