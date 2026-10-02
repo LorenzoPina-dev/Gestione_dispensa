@@ -244,8 +244,9 @@ export class PrivacyErasureService {
           traceId,
         });
       }
-      return result;
+      return result.consents;
     } catch (error) {
+      if (error instanceof PrivacyErasureError && error.code === "IDEMPOTENCY_CONFLICT") throw error;
       await this.audit.append({
         actorId: actor.subject,
         action: "privacy.consent.update",
