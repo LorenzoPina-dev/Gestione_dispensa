@@ -19,6 +19,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/server.js",
     "dev": "tsx watch --env-file=../../.env src/server.ts",
-    "test": "npm run build && node --test tests/*.mjs"
+    "test": "npm run build && node --import tsx --test test/*.test.ts",
+    "test:unit": "node --import tsx --test test/unit.test.ts test/http-client.test.ts",
+    "test:http": "node --import tsx --test test/http.test.ts",
+    "test:integration": "node --import tsx --test test/integration.test.ts"
   }
 }
