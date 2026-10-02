@@ -60,7 +60,7 @@ Same atomic protocol as consume, with movement type waste and reasons spoiled, e
 Inventory accepts a declared expiration date, sets expiration_source=declared and emits ExpirationConfirmed. A declared date has precedence over an estimated prediction.
 
 ## 10. Shelf-life estimation
-Inventory or scheduler requests Shelf-Life prediction. Worker executes the rule/model, stores confidence, basis and modelVersion, and emits ExpirationEstimated. Shelf-Life never writes Inventory directly. Applying a prediction calls Inventory, which sets expiration_source=estimated. A later declared date can replace it.
+When Inventory creates or reads a current pantry item without `expiresAt`, it asynchronously requests a Shelf-Life prediction. Catalog data is consulted for the product category when available; Shelf-Life falls back to a baseline rule when no category-specific rule exists. Worker executes the rule/model, stores confidence, basis and modelVersion, then applies the completed prediction through the Inventory owner API. Inventory sets `expiration_source=estimated`. A later declared date can replace it. The estimation is asynchronous and does not block the original pantry mutation.
 
 ## 11. Low stock and shopping
 Inventory evaluates the configured threshold after relevant mutations. PantryLowStock is emitted. Shopping creates or updates a suggestion idempotently. Notifications may notify the user. Purchasing a shopping item never directly writes Inventory; actual pantry addition always goes through Inventory.
