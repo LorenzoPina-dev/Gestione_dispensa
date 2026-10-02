@@ -80,6 +80,16 @@ describe("service-shopping / real lifecycle", () => {
     assert.equal(event.rows[0].event_type, "ShoppingListCreated");
   });
 
+  it("lists the current family shopping lists through the real endpoint", async () => {
+    assert.ok(familyId && listId);
+    const listed = await request(shoppingUrl, "/api/v1/shopping/lists?familyId=" + familyId, {
+      headers: { "x-user-id": userId },
+    });
+    assert.equal(listed.response.status, 200);
+    assert.ok(listed.body?.items?.some((entry: any) => entry.listId === listId));
+    assert.equal(listed.body?.nextCursor, null);
+  });
+
   it("replays list creation idempotently", async () => {
     assert.ok(familyId);
     const key = "replay-" + randomUUID();
