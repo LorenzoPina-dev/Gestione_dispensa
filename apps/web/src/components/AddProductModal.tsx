@@ -115,7 +115,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     }
   }
 
-  async function scanSource(source: ImageBitmapSource, width: number, height: number) {
+  async function scanSource(source: CanvasImageSource, width: number, height: number) {
     if (!isBarcodeDetectorAvailable()) {
       setError("Questo browser non supporta la lettura automatica del barcode. Inserisci il codice manualmente.");
       setState("MANUAL_REQUIRED");
