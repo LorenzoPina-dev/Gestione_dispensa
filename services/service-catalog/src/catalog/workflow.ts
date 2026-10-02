@@ -31,6 +31,7 @@ export interface ExternalProductMatch {
   readonly quantityLabel?: string;
   readonly servingSize?: string;
   readonly servingQuantity?: number;
+  readonly servingUnit?: string;
   readonly images?: {
     front?: string;
     frontSmall?: string;
