@@ -24,7 +24,8 @@
     "start": "node dist/run.js",
     "dev": "node --watch --experimental-strip-types src/run.ts",
     "test": "npm run build && node --test dist/worker.test.js dist/handlers.test.js dist/redis-queue.test.js dist/process.test.js",
-    "test:integration": "npm run build && node --test dist/worker-integration.test.js"
+    "test:integration": "npm run build && node --test dist/worker-integration.test.js",
+    "test:unit": "npm test"
   },
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js"
