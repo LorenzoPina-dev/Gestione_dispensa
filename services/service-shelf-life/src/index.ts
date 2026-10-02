@@ -135,22 +135,38 @@ async function emitOutbox(
   );
 }
 
-async function ruleFor(category: string | null, storage: Storage, opened: boolean) {
-  type Rule = {
-    id: string;
-    product_category: string | null;
-    storage: Storage;
-    opened: boolean;
-    min_days: number;
-    target_days: number | null;
-    max_days: number;
-    model_version: string;
-    active: boolean;
-  };
+type ShelfLifeRule = {
+  id: string;
+  product_id?: string | null;
+  product_category: string | null;
+  storage: Storage;
+  opened: boolean;
+  min_days: number;
+  target_days: number | null;
+  max_days: number;
+  model_version: string;
+  active: boolean;
+};
+
+async function ruleFor(
+  category: string | null,
+  productId: string,
+  storage: Storage,
+  opened: boolean,
+): Promise<ShelfLifeRule | undefined> {
+  const product = await pool.query<ShelfLifeRule>(
+    `select id,product_id,null::varchar as product_category,storage,opened,min_days,target_days,max_days,model_version,active
+     from shelf_life_domain.product_profiles
+     where active=true and product_id=$1 and storage=$2 and opened=$3
+     order by created_at desc
+     limit 1`,
+    [productId, storage, opened],
+  );
+  if (product.rows[0]) return product.rows[0];
 
   if (category) {
-    const specific = await pool.query<Rule>(
-      `select id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
+    const specific = await pool.query<ShelfLifeRule>(
+      `select id,null::uuid as product_id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
        from shelf_life_domain.rules
        where active=true and product_category=$1 and storage=$2 and opened=$3
        order by created_at desc
@@ -159,6 +175,8 @@ async function ruleFor(category: string | null, storage: Storage, opened: boolea
     );
     if (specific.rows[0]) return specific.rows[0];
 
+    // A recognized category with an incompatible storage condition must fail closed;
+    // it must not silently become an unrelated generic estimate.
     const known = await pool.query<{ id: string }>(
       `select id from shelf_life_domain.rules where active=true and product_category=$1 limit 1`,
       [category],
@@ -166,8 +184,8 @@ async function ruleFor(category: string | null, storage: Storage, opened: boolea
     if (known.rows[0]) return undefined;
   }
 
-  const generic = await pool.query<Rule>(
-    `select id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
+  const generic = await pool.query<ShelfLifeRule>(
+    `select id,null::uuid as product_id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
      from shelf_life_domain.rules
      where active=true and product_category is null and storage=$1 and opened=$2
      order by created_at desc
@@ -177,10 +195,11 @@ async function ruleFor(category: string | null, storage: Storage, opened: boolea
   return generic.rows[0];
 }
 
-function confidenceFor(rule: { min_days: number; max_days: number; product_category: string | null }): number {
+function confidenceFor(rule: Pick<ShelfLifeRule, "min_days" | "max_days" | "product_category" | "product_id">): number {
+  const productBonus = rule.product_id ? 0.08 : 0;
   const categoryBonus = rule.product_category ? 0.12 : 0;
   const rangePenalty = Math.min(0.2, Math.max(0, (rule.max_days - rule.min_days) / 500));
-  return Math.max(0.45, Math.min(0.95, 0.76 + categoryBonus - rangePenalty));
+  return Math.max(0.5, Math.min(0.98, 0.76 + productBonus + categoryBonus - rangePenalty));
 }
 
 function parseOptionalIsoDate(value: unknown): string | undefined {
@@ -298,7 +317,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
     if (current.rows[0].status === "applied") { await client.query("commit"); return res.status(200).json({ data: current.rows[0] }); }
     if (current.rows[0].status === "superseded") { await client.query("rollback"); return fail(res,409,"CONFLICT","Shelf-life prediction has been superseded."); }
 
-    const rule = await ruleFor(category,storage,opened);
+    const rule = await ruleFor(category,String(current.rows[0].product_id),storage,opened);
     if (!rule) {
       await client.query(
         "update shelf_life_domain.predictions set status='failed',basis='no_matching_rule',model_version='none',updated_at=now(),version=version+1 where id=$1",
@@ -321,7 +340,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
       `update shelf_life_domain.predictions
        set estimated_expires_at=$2,confidence=$3,basis=$4,model_version=$5,status='completed',updated_at=now(),version=version+1
        where id=$1 returning *`,
-      [id,expires.toISOString(),confidence,`category:${category ?? "unknown"}+storage:${storage}+opened:${opened}+target_days:${targetDays}`,rule.model_version],
+      [id,expires.toISOString(),confidence,`${rule.product_id ? "product:" + rule.product_id + "+" : ""}${category ? "category:" + category : "category:unknown"}+storage:${storage}+opened:${opened}+target_days:${targetDays}`,rule.model_version],
     );
     await emitOutbox(client,"ShelfLifePredictionCompleted",id,current.rows[0].family_id ?? null,{predictionId:id,estimatedExpiresAt:expires.toISOString(),confidence,modelVersion:rule.model_version});
     await client.query("commit");
