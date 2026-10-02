@@ -183,7 +183,7 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
     fiberG+=Number(snapshot.fiberGPer100g??0)*multiplier;
   }
   const round=(value:number)=>Number(value.toFixed(2));
-  return res.json({data:{caloriesKcal:round(caloriesKcal),proteinG:round(proteinG),carbsG:round(carbsG),fatG:round(fatG),period}});
+  return res.json({data:{caloriesKcal:round(caloriesKcal),proteinG:round(proteinG),carbsG:round(carbsG),fatG:round(fatG),period,totals:{calories:round(caloriesKcal),protein:round(proteinG),carbs:round(carbsG),fat:round(fatG),fiber:round(fiberG)}}});
 });
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
