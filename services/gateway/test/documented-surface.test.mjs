@@ -105,7 +105,7 @@ after(async () => {
 
 describe("Gateway / documented API.md edge surface", () => {
   it("protects every documented browser operation except the four public authentication/invite routes", async () => {
-    const api = await readFile("docs/API.md", "utf8");
+    const api = await readFile(new URL("../../../docs/API.md", import.meta.url), "utf8");
     const publicRoutes = new Set([
       "POST /auth/register",
       "POST /auth/reset-password",
