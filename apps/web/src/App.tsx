@@ -372,6 +372,13 @@ export default function App() {
       )}
 
       <SyncIssuesBanner />
+      {composite.data?.partialFailures && composite.data.partialFailures.length > 0 && (
+        <div className="px-4 pt-2">
+          <div className="rounded-xl px-3 py-2 text-xs" style={{ backgroundColor: colors.amberLight, color: colors.inkMuted }}>
+            Alcuni dati della schermata non sono disponibili al momento. Le sezioni mancanti verranno ricaricate automaticamente.
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 min-h-0">
         <nav
