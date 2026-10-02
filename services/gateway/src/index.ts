@@ -15,7 +15,6 @@ const shoppingBaseUrl = (process.env.SHOPPING_SERVICE_BASE_URL ?? "http://servic
 const catalogBaseUrl = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
 const notificationsBaseUrl = (process.env.NOTIFICATIONS_SERVICE_BASE_URL ?? "http://service-notifications:3315/api/v1").replace(/\/$/, "");
 const privacyBaseUrl = (process.env.PRIVACY_SERVICE_BASE_URL ?? "http://service-privacy:3316/api/v1").replace(/\/$/, "");
-const jobsBaseUrl = (process.env.JOBS_SERVICE_BASE_URL ?? "http://service-jobs:3317/api/v1").replace(/\/$/, "");
 const requestTimeoutMs = Number(process.env.GATEWAY_TIMEOUT_MS ?? 5000);
 const recipesBaseUrl = (process.env.RECIPES_SERVICE_BASE_URL ?? "http://service-recipes:3401/api/v1").replace(/\/$/, "");
 const nutritionBaseUrl = (process.env.NUTRITION_SERVICE_BASE_URL ?? "http://service-nutrition:3402/api/v1").replace(/\/$/, "");
