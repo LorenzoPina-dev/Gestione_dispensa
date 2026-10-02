@@ -73,3 +73,22 @@ CREATE INDEX IF NOT EXISTS shelf_predictions_product_created_idx
 
 CREATE INDEX IF NOT EXISTS shelf_outbox_publish_idx
   ON shelf_life_domain.outbox_events(published_at,created_at);
+
+-- Baseline heuristics: these are estimates only, never a food-safety guarantee.
+-- A generic rule exists for every supported storage/opened state so a missing
+-- product-specific rule does not leave a prediction permanently unavailable.
+INSERT INTO shelf_life_domain.rules
+  (product_category, storage, opened, min_days, max_days, model_version, active)
+VALUES
+  (NULL, 'PANTRY', false, 30, 90, 'baseline-v1', true),
+  (NULL, 'PANTRY', true, 7, 21, 'baseline-v1', true),
+  (NULL, 'FRIDGE', false, 7, 21, 'baseline-v1', true),
+  (NULL, 'FRIDGE', true, 2, 7, 'baseline-v1', true),
+  (NULL, 'FREEZER', false, 90, 180, 'baseline-v1', true),
+  (NULL, 'FREEZER', true, 30, 90, 'baseline-v1', true),
+  (NULL, 'CELLAR', false, 14, 60, 'baseline-v1', true),
+  (NULL, 'CELLAR', true, 7, 21, 'baseline-v1', true),
+  (NULL, 'OTHER', false, 14, 60, 'baseline-v1', true),
+  (NULL, 'OTHER', true, 7, 21, 'baseline-v1', true)
+ON CONFLICT DO NOTHING;
+
