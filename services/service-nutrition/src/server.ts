@@ -2,6 +2,7 @@ import express, { type Request, type Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
 import { loadNutritionSnapshot, nutrientMultiplier } from "./catalog-client.js";
+import { isDiarySource, isDiaryUnit, isNonNegativeNumber, isPositiveNumber, isSummaryPeriod, validIfMatch } from "./validation.js";
 
 const app = express();
 app.disable("x-powered-by");
