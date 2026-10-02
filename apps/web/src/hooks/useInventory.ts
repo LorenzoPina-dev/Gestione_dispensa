@@ -279,7 +279,7 @@ function totalQuantity(item: StockItem): number {
 }
 
 function normalizeUnit(unit: string): "g" | "kg" | "ml" | "l" | "piece" | "pack" {
-  const u = unit.toLowerCase();
+  const u = String(unit ?? "piece").toLowerCase();
   if (u === "g" || u === "kg" || u === "ml" || u === "l") return u;
   if (u === "pz" || u === "pezzo" || u === "pezzi") return "piece";
   return "pack";
