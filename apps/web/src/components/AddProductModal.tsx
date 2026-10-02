@@ -36,6 +36,7 @@ type Candidate = {
   quantityLabel?: string;
   servingSize?: string;
   servingQuantity?: number;
+  servingUnit?: string;
   images?: {
     front?: string;
     frontSmall?: string;
@@ -121,9 +122,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         const p = result.product;
         setCandidate({
           productId: p.id,
-          name: p.canonicalName,
+          name: p.canonicalName || `Prodotto ${p.id?.slice(0, 8) || normalized}`,
           brand: p.brand,
-          unit: p.defaultUnit as StockItem["unit"],
+          unit: (p.defaultUnit || p.quantityUnit || "piece") as StockItem["unit"],
           category: p.category,
           photoUrl: p.photoUrl,
           calories: p.calories,
@@ -136,6 +137,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           quantityLabel: p.quantityLabel,
           servingSize: p.servingSize,
           servingQuantity: p.servingQuantity,
+          servingUnit: p.servingUnit,
           images: p.images,
           openFoodFacts: p.openFoodFacts,
           provenanceQuality: p.provenanceQuality,
@@ -271,7 +273,7 @@ function CandidateView({ candidate, code, onCorrect, onConfirm }: { candidate: C
           <InfoCell label="Quantità confezione" value={candidate.quantityLabel ?? (candidate.quantityValue != null && candidate.quantityUnit ? String(candidate.quantityValue) + " " + candidate.quantityUnit : "—")} />
           <InfoCell label="Unità" value={candidate.quantityUnit ?? candidate.unit ?? "—"} />
           <InfoCell label="Categoria" value={candidate.category ?? "—"} />
-          <InfoCell label="Serving size" value={candidate.servingSize ?? "—"} />
+          <InfoCell label="Serving" value={candidate.servingQuantity != null ? `${candidate.servingQuantity}${candidate.servingUnit ? ` ${candidate.servingUnit}` : ""}` : candidate.servingSize ?? "—"} />
         </div>
 
         {Object.keys(nutriments).length > 0 && (
