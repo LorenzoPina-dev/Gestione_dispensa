@@ -1,7 +1,7 @@
 import express, { type Request } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
-import { calculateMissingIngredients, unitInfo, type MissingIngredient, type StockItem } from "./add-missing-domain.js";
+import { calculateMissingIngredients, type MissingIngredient, type StockItem } from "./add-missing-domain.js";
 
 type Context = { userId: string; familyId: string };
 type Body = Record<string, unknown>;
