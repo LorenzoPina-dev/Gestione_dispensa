@@ -30,6 +30,8 @@ describe("service-family / endpoint contract", () => {
     const { response, body } = await request("/api/v1/families");
     assert.equal(response.status, 401);
     assert.equal(body?.error?.code, "UNAUTHENTICATED");
+    assert.equal(body?.error?.retryable, false);
+    assert.equal(body?.meta?.schemaVersion, "1.0");
     assert.ok(body?.error?.requestId);
   });
 
@@ -78,5 +80,21 @@ describe("service-family / endpoint contract", () => {
     const { response, body } = await request("/api/v1/family/unknown");
     assert.equal(response.status, 404);
     assert.equal(body?.error?.code, "NOT_FOUND");
+  });
+});
+
+describe("service-family / malformed request contract", () => {
+  it("returns 400 for malformed JSON instead of exposing an internal error", async () => {
+    const { response, body } = await request("/api/v1/families", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": userId,
+        "x-idempotency-key": "family-malformed-json-1",
+      },
+      body: "{not-json",
+    });
+    assert.equal(response.status, 400);
+    assert.equal(body?.error?.code, "VALIDATION_ERROR");
   });
 });
