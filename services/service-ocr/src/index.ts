@@ -22,8 +22,7 @@ type Body = Record<string, unknown>;
 type MultipartFile = { fieldName: string; filename: string; mimeType: string; buffer: Buffer };
 type MultipartForm = { fields: Record<string, string>; file?: MultipartFile };
 
-const fail = (res: Response, status: number, code: string, message: string, details: unknown[] = []) =>
-  res.status(status).json({ error: { code, message, details, requestId: crypto.randomUUID() } });
+const fail = (res: Response, status: number, code: string, message: string, details: unknown[] = []) => { const requestId=crypto.randomUUID(); return res.status(status).json({error:{code,message,details,retryable:status>=502,requestId},meta:{requestId,traceId:requestId,schemaVersion:"1.0"}}); };
 
 function userId(req: Request): string {
   return String(req.header("x-user-id") ?? "").trim();
