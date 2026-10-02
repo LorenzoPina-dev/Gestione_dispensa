@@ -295,7 +295,7 @@ app.get("/api/v1/shelf-life/predictions/:predictionId", async (req,res) => {
   return res.json({data:{
     predictionId:x.id,itemId:x.item_id,estimatedExpiresAt:x.estimated_expires_at,
     confidence:Number(x.confidence),basis:x.basis,status:x.status
-  },version:Number(x.version)});
+  }});
 });
 
 app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) => {
