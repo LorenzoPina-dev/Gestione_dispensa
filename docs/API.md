@@ -715,21 +715,15 @@ Request: stesso schema dell’oggetto `PrivacyConsents` (solo `analytics`, `pers
 
 ### POST /privacy/export
 
-Body `{}`. Response 202:
-```json
-{"data":{"jobId":"uuid","status":"queued"}}
-```
+Body `{familyId}`. `X-Idempotency-Key` obbligatorio. Response 202 con il job di export.
 
 ### POST /privacy/erase
 
 Request:
 ```json
-{"confirm":true}
+{"familyId":"uuid","confirm":true}
 ```
-Response 202:
-```json
-{"data":{"jobId":"uuid","status":"queued"}}
-```
+`X-Idempotency-Key` obbligatorio. Response 202 con il job di cancellazione.
 La cancellazione è orchestrata senza query cross-DB.
 
 ## 14. Jobs
