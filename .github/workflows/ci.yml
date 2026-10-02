@@ -172,7 +172,7 @@ jobs:
         run: npm run test:integration
       - name: Start service-inventory against real PostgreSQL and real Family
         run: |
-          nohup env DATABASE_URL="$INVENTORY_DATABASE_URL" PORT=3312 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 node services/service-inventory/dist/server.js > /tmp/service-inventory.log 2>&1 &
+          nohup env DATABASE_URL="$INVENTORY_DATABASE_URL" PORT=3312 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 node services/service-inventory/dist/server.js > /tmp/service-inventory.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3312/health/ready >/dev/null; then exit 0; fi
             sleep 1
@@ -304,7 +304,7 @@ jobs:
           cat /tmp/service-stores.log; exit 1
       - name: Start service-notifications
         run: |
-          nohup env DATABASE_URL="$NOTIFICATIONS_TEST_DATABASE_URL" PORT=3315 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 node services/service-notifications/dist/server.js > /tmp/service-notifications.log 2>&1 &
+          nohup env DATABASE_URL="$NOTIFICATIONS_TEST_DATABASE_URL" PORT=3315 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 node services/service-notifications/dist/server.js > /tmp/service-notifications.log 2>&1 &
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3315/health/ready >/dev/null && exit 0; sleep 1; done
           cat /tmp/service-notifications.log; exit 1
       - name: Start service-jobs
@@ -314,12 +314,12 @@ jobs:
           cat /tmp/service-jobs.log; exit 1
       - name: Start service-ocr
         run: |
-          nohup env DATABASE_URL="$OCR_TEST_DATABASE_URL" PORT=3405 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 REDIS_URL="$REDIS_URL" MINIO_ENDPOINT="$MINIO_ENDPOINT" MINIO_BUCKET="$MINIO_BUCKET" MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" MINIO_SECRET_KEY="$MINIO_SECRET_KEY" node services/service-ocr/dist/index.js > /tmp/service-ocr.log 2>&1 &
+          nohup env DATABASE_URL="$OCR_TEST_DATABASE_URL" PORT=3405 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 REDIS_URL="$REDIS_URL" MINIO_ENDPOINT="$MINIO_ENDPOINT" MINIO_BUCKET="$MINIO_BUCKET" MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" MINIO_SECRET_KEY="$MINIO_SECRET_KEY" node services/service-ocr/dist/index.js > /tmp/service-ocr.log 2>&1 &
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3405/health/ready >/dev/null && exit 0; sleep 1; done
           cat /tmp/service-ocr.log; exit 1
       - name: Start service-shelf-life
         run: |
-          nohup env DATABASE_URL="$SHELF_LIFE_TEST_DATABASE_URL" PORT=3404 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 INVENTORY_SERVICE_BASE_URL=http://127.0.0.1:3312 REDIS_URL="$REDIS_URL" INTERNAL_SERVICE_TOKEN="$INTERNAL_SERVICE_TOKEN" node services/service-shelf-life/dist/index.js > /tmp/service-shelf-life.log 2>&1 &
+          nohup env DATABASE_URL="$SHELF_LIFE_TEST_DATABASE_URL" PORT=3404 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 INVENTORY_SERVICE_BASE_URL=http://127.0.0.1:3312/api/v1 REDIS_URL="$REDIS_URL" INTERNAL_SERVICE_TOKEN="$INTERNAL_SERVICE_TOKEN" node services/service-shelf-life/dist/index.js > /tmp/service-shelf-life.log 2>&1 &
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3404/health/ready >/dev/null && exit 0; sleep 1; done
           cat /tmp/service-shelf-life.log; exit 1
       - name: Run nutrition integration
