@@ -6,7 +6,8 @@ describe("nutrition real integration",()=>{
  it("creates and updates targets with real PostgreSQL and ETag semantics",async()=>{
   const h={"x-user-id":user,"x-idempotency-key":"nutrition-target-1","if-match":"1","content-type":"application/json"};
   const a=await q("/api/v1/nutrition/targets",{headers:{"x-user-id":user}});assert.equal(a.r.status,200);assert.equal(a.b.data.caloriesKcal,2000);
-  const b=await q("/api/v1/nutrition/targets",{method:"PUT",headers:h,body:JSON.stringify({caloriesKcal:2200,proteinG:120,carbsG:250,fatG:70})});assert.equal(b.r.status,200);assert.equal(b.b.data.caloriesKcal,2200);assert.equal(b.b.version,2);
+  const b=await q("/api/v1/nutrition/targets",{method:"PUT",headers:h,body:JSON.stringify({caloriesKcal:2200,proteinG:120,carbsG:250,fatG:70})});assert.equal(b.r.status,200);assert.equal(b.b.data.caloriesKcal,2200);assert.equal(b.b.version,1);
+  const second=await q("/api/v1/nutrition/targets",{method:"PUT",headers:{...h,"x-idempotency-key":"nutrition-target-2","if-match":"1"},body:JSON.stringify({caloriesKcal:2250,proteinG:125,carbsG:255,fatG:72})});assert.equal(second.r.status,200);assert.equal(second.b.version,2);
   const stale=await q("/api/v1/nutrition/targets",{method:"PUT",headers:{...h,"x-idempotency-key":"nutrition-target-stale","if-match":"1"},body:JSON.stringify({caloriesKcal:2000,proteinG:100,carbsG:250,fatG:70})});assert.equal(stale.r.status,412);
  });
  it("stores a diary entry with immutable nutrition snapshot and aggregates it",async()=>{
