@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { isExpirationSource, positiveQuantity, requiredIdempotencyKey, validIfMatch } from "./validation.js";
 
 const port = Number(process.env.PORT ?? 3312);
 const service = "service-inventory";
@@ -147,8 +148,8 @@ const server = createServer(async (req, res) => {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
-      const quantity = Number(body.quantity);
-      if (!body.productId || !body.unit || !Number.isFinite(quantity) || quantity <= 0) return fail(res, 400, "VALIDATION_ERROR", "productId, unit and positive quantity are required.", ctx.requestId);
+      const quantity = positiveQuantity(body.quantity);
+      if (!body.productId || !body.unit || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "productId, unit and positive quantity are required.", ctx.requestId);
       const key = String(req.headers["x-idempotency-key"] ?? "");
       if (!key) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
       const client = await pool.connect();
@@ -172,7 +173,7 @@ const server = createServer(async (req, res) => {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
-      const quantity = Number(body.quantity);
+      const quantity = positiveQuantity(body.quantity);
       const key = String(req.headers["x-idempotency-key"] ?? "");
       const ifMatch = String(req.headers["if-match"] ?? "");
       if (!key || !Number.isFinite(quantity) || quantity <= 0) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and X-Idempotency-Key are required.", ctx.requestId);
@@ -207,7 +208,7 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req);
       const key = String(req.headers["x-idempotency-key"] ?? "");
       const source = String(body.source ?? "");
-      if (!key || !body.expiresAt || !["declared", "estimated"].includes(source)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt, source and X-Idempotency-Key are required.", ctx.requestId);
+      if (!requiredIdempotencyKey(key) || !body.expiresAt || !isExpirationSource(source)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt, source and X-Idempotency-Key are required.", ctx.requestId);
       const expiresAt = new Date(String(body.expiresAt));
       if (Number.isNaN(expiresAt.getTime())) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
       const client = await pool.connect();
