@@ -43,7 +43,7 @@ describe("service-inventory / HTTP endpoint contract", () => {
     assert.equal(body?.error?.code, "UNAUTHENTICATED");
   });
 
-  it("rejects malformed JSON without a server crash", async () => {
+  it("rejects malformed JSON as a documented validation error", async () => {
     const { response, body } = await request("/api/v1/inventory/items", {
       method: "POST",
       headers: {
@@ -53,8 +53,10 @@ describe("service-inventory / HTTP endpoint contract", () => {
       },
       body: "{not-json",
     });
-    assert.equal(response.status, 500);
-    assert.equal(body?.error?.code, "INTERNAL_ERROR");
+    assert.equal(response.status, 400);
+    assert.equal(body?.error?.code, "VALIDATION_ERROR");
+    assert.equal(body?.meta?.schemaVersion, "1.0");
+    assert.equal(body?.error?.retryable, false);
   });
 
   it("requires idempotency for inventory creation after family authorization", async () => {
@@ -71,15 +73,30 @@ describe("service-inventory / HTTP endpoint contract", () => {
     assert.equal(body?.error?.code, "FAMILY_AUTH_UNAVAILABLE");
   });
 
-  it("exposes PATCH /inventory/{itemId} as part of the public contract", async () => {
-    const { response, body } = await request("/api/v1/inventory/00000000-0000-4000-8000-000000000003", {
+  it("requires If-Match, idempotency and at least one documented patch field", async () => {
+    const headers = {
+      "x-user-id": "00000000-0000-4000-8000-000000000001",
+      "x-family-id": "00000000-0000-4000-8000-000000000002",
+    };
+    const missingHeaders = await request("/api/v1/inventory/00000000-0000-4000-8000-000000000003", {
+      method: "PATCH",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ location: "fridge" }),
+    });
+    assert.equal(missingHeaders.response.status, 400);
+    assert.equal(missingHeaders.body?.error?.code, "VALIDATION_ERROR");
+
+    const emptyPatch = await request("/api/v1/inventory/00000000-0000-4000-8000-000000000003", {
       method: "PATCH",
       headers: {
-        "x-user-id": "00000000-0000-4000-8000-000000000001",
-        "x-family-id": "00000000-0000-4000-8000-000000000002",
+        ...headers,
+        "content-type": "application/json",
+        "x-idempotency-key": "patch-12345678",
+        "if-match": "1",
       },
+      body: JSON.stringify({}),
     });
-    assert.equal(response.status, 404);
-    assert.equal(body?.error?.code, "NOT_FOUND");
+    assert.equal(emptyPatch.response.status, 400);
+    assert.equal(emptyPatch.body?.error?.code, "VALIDATION_ERROR");
   });
 });
