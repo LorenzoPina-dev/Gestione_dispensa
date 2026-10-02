@@ -59,9 +59,14 @@ Same atomic protocol as consume, with movement type waste and reasons spoiled, e
 ## 9. Real expiration date
 Inventory accepts a declared expiration date, sets expiration_source=declared and emits ExpirationConfirmed. A declared date has precedence over an estimated prediction.
 
-## 10. Shelf-life estimation
-When Inventory creates or reads a current pantry item without `expiresAt`, it asynchronously requests a Shelf-Life prediction. Catalog data is consulted for the product category when available; Shelf-Life falls back to a baseline rule when no category-specific rule exists. Worker executes the rule/model, stores confidence, basis and modelVersion, then applies the completed prediction through the Inventory owner API. Inventory sets `expiration_source=estimated`. A later declared date can replace it. The estimation is asynchronous and does not block the original pantry mutation.
+## 10. Shelf-Life estimation
+When Inventory creates or reads a current pantry item without `expiresAt`, it asynchronously requests a Shelf-Life prediction. Catalog classification uses Open Food Facts taxonomy and product-name fallback to assign a specific shelf-life category (for example confectionery, chocolate, biscuits, dry staples, canned/preserved, fresh meat/fish and dairy). Existing Open Food Facts products are reclassified by Catalog migration when their category is missing.
 
+Shelf-Life applies a strict precedence: declared package date > category-specific profile compatible with storage/opened state > generic baseline only when the category is unknown. A recognized category with an incompatible storage state does not receive a generic estimate.
+
+Each profile contains a conservative minimum, a recommended target and a maximum window. The recommended target is used as the single UI date, while confidence and basis identify how that date was produced. The estimate is anchored to Inventory `added_at` for existing items instead of resetting the clock at every retry/read. Worker executes the profile, stores confidence/basis/modelVersion, then applies the completed prediction through the Inventory owner API. Inventory sets `expiration_source=estimated`. A later declared date can replace it. The estimation is asynchronous and does not block the original pantry mutation.
+
+These values are heuristics for conservability/quality, not manufacturer-certified expiration dates. Storage conditions materially affect shelf-life, so damaged packaging, abnormal temperature, moisture, heat, light or prolonged exposure can make the estimate inappropriate.
 ## 11. Low stock and shopping
 Inventory evaluates the configured threshold after relevant mutations. PantryLowStock is emitted. Shopping creates or updates a suggestion idempotently. Notifications may notify the user. Purchasing a shopping item never directly writes Inventory; actual pantry addition always goes through Inventory.
 
