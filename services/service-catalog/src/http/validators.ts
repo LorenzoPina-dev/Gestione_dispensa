@@ -201,38 +201,43 @@ export function parseCreateProductBody(body: Body): {
   fiber?: number;
   barcodes?: string[];
 } | undefined {
+  const allowed = new Set(["name", "brand", "defaultUnit", "barcodes", "category", "calories", "protein", "carbs", "fat", "fiber"]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) return undefined;
   if (typeof body.name !== "string" || body.name.trim().length < 1 || body.name.trim().length > 300) return undefined;
+
+  const rawUnit = body.defaultUnit === undefined ? "piece" : body.defaultUnit;
+  if (typeof rawUnit !== "string") return undefined;
+  const normalizedUnit = rawUnit.toLowerCase();
   const validUnits = new Set<ProductUnit>(["g", "kg", "ml", "l", "piece", "pack"]);
-  const defaultUnit = body.defaultUnit === undefined ? "piece" : body.defaultUnit;
-  if (typeof defaultUnit !== "string" || !validUnits.has(defaultUnit as ProductUnit)) return undefined;
+  if (!validUnits.has(normalizedUnit as ProductUnit)) return undefined;
+
   if ((body.brand !== undefined && body.brand !== null && typeof body.brand !== "string") ||
       (body.category !== undefined && body.category !== null && typeof body.category !== "string")) return undefined;
-  const numericFields = ["calories", "protein", "carbs", "fat", "fiber"];
-  for (const field of numericFields) {
-    if (body[field] !== undefined && (!Number.isFinite(Number(body[field])) || Number(body[field]) < 0)) return undefined;
+
+  for (const field of ["calories", "protein", "carbs", "fat", "fiber"]) {
+    if (body[field] !== undefined && (typeof body[field] !== "number" || !Number.isFinite(body[field] as number) || Number(body[field]) < 0)) {
+      return undefined;
+    }
   }
+
+  let barcodes: string[] | undefined;
   if (body.barcodes !== undefined) {
-    if (!Array.isArray(body.barcodes) || body.barcodes.some((value) => typeof value !== "string" || !/^(?:\d{8}|\d{12}|\d{13}|\d{14})$/.test(value.trim()))) return undefined;
-    const barcodes = [...new Set(body.barcodes.map((value) => value.trim()))];
-    return { canonicalName: body.name.trim(), defaultUnit: defaultUnit as ProductUnit,
-      ...(body.brand ? { brand: body.brand.trim() } : {}),
-      ...(body.category ? { category: body.category.trim() } : {}),
-      ...(body.calories !== undefined ? { calories: Number(body.calories) } : {}),
-      ...(body.protein !== undefined ? { protein: Number(body.protein) } : {}),
-      ...(body.carbs !== undefined ? { carbs: Number(body.carbs) } : {}),
-      ...(body.fat !== undefined ? { fat: Number(body.fat) } : {}),
-      ...(body.fiber !== undefined ? { fiber: Number(body.fiber) } : {}),
-      ...(barcodes.length > 0 ? { barcodes } : {}),
-    };
+    if (!Array.isArray(body.barcodes)) return undefined;
+    if (body.barcodes.some((value) => typeof value !== "string" || !/^(?:d{8}|d{12}|d{13}|d{14})$/.test(value.trim()))) return undefined;
+    barcodes = [...new Set(body.barcodes.map((value) => value.trim()))];
   }
-  return { canonicalName: body.name.trim(), defaultUnit: defaultUnit as ProductUnit,
-    ...(body.brand ? { brand: body.brand.trim() } : {}),
-    ...(body.category ? { category: body.category.trim() } : {}),
-    ...(body.calories !== undefined ? { calories: Number(body.calories) } : {}),
-    ...(body.protein !== undefined ? { protein: Number(body.protein) } : {}),
-    ...(body.carbs !== undefined ? { carbs: Number(body.carbs) } : {}),
-    ...(body.fat !== undefined ? { fat: Number(body.fat) } : {}),
-    ...(body.fiber !== undefined ? { fiber: Number(body.fiber) } : {}),
+
+  return {
+    canonicalName: body.name.trim(),
+    defaultUnit: normalizedUnit as ProductUnit,
+    ...(typeof body.brand === "string" && body.brand.trim() ? { brand: body.brand.trim() } : {}),
+    ...(typeof body.category === "string" && body.category.trim() ? { category: body.category.trim() } : {}),
+    ...(body.calories !== undefined ? { calories: body.calories as number } : {}),
+    ...(body.protein !== undefined ? { protein: body.protein as number } : {}),
+    ...(body.carbs !== undefined ? { carbs: body.carbs as number } : {}),
+    ...(body.fat !== undefined ? { fat: body.fat as number } : {}),
+    ...(body.fiber !== undefined ? { fiber: body.fiber as number } : {}),
+    ...(barcodes && barcodes.length ? { barcodes } : {}),
   };
 }
 export function parseResolveBarcodeBody(
