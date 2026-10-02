@@ -262,7 +262,11 @@ function toExternalMatch(body: OffLookupHitBody): ExternalProductMatch | undefin
     ...(fiber !== undefined ? { fiber } : {}),
     ...(quantity !== undefined ? { quantityValue: quantity } : {}),
     ...(quantityLabel ? { quantityLabel } : {}),
-    ...(rawUnit !== "piece" ? { quantityUnit: rawUnit } : {}),
+    ...(p.product_quantity_unit && p.product_quantity_unit.trim()
+      ? { quantityUnit: p.product_quantity_unit.trim() }
+      : rawUnit !== "piece"
+        ? { quantityUnit: rawUnit }
+        : {}),
     ...(servingSize ? { servingSize } : {}),
     ...(servingQuantity !== undefined ? { servingQuantity } : {}),
     ...(images ? { images } : {}),
