@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PostgresClient } from "../src/db/postgres-client.js";
 import { PostgresCatalogRepository, PostgresCatalogLookupRepository, PostgresCatalogCandidateRepository } from "../src/catalog/postgres.js";
-import { CatalogService, CatalogVersionConflictError } from "../src/catalog/service.js";
+import { CatalogService, CatalogVersionConflictError, type Product } from "../src/catalog/service.js";
 import { CatalogWorkflowService } from "../src/catalog/workflow.js";
 
 const databaseUrl = process.env.CATALOG_TEST_DATABASE_URL;
@@ -88,6 +88,59 @@ describe("service-catalog / real PostgreSQL flow", () => {
     assert.deepEqual(read.barcodes, ["8001234567890"]);
     assert.equal(read.calories, 62);
     assert.equal(read.defaultUnit, "l");
+  });
+
+  it("persists a real provider barcode match and records a null system actor in the outbox", async () => {
+    const barcode = `890${String(Date.now()).slice(-10)}`;
+    const workflow = new CatalogWorkflowService(
+      lookupRepository,
+      candidateRepository,
+      {
+        lookup: async () => ({
+          canonicalName: "Integration Imported Product",
+          brand: "Integration Provider Brand",
+          defaultUnit: "piece",
+          quantityValue: 500,
+          quantityUnit: "g",
+          quantityLabel: "500 g",
+          servingSize: "100 g",
+          servingQuantity: 100,
+          images: { front: "https://example.test/front.jpg" },
+          openFoodFacts: { code: barcode, product_name: "Integration Imported Product" },
+          source: "openfoodfacts",
+          sourceVersion: "off-api-v3",
+          sourceRef: barcode,
+          confidence: 0.85,
+        }),
+      },
+    );
+
+    const result = await workflow.resolveBarcode("BARCODE", barcode, traceId);
+    assert.equal(result.status, "MATCHED");
+    assert.equal(result.resolution, "provider");
+    assert.ok(result.product);
+    assert.equal(result.product?.barcodes.includes(barcode), true);
+
+    const row = await db.query(
+      "SELECT p.id,p.external_source,p.external_ref,p.quantity_value,p.quantity_unit,oe.actor_id " +
+      "FROM products p " +
+      "JOIN product_identifiers pi ON pi.product_id=p.id " +
+      "JOIN outbox_events oe ON oe.aggregate_id=p.id " +
+      "WHERE pi.normalized_value=$1",
+      [barcode],
+    );
+
+    assert.equal(row.rows.length, 1);
+    assert.equal(row.rows[0].external_source, "openfoodfacts");
+    assert.equal(row.rows[0].external_ref, barcode);
+    assert.equal(Number(row.rows[0].quantity_value), 500);
+    assert.equal(row.rows[0].quantity_unit, "g");
+    assert.equal(row.rows[0].actor_id, null);
+
+    await db.query("DELETE FROM product_identifiers WHERE normalized_value=$1", [barcode]);
+    await db.query("DELETE FROM outbox_events WHERE aggregate_id=$1", [row.rows[0].id]);
+    await db.query("DELETE FROM data_provenance WHERE entity_id=$1", [row.rows[0].id]);
+    await db.query("DELETE FROM products WHERE id=$1", [row.rows[0].id]);
   });
 
   it("resolves a barcode from the real local Catalog without a provider", async () => {
