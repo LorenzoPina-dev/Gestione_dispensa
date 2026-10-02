@@ -14,9 +14,8 @@ const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://ser
 type Body = Record<string, unknown>;
 
 function fail(res: Response, status: number, code: string, message: string): Response {
-  return res.status(status).json({
-    error: { code, message, details: [], requestId: crypto.randomUUID() },
-  });
+  const requestId=crypto.randomUUID();
+  return res.status(status).json({error:{code,message,details:[],retryable:status>=502,requestId},meta:{requestId,traceId:requestId,schemaVersion:"1.0"}});
 }
 
 function actor(req: Request): string {
@@ -130,8 +129,8 @@ app.get("/api/v1/notifications", async (req, res) => {
      from notifications_domain.notifications
      where family_id=$1 and user_id=$2 and ($3=false or read_at is null)
        and (expires_at is null or expires_at > now())
-     order by created_at desc limit $4`,
-    [familyId, userId, unreadOnly, limit],
+     order by created_at desc limit $4 offset $5`,
+    [familyId, userId, unreadOnly, limit+1, Number(req.query.cursor ?? 0)],
   );
 
   return res.json({
