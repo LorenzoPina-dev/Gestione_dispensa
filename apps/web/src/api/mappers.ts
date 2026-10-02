@@ -14,9 +14,11 @@ export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
   return {
     id: dto.id ?? dto.itemId ?? "",
     productId: dto.productId,
-    name: dto.productName || `Prodotto ${dto.productId.slice(0, 8)}`,
+    name: dto.productName || dto.name || `Prodotto ${dto.productId.slice(0, 8)}`,
     ...(dto.brand ? { brand: dto.brand } : {}),
-    batches: dto.batches?.length ? dto.batches : [{ quantity: dto.quantity }],
+    batches: dto.batches?.length
+      ? dto.batches
+      : [{ quantity: dto.quantity, ...(dto.expiresAt ? { expiryDate: dto.expiresAt } : {}) }],
     unit: dto.unit || DEFAULT_UNIT_FALLBACK,
     ...(dto.reorderPoint != null ? { reorderPoint: dto.reorderPoint } : {}),
     location: mapLocation(dto.location),
