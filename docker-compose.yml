@@ -368,6 +368,9 @@ services:
       MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-miniochange}"
       MINIO_BUCKET: gestione-dispensa
       FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
+      OCR_PROVIDER_URL: "${OCR_PROVIDER_URL:-}"
+      OCR_PROVIDER_TOKEN: "${OCR_PROVIDER_TOKEN:-}"
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
