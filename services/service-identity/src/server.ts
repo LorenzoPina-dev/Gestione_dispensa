@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Pool } from "pg";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   RegistrationError,
   parseRegisterUserInput,
@@ -32,7 +32,48 @@ function send(res: ServerResponse, status: number, payload: unknown, requestId: 
 }
 
 function fail(res: ServerResponse, status: number, code: string, message: string, requestId: string): void {
-  send(res, status, { error: { code, message, details: [], retryable: status >= 502, requestId } }, requestId);
+  send(res, status, {
+    error: {
+      code,
+      message,
+      details: [],
+      retryable: status >= 502 || code === "CONFLICT",
+      requestId,
+    },
+    meta: { requestId, traceId: requestId, schemaVersion: "1.0" },
+  }, requestId);
+}
+
+async function beginIdempotency(id: string, key: string, body: unknown) {
+  const requestHash = cryptoHash(body);
+  const existing = await pool.query(
+    "select actor_user_id,request_hash,status,response_status,response_body from idempotency_keys where key=$1 for update",
+    [key],
+  );
+  if (existing.rowCount) {
+    const row = existing.rows[0];
+    if (String(row.actor_user_id) !== id || row.request_hash !== requestHash) return { conflict: true as const };
+    if (row.status === "completed" && row.response_status !== null) {
+      return { replay: true as const, status: Number(row.response_status), body: row.response_body };
+    }
+    return { processing: true as const };
+  }
+  await pool.query(
+    "insert into idempotency_keys(key,actor_user_id,request_hash,status,created_at,expires_at) values($1,$2,$3,'processing',now(),now()+interval '24 hours')",
+    [key, id, requestHash],
+  );
+  return { new: true as const };
+}
+
+async function completeIdempotency(key: string, status: number, body: unknown): Promise<void> {
+  await pool.query(
+    "update idempotency_keys set status='completed',response_status=$2,response_body=$3 where key=$1",
+    [key, status, JSON.stringify(body)],
+  );
+}
+
+function cryptoHash(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -165,12 +206,30 @@ const server = createServer(async (req, res) => {
       if (method === "GET") return send(res, 200, { data: toUserDto(req, user) }, requestId);
 
       if (method === "PATCH") {
+        const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+        const ifMatch = String(req.headers["if-match"] ?? "").trim();
         const b = await readJson(req);
-        const allowed = ["displayName", "name", "avatarUrl", "locale", "timezone"];
-        if (!allowed.some((k) => Object.hasOwn(b, k))) {
-          return fail(res, 400, "VALIDATION_ERROR", "At least one profile field is required.", requestId);
+        const allowed = ["displayName", "avatarUrl", "locale", "timezone"];
+        const keys = Object.keys(b);
+        if (!key || key.length < 8 || keys.length === 0 || keys.some((name) => !allowed.includes(name))) {
+          return fail(res, 400, "VALIDATION_ERROR", "At least one documented profile field and X-Idempotency-Key are required.", requestId);
         }
-        const displayName = Object.hasOwn(b, "displayName") ? b.displayName : b.name;
+
+        const current = await pool.query<UserRow>("select * from users where id=$1", [id]);
+        if (!current.rowCount) return fail(res, 404, "NOT_FOUND", "User profile not found.", requestId);
+        if (ifMatch) {
+          const normalized = ifMatch.replace(/^W\//i, "").replace(/^"|"$/g, "").replace(/^version-/i, "");
+          if (!/^\d+$/.test(normalized) || Number(normalized) !== Number(current.rows[0].version)) {
+            return fail(res, 412, "PRECONDITION_FAILED", "Profile version changed.", requestId);
+          }
+        }
+
+        const idem = await beginIdempotency(id, key, b);
+        if (idem.conflict) return fail(res, 409, "CONFLICT", "Idempotency key conflict.", requestId);
+        if (idem.replay) return send(res, idem.status, idem.body, requestId);
+        if (idem.processing) return fail(res, 409, "CONFLICT", "The same operation is already processing.", requestId);
+
+        const displayName = Object.hasOwn(b, "displayName") ? b.displayName : undefined;
         const r = await pool.query<UserRow>(
           `update users set
              display_name = case when $2 then $3 else display_name end,
@@ -181,13 +240,15 @@ const server = createServer(async (req, res) => {
            where id = $1 returning *`,
           [
             id,
-            Object.hasOwn(b, "displayName") || Object.hasOwn(b, "name"), displayName ?? null,
+            Object.hasOwn(b, "displayName"), displayName ?? null,
             Object.hasOwn(b, "avatarUrl"), b.avatarUrl ?? null,
             Object.hasOwn(b, "locale"), b.locale ?? null,
             Object.hasOwn(b, "timezone"), b.timezone ?? null,
           ],
         );
-        return send(res, 200, { data: toUserDto(req, r.rows[0]!), version: r.rows[0]!.version }, requestId);
+        const response = { data: toUserDto(req, r.rows[0]!), version: r.rows[0]!.version };
+        await completeIdempotency(key, 200, response);
+        return send(res, 200, response, requestId);
       }
 
       return fail(res, 405, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed.", requestId);
