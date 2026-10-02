@@ -696,6 +696,10 @@ user_id UUID NOT NULL
 family_id UUID NULL
 item_id UUID NOT NULL
 product_id UUID NOT NULL
+storage varchar(32) NULL -- persisted prediction input
+opened boolean NULL
+category varchar(120) NULL
+stored_on timestamptz NULL
 estimated_expires_at timestamptz NOT NULL
 confidence numeric(5,4) NOT NULL CHECK(confidence BETWEEN 0 AND 1)
 basis varchar(200) NOT NULL
@@ -706,7 +710,7 @@ updated_at timestamptz NOT NULL
 version integer NOT NULL
 ```
 
-`item_id` and `product_id` are remote IDs. Shelf-Life never writes Inventory state directly. `user_id`/`family_id` enforce read/apply ownership.
+`item_id` and `product_id` are remote IDs. Shelf-Life never writes Inventory state directly. `storage`, `opened`, `category` and `stored_on` persist the exact estimation inputs so queued/completed work can be recovered after transport loss. `user_id`/`family_id` enforce read/apply ownership.
 
 ## 16. ocr_db
 
