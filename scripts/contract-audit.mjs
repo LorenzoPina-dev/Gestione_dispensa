@@ -111,7 +111,16 @@ for (const serviceRoot of migrationServices) {
   try {
     await readFile(migratePath, "utf8");
     const docker = await readFile(dockerPath, "utf8");
-    if (!docker.includes("dist/migrate.js")) migrationRuntimeMissing.push(serviceRoot + ": Dockerfile does not run dist/migrate.js");
+    let startup = docker;
+    if (docker.includes("docker-entrypoint.sh")) {
+      try { startup += "\n" + await readFile(serviceRoot + "/docker-entrypoint.sh", "utf8"); } catch {}
+    }
+    if (docker.includes("entrypoint.sh")) {
+      try { startup += "\n" + await readFile(serviceRoot + "/entrypoint.sh", "utf8"); } catch {}
+    }
+    if (!startup.includes("dist/migrate.js")) {
+      migrationRuntimeMissing.push(serviceRoot + ": Docker startup does not run dist/migrate.js");
+    }
   } catch {
     migrationRuntimeMissing.push(serviceRoot + ": missing migrate.ts or Dockerfile");
   }
