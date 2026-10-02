@@ -296,6 +296,38 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
   } finally { client.release(); }
 });
 
+app.get("/api/v1/internal/shelf-life/predictions/recoverable", async (req,res) => {
+  if (!requireInternal(req,res)) return;
+  const parsedLimit = Number(req.query.limit ?? 50);
+  const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 50;
+  try {
+    const q = await pool.query(
+      `select id,item_id,product_id,storage,opened,category,stored_on,user_id,family_id,status
+       from shelf_life_domain.predictions
+       where status in ('queued','completed')
+       order by created_at asc
+       limit $1`,
+      [limit],
+    );
+    return res.json({
+      data: q.rows.map((row) => ({
+        predictionId: row.id,
+        itemId: row.item_id,
+        productId: row.product_id,
+        storage: row.storage,
+        opened: row.opened === true,
+        category: row.category ?? null,
+        storedOn: row.stored_on ?? null,
+        userId: row.user_id,
+        familyId: row.family_id,
+        status: row.status,
+      })),
+    });
+  } catch {
+    return fail(res,500,"INTERNAL_ERROR","Unable to recover queued shelf-life predictions.");
+  }
+});
+
 app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async (req,res) => {
   if (!requireInternal(req,res)) return;
   const id = req.params.predictionId;
