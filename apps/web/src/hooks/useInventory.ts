@@ -61,6 +61,8 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
   // Non-null while the current React state is being hydrated from the composite view.
   // The sync effect must wait until that exact reference is committed.
   const hydrationTargetRef = useRef<StockItem[] | null>(null);
+  const syncInFlightRef = useRef(false);
+  const shelfLifePollAttemptsRef = useRef(0);
 
   useEffect(() => {
     if (initialStock !== undefined) {
@@ -132,6 +134,7 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
     prevStockRef.current = stock;
     const family = familyIdRef.current;
     if (isDemoRef.current || !family) return;
+    syncInFlightRef.current = true;
     void syncInventoryDiff(family, prev, stock)
       .then(async () => {
         try {
@@ -149,8 +152,45 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
             setStockState(canonical);
           });
         }
+      })
+      .finally(() => {
+        syncInFlightRef.current = false;
       });
   }, [stock]);
+
+  useEffect(() => {
+    if (!effectiveFamilyId || syncInFlightRef.current || stock.length === 0) {
+      if (!effectiveFamilyId || stock.length === 0) shelfLifePollAttemptsRef.current = 0;
+      return;
+    }
+
+    const pending = stock.some((item) => !item.batches.some((batch) => batch.expiryDate));
+    if (!pending) {
+      shelfLifePollAttemptsRef.current = 0;
+      return;
+    }
+    if (shelfLifePollAttemptsRef.current >= 3) return;
+
+    shelfLifePollAttemptsRef.current += 1;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await api.listStockItems(effectiveFamilyId);
+        if (cancelled) return;
+        const canonical = result.items.map(mapStockItemDtoToUi);
+        hydrationTargetRef.current = canonical;
+        prevStockRef.current = canonical;
+        setStockState(canonical);
+      } catch {
+        // The next bounded attempt or the user's normal revalidation will retry.
+      }
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [effectiveFamilyId, stock]);
 
   const setStock = useCallback<SetStock>((updater) => {
     // Updater PURO: solo calcola il nuovo array. Nessun side effect qui dentro.
