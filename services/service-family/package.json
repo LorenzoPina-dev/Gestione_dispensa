@@ -8,10 +8,11 @@
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:http",
+    "test": "npm run test:unit",
     "test:http": "node --import tsx --test test/http.test.ts",
     "test:integration": "node --import tsx --test test/integration.test.ts",
-    "test:migration": "node --import tsx --test test/migration.test.ts"
+    "test:migration": "node --import tsx --test test/migration.test.ts",
+    "test:unit": "node --import tsx --test test/unit.test.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"
