@@ -26,5 +26,6 @@ COPY --from=build /app/services/worker-core/dist ./services/worker-core/dist
 COPY --from=build /app/services/service-jobs/dist ./services/service-jobs/dist
 COPY --from=build /app/services/service-jobs/migrations ./services/service-jobs/migrations
 USER node
+WORKDIR /app/services/service-jobs
 EXPOSE 3317
-CMD ["sh","-c","node services/service-jobs/dist/migrate.js && node services/service-jobs/dist/server.js"]
+CMD ["sh","-c","node dist/migrate.js && node dist/server.js"]
