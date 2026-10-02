@@ -136,7 +136,7 @@ export async function resolveProductBarcode(
       "/catalog/barcodes/resolve",
       {
         method: "POST",
-        body: { identifierType: "BARCODE", value: normalizedValue },
+        body: { barcode: normalizedValue },
       },
     );
     return {
