@@ -1,3 +1,4 @@
+import { isConfidence, isJobStatus, isJobType, isPositiveNumber } from "./validation.js";
 import express, { type Request, type Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
