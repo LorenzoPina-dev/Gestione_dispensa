@@ -885,6 +885,7 @@ components:
         storedAt: {type: string, enum: [pantry, fridge, freezer, cellar, other]}
         opened: {type: boolean}
         category: {type: [string, 'null'], maxLength: 120}
+        storedOn: {type: [string, 'null'], format: date-time}
     JobListResponse:
       type: object
       required: [items, nextCursor]
@@ -997,6 +998,7 @@ components:
         unit: {type: string, maxLength: 16}
         expiresAt: {type: [string, 'null'], format: date-time}
         location: {type: [string, 'null'], maxLength: 32}
+        openedAt: {type: [string, 'null'], format: date-time}
         lotCode: {type: [string, 'null'], maxLength: 100}
     PatchPantryItem:
       type: object
@@ -1006,6 +1008,7 @@ components:
         quantity: {type: number, exclusiveMinimum: 0}
         location: {type: [string, 'null'], maxLength: 32}
         expiresAt: {type: [string, 'null'], format: date-time}
+        openedAt: {type: [string, 'null'], format: date-time}
         lotCode: {type: [string, 'null'], maxLength: 100}
     ConsumeRequest:
       type: object
