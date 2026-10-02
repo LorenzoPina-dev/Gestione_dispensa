@@ -22,7 +22,7 @@ const otlpEndpoint = (process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "").replace(/\/
 const slowRequestMs = Number(process.env.OBS_SLOW_REQUEST_MS ?? 2000);
 const slowQueryMs = Number(process.env.OBS_SLOW_QUERY_MS ?? 500);
 const captureBodyOn5xx = (process.env.OBS_CAPTURE_BODY_ON_5XX ?? "true") !== "false";
-const otlpInitialDelayMs = Math.max(0, Number(process.env.OBS_OTLP_INITIAL_DELAY_MS ?? 5000));
+const otlpInitialDelayMs = Math.max(0, Number(process.env.OBS_OTLP_INITIAL_DELAY_MS ?? 10000));
 const otlpRetryBaseMs = Math.max(1000, Number(process.env.OBS_OTLP_RETRY_BASE_MS ?? 5000));
 const otlpRetryMaxMs = Math.max(otlpRetryBaseMs, Number(process.env.OBS_OTLP_RETRY_MAX_MS ?? 60000));
 
@@ -351,6 +351,7 @@ const spanBuffer: SpanRecord[] = [];
 let rawFetch: typeof fetch | undefined;
 let otlpConsecutiveFailures = 0;
 let otlpRetryAt = 0;
+let otlpFlushInFlight = false;
 
 function emitSpan(span: SpanRecord): void {
   if (!otlpEndpoint) return;
@@ -415,6 +416,8 @@ async function flushSpans(): Promise<void> {
     // emitSpan() will drop new spans under the existing cardinality-independent buffer guard.
     spanBuffer.unshift(...batch);
     warnRateLimited("otel.export_failed", error);
+  } finally {
+    otlpFlushInFlight = false;
   }
 }
 
