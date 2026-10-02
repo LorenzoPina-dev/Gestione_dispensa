@@ -767,6 +767,32 @@ paths:
       parameters: [{$ref: '#/components/parameters/FamilyQuery'}]
       responses:
         '200': {description: Notifications screen view, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /client-errors:
+    post:
+      operationId: reportClientError
+      tags: [Observability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [kind, message]
+              properties:
+                kind: {type: string, enum: [js_error, unhandled_rejection, react_render, api_error, network_error]}
+                message: {type: string, minLength: 1, maxLength: 500}
+                stack: {type: string, maxLength: 3000}
+                page: {type: string, maxLength: 200}
+                apiPath: {type: string, maxLength: 200}
+                status: {type: integer, minimum: 100, maximum: 599}
+                code: {type: string, maxLength: 64}
+                requestId: {type: string, maxLength: 128}
+                traceId: {type: string, maxLength: 128}
+                appVersion: {type: string, maxLength: 32}
+      responses:
+        '204': {description: Accepted for telemetry}
+        '400': {$ref: '#/components/responses/ValidationError'}
   /dashboard:
     get:
       operationId: getDashboard
