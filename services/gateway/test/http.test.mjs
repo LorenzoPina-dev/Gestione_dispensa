@@ -45,6 +45,7 @@ describe("gateway / documented public edge",()=>{
   it("exposes live health",async()=>{const x=await http(gatewayBase,"/health/live");assert.equal(x.r.status,200);assert.equal(x.body.status,"ok")});
   it("allows documented public registration",async()=>{const x=await http(gatewayBase,"/api/v1/auth/register",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:"Mario",email:"mario@example.com",password:"password123"})});assert.equal(x.r.status,201);assert.equal(x.body.data.success,true)});
   it("keeps documented logout public",async()=>{const x=await http(gatewayBase,"/api/v1/auth/logout",{method:"POST"});assert.equal(x.r.status,204)});
+  it("accepts browser client error telemetry through the public API prefix",async()=>{const x=await http(gatewayBase,"/api/v1/client-errors",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:"api_error",message:"test",apiPath:"/health/live"})});assert.equal(x.r.status,204)});
   it("does not expose the undocumented /meta API",async()=>{const x=await http(gatewayBase,"/api/v1/meta");assert.equal(x.r.status,404)});
   it("does not expose internal Jobs as a browser API",async()=>{const x=await http(gatewayBase,"/api/v1/jobs/00000000-0000-4000-8000-000000000001");assert.equal(x.r.status,404)});
   it("protects screen composites with gateway authentication",async()=>{const x=await http(gatewayBase,"/api/v1/views/dashboard-today?familyId=00000000-0000-4000-8000-000000000001");assert.equal(x.r.status,401);assert.equal(x.body.error.code,"UNAUTHENTICATED")});
