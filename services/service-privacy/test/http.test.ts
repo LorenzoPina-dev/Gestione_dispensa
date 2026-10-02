@@ -106,6 +106,20 @@ describe("service-privacy / real Express HTTP adapter",()=>{
     assert.equal(x.body?.error?.code,"VALIDATION_ERROR");
   });
 
+
+  it("returns 202 for documented erasure requests",async()=>{
+    const x=await request("/api/v1/privacy/erase",{method:"POST",headers:{authorization,"content-type":"application/json","idempotency-key":"privacy-erase-1"},body:JSON.stringify({familyId:"family-1",confirm:true})});
+    assert.equal(x.response.status,202);
+    assert.equal(x.body?.version,1);
+    assert.equal(x.body?.meta?.schemaVersion,"1.0");
+  });
+
+  it("returns 202 for documented export requests",async()=>{
+    const x=await request("/api/v1/privacy/export",{method:"POST",headers:{authorization,"content-type":"application/json","idempotency-key":"privacy-export-1"},body:JSON.stringify({familyId:"family-1"})});
+    assert.equal(x.response.status,202);
+    assert.equal(x.body?.version,1);
+    assert.equal(x.body?.meta?.schemaVersion,"1.0");
+  });
   it("uses 405 for an unsupported method on the consent route",async()=>{
     const x=await request("/api/v1/privacy/consents",{method:"POST",headers:{authorization}});
     assert.equal(x.response.status,405);
