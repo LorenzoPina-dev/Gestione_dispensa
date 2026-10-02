@@ -20,6 +20,8 @@ const required = [
   ["scheduler", []],
   ["worker-ocr", ["test/unit.test.ts"]],
   ["worker-shelf-life", ["test/unit.test.ts"]],
+  ["worker-core", []],
+  ["worker-integrations", []],
 ];
 
 const failures = [];
@@ -33,7 +35,7 @@ for (const [service, files] of required) {
   }
 
   const scripts = packageJson.scripts ?? {};
-  if (files.length > 0 && !scripts.test) failures.push(service + ": missing npm test script");
+  if (!scripts.test) failures.push(service + ": missing npm test script");
   if (files.some((f) => f.includes("/unit.")) && !scripts["test:unit"]) failures.push(service + ": missing test:unit script");
   if (files.some((f) => f.includes("/http.")) && !scripts["test:http"] ) failures.push(service + ": missing test:http script");
   if (files.some((f) => f.includes("migration.")) && !scripts["test:migration"]) failures.push(service + ": missing test:migration script");
