@@ -148,11 +148,23 @@ export class CatalogWorkflowService {
       return { status: "UNKNOWN", resolution: "provider", identifierType, normalizedValue, product: undefined };
     }
 
+    let match: ExternalProductMatch | undefined;
     try {
-      const match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
-      if (match === undefined) {
-        return { status: "UNKNOWN", resolution: "provider", identifierType, normalizedValue, product: undefined };
-      }
+      match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
+    } catch (error) {
+      logBarcodeFailure("barcode_provider_failed", error, {
+        identifierType,
+        normalizedValue,
+        traceId,
+      });
+      return { status: "DEGRADED", resolution: "provider", identifierType, normalizedValue, product: undefined };
+    }
+
+    if (match === undefined) {
+      return { status: "UNKNOWN", resolution: "provider", identifierType, normalizedValue, product: undefined };
+    }
+
+    try {
       const product = await this.lookup.persistExternalMatch({
         identifierType,
         normalizedValue,
@@ -160,8 +172,13 @@ export class CatalogWorkflowService {
         traceId,
       });
       return { status: "MATCHED", resolution: "provider", identifierType, normalizedValue, product };
-    } catch {
-      return { status: "DEGRADED", resolution: "provider", identifierType, normalizedValue, product: undefined };
+    } catch (error) {
+      logBarcodeFailure("barcode_persistence_failed", error, {
+        identifierType,
+        normalizedValue,
+        traceId,
+      });
+      throw error;
     }
   }
 
@@ -175,4 +192,26 @@ export class CatalogWorkflowService {
     const normalized = { ...candidate, requiresReview: candidate.confidence < 0.95 };
     return this.candidates.applyImportedCandidate({ candidate: normalized, actorId, traceId });
   }
+}
+
+
+function logBarcodeFailure(
+  event: "barcode_provider_failed" | "barcode_persistence_failed",
+  error: unknown,
+  context: {
+    identifierType: IdentifierType;
+    normalizedValue: string;
+    traceId: string;
+  },
+): void {
+  const details = error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { error: String(error) };
+
+  console.error(JSON.stringify({
+    service: "service-catalog",
+    event,
+    ...context,
+    ...details,
+  }));
 }
