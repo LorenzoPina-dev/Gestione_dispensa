@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/server.js",
     "dev": "tsx watch --env-file=../../.env src/server.ts",
-    "test": "npm run build && node --test tests/*.mjs"
+    "test": "npm run build && node --test tests/*.mjs",
+    "test:unit": "npm test"
   }
 }
