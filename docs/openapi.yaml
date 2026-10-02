@@ -571,6 +571,22 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPreferences'}}}}
       responses:
         '200': {description: Preferences, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /internal/ocr/jobs/recoverable:
+    get:
+      operationId: getInternalOcrJobsRecoverable
+      tags: [Internal]
+      parameters: [{name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}]
+      responses:
+        '200': {description: Recoverable OCR jobs, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /internal/ocr/jobs/{jobId}/process:
+    post:
+      operationId: postInternalOcrJobsJobIdProcess
+      tags: [Internal]
+      parameters: [{name: jobId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+      responses:
+        '200': {description: Processed, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /ocr/jobs:
     post:
       operationId: postOcrJobs
@@ -622,6 +638,13 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OcrConfirm'}}}}
       responses:
         '200': {description: Confirmed, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
+  /internal/shelf-life/predictions/recoverable:
+    get:
+      operationId: getInternalShelfLifePredictionsRecoverable
+      tags: [Internal]
+      parameters: [{name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}]
+      responses:
+        '200': {description: Recoverable shelf-life predictions, content: {application/json: {schema: {$ref: '#/components/schemas/DataResponse'}}}}
   /shelf-life/predictions:
     post:
       operationId: postShelfLifePredictions
