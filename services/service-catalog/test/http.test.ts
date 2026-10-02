@@ -174,6 +174,16 @@ describe("service-catalog / real Express HTTP adapter", () => {
     assert.equal(body?.data?.version, 1);
   });
 
+  it("routes POST barcode resolve to the static endpoint instead of the dynamic barcode route", async () => {
+    const { response, body } = await request("/api/v1/catalog/barcodes/resolve", {
+      method: "POST",
+      headers: { authorization, "content-type": "application/json" },
+      body: JSON.stringify({ barcode: "8001234567890" }),
+    });
+    assert.notEqual(response.status, 405);
+    assert.notEqual(body?.error?.code, "METHOD_NOT_ALLOWED");
+  });
+
   it("returns 405 for a wrong method on a known route", async () => {
     const { response, body } = await request("/api/v1/catalog/products/product-1", {
       method: "DELETE",
