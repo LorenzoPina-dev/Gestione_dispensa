@@ -14,8 +14,8 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - name: Validate lockfile without rewriting it
-        run: npm ci --dry-run --ignore-scripts
+      - name: Clean install from committed lockfile
+        run: npm ci --ignore-scripts
       - name: Contract audit
         run: npm run contract:audit
       - name: Typecheck
