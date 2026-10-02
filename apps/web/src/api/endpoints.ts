@@ -162,6 +162,69 @@ export async function listRecipeSuggestions(familyId: string): Promise<{ suggest
 export async function getRecipe(familyId: string, recipeId: string): Promise<{ recipe: RecipeDto }> { return { recipe: await apiRequest<RecipeDto>(`/recipes/${recipeId}`, { query: { familyId } }) }; }
 
 
+type CatalogBarcodeProductDto = {
+  productId: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  barcodes: string[];
+  imageObjectKey: string | null;
+  nutrition: {
+    kcalPer100g: number | null;
+    proteinGPer100g: number | null;
+    carbsGPer100g: number | null;
+    fatGPer100g: number | null;
+    fiberGPer100g: number | null;
+  };
+  package: {
+    value: number | null;
+    unit: string | null;
+    label: string | null;
+  };
+  serving: {
+    size: string | null;
+    quantity: number | null;
+    unit: string | null;
+  };
+  images: ProductImagesDto;
+  openFoodFacts: Record<string, unknown> | null;
+  source: { type: string; id: string };
+  version: number;
+};
+
+function isProductUnit(value: string | null | undefined): value is ProductUnit {
+  return value === "g" || value === "kg" || value === "ml" || value === "l" || value === "piece" || value === "pack";
+}
+
+function mapCatalogBarcodeProduct(p: CatalogBarcodeProductDto): ProductDto {
+  return {
+    id: p.productId,
+    canonicalName: p.name,
+    ...(p.brand ? { brand: p.brand } : {}),
+    defaultUnit: isProductUnit(p.package.unit) ? p.package.unit : "piece",
+    status: "ACTIVE",
+    provenanceQuality: "IMPORTED",
+    version: p.version,
+    ...(p.category ? { category: p.category } : {}),
+    ...(p.imageObjectKey ? { photoUrl: p.imageObjectKey } : {}),
+    ...(p.nutrition.kcalPer100g != null ? { calories: p.nutrition.kcalPer100g } : {}),
+    ...(p.nutrition.proteinGPer100g != null ? { protein: p.nutrition.proteinGPer100g } : {}),
+    ...(p.nutrition.carbsGPer100g != null ? { carbs: p.nutrition.carbsGPer100g } : {}),
+    ...(p.nutrition.fatGPer100g != null ? { fat: p.nutrition.fatGPer100g } : {}),
+    ...(p.nutrition.fiberGPer100g != null ? { fiber: p.nutrition.fiberGPer100g } : {}),
+    ...(p.package.value != null ? { quantityValue: p.package.value } : {}),
+    ...(p.package.unit ? { quantityUnit: p.package.unit } : {}),
+    ...(p.package.label ? { quantityLabel: p.package.label } : {}),
+    ...(p.serving.size ? { servingSize: p.serving.size } : {}),
+    ...(p.serving.quantity != null ? { servingQuantity: p.serving.quantity } : {}),
+    ...(p.serving.unit ? { servingUnit: p.serving.unit } : {}),
+    ...(p.images ? { images: p.images } : {}),
+    ...(p.openFoodFacts ? { openFoodFacts: p.openFoodFacts } : {}),
+    createdAt: "",
+    updatedAt: "",
+  };
+}
+
 export async function resolveProductBarcode(
   identifierType: string,
   value: string,
@@ -179,7 +242,7 @@ export async function resolveProductBarcode(
         meta: { requestId: "", traceId: "", schemaVersion: "1.0" },
       });
     }
-    const result = await apiRequest<{ resolution: "cache" | "provider"; product: ProductDto }>(
+    const result = await apiRequest<{ resolution: "cache" | "provider"; product: CatalogBarcodeProductDto }>(
       "/catalog/barcodes/resolve",
       {
         method: "POST",
@@ -190,7 +253,7 @@ export async function resolveProductBarcode(
       status: "MATCHED",
       identifierType,
       normalizedValue,
-      product: result.product,
+      product: mapCatalogBarcodeProduct(result.product),
     };
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
