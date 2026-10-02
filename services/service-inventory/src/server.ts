@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
-import { isExpirationSource, positiveQuantity, requiredIdempotencyKey, validIfMatch } from "./validation.js";
+import { CONSUME_REASONS, isConsumeReason, isExpirationSource, isPatchFieldSet, positiveQuantity, requiredIdempotencyKey, validIfMatch, validIsoDate, validOptionalText } from "./validation.js";
 
 const port = Number(process.env.PORT ?? 3312);
 const service = "service-inventory";
@@ -18,14 +18,22 @@ const send = (res: ServerResponse, status: number, body: unknown, requestId: str
   res.end(JSON.stringify(body));
 };
 
-const fail = (res: ServerResponse, status: number, code: string, message: string, requestId: string) =>
-  send(res, status, { error: { code, message, details: [], requestId } }, requestId);
+const fail = (res: ServerResponse, status: number, code: string, message: string, requestId: string) => {
+  const retryable = ["UPSTREAM_ERROR", "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT", "INTERNAL_ERROR"].includes(code);
+  return send(res, status, {
+    error: { code, message, details: [], retryable, requestId },
+    meta: { requestId, traceId: requestId, schemaVersion: "1.0" },
+  }, requestId);
+};
+
+class RequestBodyValidationError extends Error {}
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   let raw = "";
   for await (const chunk of req) raw += chunk;
   if (!raw) return {};
-  const parsed: unknown = JSON.parse(raw);
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new RequestBodyValidationError("Request body must be valid JSON."); }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Request body must be a JSON object.");
   return parsed as Record<string, unknown>;
 }
@@ -169,6 +177,72 @@ const server = createServer(async (req, res) => {
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
 
+    if (req.method === "PATCH" && itemMatch && !itemMatch[2]) {
+      const auth = await authorizeFamily(ctx, true);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const body = await readBody(req);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      const ifMatch = String(req.headers["if-match"] ?? "").trim();
+      if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) {
+        return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
+      }
+      if (!isPatchFieldSet(body)) {
+        return fail(res, 400, "VALIDATION_ERROR", "At least one documented inventory field is required.", ctx.requestId);
+      }
+      const quantity = Object.hasOwn(body, "quantity") ? positiveQuantity(body.quantity) : undefined;
+      if (Object.hasOwn(body, "quantity") && quantity === undefined) {
+        return fail(res, 400, "VALIDATION_ERROR", "quantity must be positive.", ctx.requestId);
+      }
+      if (Object.hasOwn(body, "location") && !validOptionalText(body.location)) {
+        return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
+      }
+      if (Object.hasOwn(body, "lotCode") && !validOptionalText(body.lotCode)) {
+        return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
+      }
+      if (Object.hasOwn(body, "expiresAt") && body.expiresAt !== null && !validIsoDate(body.expiresAt)) {
+        return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const old = await idempotency(client, key, ctx, body);
+        if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
+        if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
+
+        const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
+        if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
+        const row = current.rows[0];
+        if (!validIfMatch(ifMatch) || Number(row.version) !== Number(ifMatch)) {
+          await client.query("ROLLBACK");
+          return fail(res, 412, "PRECONDITION_FAILED", "Item version changed.", ctx.requestId);
+        }
+
+        const nextQuantity = quantity ?? Number(row.quantity);
+        const nextLocation = Object.hasOwn(body, "location") ? (body.location ?? null) : row.location;
+        const nextExpiresAt = Object.hasOwn(body, "expiresAt") ? (body.expiresAt === null ? null : new Date(String(body.expiresAt))) : row.expires_at;
+        const nextLotCode = Object.hasOwn(body, "lotCode") ? (body.lotCode ?? null) : row.lot_code;
+        const nextExpirationSource = Object.hasOwn(body, "expiresAt")
+          ? (body.expiresAt === null ? null : "declared")
+          : row.expiration_source;
+
+        const updated = await client.query(
+          "UPDATE pantry_items SET quantity=$3,location=$4,expires_at=$5,expiration_source=$6,lot_code=$7,updated_at=now(),version=version+1 WHERE id=$1 AND family_id=$2 RETURNING *",
+          [row.id, ctx.familyId, nextQuantity, nextLocation, nextExpiresAt, nextExpirationSource, nextLotCode],
+        );
+        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
+        await event(client, "PantryItemAdjusted", row.id, ctx, { action: "patch", item: output.data });
+        await finish(client, key, 200, output);
+        await client.query("COMMIT");
+        return send(res, 200, output, ctx.requestId);
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
     if (req.method === "POST" && itemMatch?.[2] && ["consume", "waste"].includes(itemMatch[2])) {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
@@ -176,8 +250,9 @@ const server = createServer(async (req, res) => {
       const quantity = positiveQuantity(body.quantity);
       const key = String(req.headers["x-idempotency-key"] ?? "");
       const ifMatch = String(req.headers["if-match"] ?? "");
-      if (!key || !Number.isFinite(quantity) || quantity <= 0) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and X-Idempotency-Key are required.", ctx.requestId);
-      if (!/^\d+$/.test(ifMatch) || Number(ifMatch) < 1) return fail(res, 428, "PRECONDITION_REQUIRED", "If-Match is required.", ctx.requestId);
+      if (!key || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and X-Idempotency-Key are required.", ctx.requestId);
+      if (!validIfMatch(ifMatch)) return fail(res, 428, "PRECONDITION_REQUIRED", "If-Match is required.", ctx.requestId);
+      if (itemMatch[2] === "consume" && !isConsumeReason(body.reason)) return fail(res, 400, "VALIDATION_ERROR", "consume reason is invalid.", ctx.requestId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -229,6 +304,7 @@ const server = createServer(async (req, res) => {
 
     return fail(res, 404, "NOT_FOUND", "Route not found.", ctx.requestId);
   } catch (error) {
+    if (error instanceof RequestBodyValidationError) return fail(res, 400, "VALIDATION_ERROR", error.message, requestId);
     console.error(JSON.stringify({ service, event: "request.failed", error: error instanceof Error ? error.message : String(error) }));
     return fail(res, 500, "INTERNAL_ERROR", "Unexpected internal error.", requestId);
   }
