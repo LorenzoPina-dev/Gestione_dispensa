@@ -10,10 +10,15 @@ import type {
 } from "./types";
 
 export interface NavigationSummaryDto {
-  expiredCount: number;
-  expiringSoonCount: number;
-  unreadNotifications: number;
-  pendingShopping: number;
+  expiredCount?: number;
+  expiringSoonCount?: number;
+  unreadNotifications?: number;
+  pendingShopping?: number;
+}
+export interface PartialFailureDto {
+  service: string;
+  code: string;
+  requestId?: string;
 }
 
 export interface ScreenViewBase {
@@ -26,6 +31,7 @@ export interface ScreenViewBase {
   suggestedRecipes?: RecipeMatchDto[];
   nutrition?: NutritionSummaryDto;
   navigationSummary: NavigationSummaryDto;
+  partialFailures?: PartialFailureDto[];
 }
 
 export interface FamilyScreenView extends ScreenViewBase {
