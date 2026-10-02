@@ -34,8 +34,8 @@ export function buildPrivacyRouter(deps: PrivacyRouteDependencies): Router {
           res,
           req.meta,
           erasure
-            .request(principal, parsed.familyId, parsed.confirmed, idempotencyKey, req.meta.traceId)
-            .then((data) => ({ data, meta: req.meta })),
+            .request(principal, parsed.familyId, parsed.confirm, idempotencyKey, req.meta.traceId)
+            .then((data) => ({ data, meta: req.meta, version: 1, status: 202 })),
           toPrivacyErasureHttpError,
         );
       }),
@@ -104,7 +104,7 @@ export function buildPrivacyRouter(deps: PrivacyRouteDependencies): Router {
           req.meta,
           exportService
             .create(principal, parsed.familyId, idempotencyKey, req.meta.traceId)
-            .then((data) => ({ data, meta: req.meta })),
+            .then((data) => ({ data, meta: req.meta, version: 1, status: 202 })),
           toPrivacyExportHttpError,
         );
       }),
