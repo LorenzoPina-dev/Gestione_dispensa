@@ -17,6 +17,9 @@ const minioEndpoint = process.env.MINIO_ENDPOINT ?? "http://minio:9000";
 const minioBucket = process.env.MINIO_BUCKET ?? "gestione-dispensa";
 const minioAccessKey = process.env.MINIO_ACCESS_KEY ?? "minio";
 const minioSecretKey = process.env.MINIO_SECRET_KEY ?? "miniochange";
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
+const ocrProviderUrl = process.env.OCR_PROVIDER_URL?.trim() ?? "";
+const ocrProviderToken = process.env.OCR_PROVIDER_TOKEN?.trim() ?? "";
 
 type Body = Record<string, unknown>;
 type MultipartFile = { fieldName: string; filename: string; mimeType: string; buffer: Buffer };
@@ -258,6 +261,107 @@ async function readMultipart(req: Request): Promise<MultipartForm> {
   return { fields, file };
 }
 
+type OcrDetectedItem = {
+  name: string;
+  barcode?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  priceMinor?: number | null;
+  currency?: string | null;
+  confidence: number;
+  productId?: string | null;
+};
+
+type OcrProviderResult = {
+  provider: string;
+  confidence: number;
+  text?: string;
+  warnings: string[];
+  items: OcrDetectedItem[];
+};
+
+function requireInternal(req: Request, res: Response): boolean {
+  if (!internalServiceToken) {
+    fail(res, 503, "SERVICE_UNAVAILABLE", "Internal service authentication is not configured.");
+    return false;
+  }
+  if (req.header("authorization") !== `Bearer ${internalServiceToken}`) {
+    fail(res, 401, "UNAUTHENTICATED", "Internal service authentication is required.");
+    return false;
+  }
+  return true;
+}
+
+function normalizeOcrItems(value: unknown): OcrDetectedItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): OcrDetectedItem[] => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.name !== "string" || !row.name.trim()) return [];
+    const confidence = Number(row.confidence);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return [];
+    return [{
+      name: row.name.trim().slice(0, 300),
+      barcode: typeof row.barcode === "string" ? row.barcode : null,
+      quantity: typeof row.quantity === "number" && Number.isFinite(row.quantity) ? row.quantity : null,
+      unit: typeof row.unit === "string" ? row.unit.slice(0, 16) : null,
+      priceMinor: typeof row.priceMinor === "number" && Number.isFinite(row.priceMinor) ? Math.trunc(row.priceMinor) : null,
+      currency: typeof row.currency === "string" ? row.currency.slice(0, 3).toUpperCase() : null,
+      confidence,
+      productId: typeof row.productId === "string" ? row.productId : null,
+    }];
+  });
+}
+
+async function runOcrProvider(input: {
+  readonly jobId: string;
+  readonly familyId: string | null;
+  readonly userId: string;
+  readonly type: string;
+  readonly objectKey: string;
+}): Promise<OcrProviderResult> {
+  if (!ocrProviderUrl) {
+    return {
+      provider: "disabled",
+      confidence: 0,
+      warnings: ["ocr_provider_disabled"],
+      items: [],
+    };
+  }
+
+  const response = await fetch(ocrProviderUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      ...(ocrProviderToken ? { authorization: "Bearer " + ocrProviderToken } : {}),
+    },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error("OCR provider returned HTTP " + response.status);
+  const payload = await response.json() as Record<string, unknown>;
+  const confidence = Number(payload.confidence ?? 0);
+  return {
+    provider: typeof payload.provider === "string" ? payload.provider : "external",
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    text: typeof payload.text === "string" ? payload.text.slice(0, 50000) : undefined,
+    warnings: Array.isArray(payload.warnings) ? payload.warnings.filter((x): x is string => typeof x === "string").slice(0, 20) : [],
+    items: normalizeOcrItems(payload.items),
+  };
+}
+
+function ocrJobDto(row: Record<string, unknown>) {
+  return {
+    jobId: row.id,
+    status: row.status,
+    type: row.type,
+    progress: Number(row.progress),
+    draftId: row.draft_id ?? null,
+    error: row.error_code ?? null,
+  };
+}
+
 async function init(): Promise<void> {
   await pool.query("select 1");
 }
@@ -266,6 +370,114 @@ app.get("/health/live", (_req, res) => res.json({ status: "ok", service: "servic
 app.get("/health/ready", async (_req, res) => {
   try { await pool.query("select 1"); res.json({ status: "ready", service: "service-ocr" }); }
   catch { res.status(503).json({ status: "not_ready" }); }
+});
+
+app.get("/api/v1/internal/ocr/jobs/recoverable", async (req, res) => {
+  if (!requireInternal(req, res)) return;
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+  try {
+    const q = await pool.query(
+      `select j.id,j.user_id,j.family_id,j.type,j.object_key,j.status,j.progress,j.error_code,
+              (select d.id from ocr_domain.ocr_drafts d where d.job_id=j.id order by d.created_at desc limit 1) as draft_id
+       from ocr_domain.ocr_jobs j
+       where j.status in ('queued','processing')
+       order by j.created_at asc
+       limit $1`,
+      [limit],
+    );
+    return res.json({ data: q.rows.map(ocrJobDto).map((x, index) => ({
+      ...x,
+      userId: q.rows[index].user_id,
+      familyId: q.rows[index].family_id,
+      objectKey: q.rows[index].object_key,
+    })) });
+  } catch {
+    return fail(res, 500, "INTERNAL_ERROR", "Unable to recover OCR jobs.");
+  }
+});
+
+app.post("/api/v1/internal/ocr/jobs/:jobId/process", async (req, res) => {
+  if (!requireInternal(req, res)) return;
+  const client = await pool.connect();
+  let job: Record<string, unknown>;
+  try {
+    await client.query("begin");
+    const q = await client.query("select * from ocr_domain.ocr_jobs where id=$1 for update", [req.params.jobId]);
+    if (!q.rowCount) { await client.query("rollback"); return fail(res, 404, "NOT_FOUND", "OCR job not found."); }
+    job = q.rows[0];
+    if (job.status === "completed" || job.status === "needs_review" || job.status === "cancelled") {
+      await client.query("commit");
+      return res.status(200).json({ data: ocrJobDto(job) });
+    }
+    await client.query("update ocr_domain.ocr_jobs set status='processing',progress=20,updated_at=now(),version=version+1 where id=$1", [req.params.jobId]);
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    client.release();
+    return fail(res, 500, "INTERNAL_ERROR", error instanceof Error ? error.message : "Unable to start OCR job.");
+  } finally {
+    if (!client.released) client.release();
+  }
+
+  let provider: OcrProviderResult;
+  try {
+    provider = await runOcrProvider({
+      jobId: String(job.id),
+      familyId: job.family_id == null ? null : String(job.family_id),
+      userId: String(job.user_id),
+      type: String(job.type),
+      objectKey: String(job.object_key),
+    });
+  } catch (error) {
+    const failed = await pool.query(
+      "update ocr_domain.ocr_jobs set status='failed',progress=100,error_code=$2,updated_at=now(),version=version+1 where id=$1 returning *",
+      [req.params.jobId, "OCR_PROVIDER_UNAVAILABLE"],
+    );
+    return fail(res, 502, "UPSTREAM_ERROR", error instanceof Error ? error.message : "OCR provider failed.");
+  }
+
+  const nextStatus = provider.provider === "disabled" || provider.confidence < 0.70 ? "needs_review" : "completed";
+  const client2 = await pool.connect();
+  try {
+    await client2.query("begin");
+    const existing = await client2.query("select id from ocr_domain.ocr_drafts where job_id=$1 for update", [req.params.jobId]);
+    let draftId: string;
+    if (existing.rowCount) {
+      draftId = String(existing.rows[0].id);
+      await client2.query(
+        "update ocr_domain.ocr_drafts set confidence=$2,status='draft',raw_result=$3,updated_at=now(),version=version+1 where id=$1",
+        [draftId, provider.confidence, JSON.stringify({provider:provider.provider,text:provider.text??null,warnings:provider.warnings,items:provider.items})],
+      );
+      await client2.query("delete from ocr_domain.ocr_draft_items where draft_id=$1", [draftId]);
+    } else {
+      const created = await client2.query(
+        "insert into ocr_domain.ocr_drafts(job_id,confidence,status,raw_result) values($1,$2,'draft',$3) returning id",
+        [req.params.jobId, provider.confidence, JSON.stringify({provider:provider.provider,text:provider.text??null,warnings:provider.warnings,items:provider.items})],
+      );
+      draftId = String(created.rows[0].id);
+    }
+    for (const item of provider.items) {
+      await client2.query(
+        "insert into ocr_domain.ocr_draft_items(draft_id,name,barcode,quantity,unit,price_minor,currency,confidence,product_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [draftId,item.name,item.barcode??null,item.quantity??null,item.unit??null,item.priceMinor??null,item.currency??null,item.confidence,item.productId??null],
+      );
+    }
+    const updated = await client2.query(
+      "update ocr_domain.ocr_jobs set status=$2,progress=100,error_code=null,updated_at=now(),version=version+1 where id=$1 returning *",
+      [req.params.jobId,nextStatus],
+    );
+    await client2.query(
+      "insert into ocr_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at) values($1,'OcrDraftReady',1,$2,$3,$4,now(),$5::jsonb,now())",
+      [crypto.randomUUID(),req.params.jobId,updated.rows[0].family_id,crypto.randomUUID(),JSON.stringify({jobId:req.params.jobId,draftId,confidence:provider.confidence,provider:provider.provider,status:nextStatus})],
+    );
+    await client2.query("commit");
+    return res.status(200).json({ data: ocrJobDto({...updated.rows[0],draft_id:draftId}), version: updated.rows[0].version });
+  } catch (error) {
+    await client2.query("rollback");
+    return fail(res, 500, "INTERNAL_ERROR", error instanceof Error ? error.message : "Unable to persist OCR result.");
+  } finally {
+    client2.release();
+  }
 });
 
 app.post("/api/v1/ocr/jobs", async (req, res) => {
