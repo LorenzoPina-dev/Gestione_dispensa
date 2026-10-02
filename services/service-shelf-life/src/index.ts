@@ -217,7 +217,7 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
     const response = { data: { predictionId, status: "queued" }, version: 1 };
     await client.query(
       `insert into shelf_life_domain.predictions(id,user_id,family_id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status)
-       values($1,$2,$3,$4,now(),0,'pending','pending','queued')`,
+       values($1,$2,$3,$4,$5,now(),0,'pending','pending','queued')`,
       [predictionId,userId,familyId,itemId,productId],
     );
     await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null});
