@@ -50,6 +50,15 @@ function getContext(req: IncomingMessage): Ctx | null {
   };
 }
 
+function pagination(url: URL): { limit: number; offset: number } {
+  const parsedLimit = Number(url.searchParams.get("limit") ?? "100");
+  const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 100;
+  const cursor = url.searchParams.get("cursor");
+  const parsedCursor = cursor === null ? 0 : Number(cursor);
+  const offset = Number.isInteger(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+  return { limit, offset };
+}
+
 function dto(row: Record<string, unknown>) {
   return {
     itemId: row.id,
@@ -134,8 +143,13 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && path === "/api/v1/inventory") {
       const auth = await authorizeFamily(ctx, false);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
-      const result = await pool.query("SELECT * FROM pantry_items WHERE family_id=$1 ORDER BY added_at DESC LIMIT 100", [ctx.familyId]);
-      return send(res, 200, { items: result.rows.map(dto), nextCursor: null }, ctx.requestId);
+      const status = url.searchParams.get("status") ?? "current";
+      if (status !== "current") return fail(res, 400, "VALIDATION_ERROR", "status must be current.", ctx.requestId);
+      const { limit, offset } = pagination(url);
+      const result = await pool.query("SELECT * FROM pantry_items WHERE family_id=$1 ORDER BY added_at DESC LIMIT $2 OFFSET $3", [ctx.familyId, limit + 1, offset]);
+      const hasNext = result.rows.length > limit;
+      const rows = hasNext ? result.rows.slice(0, limit) : result.rows;
+      return send(res, 200, { items: rows.map(dto), nextCursor: hasNext ? String(offset + limit) : null }, ctx.requestId);
     }
 
     if (req.method === "GET" && itemMatch && !itemMatch[2]) {
@@ -148,8 +162,11 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && itemMatch?.[2] === "movements") {
       const auth = await authorizeFamily(ctx, false);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
-      const result = await pool.query("SELECT id,product_id,type,quantity,unit,reason,occurred_at,actor_user_id FROM movements WHERE pantry_item_id=$1 AND family_id=$2 ORDER BY occurred_at DESC LIMIT 100", [itemMatch[1], ctx.familyId]);
-      return send(res, 200, { items: result.rows.map((row) => ({ movementId: row.id, productId: row.product_id, type: row.type, quantity: Number(row.quantity), unit: row.unit, reason: row.reason, occurredAt: row.occurred_at, actorUserId: row.actor_user_id })), nextCursor: null }, ctx.requestId);
+      const { limit, offset } = pagination(url);
+      const result = await pool.query("SELECT id,product_id,type,quantity,unit,reason,occurred_at,actor_user_id FROM movements WHERE pantry_item_id=$1 AND family_id=$2 ORDER BY occurred_at DESC LIMIT $3 OFFSET $4", [itemMatch[1], ctx.familyId, limit + 1, offset]);
+      const hasNext = result.rows.length > limit;
+      const rows = hasNext ? result.rows.slice(0, limit) : result.rows;
+      return send(res, 200, { items: rows.map((row) => ({ movementId: row.id, productId: row.product_id, type: row.type, quantity: Number(row.quantity), unit: row.unit, reason: row.reason, occurredAt: row.occurred_at, actorUserId: row.actor_user_id })), nextCursor: hasNext ? String(offset + limit) : null }, ctx.requestId);
     }
 
     if (req.method === "POST" && path === "/api/v1/inventory/items") {
@@ -157,7 +174,12 @@ const server = createServer(async (req, res) => {
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const quantity = positiveQuantity(body.quantity);
+      const allowedFields = ["productId", "quantity", "unit", "expiresAt", "location", "lotCode"];
+      if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
       if (!body.productId || !body.unit || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "productId, unit and positive quantity are required.", ctx.requestId);
+      if (body.expiresAt !== undefined && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
+      if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
+      if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
       const key = String(req.headers["x-idempotency-key"] ?? "");
       if (!key) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
       const client = await pool.connect();
