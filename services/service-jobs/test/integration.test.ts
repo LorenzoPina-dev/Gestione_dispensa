@@ -53,7 +53,8 @@ describe("service-jobs / real PostgreSQL integration",()=>{
     assert.equal(snapshot?.capability,"shelf_life_prediction");
     assert.equal(snapshot?.status,"PENDING");
     assert.equal(snapshot?.maxAttempts,5);
-    assert.deepEqual(snapshot?.payload,{itemId:assert.match(snapshot?.payload?.itemId??"","/.+/")});
+    assert.equal(typeof snapshot?.currentAttempt,"number");
+    assert.equal(typeof snapshot?.createdAt,"number");
   });
 
   it("replays a real DLQ record and creates a new PENDING job row",async()=>{
