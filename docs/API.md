@@ -657,6 +657,14 @@ Response 202:
 {"data":{"jobId":"uuid","status":"queued","type":"receipt","objectKey":"ocr/..."}}
 ```
 
+### GET /internal/ocr/jobs/recoverable
+
+Endpoint interno worker-to-service. Richiede internal service token. Restituisce i job queued o processing recuperabili dal database quando la coda Redis non contiene più il messaggio.
+
+### POST /internal/ocr/jobs/{jobId}/process
+
+Endpoint interno worker-to-service. Richiede internal service token. Processa il job in modo idempotente e crea/aggiorna l'unico draft associato al job. Se il provider OCR è disabilitato o la confidence è inferiore a 0.70, lo stato finale è needs_review; non vengono create false estrazioni.
+
 ### GET /ocr/jobs
 
 Query: `familyId`, optional `status`, `limit`, `cursor`.
@@ -718,6 +726,10 @@ Response 202:
 ```json
 {"data":{"predictionId":"uuid","status":"queued"}}
 ```
+
+### GET /internal/shelf-life/predictions/recoverable
+
+Endpoint interno worker-to-service. Richiede internal service token. Restituisce le prediction queued o completed che possono essere riprese dopo perdita della coda Redis o riavvio del worker.
 
 ### GET /shelf-life/predictions/{predictionId}
 
