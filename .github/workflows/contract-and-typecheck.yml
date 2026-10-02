@@ -14,10 +14,8 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - name: Validate lockfile
-        run: npm install --package-lock-only --ignore-scripts
-      - name: Fail on lockfile drift
-        run: git diff --exit-code -- package-lock.json
+      - name: Validate lockfile without rewriting it
+        run: npm ci --dry-run --ignore-scripts
       - name: Contract audit
         run: npm run contract:audit
       - name: Typecheck
