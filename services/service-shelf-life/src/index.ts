@@ -264,9 +264,9 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
     const predictionId = crypto.randomUUID();
     const response = { data: { predictionId, status: "queued" }, version: 1 };
     await client.query(
-      `insert into shelf_life_domain.predictions(id,user_id,family_id,item_id,product_id,estimated_expires_at,confidence,basis,model_version,status)
-       values($1,$2,$3,$4,$5,now(),0,'pending','pending','queued')`,
-      [predictionId,userId,familyId,itemId,productId],
+      `insert into shelf_life_domain.predictions(id,user_id,family_id,item_id,product_id,storage,opened,category,stored_on,estimated_expires_at,confidence,basis,model_version,status)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),0,'pending','pending','queued')`,
+      [predictionId,userId,familyId,itemId,productId,storage,opened,typeof body.category==="string"?body.category.trim().toLowerCase():null,storedOn ?? null],
     );
     await emitOutbox(client,"ShelfLifePredictionQueued",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null,storedOn:storedOn ?? null});
     await finishIdempotency(client,req,202,response);
@@ -300,12 +300,6 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
   if (!requireInternal(req,res)) return;
   const id = req.params.predictionId;
   const body = req.body as Body;
-  const storage = normalizeStorage(body.storedAt ?? body.storage);
-  const opened = body.opened === true;
-  const category = typeof body.category === "string" ? body.category.trim().toLowerCase() : null;
-  const storedOn = parseOptionalIsoDate(body.storedOn);
-  if (storage === null) return fail(res,400,"VALIDATION_ERROR","storedAt is invalid.");
-  if (body.storedOn !== undefined && storedOn === undefined) return fail(res,400,"VALIDATION_ERROR","storedOn is invalid.");
   const client = await pool.connect();
   try {
     await client.query("begin");
@@ -314,8 +308,17 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
       [id],
     );
     if (!current.rowCount) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Prediction not found."); }
-    if (current.rows[0].status === "applied") { await client.query("commit"); return res.status(200).json({ data: current.rows[0] }); }
-    if (current.rows[0].status === "superseded") { await client.query("rollback"); return fail(res,409,"CONFLICT","Shelf-life prediction has been superseded."); }
+    const stored = current.rows[0];
+    if (stored.status === "applied") { await client.query("commit"); return res.status(200).json({ data: stored }); }
+    if (stored.status === "completed") { await client.query("commit"); return res.status(200).json({ data: stored, version: Number(stored.version) }); }
+    if (stored.status === "superseded") { await client.query("rollback"); return fail(res,409,"CONFLICT","Shelf-life prediction has been superseded."); }
+
+    const storage = normalizeStorage(body.storedAt ?? body.storage ?? stored.storage);
+    const opened = typeof body.opened === "boolean" ? body.opened : stored.opened === true;
+    const category = typeof body.category === "string" ? body.category.trim().toLowerCase() : (typeof stored.category === "string" ? stored.category : null);
+    const storedOn = parseOptionalIsoDate(body.storedOn) ?? parseOptionalIsoDate(stored.stored_on);
+    if (storage === null) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","storedAt is invalid."); }
+    if (body.storedOn !== undefined && parseOptionalIsoDate(body.storedOn) === undefined) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","storedOn is invalid."); }
 
     const rule = await ruleFor(category,String(current.rows[0].product_id),storage,opened);
     if (!rule) {
