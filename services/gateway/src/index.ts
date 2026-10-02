@@ -274,6 +274,15 @@ async function enrichInventoryItems(items: Array<Record<string, any>>, authoriza
   });
 }
 
+async function getEnrichedInventory(familyId: string, authorization?: string): Promise<Record<string, any>> {
+  const inventory = await getEnrichedInventory(familyId, authorization);
+  const items = Array.isArray(inventory.items) ? inventory.items as Array<Record<string, any>> : [];
+  return {
+    ...inventory,
+    items: await enrichInventoryItems(items, authorization),
+  };
+}
+
 async function inventoryListView(req: Request, res: Response): Promise<void> {
   const familyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
   if (!familyId) {
@@ -282,7 +291,7 @@ async function inventoryListView(req: Request, res: Response): Promise<void> {
   }
   try {
     const authorization = req.header("authorization") ?? undefined;
-    const inventory = await coreGet("/inventory", authorization, { familyId });
+    const inventory = await getEnrichedInventory(familyId, authorization);
     const items = Array.isArray(inventory.items) ? inventory.items as Array<Record<string, any>> : [];
     const enriched = await enrichInventoryItems(items, authorization);
     res.status(200).json({ items: enriched, nextCursor: inventory.nextCursor ?? null });
@@ -338,7 +347,7 @@ async function dashboardView(familyId: string, authorization?: string) {
   const sources = await Promise.all([
     settleDownstream("family", () => coreGet(`/families/${encodeURIComponent(familyId)}`, authorization)),
     settleDownstream("family", () => coreGet(`/families/${encodeURIComponent(familyId)}/members`, authorization)),
-    settleDownstream("inventory", () => coreGet("/inventory", authorization, { familyId })),
+    settleDownstream("inventory", () => getEnrichedInventory(familyId, authorization)),
     settleDownstream("shopping", () => getActiveShopping(familyId, authorization)),
     settleDownstream("recipes", () => serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId })),
     settleDownstream("notifications", () => coreGet("/notifications", authorization, { familyId })),
@@ -377,7 +386,7 @@ async function settleDownstream<T>(
 
 async function pantryView(familyId: string, authorization?: string) {
   const [pantry, shopping, notifications] = await Promise.all([
-    coreGet("/inventory", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
     getActiveShopping(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
@@ -387,7 +396,7 @@ async function pantryView(familyId: string, authorization?: string) {
 async function shoppingView(familyId: string, authorization?: string) {
   const [shopping, pantry, notifications] = await Promise.all([
     getActiveShopping(familyId, authorization),
-    coreGet("/inventory", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, shopping, notifications);
@@ -396,7 +405,7 @@ async function shoppingView(familyId: string, authorization?: string) {
 async function recipesView(familyId: string, authorization?: string) {
   const [recipes, pantry, shopping, notifications] = await Promise.all([
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
-    coreGet("/inventory", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
     getActiveShopping(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
@@ -408,7 +417,7 @@ async function recipesView(familyId: string, authorization?: string) {
 async function nutritionView(familyId: string, authorization?: string) {
   const [nutrition, pantry, notifications] = await Promise.all([
     serviceGet(nutritionBaseUrl, "/nutrition/summary", authorization, { familyId, period: "today" }),
-    coreGet("/inventory", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, undefined, notifications, { nutrition });
@@ -433,7 +442,7 @@ async function familyView(familyId: string, authorization?: string) {
 async function notificationsView(familyId: string, authorization?: string) {
   const [notifications, pantry] = await Promise.all([
     coreGet("/notifications", authorization, { familyId }),
-    coreGet("/inventory", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
   ]);
   return {
     familyId,
