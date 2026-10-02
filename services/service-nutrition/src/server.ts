@@ -14,8 +14,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 type Body = Record<string, unknown>;
 
-const fail = (res: Response, status: number, code: string, message: string): Response =>
-  res.status(status).json({ error: { code, message, details: [], requestId: crypto.randomUUID() } });
+const fail = (res: Response, status: number, code: string, message: string): Response => { const requestId=crypto.randomUUID(); return res.status(status).json({error:{code,message,details:[],retryable:status>=502,requestId},meta:{requestId,traceId:requestId,schemaVersion:"1.0"}}); };
 
 const actor = (req: Request): string => String(req.header("x-user-id") ?? "").trim();
 const key = (req: Request): string | null => {
@@ -143,9 +142,10 @@ app.get("/api/v1/nutrition/diary", async(req,res)=>{
     `select id,date,meal,product_id,quantity,unit,source,source_movement_id,created_at,updated_at,version
      from nutrition_domain.diary_entries where user_id=$1 and ($2='' or date >= $2::date) and ($3='' or date <= $3::date)
      order by date desc,created_at desc limit $4 offset $5`,
-    [userId,from,to,limit,offset],
+    [userId,from,to,limit+1,offset],
   );
-  return res.json({items:q.rows.map(x=>({entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source})),nextCursor:q.rows.length===limit?String(offset+limit):null});
+  const hasNext=q.rows.length>limit; const rows=hasNext?q.rows.slice(0,limit):q.rows;
+  return res.json({items:rows.map(x=>({entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source})),nextCursor:hasNext?String(offset+limit):null});
 });
 
 app.post("/api/v1/nutrition/diary", async(req,res)=>{
