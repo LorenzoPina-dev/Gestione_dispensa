@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { authorize, type MembershipContext } from "../identity/authorization.js";
 import type { Principal } from "../identity/oidc.js";
 
@@ -34,7 +35,7 @@ export interface PrivacyErasureRepository {
   failErasure(id: string): Promise<ErasureRequest>;
   upsertConsent(input: PrivacyConsent): Promise<PrivacyConsent>;
   listConsents(userId: string): Promise<readonly PrivacyConsent[]>;
-  upsertConsentsAtomic(input: { userId: string; consents: readonly PrivacyConsent[] }): Promise<readonly PrivacyConsent[]>;
+  upsertConsentsAtomic(input: { userId: string; consents: readonly PrivacyConsent[]; idempotencyKey: string; requestHash: string }): Promise<{ consents: readonly PrivacyConsent[]; replay: boolean; conflict: boolean }>;
 }
 
 export interface FamilyOwnershipReader {
@@ -219,6 +220,7 @@ export class PrivacyErasureService {
     principal: Principal | undefined,
     values: { analytics: boolean; personalization: boolean; notifications: boolean },
     traceId: string,
+    idempotencyKey: string,
   ): Promise<readonly PrivacyConsent[]> {
     const actor = this.requireAuthenticated(principal);
     const now = this.now();
@@ -228,7 +230,9 @@ export class PrivacyErasureService {
       { userId: actor.subject, purpose: "notifications", granted: values.notifications, consentVersion: "privacy-consents-v1", updatedAt: now },
     ];
     try {
-      const result = await this.repository.upsertConsentsAtomic({ userId: actor.subject, consents });
+      const requestHash = crypto.createHash("sha256").update(JSON.stringify(values)).digest("hex");
+      const result = await this.repository.upsertConsentsAtomic({ userId: actor.subject, consents, idempotencyKey: idempotencyKey.trim(), requestHash });
+      if (result.conflict) throw new PrivacyErasureError("IDEMPOTENCY_CONFLICT", "Idempotency key conflict.");
       for (const consent of result) {
         await this.audit.append({
           actorId: actor.subject,
