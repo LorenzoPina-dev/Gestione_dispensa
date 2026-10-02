@@ -367,3 +367,56 @@ describe("service-catalog / HTTP mapping and validators", () => {
     }, meta), (error: unknown) => error instanceof CatalogHttpError && error.status === 401);
   });
 });
+
+
+describe("service-catalog / barcode persistence error handling", () => {
+  it("does not misclassify a Catalog persistence failure as provider degradation", async () => {
+    const persistenceError = new Error("database write failed");
+    const workflow = new CatalogWorkflowService(
+      {
+        findByIdentifier: async () => undefined,
+        persistExternalMatch: async () => {
+          throw persistenceError;
+        },
+      },
+      { applyImportedCandidate: async (input) => input.candidate },
+      {
+        lookup: async () => ({
+          canonicalName: "Yogurt",
+          defaultUnit: "piece",
+          source: "openfoodfacts",
+          sourceVersion: "off-api-v3",
+          confidence: 0.85,
+        }),
+      },
+    );
+
+    await assert.rejects(
+      () => workflow.resolveBarcode("BARCODE", "8001234567890", meta.traceId),
+      (error: unknown) => error === persistenceError,
+    );
+
+    const mapped = toCatalogHttpError(persistenceError, meta);
+    assert.equal(mapped.status, 500);
+    assert.equal(mapped.body.error.code, "INTERNAL_ERROR");
+  });
+
+  it("keeps provider failures on the documented degraded path", async () => {
+    const workflow = new CatalogWorkflowService(
+      {
+        findByIdentifier: async () => undefined,
+        persistExternalMatch: async () => product(),
+      },
+      { applyImportedCandidate: async (input) => input.candidate },
+      {
+        lookup: async () => {
+          throw new Error("off-lookup unavailable");
+        },
+      },
+    );
+
+    const result = await workflow.resolveBarcode("BARCODE", "8001234567890", meta.traceId);
+    assert.equal(result.status, "DEGRADED");
+    assert.equal(result.product, undefined);
+  });
+});
