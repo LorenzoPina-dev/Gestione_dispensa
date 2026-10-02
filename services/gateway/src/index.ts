@@ -83,6 +83,9 @@ app.post("/api/v1/auth/register", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/logout", serviceProxy(identityBaseUrl));
 app.get("/api/v1/family-invites/:token", serviceProxy(familyBaseUrl));
+app.get("/api/v1/inventory", requireGatewayAuth, inventoryListView);
+app.get("/api/v1/inventory/:itemId", requireGatewayAuth, inventoryItemView);
+
 for (const [prefix, base] of [
   ["/api/v1/identity", identityBaseUrl],
   ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
@@ -236,6 +239,81 @@ async function composite(
     recordError(error, { status });
     if (error instanceof GatewayError) noteUpstreamFailure(error.body, error.target);
     res.status(status).json(withMeta(body ?? { error: { code: "UPSTREAM_UNAVAILABLE", message: "Core API unavailable", retryable: true } }));
+  }
+}
+
+
+async function enrichInventoryItems(items: Array<Record<string, any>>, authorization?: string): Promise<Array<Record<string, any>>> {
+  const productIds = [...new Set(items.map((item) => typeof item.productId === "string" ? item.productId : "").filter(Boolean))];
+  const products = new Map<string, Record<string, any>>();
+
+  await Promise.all(productIds.map(async (productId) => {
+    try {
+      const product = await serviceGet(catalogBaseUrl, "/catalog/products/" + encodeURIComponent(productId), authorization);
+      products.set(productId, product);
+    } catch {
+      // Keep Inventory readable if Catalog is temporarily unavailable.
+    }
+  }));
+
+  return items.map((item) => {
+    const product = typeof item.productId === "string" ? products.get(item.productId) : undefined;
+    if (!product) return item;
+    return {
+      ...item,
+      ...(typeof product.name === "string" ? { name: product.name, productName: product.name } : {}),
+      ...(typeof product.brand === "string" ? { brand: product.brand } : {}),
+      ...(typeof product.category === "string" ? { category: product.category } : {}),
+      ...(product.source?.type === "manual" ? { provenance: "VERIFIED" } : { provenance: "IMPORTED" }),
+      ...(typeof product.nutrition?.kcalPer100g === "number" ? { calories: product.nutrition.kcalPer100g } : {}),
+      ...(typeof product.nutrition?.proteinGPer100g === "number" ? { protein: product.nutrition.proteinGPer100g } : {}),
+      ...(typeof product.nutrition?.carbsGPer100g === "number" ? { carbs: product.nutrition.carbsGPer100g } : {}),
+      ...(typeof product.nutrition?.fatGPer100g === "number" ? { fat: product.nutrition.fatGPer100g } : {}),
+      ...(typeof product.nutrition?.fiberGPer100g === "number" ? { fiber: product.nutrition.fiberGPer100g } : {}),
+    };
+  });
+}
+
+async function inventoryListView(req: Request, res: Response): Promise<void> {
+  const familyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
+  if (!familyId) {
+    res.status(400).json(withMeta({ error: { code: "VALIDATION_ERROR", message: "familyId is required", retryable: false } }));
+    return;
+  }
+  try {
+    const authorization = req.header("authorization") ?? undefined;
+    const inventory = await coreGet("/inventory", authorization, { familyId });
+    const items = Array.isArray(inventory.items) ? inventory.items as Array<Record<string, any>> : [];
+    const enriched = await enrichInventoryItems(items, authorization);
+    res.status(200).json({ items: enriched, nextCursor: inventory.nextCursor ?? null });
+  } catch (error) {
+    const status = error instanceof GatewayError ? error.status : 502;
+    const body = error instanceof GatewayError ? error.body : undefined;
+    recordError(error, { status });
+    if (error instanceof GatewayError) noteUpstreamFailure(error.body, error.target);
+    res.status(status).json(withMeta(body ?? { error: { code: "UPSTREAM_UNAVAILABLE", message: "Inventory unavailable", retryable: true } }));
+  }
+}
+
+async function inventoryItemView(req: Request, res: Response): Promise<void> {
+  const familyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
+  const itemId = typeof req.params.itemId === "string" ? req.params.itemId.trim() : "";
+  if (!familyId || !itemId) {
+    res.status(400).json(withMeta({ error: { code: "VALIDATION_ERROR", message: "familyId and itemId are required", retryable: false } }));
+    return;
+  }
+  try {
+    const authorization = req.header("authorization") ?? undefined;
+    const inventory = await coreGet("/inventory/" + encodeURIComponent(itemId), authorization, { familyId });
+    const single = inventory.data ?? inventory;
+    const enriched = await enrichInventoryItems([single as Record<string, any>], authorization);
+    res.status(200).json({ data: enriched[0] ?? single });
+  } catch (error) {
+    const status = error instanceof GatewayError ? error.status : 502;
+    const body = error instanceof GatewayError ? error.body : undefined;
+    recordError(error, { status });
+    if (error instanceof GatewayError) noteUpstreamFailure(error.body, error.target);
+    res.status(status).json(withMeta(body ?? { error: { code: "UPSTREAM_UNAVAILABLE", message: "Inventory unavailable", retryable: true } }));
   }
 }
 
