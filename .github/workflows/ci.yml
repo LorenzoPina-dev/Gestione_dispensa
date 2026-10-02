@@ -22,6 +22,10 @@ jobs:
       - name: Contract audit
         run: npm run contract:audit
       - run: npm run build
+      - name: Run service-family migration schema tests
+        env:
+          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
+        run: npm run test:migration -w @gestione-dispensa/service-family
       - run: npm run typecheck
       - run: npm run test
 
@@ -57,6 +61,7 @@ jobs:
     env:
       INVENTORY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
       FAMILY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/family_db
+      CATALOG_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/catalog_db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,10 +74,13 @@ jobs:
         run: |
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE family_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE catalog_db;"
           psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$INVENTORY_DATABASE_URL" -f services/service-inventory/migrations/001_initial.sql
           psql "$FAMILY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$FAMILY_DATABASE_URL" -f services/service-family/migrations/001_initial.sql
+          psql "$CATALOG_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          true
       - run: npm run typecheck
       - run: npm run build
       - name: Start service-family against the real test database
@@ -90,6 +98,11 @@ jobs:
           FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
         run: npm run test:integration -w @gestione-dispensa/service-family
       - name: Run service-inventory migration suite against real PostgreSQL
+      - name: Run service-catalog migration suite against real PostgreSQL
+        env:
+          CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
+        working-directory: services/service-catalog
+        run: npm run test:migration
         env:
           INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
         run: npm run test:migration -w @gestione-dispensa/service-inventory
@@ -103,6 +116,11 @@ jobs:
           cat /tmp/service-inventory.log
           exit 1
       - name: Run service-inventory real cross-service flow
+      - name: Run service-catalog real repository flow
+        env:
+          CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
+        working-directory: services/service-catalog
+        run: npm run test:integration
         env:
           INVENTORY_TEST_URL: http://127.0.0.1:3312
           INVENTORY_TEST_FAMILY_URL: http://127.0.0.1:3311
