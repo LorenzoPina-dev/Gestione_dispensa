@@ -54,12 +54,12 @@ export function sendSuccess<T>(res: Response, status: number, data: T, meta: Htt
 export async function respond<T>(
   res: Response,
   meta: HttpMeta,
-  work: Promise<{ data: T; meta: HttpMeta; version?: number }>,
+  work: Promise<{ data: T; meta: HttpMeta; version?: number; status?: number }>,
   toHttpError: (error: unknown, meta: HttpMeta) => { status: number; body: HttpErrorBody },
 ): Promise<void> {
   try {
     const result = await work;
-    sendSuccess(res, 200, result.data, result.meta, result.version);
+    sendSuccess(res, result.status ?? 200, result.data, result.meta, result.version);
   } catch (error) {
     const { status, body } = toHttpError(error, meta);
     res.status(status).json(body);
