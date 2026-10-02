@@ -729,6 +729,8 @@ La previsione è una stima di conservabilità/qualità e non sostituisce una dat
 
 Per le categorie riconosciute, una combinazione incompatibile tra prodotto e luogo di conservazione non viene trasformata in una falsa stima generica.
 
+Categorie canoniche minime usate dal profilo Shelf-Life: `confectionery-candy`, `chewing-gum`, `chocolate-confectionery`, `biscuits-crackers`, `breakfast-cereals`, `coffee-tea`, `nuts-snacks`, `dry-staples`, `canned-preserved`, `sauces-condiments`, `oils-fats`, `shelf-stable-beverages`, `pantry-indefinite`, oltre alle categorie fresche/congelate già definite dal Catalogo. La classificazione usa i tag Open Food Facts e, quando i tag sono incompleti, il nome del prodotto.
+
 ### POST /shelf-life/predictions/{predictionId}/apply
 
 Body `{}`. Response 200 con prediction applicata. Il service Inventory resta owner della current pantry state.
