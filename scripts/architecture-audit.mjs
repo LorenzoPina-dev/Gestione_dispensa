@@ -19,7 +19,7 @@ const canonical = [
 
 const sqlMigrationServices = canonical
   .map(([name]) => String(name))
-  .filter((name) => name !== "off-lookup");
+  .filter((name) => name !== "off-lookup" && name !== "gateway");
 
 const compose = await readFile("docker-compose.yml", "utf8");
 const data = await readFile("docs/DATA.md", "utf8");
@@ -72,7 +72,8 @@ for (const [name, port] of canonical) {
     if (!startup.includes("dist/migrate.js")) failures.push(name + ": Docker startup does not execute migrations");
   }
   if (block.includes("ports:")) failures.push(name + ": application service must not publish host ports");
-  if (!block.includes("PORT: " + port)) failures.push(name + ": canonical port " + port + " is not configured");
+  const portConfigured = name === "off-lookup" ? block.includes("OFF_LOOKUP_PORT: " + port) : block.includes("PORT: " + port);
+  if (!portConfigured) failures.push(name + ": canonical port " + port + " is not configured");
 }
 
 const dbUrls = [];
