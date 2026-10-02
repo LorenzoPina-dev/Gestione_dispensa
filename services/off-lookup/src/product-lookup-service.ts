@@ -142,7 +142,7 @@ export class ProductLookupService {
       });
     });
 
-    log("warn", "lookup_cache_refresh_failed_using_cache", {
+    log("error", "lookup_cache_refresh_failed_using_cache", {
       barcode,
       reason: apiResult.reason,
     });
