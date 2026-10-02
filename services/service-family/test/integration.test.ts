@@ -16,6 +16,7 @@ if (!databaseUrl) {
 const pool = new Pool({ connectionString: databaseUrl });
 const ownerUserId = randomUUID();
 const secondUserId = randomUUID();
+const thirdUserId = randomUUID();
 const familyName = `integration-family-${Date.now()}-${randomUUID().slice(0, 8)}`;
 let familyId: string | undefined;
 let familyVersion = 1;
@@ -242,6 +243,49 @@ describe("service-family / real PostgreSQL integration", () => {
     assert.equal(db.rows[0].status, "pending");
   });
 
+  it("previews a pending invite without granting membership", async () => {
+    assert.ok(inviteToken);
+    const preview = await request(`/api/v1/family-invites/${inviteToken}`);
+    assert.equal(preview.response.status, 200);
+    assert.equal(preview.body?.data?.inviteId, inviteId);
+    assert.equal(preview.body?.data?.familyName, familyName);
+    assert.equal(preview.body?.data?.status, "pending");
+    assert.equal(preview.body?.data?.role, "member");
+  });
+
+  it("resolves a separate invite through the real six-digit code path", async () => {
+    assert.ok(familyId);
+    const created = await request(`/api/v1/families/${familyId}/invites`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `code-invite-${randomUUID()}`,
+      },
+      body: JSON.stringify({ role: "member", expiresInSeconds: 3600 }),
+    });
+    assert.equal(created.response.status, 201);
+
+    const code = created.body?.data?.fallbackCode;
+    const result = await request("/api/v1/family-invites/resolve-code", {
+      method: "POST",
+      headers: {
+        "x-user-id": thirdUserId,
+        "content-type": "application/json",
+        "x-idempotency-key": `resolve-code-${randomUUID()}`,
+      },
+      body: JSON.stringify({
+        code,
+        browserBindingHash: "abcdef0123456789abcdef0123456789",
+      }),
+    });
+
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body?.data?.state, "PENDING_REVIEW");
+    assert.equal(result.body?.data?.userId, thirdUserId);
+    assert.equal(result.body?.data?.role, "MEMBER");
+  });
+
   it("resolves an invite through a real join-attempt transaction", async () => {
     assert.ok(inviteToken);
     const resolved = await request("/api/v1/family-invites/resolve", {
@@ -301,6 +345,48 @@ describe("service-family / real PostgreSQL integration", () => {
     assert.equal(state.rows[0].invite_status, "accepted");
     assert.equal(state.rows[0].join_state, "ACCEPTED");
     assert.equal(state.rows[0].member_role, "member");
+  });
+
+  it("updates a real member role and then removes that member", async () => {
+    assert.ok(familyId);
+    assert.ok(secondUserId);
+
+    const list = await request(`/api/v1/families/${familyId}/members`, {
+      headers: authHeaders(),
+    });
+    const member = list.body?.items?.find((entry: any) => entry.userId === secondUserId);
+    assert.ok(member);
+    assert.equal(member.status, "ACTIVE");
+
+    const updated = await request(`/api/v1/families/${familyId}/members/${secondUserId}`, {
+      method: "PATCH",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `member-update-${randomUUID()}`,
+        "if-match": String(member.version),
+      },
+      body: JSON.stringify({ role: "viewer" }),
+    });
+
+    assert.equal(updated.response.status, 200);
+    assert.equal(updated.body?.data?.role, "viewer");
+    assert.equal(updated.body?.data?.status, "ACTIVE");
+
+    const removed = await request(`/api/v1/families/${familyId}/members/${secondUserId}`, {
+      method: "DELETE",
+      headers: {
+        ...authHeaders(),
+        "x-idempotency-key": `member-remove-${randomUUID()}`,
+        "if-match": String(updated.body?.version),
+      },
+    });
+    assert.equal(removed.response.status, 204);
+
+    const membersAfter = await request(`/api/v1/families/${familyId}/members`, {
+      headers: authHeaders(),
+    });
+    assert.equal(membersAfter.body?.items?.some((entry: any) => entry.userId === secondUserId), false);
   });
 
   it("revokes a pending invite with optimistic locking", async () => {
