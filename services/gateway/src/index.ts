@@ -275,7 +275,7 @@ async function enrichInventoryItems(items: Array<Record<string, any>>, authoriza
 }
 
 async function getEnrichedInventory(familyId: string, authorization?: string): Promise<Record<string, any>> {
-  const inventory = await getEnrichedInventory(familyId, authorization);
+  const inventory = await coreGet("/inventory", authorization, { familyId });
   const items = Array.isArray(inventory.items) ? inventory.items as Array<Record<string, any>> : [];
   return {
     ...inventory,
@@ -292,9 +292,7 @@ async function inventoryListView(req: Request, res: Response): Promise<void> {
   try {
     const authorization = req.header("authorization") ?? undefined;
     const inventory = await getEnrichedInventory(familyId, authorization);
-    const items = Array.isArray(inventory.items) ? inventory.items as Array<Record<string, any>> : [];
-    const enriched = await enrichInventoryItems(items, authorization);
-    res.status(200).json({ items: enriched, nextCursor: inventory.nextCursor ?? null });
+    res.status(200).json({ items: inventory.items ?? [], nextCursor: inventory.nextCursor ?? null });
   } catch (error) {
     const status = error instanceof GatewayError ? error.status : 502;
     const body = error instanceof GatewayError ? error.body : undefined;
