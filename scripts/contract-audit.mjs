@@ -89,7 +89,10 @@ for (const serviceRoot of migrationRoots) {
     migrationServices.push(serviceRoot);
     for (const file of files.filter((name) => /^\d+_.+\.sql$/.test(name))) {
       const sql = await readFile(migrationsDir + "/" + file, "utf8");
-      for (const match of sql.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-zA-Z0-9_.]+)/gi)) {
+      const sqlWithoutComments = sql
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|\s)--.*$/gm, "");
+      for (const match of sqlWithoutComments.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-zA-Z0-9_.]+)/gi)) {
         physicalTables.add(match[1].toLowerCase());
       }
     }
