@@ -22,7 +22,7 @@ Tutti i database PostgreSQL applicativi usano UTC e `timestamptz`. Le tabelle pr
 | shopping_db | Shopping | PostgreSQL | shopping_domain.lists, shopping_domain.items, shopping_domain.outbox_events, shopping_domain.idempotency_keys |
 | catalog_db | Catalog | PostgreSQL | products, product_identifiers, data_sources, data_provenance, outbox_events, idempotency_keys |
 | notifications_db | Notifications | PostgreSQL | notifications_domain.notifications, notifications_domain.preferences, notifications_domain.outbox_events, notifications_domain.idempotency_keys |
-| privacy_db | Privacy | PostgreSQL | consents, privacy_jobs, erasure_requests, outbox_events, idempotency_keys |
+| privacy_db | Privacy | PostgreSQL | privacy_consents, privacy_erasure_requests, privacy_export_jobs, export_artifacts, audit_events, outbox_events, idempotency_keys |
 | jobs_db | Jobs | PostgreSQL | jobs, job_attempts, dead_letter_jobs, audit_events, inbox_events |
 | recipes_db | Recipes | PostgreSQL | recipes_domain.recipes, recipes_domain.recipe_ingredients, recipes_domain.recipe_steps, recipes_domain.outbox_events, recipes_domain.idempotency_keys |
 | nutrition_db | Nutrition | PostgreSQL | nutrition_domain.targets, nutrition_domain.diary_entries, nutrition_domain.outbox_events, nutrition_domain.idempotency_keys |
@@ -376,41 +376,71 @@ Same common Outbox contract as section 3, scoped to notifications_db.
 
 ## 10. privacy_db
 
-### consents
+### privacy_consents
 
 ```text
-user_id UUID PK
-analytics boolean NOT NULL
-personalization boolean NOT NULL
-notifications boolean NOT NULL
+user_id UUID NOT NULL
+purpose varchar(100) NOT NULL
+granted boolean NOT NULL
+consent_version varchar(64) NOT NULL
 updated_at timestamptz NOT NULL
-version integer NOT NULL
+PRIMARY KEY(user_id,purpose)
 ```
 
-### privacy_jobs
+### privacy_erasure_requests
 
 ```text
 id UUID PK
-user_id UUID NOT NULL
-type varchar NOT NULL -- export|erase
-status varchar NOT NULL -- queued|processing|completed|failed
-object_key varchar NULL
-error_code varchar NULL
+family_id UUID NOT NULL
+requester_id UUID NOT NULL
+idempotency_key varchar(255) NOT NULL
+status varchar NOT NULL -- REQUESTED|PROCESSING|COMPLETED|FAILED
 created_at timestamptz NOT NULL
-updated_at timestamptz NOT NULL
-version integer NOT NULL
+completed_at timestamptz NULL
+UNIQUE(family_id,idempotency_key)
 ```
 
-### erasure_requests
+### privacy_export_jobs
 
 ```text
 id UUID PK
-user_id UUID NOT NULL
-requested_at timestamptz NOT NULL
-confirmed_at timestamptz NOT NULL
-status varchar NOT NULL
-completed_at timestamptz NULL
+family_id UUID NOT NULL
+owner_id UUID NOT NULL
+idempotency_key varchar(255) NOT NULL
+status varchar NOT NULL -- PENDING|COMPLETED|FAILED|EXPIRED
+artifact_id UUID NULL
+expires_at timestamptz NULL
+created_at timestamptz NOT NULL
+UNIQUE(family_id,idempotency_key)
 ```
+
+### export_artifacts
+
+```text
+id UUID PK
+family_id UUID NOT NULL
+content JSONB NOT NULL
+expires_at timestamptz NOT NULL
+created_at timestamptz NOT NULL
+```
+
+### audit_events
+
+```text
+id UUID PK
+family_id UUID NULL
+actor_id UUID NULL
+action varchar(128) NOT NULL
+resource_type varchar(128) NOT NULL
+resource_id UUID NULL
+outcome varchar(32) NOT NULL
+reason text NULL
+trace_id varchar(128) NOT NULL
+metadata JSONB NOT NULL
+created_at timestamptz NOT NULL
+```
+
+Privacy uses the common `outbox_events` and `idempotency_keys` tables from section 3 in `privacy_db`.
 
 ## 11. jobs_db
 
