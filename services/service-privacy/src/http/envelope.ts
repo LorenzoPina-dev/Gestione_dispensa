@@ -5,7 +5,7 @@ import type { Request, Response } from "express";
 export interface HttpMeta { requestId: string; traceId: string; schemaVersion: "1.0"; }
 
 export interface HttpErrorBody {
-  error: { code: string; message: string; retryable: boolean; details?: unknown[] };
+  error: { code: string; message: string; retryable: boolean; details?: unknown[]; requestId: string };
   meta: HttpMeta;
 }
 
