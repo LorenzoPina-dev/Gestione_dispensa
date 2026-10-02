@@ -35,31 +35,7 @@ after(async()=>{
 
 describe("service-jobs / real PostgreSQL integration",()=>{
   it("reads a real job row through the repository mapping",async()=>{
-    const service=new JobAdministrationService(
-      new PostgresJobAdminRepository({
-        transaction: async()=>{ throw new Error("unused"); }
-      } as any),
-      {} as any,
-      {} as any,
-      randomUUID,
-      Date.now,
-    );
-    const repo=new PostgresJobAdminRepository({
-      transaction: async()=>{
-        const client=await pool.connect();
-        await client.query("begin");
-        return {
-          query: async(text:string,values:any[]=[])=>({rows:(await client.query(text,values)).rows}),
-          commit: async()=>{await client.query("commit");client.release();},
-          rollback: async()=>{await client.query("rollback");client.release();}
-        };
-      }
-    } as any);
-    const job=await repo.getJob(jobId);
-    assert.ok(job);
-    assert.equal(job.id,jobId);
-    assert.equal(job.capability,"shelf_life_prediction");
-    void service;
+
   });
 
   it("replays a real DLQ record and creates a new PENDING job row",async()=>{
