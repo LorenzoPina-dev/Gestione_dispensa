@@ -72,7 +72,7 @@ export function buildPrivacyRouter(deps: PrivacyRouteDependencies): Router {
       res,
       req.meta,
       erasure
-        .updateConsents(principal, parsed, req.meta.traceId)
+        .updateConsents(principal, parsed, req.meta.traceId, idempotencyKey)
         .then((rows) => ({
           data: {
             analytics: rows.find((x) => x.purpose === "analytics")?.granted ?? false,
