@@ -32,7 +32,7 @@ async function main(): Promise<void> {
       await client.query("BEGIN");
       await client.query(await readFile(join(migrationsDir, file), "utf8"));
       await client.query(
-        "INSERT INTO schema_migrations(version, applied_at) VALUES ($1, now())",
+        "INSERT INTO schema_migrations(version, applied_at) VALUES ($1, now()) ON CONFLICT (version) DO NOTHING",
         [file],
       );
       await client.query("COMMIT");
