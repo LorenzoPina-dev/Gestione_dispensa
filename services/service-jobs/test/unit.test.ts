@@ -1,6 +1,6 @@
 import{describe,it}from"node:test";import assert from"node:assert/strict";
 import{JobAdministrationService,JobAdminError}from"../src/jobs/admin.js";
-const operator:any={subject:"operator-1",issuer:"issuer",audience:["aud"],expiresAt:new Date(Date.now()+100000),issuedAt:new Date(),roles:["operator"],scopes:["jobs:read"]};
+const operator:any={subject:"operator-1",issuer:"issuer",audience:["aud"],expiresAt:new Date(Date.now()+100000),issuedAt:new Date(),roles:[],scopes:["operator"]};
 const job:any={id:"j1",capability:"shelf_life_prediction",status:"PENDING",currentAttempt:0,maxAttempts:5,nextAttemptAt:1,createdAt:1,updatedAt:1};
 const dlq:any={id:"d1",jobId:"j1",queue:"shelf-life",reason:"transient",attempts:5,replayCount:0,failedAt:1,originalCreatedAt:1};
 describe("jobs admin domain",()=>{
