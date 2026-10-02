@@ -62,7 +62,7 @@ describe("service-privacy / real domain integration",()=>{
   it("stores and reads consent in real PostgreSQL",async()=>{
     const repo=new PostgresPrivacyErasureRepository(db);
     const audit=new PostgresPrivacyAuditWriter(db);
-    const service=new PrivacyErasureService(repo,ownership,{publish:async()=>{}},audit,()=>1000);
+    const service=new PrivacyErasureService(repo,ownership,jobsPublisher,audit,()=>1000);
     const consent=await service.updateConsent(principal,"analytics",true,"privacy-v1","trace-consent");
     assert.equal(consent.userId,userId);assert.equal(consent.granted,true);
     const list=await service.listConsents(principal);assert.equal(list[0].purpose,"analytics");
@@ -97,8 +97,7 @@ describe("service-privacy / real domain integration",()=>{
     assert.ok(familyId);
     const repo=new PostgresPrivacyExportRepository(db);
     const audit=new PostgresPrivacyAuditWriter(db);
-    const publisher={publish:async()=>{}};
-    const s=new PrivacyExportService(repo,ownership,publisher,new PostgresExportArtifactStore(db),audit,()=>4000);
+    const s=new PrivacyExportService(repo,ownership,jobsPublisher,new PostgresExportArtifactStore(db),audit,()=>4000);
     const key="export-replay-"+randomUUID();
     const a=await s.create(principal,familyId,key,"trace-a");
     const b=await s.create(principal,familyId,key,"trace-b");
