@@ -147,6 +147,7 @@ app.get("/api/v1/notifications", async (req, res) => {
     })),
     nextCursor: hasNext ? String(offset+limit) : null,
   });
+});
 
 app.post("/api/v1/notifications/:notificationId/read", async (req, res) => {
   const userId = actor(req);
