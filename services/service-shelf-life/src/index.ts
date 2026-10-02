@@ -296,6 +296,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
     );
     if (!current.rowCount) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Prediction not found."); }
     if (current.rows[0].status === "applied") { await client.query("commit"); return res.status(200).json({ data: current.rows[0] }); }
+    if (current.rows[0].status === "superseded") { await client.query("rollback"); return fail(res,409,"CONFLICT","Shelf-life prediction has been superseded."); }
 
     const rule = await ruleFor(category,storage,opened);
     if (!rule) {
