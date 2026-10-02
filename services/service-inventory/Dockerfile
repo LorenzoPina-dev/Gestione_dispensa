@@ -16,4 +16,6 @@ COPY services/service-inventory/package.json ./package.json
 RUN npm install --omit=dev --ignore-scripts
 COPY --from=build /app/services/service-inventory/dist ./dist
 COPY --from=build /app/services/service-inventory/migrations ./migrations
-CMD ["sh","-c","node dist/migrate.js && node dist/server.js"]
+COPY services/service-inventory/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
+CMD ["./docker-entrypoint.sh"]
