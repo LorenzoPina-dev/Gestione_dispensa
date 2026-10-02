@@ -5,7 +5,7 @@ import { HttpOffLookupClient } from "../src/catalog/external-barcode-client.js";
 
 let server: Server;
 let baseUrl = "";
-let mode: "success" | "404" | "503" | "malformed" | "slow" = "success";
+let mode: "success" | "candy" | "404" | "503" | "malformed" | "slow" = "success";
 let requests = 0;
 
 before(async () => {
@@ -37,6 +37,23 @@ before(async () => {
           product: { product_name_it: "Latte", quantity: "1 L", brands: "Marca", categories_tags: ["en:dairies"] },
         }));
       }, 100);
+      return;
+    }
+    if (mode === "candy") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({
+        code: "8003440108888",
+        source: "cache",
+        product: {
+          product_name_it: "Golia Activ Plus Senza Zucchero",
+          brands: "Perfetti",
+          quantity: "90 g",
+          product_quantity: 90,
+          product_quantity_unit: "g",
+          categories_tags: ["it:caramelle"],
+        },
+      }));
       return;
     }
     res.statusCode = 200;
@@ -115,6 +132,20 @@ describe("service-catalog / HTTP Open Food Facts boundary", () => {
     assert.equal((result.openFoodFacts?.ingredients_text as string), "Milk, cream");
     assert.deepEqual(result.openFoodFacts?.allergens_tags, ["en:milk"]);
     assert.equal(result.openFoodFacts?.nutriscore_grade, "a");
+  });
+
+  it("classifies Italian confectionery products for shelf-life", async () => {
+    mode = "candy";
+    const client = new HttpOffLookupClient({ baseUrl, timeoutMs: 500 });
+    const result = await client.lookup({
+      identifierType: "BARCODE",
+      normalizedValue: "8003440108888",
+      traceId: "trace-123456789",
+    });
+    assert.ok(result);
+    assert.equal(result.category, "confectionery-candy");
+    assert.equal(result.quantityValue, 90);
+    assert.equal(result.quantityUnit, "g");
   });
 
   it("treats 404 as a clean miss and resets failures", async () => {
