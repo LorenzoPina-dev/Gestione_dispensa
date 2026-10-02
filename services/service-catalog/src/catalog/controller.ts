@@ -63,7 +63,7 @@ export class CatalogController {
   public async getProduct(productId: string, meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<PublicProduct>> {
     const product = await this.catalog.getProduct(productId);
     if (!product) throw new CatalogHttpError(404, "NOT_FOUND", "Product not found.");
-    return success(toPublicProduct(product), meta, product.version);
+    return success(toPublicProduct(product), meta, product.version, 201);
   }
 
   public async createProduct(
@@ -190,6 +190,6 @@ export function toCatalogHttpError(
   };
 }
 
-function success<T>(data: T, meta: CatalogHttpMeta, version?: number): CatalogHttpSuccess<T> & { version?: number } {
-  return { data, meta, ...(version === undefined ? {} : { version }) };
+function success<T>(data: T, meta: CatalogHttpMeta, version?: number, status?: number): CatalogHttpSuccess<T> & { version?: number; status?: number } {
+  return { data, meta, ...(version === undefined ? {} : { version }), ...(status === undefined ? {} : { status }) };
 }
