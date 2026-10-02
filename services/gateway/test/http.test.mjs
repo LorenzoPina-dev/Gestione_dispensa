@@ -5,12 +5,12 @@ import{spawn}from"node:child_process";
 import{once}from"node:events";
 import{randomUUID}from"node:crypto";
 
-let upstream:any;
-let gateway:any;
+let upstream;
+let gateway;
 let upstreamBase="";
 let gatewayBase="";
 
-async function http(base:string,path:string,init:RequestInit={}){const r=await fetch(base+path,init);const t=await r.text();let body:any=undefined;try{body=t?JSON.parse(t):undefined}catch{body=t}return{r,body}}
+async function http(base,path,init={}){const r=await fetch(base+path,init);const t=await r.text();let body=undefined;try{body=t?JSON.parse(t):undefined}catch{body=t}return{r,body}}
 
 before(async()=>{
   upstream=createServer((req,res)=>{
@@ -19,7 +19,7 @@ before(async()=>{
     if(req.url==="/api/v1/auth/register"&&req.method==="POST"){res.statusCode=201;return res.end(JSON.stringify({data:{success:true,message:"ok"}}));}
     res.statusCode=404;res.end(JSON.stringify({error:{code:"NOT_FOUND"}}));
   });
-  await new Promise<void>(resolve=>upstream.listen(0,"127.0.0.1",resolve));
+  await new Promise(resolve=>upstream.listen(0,"127.0.0.1",resolve));
   const ua=upstream.address();assert.ok(ua&&typeof ua==="object");upstreamBase="http://127.0.0.1:"+ua.port;
 
   gateway=spawn(process.execPath,["dist/index.js"],{
@@ -32,13 +32,13 @@ before(async()=>{
     try{const r=await fetch(gatewayBase+"/health/live");if(r.ok)return;}catch{}
     await new Promise(r=>setTimeout(r,100));
   }
-  const stderr=await new Response(gateway.stderr as any).text().catch(()=> "");
+  const stderr=await new Response(gateway.stderr).text().catch(()=> "");
   throw new Error("gateway did not start: "+stderr);
 });
 
 after(async()=>{
   if(gateway&&!gateway.killed){gateway.kill("SIGTERM");await once(gateway,"exit").catch(()=>{});}
-  if(upstream)await new Promise<void>(resolve=>upstream.close(()=>resolve()));
+  if(upstream)await new Promise(resolve=>upstream.close(()=>resolve()));
 });
 
 describe("gateway / documented public edge",()=>{
