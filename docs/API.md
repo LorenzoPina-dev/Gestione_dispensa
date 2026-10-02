@@ -706,12 +706,12 @@ This endpoint is backend-only and is never exposed through the Gateway.
 ### GET /privacy/consents
 Response 200:
 ```json
-{"data":{"analytics":false,"personalization":false,"notifications":true,"version":3}}
+{"data":{"analytics":false,"personalization":false,"notifications":true},"version":1,"meta":{"requestId":"uuid","traceId":"trace-id-16chars","schemaVersion":"1.0"}}
 ```
 
 ### PUT /privacy/consents
 
-Request: stesso schema. Response 200.
+Request: stesso schema dell’oggetto `PrivacyConsents` (solo `analytics`, `personalization`, `notifications`). `X-Idempotency-Key` obbligatorio. Response 200 con il medesimo schema in `data` e con `version` nell’envelope.
 
 ### POST /privacy/export
 
