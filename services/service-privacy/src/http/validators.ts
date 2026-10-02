@@ -324,20 +324,24 @@ export function parseErasureRequestBody(body: Body): { familyId: string; confirm
   return { familyId, confirmed };
 }
 
-export function parseConsentBody(
+export function parseConsentsBody(
   body: Body,
-): { purpose: string; granted: boolean; consentVersion: string } | undefined {
-  const { purpose, granted, consentVersion } = body;
+): { analytics: boolean; personalization: boolean; notifications: boolean } | undefined {
+  const keys = Object.keys(body);
   if (
-    typeof purpose !== "string" ||
-    purpose.trim().length === 0 ||
-    typeof granted !== "boolean" ||
-    typeof consentVersion !== "string" ||
-    consentVersion.trim().length === 0
+    keys.some((key) => !["analytics", "personalization", "notifications"].includes(key)) ||
+    keys.length !== 3 ||
+    typeof body.analytics !== "boolean" ||
+    typeof body.personalization !== "boolean" ||
+    typeof body.notifications !== "boolean"
   ) {
     return undefined;
   }
-  return { purpose, granted, consentVersion };
+  return {
+    analytics: body.analytics,
+    personalization: body.personalization,
+    notifications: body.notifications,
+  };
 }
 
 export function parseExportRequestBody(body: Body): { familyId: string } | undefined {
