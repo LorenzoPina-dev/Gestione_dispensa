@@ -48,7 +48,7 @@ const short = (value: unknown, max: number): string | undefined => (typeof value
  * size-limited and capped per IP. The browser sends the requestId/traceId of the failing call,
  * which lets you jump from a UI error straight to the backend trace (Grafana > Tempo / Loki).
  */
-app.post("/internal/client-errors", (req, res) => {
+app.post("/api/v1/client-errors", (req, res) => {
   const ip = req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
   const now = Date.now();
   const hit = beaconHits.get(ip);
@@ -222,8 +222,14 @@ async function composite(
   }
   if (/^[A-Za-z0-9._:-]{8,128}$/.test(familyId)) annotate({ familyId }); // log correlation only; user input, so shape-checked
   try {
-    const data = await builder(familyId, req.header("authorization") ?? undefined);
-    res.status(200).json({ data, meta: { schemaVersion: "view.v1" } });
+    const built = await builder(familyId, req.header("authorization") ?? undefined);
+    const partialFailures = Array.isArray((built as Record<string, unknown>).partialFailures)
+      ? (built as Record<string, unknown>).partialFailures
+      : [];
+    const data = Object.fromEntries(
+      Object.entries(built).filter(([key]) => key !== "partialFailures"),
+    );
+    res.status(200).json({ data, partialFailures, meta: { schemaVersion: "view.v1" } });
   } catch (error) {
     const status = error instanceof GatewayError ? error.status : 502;
     const body = error instanceof GatewayError ? error.body : undefined;
@@ -251,19 +257,44 @@ async function getActiveShopping(familyId: string, authorization?: string): Prom
 }
 
 async function dashboardView(familyId: string, authorization?: string) {
-  const [family, members, pantry, shopping, recipes, notifications, ocr] = await Promise.all([
-    coreGet(`/families/${encodeURIComponent(familyId)}`, authorization),
-    coreGet(`/families/${encodeURIComponent(familyId)}/members`, authorization),
-    coreGet("/inventory", authorization, { familyId }),
-    getActiveShopping(familyId, authorization),
-    serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
-    coreGet("/notifications", authorization, { familyId }),
-    serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr/jobs", authorization, { familyId, status: "needs_review" }),
+  const sources = await Promise.all([
+    settleDownstream("family", () => coreGet(`/families/${encodeURIComponent(familyId)}`, authorization)),
+    settleDownstream("family", () => coreGet(`/families/${encodeURIComponent(familyId)}/members`, authorization)),
+    settleDownstream("inventory", () => coreGet("/inventory", authorization, { familyId })),
+    settleDownstream("shopping", () => getActiveShopping(familyId, authorization)),
+    settleDownstream("recipes", () => serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId })),
+    settleDownstream("notifications", () => coreGet("/notifications", authorization, { familyId })),
+    settleDownstream("ocr", () => serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr/jobs", authorization, { familyId, status: "needs_review" })),
   ]);
+  const [family, members, pantry, shopping, recipes, notifications, ocr] = sources.map((x) => x.value);
+  const partialFailures = sources.flatMap((x) => x.failure ? [x.failure] : []);
   return composeCommon(familyId, family, members, pantry, shopping, notifications, {
-    suggestedRecipes: recipes.items ?? [],
-    pendingOcrReviews: ocr.items ?? [],
+    ...(recipes ? { suggestedRecipes: recipes.items ?? [] } : {}),
+    ...(ocr ? { pendingOcrReviews: ocr.items ?? [] } : {}),
+    partialFailures,
   });
+}
+
+type PartialFailure = { service: string; code: string; requestId?: string };
+async function settleDownstream<T>(
+  service: string,
+  work: () => Promise<T>,
+): Promise<{ value?: T; failure?: PartialFailure }> {
+  try {
+    return { value: await work() };
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      const body = error.body as { error?: { code?: unknown; requestId?: unknown } } | undefined;
+      return {
+        failure: {
+          service,
+          code: typeof body?.error?.code === "string" ? body.error.code : "UPSTREAM_UNAVAILABLE",
+          ...(typeof body?.error?.requestId === "string" ? { requestId: body.error.requestId } : {}),
+        },
+      };
+    }
+    return { failure: { service, code: "UPSTREAM_UNAVAILABLE" } };
+  }
 }
 
 async function pantryView(familyId: string, authorization?: string) {
@@ -344,11 +375,11 @@ function composeCommon(
 ) {
   return {
     familyId,
-    family: family?.family ?? family,
-    members: members?.items ?? [],
-    pantry: pantry?.items ?? [],
-    shopping: shopping ?? null,
-    notifications: notifications?.items ?? [],
+    ...(family ? { family: family.family ?? family } : {}),
+    ...(members ? { members: members.items ?? [] } : {}),
+    ...(pantry ? { pantry: pantry.items ?? [] } : {}),
+    ...(shopping !== undefined ? { shopping: shopping ?? null } : {}),
+    ...(notifications ? { notifications: notifications.items ?? [] } : {}),
     ...extra,
     navigationSummary: navigationSummary(pantry, shopping, notifications),
   };
@@ -377,7 +408,11 @@ function navigationSummary(
   const pendingShopping = Array.isArray(shopping?.items)
     ? shopping.items.filter((i: any) => i.state === "ACCEPTED").length
     : 0;
-  return { expiredCount: expired, expiringSoonCount: expiringSoon, unreadNotifications: unread, pendingShopping };
+  return {
+    ...(pantry ? { expiredCount: expired, expiringSoonCount: expiringSoon } : {}),
+    ...(notifications ? { unreadNotifications: unread } : {}),
+    ...(shopping !== undefined ? { pendingShopping } : {}),
+  };
 }
 
 async function coreGet(path: string, authorization?: string, query?: Record<string, string>): Promise<Record<string, any>> {
