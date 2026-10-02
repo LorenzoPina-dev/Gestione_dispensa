@@ -110,7 +110,7 @@ app.put("/api/v1/nutrition/targets", async(req,res)=>{
   if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
   if(!idempotencyKey||version===null)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key and If-Match are required.");
   const body=req.body as Body;
-  for(const field of ["caloriesKcal","proteinG","carbsG","fatG"]) if(!Number.isFinite(Number(body[field]))||Number(body[field])<0)return fail(res,400,"VALIDATION_ERROR",`${field} must be non-negative.`);
+  for(const field of ["caloriesKcal","proteinG","carbsG","fatG"]) if(!isNonNegativeNumber(body[field])return fail(res,400,"VALIDATION_ERROR",`${field} must be non-negative.`);
   const client=await pool.connect();
   try{
     await client.query("begin");
@@ -150,11 +150,11 @@ app.get("/api/v1/nutrition/diary", async(req,res)=>{
 
 app.post("/api/v1/nutrition/diary", async(req,res)=>{
   const userId=actor(req),idempotencyKey=key(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
-  const body=req.body as Body;const quantity=Number(body.quantity);const source=body.source===undefined?"manual":String(body.source);
-  if(typeof body.date!=="string"||typeof body.meal!=="string"||typeof body.productId!=="string"||!Number.isFinite(quantity)||quantity<=0||typeof body.unit!=="string"||!["manual","inventory"].includes(source))return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity, unit and a valid source are required.");
+  const body=req.body as Body;const quantity=body.quantity;const source=body.source===undefined?"manual":body.source;
+  if(typeof body.date!=="string"||typeof body.meal!=="string"||typeof body.productId!=="string"||!isPositiveNumber(quantity)||!isDiaryUnit(body.unit)||!isDiarySource(source))return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity, unit and a valid source are required.");
   const client=await pool.connect();
   try{await client.query("begin");const idem=await beginIdempotency(client,req,body);if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
-    if (body.unit !== "g" && body.unit !== "kg") { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","Nutrition diary entries require unit g or kg."); }
+    if (!isDiaryUnit(body.unit)) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","Nutrition diary entries require unit g or kg."); }
     const snapshot = await loadNutritionSnapshot(catalogBaseUrl, req.header("authorization") ?? undefined, String(body.productId));
     if (!snapshot) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Product nutrition data not found."); }
     const id=crypto.randomUUID();
@@ -168,7 +168,7 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
   const userId=actor(req);
   if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
   const period=String(req.query.period??"today");
-  if(period!=="today"&&period!=="week")return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
+  if(!isSummaryPeriod(period))return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
   const days=period==="today"?0:6;
   const q=await pool.query("select quantity,unit,nutrition_snapshot from nutrition_domain.diary_entries where user_id=$1 and date between current_date-$2::integer and current_date",[userId,days]);
   let caloriesKcal=0,proteinG=0,carbsG=0,fatG=0,fiberG=0;
