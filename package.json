@@ -3,7 +3,7 @@
   "private": true,
   "version": "2.0.0",
   "scripts": {
-    "compose:up": "docker compose up -d",
+    "compose:up": "docker compose up -d --wait --wait-timeout 240",
     "compose:down": "docker compose down",
     "compose:build": "docker compose build",
     "build:libs": "npm run build -w @gestione-dispensa/observability && npm run build -w @gestione-dispensa/worker-core",
@@ -13,7 +13,8 @@
     "contract:audit": "node scripts/contract-audit.mjs",
     "test:policy": "node scripts/test-policy-audit.mjs",
     "test:suites": "node scripts/test-suite-audit.mjs",
-    "architecture:audit": "node scripts/architecture-audit.mjs"
+    "architecture:audit": "node scripts/architecture-audit.mjs",
+    "compose:verify": "docker compose ps && docker compose config --quiet"
   },
   "workspaces": [
     "apps/*",
