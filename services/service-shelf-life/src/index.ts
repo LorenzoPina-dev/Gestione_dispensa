@@ -63,13 +63,14 @@ function key(req: Request): string | null {
   return value.length >= 8 ? value : null;
 }
 
-function normalizeStorage(value: unknown): Storage {
+function normalizeStorage(value: unknown): Storage | null {
   const raw = String(value ?? "").trim().toLowerCase();
   if (["fridge", "frigo", "frigorifero"].includes(raw)) return "FRIDGE";
   if (["freezer", "congelatore"].includes(raw)) return "FREEZER";
   if (["pantry", "dispensa"].includes(raw)) return "PANTRY";
   if (["cellar", "cantina"].includes(raw)) return "CELLAR";
-  return "OTHER";
+  if (["other", "altro"].includes(raw)) return "OTHER";
+  return null;
 }
 
 function hash(value: unknown): string {
@@ -194,11 +195,10 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
   const familyId = familyContext(req);
 
   if (!userId) return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
-  const familyAccess = await authorizeFamily(userId, familyId, true); if (!familyAccess.ok) return fail(res, familyAccess.status, familyAccess.code, familyAccess.message);
-  if (!itemId || !productId || !familyId || typeof body.storedAt !== "string" || typeof opened !== "boolean" || !key(req)) {
+  if (!itemId || !productId || !familyId || storage === null || typeof opened !== "boolean" || !key(req)) {
     return fail(res,400,"VALIDATION_ERROR","itemId, productId, familyId, storedAt, opened and X-Idempotency-Key are required.");
   }
-
+  const familyAccess = await authorizeFamily(userId, familyId, true); if (!familyAccess.ok) return fail(res, familyAccess.status, familyAccess.code, familyAccess.message);
   const client = await pool.connect();
   try {
     await client.query("begin");
