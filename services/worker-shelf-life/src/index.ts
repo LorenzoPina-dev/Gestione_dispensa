@@ -56,6 +56,44 @@ while (!stopping) {
       );
       continue;
     }
+
+    if (data.userId && data.familyId) {
+      try {
+        const apply = await fetch(
+          base + "/shelf-life/predictions/" + encodeURIComponent(data.predictionId) + "/apply",
+          {
+            method: "POST",
+            headers: {
+              "x-user-id": data.userId,
+              "x-family-id": data.familyId,
+              "content-type": "application/json",
+              "x-idempotency-key": "shelf-life-apply:" + data.predictionId,
+            },
+            body: "{}",
+            signal: AbortSignal.timeout(10000),
+          },
+        );
+        if (!apply.ok) {
+          console.error(
+            JSON.stringify({
+              worker: "worker-shelf-life",
+              event: "prediction_apply_failed",
+              predictionId: data.predictionId,
+              status: apply.status,
+            }),
+          );
+        }
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            worker: "worker-shelf-life",
+            event: "prediction_apply_error",
+            predictionId: data.predictionId,
+            error: String(error),
+          }),
+        );
+      }
+    }
   } catch (error) {
     console.error(JSON.stringify({ worker: "worker-shelf-life", event: "processing_error", error: String(error) }));
   }
