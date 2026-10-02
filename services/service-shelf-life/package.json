@@ -19,6 +19,11 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "test": "npm run test:unit",
+    "test:unit": "node --import tsx --test test/unit.test.ts",
+    "test:http": "node --import tsx --test test/http.test.ts",
+    "test:migration": "npm run build && node --import tsx --test test/migration.test.ts",
+    "test:integration": "node --import tsx --test test/integration.test.ts"
   }
 }
