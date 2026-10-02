@@ -59,6 +59,13 @@ jobs:
       INVENTORY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
       CATALOG_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/catalog_db
       SHOPPING_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/shopping_db
+      NUTRITION_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/nutrition_db
+      STORES_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/stores_db
+      NOTIFICATIONS_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/notifications_db
+      OCR_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/ocr_db
+      SHELF_LIFE_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/shelf_life_db
+      PRIVACY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/privacy_db
+      JOBS_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/jobs_db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,10 +80,24 @@ jobs:
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE catalog_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE shopping_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE nutrition_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE stores_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE notifications_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE ocr_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE shelf_life_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE privacy_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE jobs_db;
           psql "$FAMILY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$CATALOG_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$SHOPPING_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$NUTRITION_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$STORES_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$NOTIFICATIONS_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$OCR_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$SHELF_LIFE_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$PRIVACY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$JOBS_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;
       - run: npm run typecheck
       - run: npm run build
       - name: Run service-family migration schema tests
@@ -98,6 +119,41 @@ jobs:
         env:
           SHOPPING_TEST_DATABASE_URL: ${{ env.SHOPPING_DATABASE_URL }}
         working-directory: services/service-shopping
+        run: npm run test:migration
+      - name: Run service-nutrition migration schema tests
+        env:
+          NUTRITION_TEST_DATABASE_URL: ${{ env.NUTRITION_DATABASE_URL }}
+        working-directory: services/service-nutrition
+        run: npm run test:migration
+      - name: Run service-stores migration schema tests
+        env:
+          STORES_TEST_DATABASE_URL: ${{ env.STORES_DATABASE_URL }}
+        working-directory: services/service-stores
+        run: npm run test:migration
+      - name: Run service-notifications migration schema tests
+        env:
+          NOTIFICATIONS_TEST_DATABASE_URL: ${{ env.NOTIFICATIONS_DATABASE_URL }}
+        working-directory: services/service-notifications
+        run: npm run test:migration
+      - name: Run service-ocr migration schema tests
+        env:
+          OCR_TEST_DATABASE_URL: ${{ env.OCR_DATABASE_URL }}
+        working-directory: services/service-ocr
+        run: npm run test:migration
+      - name: Run service-shelf-life migration schema tests
+        env:
+          SHELF_LIFE_TEST_DATABASE_URL: ${{ env.SHELF_LIFE_DATABASE_URL }}
+        working-directory: services/service-shelf-life
+        run: npm run test:migration
+      - name: Run service-privacy migration schema tests
+        env:
+          PRIVACY_TEST_DATABASE_URL: ${{ env.PRIVACY_DATABASE_URL }}
+        working-directory: services/service-privacy
+        run: npm run test:migration
+      - name: Run service-jobs migration schema tests
+        env:
+          JOBS_TEST_DATABASE_URL: ${{ env.JOBS_DATABASE_URL }}
+        working-directory: services/service-jobs
         run: npm run test:migration
       - name: Start service-family against the real test database
         run: |
