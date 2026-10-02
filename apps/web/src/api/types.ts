@@ -68,6 +68,7 @@ export interface ProductDto {
   quantityLabel?: string;
   servingSize?: string;
   servingQuantity?: number;
+  servingUnit?: string;
   images?: ProductImagesDto;
   openFoodFacts?: Record<string, unknown>;
   createdAt: string;
