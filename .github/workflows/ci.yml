@@ -39,6 +39,17 @@ jobs:
           docker compose config --images
       - name: Build every application image
         run: docker compose build --pull --parallel
+      - name: Boot the complete local architecture
+        run: |
+          docker compose up -d --wait --wait-timeout 240
+          docker compose ps
+          test "$(docker compose ps --status running --services | wc -l)" -ge 20
+      - name: Show service logs on startup failure
+        if: failure()
+        run: docker compose logs --tail=200
+      - name: Tear down local architecture
+        if: always()
+        run: docker compose down -v --remove-orphans
 
   postgres-integration:
     runs-on: ubuntu-latest
