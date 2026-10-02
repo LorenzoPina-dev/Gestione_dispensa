@@ -288,6 +288,16 @@ const server = createServer(async (req, res) => {
         const output = { data: dto(result.rows[0]), version: Number(result.rows[0].version) };
         await finish(client, key, 201, output);
         await client.query("COMMIT");
+        void queueShelfLifePrediction(
+          ctx,
+          {
+            id,
+            productId: String(body.productId),
+            location: body.location == null ? null : String(body.location),
+            expiresAt: result.rows[0].expires_at,
+          },
+          req.headers.authorization ? String(req.headers.authorization) : undefined,
+        );
         return send(res, 201, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
