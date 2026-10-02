@@ -32,7 +32,7 @@ type Candidate = {
   fat?: number;
   fiber?: number;
   quantityValue?: number;
-  quantityUnit?: StockItem["unit"];
+  quantityUnit?: string;
   quantityLabel?: string;
   servingSize?: string;
   servingQuantity?: number;
