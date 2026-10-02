@@ -702,8 +702,17 @@ La conferma chiude il draft e produce OcrDraftConfirmed. L'applicazione ai domin
 
 Request:
 ```json
-{"itemId":"uuid","productId":"uuid","storedAt":"fridge","opened":false}
+{
+  "itemId":"uuid",
+  "productId":"uuid",
+  "storedAt":"pantry",
+  "storedOn":"2026-10-02T17:00:00Z",
+  "opened":false,
+  "category":"confectionery-candy"
+}
 ```
+`storedOn` è opzionale per nuove aggiunte ma viene fornito da Inventory per ancorare la stima alla data reale di inserimento. `category` è la classe canonica derivata dal Catalogo/Open Food Facts quando disponibile.
+
 Response 202:
 ```json
 {"data":{"predictionId":"uuid","status":"queued"}}
@@ -713,31 +722,16 @@ Response 202:
 
 Response 200:
 ```json
-{"data":{"predictionId":"uuid","itemId":"uuid","estimatedExpiresAt":"2026-10-05T00:00:00Z","confidence":0.81,"basis":"product_category+storage","status":"completed"}}
+{"data":{"predictionId":"uuid","itemId":"uuid","estimatedExpiresAt":"2028-10-01T17:00:00Z","confidence":0.86,"basis":"category:confectionery-candy+storage:PANTRY+opened:false+target_days:730","status":"completed"}}
 ```
-Una prediction non sostituisce una data dichiarata.
+
+La previsione è una stima di conservabilità/qualità e non sostituisce una data dichiarata dal produttore. La precedenza è: data dichiarata sulla confezione; profilo specifico della categoria/prodotto; regola di conservazione compatibile; fallback generico solo quando la categoria non è riconosciuta.
+
+Per le categorie riconosciute, una combinazione incompatibile tra prodotto e luogo di conservazione non viene trasformata in una falsa stima generica.
 
 ### POST /shelf-life/predictions/{predictionId}/apply
 
 Body `{}`. Response 200 con prediction applicata. Il service Inventory resta owner della current pantry state.
-
-## 12A. Shelf-Life internal processing
-
-The worker does not access `shelf_life_db` directly. It calls the owner service using the internal service credential.
-
-### POST /internal/shelf-life/predictions/{predictionId}/process
-
-Headers:
-`Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`
-
-Request:
-```json
-{"itemId":"uuid","productId":"uuid","storedAt":"fridge","opened":false,"category":"dairy"}
-```
-
-Response 200: completed prediction. A missing active rule returns 422 `PREDICTION_UNAVAILABLE`.
-
-This endpoint is backend-only and is never exposed through the Gateway.
 
 ## 13. Privacy
 
