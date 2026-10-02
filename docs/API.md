@@ -712,7 +712,7 @@ Request:
   "category":"confectionery-candy"
 }
 ```
-`storedOn` è opzionale per nuove aggiunte ma viene fornito da Inventory per ancorare la stima alla data reale di inserimento. `category` è la classe canonica derivata dal Catalogo/Open Food Facts quando disponibile.
+`storedOn` è opzionale per nuove aggiunte ma viene fornito da Inventory per ancorare la stima. Quando l'articolo è già aperto, Inventory invia `openedAt` come origine temporale dello stato aperto. `category` è la classe canonica derivata dal Catalogo/Open Food Facts quando disponibile.
 
 Response 202:
 ```json
@@ -726,7 +726,7 @@ Response 200:
 {"data":{"predictionId":"uuid","itemId":"uuid","estimatedExpiresAt":"2028-10-01T17:00:00Z","confidence":0.86,"basis":"category:confectionery-candy+storage:PANTRY+opened:false+target_days:730","status":"completed"}}
 ```
 
-La previsione è una stima di conservabilità/qualità e non sostituisce una data dichiarata dal produttore. La precedenza è: data dichiarata sulla confezione; profilo specifico della categoria/prodotto; regola di conservazione compatibile; fallback generico solo quando la categoria non è riconosciuta.
+La previsione è una stima di conservabilità/qualità e non sostituisce una data dichiarata dal produttore. La precedenza è: data dichiarata sulla confezione; profilo specifico del prodotto; profilo specifico della categoria compatibile con conservazione/apertura; fallback generico solo quando la categoria non è riconosciuta.
 
 Per le categorie riconosciute, una combinazione incompatibile tra prodotto e luogo di conservazione non viene trasformata in una falsa stima generica.
 
