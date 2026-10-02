@@ -2,6 +2,8 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Pool } from "pg";
 import { readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const databaseUrl = process.env.CATALOG_TEST_DATABASE_URL;
 if (!databaseUrl) {
@@ -11,6 +13,7 @@ if (!databaseUrl) {
 }
 
 const pool = new Pool({ connectionString: databaseUrl });
+const execFileAsync = promisify(execFile);
 
 async function tables(): Promise<Set<string>> {
   const result = await pool.query(
@@ -30,6 +33,14 @@ async function columnSet(table: string): Promise<Set<string>> {
 describe("service-catalog / real migration schema", () => {
   before(async () => {
     await pool.query("SELECT 1");
+    await execFileAsync("node", ["dist/migrate.js"], {
+      cwd: process.cwd(),
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+    });
+    await execFileAsync("node", ["dist/migrate.js"], {
+      cwd: process.cwd(),
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+    });
   });
 
   after(async () => {
