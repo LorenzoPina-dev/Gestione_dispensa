@@ -78,7 +78,8 @@ export interface CatalogUpdatedEvent {
   eventVersion: 1;
   aggregateType: "product";
   aggregateId: string;
-  actorId: string;
+  /** User subject when an actor exists; null for system-generated events. */
+  actorId: string | null;
   traceId: string;
   payload: Readonly<Record<string, unknown>>;
   changedFields?: readonly string[];
