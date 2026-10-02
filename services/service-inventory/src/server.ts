@@ -417,6 +417,18 @@ const server = createServer(async (req, res) => {
         const old = await idempotency(client, key, ctx, body);
         if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
+        const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
+        if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
+        const row = current.rows[0];
+
+        // A user-declared expiration date always has precedence over an estimated prediction.
+        if (source === "estimated" && row.expiration_source === "declared") {
+          const output = { data: dto(row), version: Number(row.version) };
+          await finish(client, key, 200, output);
+          await client.query("COMMIT");
+          return send(res, 200, output, ctx.requestId);
+        }
+
         const result = await client.query("UPDATE pantry_items SET expires_at=$3,expiration_source=$4,updated_at=now(),version=version+1 WHERE id=$1 AND family_id=$2 RETURNING *", [itemMatch[1], ctx.familyId, expiresAt, source]);
         if (!result.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
         const output = { data: dto(result.rows[0]), version: Number(result.rows[0].version) };
