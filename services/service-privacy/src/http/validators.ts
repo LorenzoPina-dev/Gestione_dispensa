@@ -318,10 +318,10 @@ export function parseReplayBody(body: Body): { reason: string; approvalId: strin
   return { reason, approvalId };
 }
 
-export function parseErasureRequestBody(body: Body): { familyId: string; confirmed: boolean } | undefined {
-  const { familyId, confirmed } = body;
-  if (typeof familyId !== "string" || familyId.length === 0 || typeof confirmed !== "boolean") return undefined;
-  return { familyId, confirmed };
+export function parseErasureRequestBody(body: Body): { familyId: string; confirm: true } | undefined {
+  const { familyId, confirm } = body;
+  if (typeof familyId !== "string" || familyId.length === 0 || confirm !== true) return undefined;
+  return { familyId, confirm: true };
 }
 
 export function parseConsentsBody(
