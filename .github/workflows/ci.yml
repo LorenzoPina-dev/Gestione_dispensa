@@ -86,7 +86,7 @@ jobs:
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE ocr_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE shelf_life_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE privacy_db;"
-          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE jobs_db;
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE jobs_db;"
           psql "$FAMILY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$CATALOG_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
@@ -97,7 +97,7 @@ jobs:
           psql "$OCR_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$SHELF_LIFE_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
           psql "$PRIVACY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-          psql "$JOBS_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          psql "$JOBS_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
       - run: npm run typecheck
       - run: npm run build
       - name: Run service-family migration schema tests
