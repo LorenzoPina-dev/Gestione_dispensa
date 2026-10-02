@@ -139,9 +139,11 @@ services:
     networks: [data]
   redis:
     image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes: [redis_data:/data]
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10 }
     restart: unless-stopped
-    networks: [data]
+    networks: [data, messaging]
   redis-exporter:
     image: oliver006/redis_exporter:v1.75.0
     environment: { REDIS_ADDR: "redis://redis:6379" }
@@ -353,7 +355,186 @@ services:
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on:
       redis: { condition: service_healthy }
+      relay-identity:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://identity:identity@postgres:5432/identity_db"
+      OUTBOX_TABLE: "outbox_events"
+      PRODUCER: "service-service-identity"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-identity: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-family:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://family:family@postgres:5432/family_db"
+      OUTBOX_TABLE: "outbox_events"
+      PRODUCER: "service-service-family"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-family: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-inventory:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
+      OUTBOX_TABLE: "outbox_events"
+      PRODUCER: "service-service-inventory"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-inventory: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-shopping:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db"
+      OUTBOX_TABLE: "shopping_domain.outbox_events"
+      PRODUCER: "service-service-shopping"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-shopping: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-catalog:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
+      OUTBOX_TABLE: "outbox_events"
+      PRODUCER: "service-service-catalog"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-catalog: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-notifications:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db"
+      OUTBOX_TABLE: "notifications_domain.outbox_events"
+      PRODUCER: "service-service-notifications"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-notifications: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-privacy:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://privacy:privacy@postgres:5432/privacy_db"
+      OUTBOX_TABLE: "outbox_events"
+      PRODUCER: "service-service-privacy"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-privacy: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-recipes:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db"
+      OUTBOX_TABLE: "recipes_domain.outbox_events"
+      PRODUCER: "service-service-recipes"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-recipes: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-nutrition:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://nutrition:nutrition@postgres:5432/nutrition_db"
+      OUTBOX_TABLE: "nutrition_domain.outbox_events"
+      PRODUCER: "service-service-nutrition"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-nutrition: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-stores:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://stores:stores@postgres:5432/stores_db"
+      OUTBOX_TABLE: "stores_domain.outbox_events"
+      PRODUCER: "service-service-stores"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-stores: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-shelf-life:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
+      OUTBOX_TABLE: "shelf_life_domain.outbox_events"
+      PRODUCER: "service-service-shelf-life"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-shelf-life: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+
+  relay-ocr:
+    build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
+      OUTBOX_TABLE: "ocr_domain.outbox_events"
+      PRODUCER: "service-service-ocr"
+      EVENT_STREAM: "events:domain"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
       service-ocr: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
+  service-ocr: { condition: service_healthy }
     restart: unless-stopped
     networks: [backend, messaging]
   service-ocr:
@@ -405,6 +586,7 @@ volumes:
   loki_data:
   tempo_data:
   opensearch_data:
+  redis_data:
 
 networks:
   edge:
