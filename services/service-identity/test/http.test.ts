@@ -67,6 +67,28 @@ describe("service-identity / HTTP endpoint contract", () => {
     assert.equal((body as any).error.code, "NOT_FOUND");
   });
 
+  it("rejects undocumented profile fields and missing idempotency", async () => {
+    const missingKey = await json("/api/v1/identity/me", {
+      method: "PATCH",
+      headers: { "x-user-id": "00000000-0000-4000-8000-000000000001", "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Mario" }),
+    });
+    assert.equal(missingKey.response.status, 400);
+    assert.equal((missingKey.body as any).error.code, "VALIDATION_ERROR");
+
+    const undocumented = await json("/api/v1/identity/me", {
+      method: "PATCH",
+      headers: {
+        "x-user-id": "00000000-0000-4000-8000-000000000001",
+        "x-idempotency-key": "profile-12345678",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ name: "Mario" }),
+    });
+    assert.equal(undocumented.response.status, 400);
+    assert.equal((undocumented.body as any).error.code, "VALIDATION_ERROR");
+  });
+
   it("returns 204 for logout without a server session", async () => {
     const { response } = await json("/api/v1/auth/logout", { method: "POST" });
     assert.equal(response.status, 204);
