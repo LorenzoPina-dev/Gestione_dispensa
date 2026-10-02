@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 
 const required = [
-  ["service-identity", ["test/unit.test.ts", "test/http.test.ts", "test/migration.test.ts"]],
+  ["service-identity", ["test/register.test.ts", "test/http.test.ts", "test/migration.test.ts"]],
   ["service-family", ["test/unit.test.ts", "test/http.test.ts", "test/migration.test.ts", "test/integration.test.ts"]],
   ["service-inventory", ["test/unit.test.ts", "test/http.test.ts", "test/migration.test.ts", "test/integration.test.ts"]],
   ["service-catalog", ["test/unit.test.ts", "test/http.test.ts", "test/migration.test.ts", "test/integration.test.ts"]],
