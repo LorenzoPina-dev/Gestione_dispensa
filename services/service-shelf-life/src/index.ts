@@ -19,10 +19,13 @@ type Storage = "PANTRY" | "FRIDGE" | "FREEZER" | "CELLAR" | "OTHER";
 type PredictionStatus = "queued" | "completed" | "applied" | "superseded" | "failed";
 type Body = Record<string, unknown>;
 
-const fail = (res: Response, status: number, code: string, message: string): Response =>
-  res.status(status).json({
-    error: { code, message, details: [], requestId: crypto.randomUUID() },
+const fail = (res: Response, status: number, code: string, message: string): Response => {
+  const requestId=crypto.randomUUID();
+  return res.status(status).json({
+    error:{code,message,details:[],retryable:status>=502,requestId},
+    meta:{requestId,traceId:requestId,schemaVersion:"1.0"},
   });
+};
 
 function actor(req: Request): string {
   return String(req.header("x-user-id") ?? "").trim();
