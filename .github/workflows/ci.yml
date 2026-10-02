@@ -266,6 +266,11 @@ jobs:
           docker logs ci-minio; exit 1
       - name: Build all services
         run: npm run build
+      - name: Run Family migration suite
+        env:
+          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_TEST_DATABASE_URL }}
+        working-directory: services/service-family
+        run: npm run test:migration
       - name: Run migration suites
         run: |
           npm run test:migration -w @gestione-dispensa/service-family
