@@ -810,10 +810,11 @@ components:
     DateTime: {type: string, format: date-time}
     DataResponse:
       type: object
-      required: [data, version]
+      required: [data, version, meta]
       properties:
         data: {}
         version: {type: integer, minimum: 1}
+        meta: {$ref: '#/components/schemas/Meta'}
       additionalProperties: false
     Meta:
       type: object
