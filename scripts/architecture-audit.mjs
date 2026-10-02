@@ -31,8 +31,16 @@ function hasComposeService(name) {
   return new RegExp("^  " + name.replace(/[.*+?^(){}|[\]\\]/g, "\\$&") + ":\\s*$", "m").test(compose);
 }
 function composeBlock(name) {
-  const escaped = name.replace(/[.*+?^(){}|[\]\\]/g, "\\$&");
-  return compose.match(new RegExp("^  " + escaped + ":[\\s\\S]*?(?=^  [a-zA-Z0-9_-]+:|^volumes:|^networks:|\\Z)", "m"))?.[0] ?? "";
+  const lines = compose.split("\n");
+  const prefix = "  " + name + ":";
+  const start = lines.findIndex((line) => line.trimEnd() === prefix);
+  if (start < 0) return "";
+  const collected = [lines[start]];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^  [a-zA-Z0-9_-]+:\s*$/.test(lines[i]) || /^(volumes|networks):\s*$/.test(lines[i])) break;
+    collected.push(lines[i]);
+  }
+  return collected.join("\n");
 }
 
 for (const [name, port] of canonical) {
@@ -52,7 +60,17 @@ for (const [name, port] of canonical) {
   if (!block.includes("healthcheck:")) failures.push(name + ": missing healthcheck");
   if (!block.includes("restart:")) failures.push(name + ": missing restart policy");
   if (name !== "off-lookup" && !block.includes("DATABASE_URL:")) failures.push(name + ": missing dedicated DATABASE_URL");
-  if (name !== "off-lookup" && !block.includes("dist/migrate.js")) failures.push(name + ": Docker startup does not execute migrations");
+  if (name !== "off-lookup") {
+    const docker = await readFile("services/" + name + "/Dockerfile", "utf8");
+    let startup = docker;
+    if (docker.includes("docker-entrypoint.sh")) {
+      try { startup += "\n" + await readFile("services/" + name + "/docker-entrypoint.sh", "utf8"); } catch {}
+    }
+    if (docker.includes("entrypoint.sh")) {
+      try { startup += "\n" + await readFile("services/" + name + "/entrypoint.sh", "utf8"); } catch {}
+    }
+    if (!startup.includes("dist/migrate.js")) failures.push(name + ": Docker startup does not execute migrations");
+  }
   if (block.includes("ports:")) failures.push(name + ": application service must not publish host ports");
   if (!block.includes("PORT: " + port)) failures.push(name + ": canonical port " + port + " is not configured");
 }
