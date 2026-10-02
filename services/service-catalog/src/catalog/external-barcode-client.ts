@@ -65,7 +65,7 @@ const OFF_CATEGORY_RULES: readonly { readonly match: RegExp; readonly category: 
 
   // Shelf-stable categories. These are deliberately more specific than the old
   // generic "PANTRY 30-90 days" fallback.
-  { match: /cand(?:y|ies)|candies|confectioner(?:y|ies)|sugar-confectionery|bonbons|caramels|toffees|pastilles|mints|lozenges/, category: "confectionery-candy" },
+  { match: /cand(?:y|ies)|candies|confectioner(?:y|ies)|sugar-confectionery|bonbons|caramels|toffees|pastilles|mints|lozenges|caramell|dolciumi|mentine|confiserie/, category: "confectionery-candy" },
   { match: /chewing-gum|chewing gum|bubble-gum|gomme-a-macher|gomme à mâcher/, category: "chewing-gum" },
   { match: /chocolates|chocolate|cocoa-products|cacao/, category: "chocolate-confectionery" },
   { match: /biscuits|cookies|crackers|wafers|sweet-biscuits|savory-biscuits/, category: "biscuits-crackers" },
