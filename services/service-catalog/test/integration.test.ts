@@ -72,7 +72,7 @@ describe("service-catalog / real PostgreSQL flow", () => {
       [productId],
     );
 
-    assert.equal(row.rowCount, 1);
+    assert.equal(row.rows.length, 1);
     assert.equal(row.rows[0].canonical_name, "Integration Latte");
     assert.equal(Number(row.rows[0].version), 1);
     assert.equal(row.rows[0].normalized_value, "8001234567890");
@@ -151,7 +151,7 @@ describe("service-catalog / real PostgreSQL flow", () => {
       "JOIN data_provenance dp ON dp.entity_id=p.id WHERE p.id=$1",
       [candidate.productId],
     );
-    assert.equal(row.rowCount, 1);
+    assert.equal(row.rows.length, 1);
     assert.equal(row.rows[0].provenance_quality, "IMPORTED");
     assert.equal(row.rows[0].source_version, "openfoodfacts");
 
