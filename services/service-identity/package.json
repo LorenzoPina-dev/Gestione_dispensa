@@ -9,7 +9,9 @@
     "dev": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit",
-    "test:unit": "node --import tsx --test test/register.test.ts"
+    "test:unit": "node --import tsx --test test/register.test.ts",
+    "test:http": "node --import tsx --test test/http.test.ts",
+    "test:migration": "npm run build && node --import tsx --test test/migration.test.ts"
   },
   "dependencies": {
     "pg": "^8.23.0",
