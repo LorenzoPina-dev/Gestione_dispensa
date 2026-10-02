@@ -55,22 +55,45 @@ interface OffLookupHitBody {
 const KNOWN_UNITS: readonly ProductUnit[] = ["g", "kg", "ml", "l", "piece", "pack"];
 
 const OFF_CATEGORY_RULES: readonly { readonly match: RegExp; readonly category: string }[] = [
+  // Highly perishable / fresh foods.
   { match: /meats|fishes|seafood|poultry/, category: "fresh-meat-fish" },
   { match: /fresh-pastas|fresh-doughs/, category: "fresh-milk-pasta" },
   { match: /cheeses|cold-cuts|charcuterie|hams/, category: "cold-cuts-fresh-cheese" },
   { match: /dairies|yogurts|butters|milks/, category: "eggs-dairy" },
-  { match: /fruits|vegetables|salads/, category: "produce-fresh" },
+  { match: /fruits|vegetables|salads|produce/, category: "produce-fresh" },
   { match: /breads|bakery|viennoiseries/, category: "bakery-fresh" },
-  { match: /canned|tomato-purees|sauces|preserves/, category: "canned-preserved" },
-  { match: /pastas|rices|legumes|pulses/, category: "dry-staples" },
+
+  // Shelf-stable categories. These are deliberately more specific than the old
+  // generic "PANTRY 30-90 days" fallback.
+  { match: /cand(?:y|ies)|candies|confectioner(?:y|ies)|sugar-confectionery|bonbons|caramels|toffees|pastilles|mints|lozenges/, category: "confectionery-candy" },
+  { match: /chewing-gum|chewing gum|bubble-gum|gomme-a-macher|gomme à mâcher/, category: "chewing-gum" },
+  { match: /chocolates|chocolate|cocoa-products|cacao/, category: "chocolate-confectionery" },
+  { match: /biscuits|cookies|crackers|wafers|sweet-biscuits|savory-biscuits/, category: "biscuits-crackers" },
+  { match: /breakfast-cereals|cereals|mueslis|granolas/, category: "breakfast-cereals" },
+  { match: /coffee|coffees|tea|teas|infusions/, category: "coffee-tea" },
+  { match: /nuts|peanuts|seeds|snacks|chips|crisps|popcorn/, category: "nuts-snacks" },
+  { match: /pastas|rices|legumes|pulses|flours|couscous|grains/, category: "dry-staples" },
+  { match: /canned|tomato-purees|preserves|pickles|jams|jellies|compotes/, category: "canned-preserved" },
+  { match: /sauces|condiments|mustards|mayonnaises|ketchups|dressings/, category: "sauces-condiments" },
+  { match: /oils|fats|olive-oils|sunflower-oils/, category: "oils-fats" },
+  { match: /water|waters|soft-drinks|sodas|juices|nectars|iced-teas|shelf-stable-beverages/, category: "shelf-stable-beverages" },
+  { match: /salts|sugars|honeys|sugar|salt/, category: "pantry-indefinite" },
   { match: /frozen/, category: "frozen-general" },
-  { match: /salts|sugars|honeys/, category: "pantry-indefinite" },
 ];
 
-function normalizeOffCategory(tags: readonly string[] | undefined): string | undefined {
-  if (!tags || tags.length === 0) return undefined;
-  for (const tag of tags) {
-    const rule = OFF_CATEGORY_RULES.find((r) => r.match.test(tag.toLowerCase()));
+function normalizeOffCategory(
+  tags: readonly string[] | undefined,
+  productName?: string,
+): string | undefined {
+  const values = [
+    ...(tags ?? []),
+    productName ?? "",
+  ].map((value) => value.toLowerCase().trim()).filter(Boolean);
+
+  // Prefer explicit OFF taxonomy tags; product name is a fallback for products where
+  // categories_tags are absent/incomplete (e.g. many confectionery products).
+  for (const value of values) {
+    const rule = OFF_CATEGORY_RULES.find((r) => r.match.test(value));
     if (rule) return rule.category;
   }
   return undefined;
@@ -216,6 +239,7 @@ function toExternalMatch(body: OffLookupHitBody): ExternalProductMatch | undefin
     (typeof p.image_url === "string" ? p.image_url : undefined);
   const category = normalizeOffCategory(
     Array.isArray(p.categories_tags) ? (p.categories_tags as string[]) : undefined,
+    name,
   );
   const quantityLabel = typeof p.quantity === "string" && p.quantity.trim()
     ? p.quantity.trim()
