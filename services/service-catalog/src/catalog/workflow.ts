@@ -127,9 +127,9 @@ export class CatalogWorkflowService {
    *     then falls back to the live OFF API v3).
    *  3. If the external provider has it, persist it permanently — so this exact barcode is a
    *     local (step 1) hit forever after, and off-lookup is called at most once per product.
-   * Every external-path failure is caught here and turned into a DEGRADED result: a dependency
-   * outage or a bug in the enrichment path must never surface as a 500 to the user — it should
-   * just fall back to manual entry.
+   * Provider failures are turned into a DEGRADED result. Persistence failures are deliberately
+   * allowed to propagate as internal Catalog errors: the provider may have succeeded, and hiding
+   * a database failure as "provider unavailable" makes the API misleading and masks the real fault.
    */
   public async resolveBarcode(
     identifierType: IdentifierType,
