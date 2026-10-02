@@ -24,10 +24,10 @@ before(async()=>{
 
   gateway=spawn(process.execPath,["dist/index.js"],{
     cwd:process.cwd(),
-    env:{...process.env,GATEWAY_PORT:"0",IDENTITY_SERVICE_BASE_URL:upstreamBase+"/api/v1",OIDC_ISSUER:"http://127.0.0.1:1/realms/dispensa",OIDC_AUDIENCE:"account"},
+    env:{...process.env,PORT:"3399",IDENTITY_SERVICE_BASE_URL:upstreamBase+"/api/v1",OIDC_ISSUER:"http://127.0.0.1:1/realms/dispensa",OIDC_AUDIENCE:"account"},
     stdio:["ignore","pipe","pipe"],
   });
-  gatewayBase="http://127.0.0.1:3300";
+  gatewayBase="http://127.0.0.1:3399";
   for(let i=0;i<60;i++){
     try{const r=await fetch(gatewayBase+"/health/live");if(r.ok)return;}catch{}
     await new Promise(r=>setTimeout(r,100));
