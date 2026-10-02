@@ -68,6 +68,20 @@ describe("service-privacy / real domain integration",()=>{
     const list=await service.listConsents(principal);assert.equal(list[0].purpose,"analytics");
   });
 
+  it("stores the complete documented consent set atomically",async()=>{
+    const repo=new PostgresPrivacyErasureRepository(db);
+    const audit=new PostgresPrivacyAuditWriter(db);
+    const service=new PrivacyErasureService(repo,ownership,jobsPublisher,audit,()=>1500);
+    const result=await service.updateConsents(principal,{analytics:false,personalization:true,notifications:true},"trace-consents");
+    assert.equal(result.length,3);
+    const rows=await rawPool.query("select purpose,granted from privacy_consents where user_id=$1 order by purpose",[userId]);
+    assert.deepEqual(rows.rows,[
+      {purpose:"analytics",granted:false},
+      {purpose:"notifications",granted:true},
+      {purpose:"personalization",granted:true},
+    ]);
+  });
+
   it("creates an erasure request after real Family owner authorization and publishes a real Jobs request",async()=>{
     assert.ok(familyId);
     const repo=new PostgresPrivacyErasureRepository(db);
