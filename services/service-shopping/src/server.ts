@@ -76,7 +76,7 @@ function idempotencyKey(req: express.Request): string | null {
 }
 
 function ifMatch(req: express.Request): number | null {
-  return parseIfMatch(req.header("if-match"));
+  return parseIfMatch(req.header("if-match") ?? "");
 }
 
 function hashBody(body: unknown): string {
