@@ -727,6 +727,10 @@ Response 202:
 {"data":{"predictionId":"uuid","status":"queued"}}
 ```
 
+### POST /internal/shelf-life/predictions/{predictionId}/process
+
+Endpoint interno worker-to-service. Richiede internal service token. Elabora una prediction queued e la porta a completed in modo idempotente; una prediction già completed viene restituita senza ricalcolo.
+
 ### GET /internal/shelf-life/predictions/recoverable
 
 Endpoint interno worker-to-service. Richiede internal service token. Restituisce le prediction queued o completed che possono essere riprese dopo perdita della coda Redis o riavvio del worker.
