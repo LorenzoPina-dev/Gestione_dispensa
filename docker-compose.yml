@@ -37,7 +37,6 @@ services:
       IDENTITY_SERVICE_BASE_URL: "http://service-identity:3310/api/v1"
       FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
       INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1"
-      FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
       SHOPPING_SERVICE_BASE_URL: "http://service-shopping:3313/api/v1"
       CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1"
       NOTIFICATIONS_SERVICE_BASE_URL: "http://service-notifications:3315/api/v1"
