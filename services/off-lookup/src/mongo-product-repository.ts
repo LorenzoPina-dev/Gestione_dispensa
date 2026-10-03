@@ -362,7 +362,10 @@ function tokenizeSearchQuery(value: string): string[] {
 }
 
 function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\export function createProductRepository(): ProductRepository {");
+  return value.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+}
+
+export function createProductRepository(): ProductRepository {");
 }
 
 export function createProductRepository(): ProductRepository {
