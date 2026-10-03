@@ -961,7 +961,7 @@ chiave funzionale e deve avere indice ascending per lookup barcode e pagination 
 
 La ricerca testuale utente NON usa MongoDB.
 
-La quality gate OFF è `completeness >= 0.70`: il maintenance job rimuove dal corpus locale i prodotti sotto soglia o senza completezza numerica verificabile, il bootstrap espone solo documenti eleggibili e OpenSearch applica lo stesso filtro a ogni ricerca. I nuovi risultati live sotto soglia non vengono memorizzati nella cache Mongo né indicizzati. Non è richiesto né ammesso un indice `_keywords_1`:
+La quality gate OFF è `completeness >= 0.70`. il maintenance job rimuove dal corpus locale i prodotti sotto soglia o senza completezza numerica verificabile, il bootstrap espone solo documenti eleggibili e OpenSearch applica lo stesso filtro a ogni ricerca. I nuovi risultati live sotto soglia non vengono memorizzati nella cache Mongo né indicizzati. Non è richiesto né ammesso un indice `_keywords_1`:
 la ricerca testuale appartiene a OpenSearch.
 
 Per il bootstrap della projection, `off-lookup` espone solamente una projection source interna
@@ -995,7 +995,6 @@ Mapping minimo:
 | popularityKey | double | sì |
 | completeness | double | sì; filtro minimo 0.70 |
 | featureText | text | analyzer `off_text` |
-| searchText | text | analyzer `off_text` |
 
 `dynamic=false` impedisce che il documento OFF proiettato trasformi automaticamente ogni campo arbitrario in un mapping OpenSearch.
 
@@ -1019,3 +1018,6 @@ Il corpus OFF e la projection di ricerca non condividono tabelle PostgreSQL con 
 `notifications_domain.processed_events` appartiene esclusivamente a `service-notifications` e implementa la deduplicazione degli eventi consumati.
 
 Campi: `event_id` primary key, `event_type`, `schema_version`, `producer`, `processed_at`. È presente un indice su `processed_at DESC`. La tabella è tecnica del service e non è condivisa con altri database.
+
+
+La projection OpenSearch usa `nameExact` e `brandExact` come keyword normalizzate per exact/prefix search. `searchText` non fa più parte della projection corrente: la ricerca lessicale usa direttamente `name`, `brand`, `category`, `featureText` e `quantityLabel`.
