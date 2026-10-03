@@ -164,23 +164,36 @@ services:
         const collections=db.getCollectionNames();
         if(!collections.includes("products")){db.createCollection("products");print("Mongo products collection created");}
         const minCompleteness=0.7;
-        const dollar=String.fromCharCode(36);
-        const qualityFilter={
-          [dollar+"expr"]:{
-            [dollar+"lt"]:[
-              {[dollar+"convert"]:{input:dollar+"completeness",to:"double",onError:-1,onNull:-1}},
-              minCompleteness
-            ]
-          }
-        };
-        const before=db.products.countDocuments();
-        const removed=db.products.deleteMany(qualityFilter).deletedCount;
-        print("Removed "+removed+" OFF products below "+(minCompleteness*100)+"% completeness from "+before+" documents");
-        const idx=db.products.getIndexes();
-        const keywords=idx.find(i=>i.name==="keywords_1" || (i.key && i.key._keywords===1));
-        if(keywords){print("Dropping obsolete Mongo text index "+keywords.name);db.products.dropIndex(keywords.name);}
-        else{print("Mongo text index already absent");}
-        db.products.createIndex({code:1},{name:"code_1"});
+        const maintenance=db.getCollection("off_maintenance_meta");
+        const marker=maintenance.findOne({_id:"quality-gate-v1"});
+        if(marker && Number(marker.minCompleteness)===minCompleteness){
+          print("OFF Mongo quality gate already applied at "+(minCompleteness*100)+"%; no cleanup needed");
+        } else {
+          const dollar=String.fromCharCode(36);
+          const qualityFilter={
+            [dollar+"expr"]:{
+              [dollar+"lt"]:[
+                {[dollar+"convert"]:{input:dollar+"completeness",to:"double",onError:-1,onNull:-1}},
+                minCompleteness
+              ]
+            }
+          };
+          const before=db.products.countDocuments();
+          const removed=db.products.deleteMany(qualityFilter).deletedCount;
+          print("Removed "+removed+" OFF products below "+(minCompleteness*100)+"% completeness from "+before+" documents");
+          const idx=db.products.getIndexes();
+          const keywords=idx.find(i=>i.name==="keywords_1" || (i.key && i.key._keywords===1));
+          if(keywords){print("Dropping obsolete Mongo text index "+keywords.name);db.products.dropIndex(keywords.name);}
+          else{print("Mongo text index already absent");}
+          const codeIndex=idx.find(i=>i.name==="code_1" || (i.key && i.key.code===1));
+          if(!codeIndex) db.products.createIndex({code:1},{name:"code_1"});
+          maintenance.updateOne(
+            {_id:"quality-gate-v1"},
+            {$set:{minCompleteness,appliedAt:new Date().toISOString()}},
+            {upsert:true}
+          );
+          print("OFF Mongo quality gate marker stored");
+        }
     depends_on:
       mongodb: { condition: service_healthy }
     restart: "no"
