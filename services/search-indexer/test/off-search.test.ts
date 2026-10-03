@@ -137,6 +137,38 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(generic?.imageUrl, "https://example.test/nutrition-small.jpg");
   });
 
+  it("prefers the smallest available front image across all OFF fields", () => {
+    const doc = toOffSearchDocument({
+      code: "1901040901922",
+      product: {
+        product_name: "Hing Goli",
+        completeness: 0.9,
+        image_front_url: "https://images.openfoodfacts.org/images/products/190/104/090/1922/front_en.3.400.jpg",
+        images: {
+          selected: {
+            front: {
+              url: "https://images.openfoodfacts.org/images/products/190/104/090/1922/front_en.3.400.jpg",
+              "200": "https://images.openfoodfacts.org/images/products/190/104/090/1922/front_en.3.200.jpg",
+            },
+          },
+        },
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://images.openfoodfacts.org/images/products/190/104/090/1922/front_en.3.200.jpg");
+  });
+
+  it("uses a non-front image only when no front image is available", () => {
+    const doc = toOffSearchDocument({
+      code: "1901040901922",
+      product: {
+        product_name: "Hing Goli",
+        completeness: 0.9,
+        image_ingredients_small_url: "https://example.test/ingredients.200.jpg",
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://example.test/ingredients.200.jpg");
+  });
+
   it("computes a usable OFF image URL when image metadata has no direct URL", () => {
     const doc = toOffSearchDocument({
       code: "3017620422003",
