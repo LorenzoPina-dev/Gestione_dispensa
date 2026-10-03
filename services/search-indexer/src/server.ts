@@ -130,8 +130,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 }
 
 function isAuthorized(req: IncomingMessage): boolean {
-  const provided = req.headers["x-internal-service-token"];
-  return typeof provided === "string" && provided === internalToken;
+  const provided = req.headers.authorization;
+  return typeof provided === "string" && provided === `Bearer ${internalToken}`;
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
