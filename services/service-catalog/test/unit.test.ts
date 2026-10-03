@@ -197,6 +197,114 @@ describe("service-catalog / rich barcode public contract", () => {
   });
 });
 
+describe("service-catalog / ranked product search", () => {
+  it("returns ranked external search hits through the workflow", async () => {
+    const workflow = new CatalogWorkflowService(
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { applyImportedCandidate: async (input) => input.candidate },
+      undefined,
+      {
+        search: async ({ query, limit, traceId }) => {
+          assert.equal(query, "golia");
+          assert.equal(limit, 8);
+          assert.equal(traceId, meta.traceId);
+          return [{
+            code: "8001234567890",
+            canonicalName: "Golia Caramella",
+            brand: "Perfetti",
+            category: "confectionery-candy",
+            quantityLabel: "50 g",
+            popularityKey: 123,
+            completeness: 0.96,
+          }];
+        },
+      },
+    );
+
+    const hits = await workflow.searchProducts("  golia  ", meta.traceId, 8);
+    assert.equal(hits?.length, 1);
+    assert.equal(hits?.[0]?.canonicalName, "Golia Caramella");
+  });
+
+  it("preserves provider unavailability instead of converting it to an empty result", async () => {
+    const workflow = new CatalogWorkflowService(
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { applyImportedCandidate: async (input) => input.candidate },
+      undefined,
+      { search: async () => undefined },
+    );
+
+    assert.equal(await workflow.searchProducts("golia", meta.traceId, 8), undefined);
+  });
+
+  it("maps ranked search hits to the public controller DTO", async () => {
+    const workflow = new CatalogWorkflowService(
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { applyImportedCandidate: async (input) => input.candidate },
+      undefined,
+      {
+        search: async () => [{
+          code: "8001234567890",
+          canonicalName: "Golia Caramella",
+          brand: "Perfetti",
+          category: "confectionery-candy",
+          photoUrl: "https://example.test/golia.jpg",
+          quantityLabel: "50 g",
+          calories: 410,
+          protein: 0,
+          carbs: 96,
+          fat: 0,
+          fiber: 0,
+          popularityKey: 123,
+          completeness: 0.96,
+        }],
+      },
+    );
+    const controller = new CatalogController(
+      new CatalogService(new MemoryCatalogRepository(), { next: () => "p-1" }, { now: () => new Date() }),
+      workflow,
+    );
+
+    const response = await controller.searchProducts(principal, "golia", 8, meta);
+    assert.equal(response.data.items.length, 1);
+    assert.deepEqual(response.data.items[0], {
+      code: "8001234567890",
+      name: "Golia Caramella",
+      brand: "Perfetti",
+      category: "confectionery-candy",
+      imageUrl: "https://example.test/golia.jpg",
+      packageLabel: "50 g",
+      nutrition: {
+        kcalPer100g: 410,
+        proteinGPer100g: 0,
+        carbsGPer100g: 96,
+        fatGPer100g: 0,
+        fiberGPer100g: 0,
+      },
+      popularityKey: 123,
+      completeness: 0.96,
+    });
+  });
+
+  it("returns a typed 503 error when the external search is unavailable", async () => {
+    const workflow = new CatalogWorkflowService(
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { applyImportedCandidate: async (input) => input.candidate },
+      undefined,
+      { search: async () => undefined },
+    );
+    const controller = new CatalogController(
+      new CatalogService(new MemoryCatalogRepository(), { next: () => "p-1" }, { now: () => new Date() }),
+      workflow,
+    );
+
+    await assert.rejects(
+      () => controller.searchProducts(principal, "golia", 8, meta),
+      (error: unknown) => error instanceof CatalogHttpError && error.status === 503 && error.code === "UPSTREAM_ERROR",
+    );
+  });
+});
+
 describe("service-catalog / barcode workflow", () => {
   it("uses the local catalog first and does not call the external boundary on a cache hit", async () => {
     let externalCalls = 0;
