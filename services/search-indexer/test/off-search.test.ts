@@ -74,6 +74,19 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(doc?.imageUrl, "https://example.test/nested-front-200.jpg");
   });
 
+  it("rejects invalid direct image URL values", () => {
+    const doc = toOffSearchDocument({
+      code: "3017620422003",
+      product: {
+        product_name: "Pasta",
+        completeness: 0.9,
+        image_front_url: "9",
+        image_url: "https://example.test/real.jpg",
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://example.test/real.jpg");
+  });
+
   it("never treats OFF image metadata such as imgid as an image URL", () => {
     const doc = toOffSearchDocument({
       code: "3017620422003",
