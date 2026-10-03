@@ -148,3 +148,35 @@ Nuovi bounded context possono essere aggiunti, ad esempio:
 - advanced search.
 
 Devono ottenere un nuovo owner e, se hanno stato authoritative, un nuovo DB dedicato. Non è consentito aggiungere tabelle a un DB esistente solo per evitare di creare il nuovo service.
+
+## OFF product search ownership
+
+### search-indexer
+
+- port HTTP interne: `3210`;
+- database: OpenSearch index `off-products-v1`, nessun PostgreSQL domain DB;
+- owner della projection di ricerca OFF;
+- non accede a MongoDB direttamente;
+- riceve una source projection paginata da `off-lookup`;
+- accetta upsert/reindex/search solamente sul boundary interno autenticato;
+- può perdere l'indice senza perdere il corpus OFF.
+
+### off-lookup
+
+- port HTTP interno: `3200`;
+- database: MongoDB `off_lookup_db.products`;
+- owner dei documenti OFF completi e del read-through barcode cache;
+- chiama OpenSearch attraverso `search-indexer` per la ricerca locale;
+- chiama Search-a-licious solamente come fallback;
+- notifica `search-indexer` con upsert best-effort quando apprende un prodotto dal barcode API.
+
+### service-catalog
+
+- non accede né a MongoDB né a OpenSearch;
+- espone `GET /catalog/products/search` autenticato al Gateway;
+- usa off-lookup come boundary per la ricerca;
+- la selezione finale usa `POST /catalog/barcodes/resolve` e crea/persisti il prodotto applicativo nel Catalog PostgreSQL.
+
+### Regola
+
+`search-indexer` non diventa un nuovo owner del prodotto. Il suo indice è ricostruibile esclusivamente dalla source `off-lookup`.
