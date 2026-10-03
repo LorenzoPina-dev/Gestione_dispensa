@@ -149,7 +149,7 @@ export class MongoProductRepository implements ProductRepository {
           nextCursor: null,
         };
       } catch (error) {
-        log("warn", "mongo_name_search_unavailable", {
+        log("error", "mongo_name_search_unavailable", {
           error: error instanceof Error ? error.message : "unknown",
         });
         return undefined;
