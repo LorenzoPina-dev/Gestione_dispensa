@@ -10,7 +10,7 @@ const sourceToken = stringEnv("OFF_LOOKUP_SOURCE_TOKEN", internalToken);
 const timeoutMs = positiveInt(process.env.OPENSEARCH_TIMEOUT_MS, 1500);
 const sourceTimeoutMs = positiveInt(process.env.OFF_LOOKUP_SOURCE_TIMEOUT_MS, 3000);
 const bootstrapDelayMs = positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_DELAY_MS, 3000);
-const bootstrapEnabled = process.env.OFF_SEARCH_BOOTSTRAP_ENABLED === "true";
+const bootstrapEnabled = process.env.OFF_SEARCH_BOOTSTRAP_ENABLED !== "false";
 const index = new OpenSearchOffIndex(openSearchUrl, undefined, timeoutMs);
 const sourceSync = new OffSourceSync(index, {
   sourceUrl,
