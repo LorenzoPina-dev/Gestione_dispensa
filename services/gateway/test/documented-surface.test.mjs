@@ -111,6 +111,7 @@ describe("Gateway / documented API.md edge surface", () => {
       "POST /auth/reset-password",
       "POST /auth/logout",
       "GET /family-invites/{token}",
+      "POST /client-errors",
     ]);
     const operations = parseOperations(api);
     let checked = 0;
