@@ -13,6 +13,7 @@ export interface HttpOffLookupClientOptions {
    */
   readonly baseUrl: string;
   readonly timeoutMs: number;
+  readonly internalToken?: string;
   /** Consecutive failures before the circuit opens and skips the network call entirely. */
   readonly circuitBreakThreshold?: number;
   /** How long (ms) the circuit stays open before trying again. */
@@ -134,6 +135,7 @@ function parseDefaultUnit(quantity: string | undefined): ProductUnit {
 export class HttpOffLookupClient implements ExternalBarcodeLookupClient, ExternalProductSearchClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly internalToken: string | undefined;
   private readonly circuitBreakThreshold: number;
   private readonly circuitResetMs: number;
   private readonly fetchImpl: typeof fetch;
@@ -144,6 +146,7 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient, Externa
   public constructor(options: HttpOffLookupClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.timeoutMs = options.timeoutMs;
+    this.internalToken = options.internalToken;
     this.circuitBreakThreshold = options.circuitBreakThreshold ?? 5;
     this.circuitResetMs = options.circuitResetMs ?? 30_000;
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -166,7 +169,11 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient, Externa
       url.searchParams.set("limit", String(Math.min(Math.max(Math.floor(input.limit), 1), 20)));
       const response = await this.fetchImpl(url, {
         signal: controller.signal,
-        headers: { Accept: "application/json", "X-Trace-Id": input.traceId },
+        headers: {
+          Accept: "application/json",
+          "X-Trace-Id": input.traceId,
+          ...(this.internalToken ? { Authorization: `Bearer ${this.internalToken}` } : {}),
+        },
       });
       if (!response.ok) return undefined;
 
