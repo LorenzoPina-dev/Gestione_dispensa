@@ -13,6 +13,14 @@ export type ProductLookupResult =
   | { readonly outcome: "not_found" }
   | { readonly outcome: "unavailable"; readonly reason: string };
 
+export interface LocalProductSearchClient {
+  search(query: string, limit: number, traceId?: string): Promise<OffSearchResult | undefined>;
+}
+
+export interface ProductIndexWriter {
+  upsert(code: string, product: Record<string, unknown>): Promise<void>;
+}
+
 const BARCODE_PATTERN = /^\d{6,14}$/;
 
 export function isValidBarcode(value: string): boolean {
@@ -39,29 +47,45 @@ export class ProductLookupService {
   public constructor(
     private readonly repository: ProductRepository,
     private readonly apiClient: OffApiClient,
+    private readonly localSearch?: LocalProductSearchClient,
+    private readonly indexWriter?: ProductIndexWriter,
   ) {}
 
-  public async search(query: string, limit = 10): Promise<OffSearchResult> {
+  public async search(query: string, limit = 10, traceId?: string): Promise<OffSearchResult> {
     const normalizedQuery = query.trim().replace(/\s+/g, " ");
     if (normalizedQuery.length < 3) return { status: "found", hits: [] };
 
-    // Search-a-licious is relevance-ranked by default and supports phrase boosting. A tiny
-    // in-process cache protects OFF from repeated requests while the user is typing.
+    // Local-first: OpenSearch is the interactive path. The public OFF search API is
+    // fallback-only when the local projection has no match or is unavailable.
     const now = Date.now();
     const cached = this.searchCache.get(normalizedQuery);
     if (cached !== undefined && now - cached.at < config.offApi.searchCacheMs) {
       return cached.result;
     }
 
-    if (this.apiClient.searchProducts === undefined) return { status: "found", hits: [] };
-    const result = await this.apiClient.searchProducts(normalizedQuery, Math.min(Math.max(limit, 1), 20));
-    this.searchCache.set(normalizedQuery, { at: now, result });
-    if (this.searchCache.size > 50) {
-      const oldest = [...this.searchCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-      if (oldest) this.searchCache.delete(oldest[0]);
+    const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
+    if (this.localSearch !== undefined) {
+      try {
+        const local = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
+        if (local?.status === "found" && local.hits.length > 0) {
+          const result = { ...local, source: "local" } as OffSearchResult;
+          this.searchCache.set(normalizedQuery, result);
+          this.trimSearchCache();
+          return result;
+        }
+      } catch (error) {
+        log("error", "local_product_search_failed", {
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      }
     }
+
+    if (this.apiClient.searchProducts === undefined) return { status: "found", hits: [] };
+    const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
+    const result = { ...external, source: "external" } as OffSearchResult;
+    this.searchCache.set(normalizedQuery, result);
+    this.trimSearchCache();
     return result;
-  }
 
   public async lookup(barcode: string): Promise<ProductLookupResult> {
     const cached = await this.repository.findByCode(barcode);
@@ -95,6 +119,22 @@ export class ProductLookupService {
     }
   }
 
+  private trimSearchCache(): void {
+    if (this.searchCache.size <= 50) return;
+    const oldest = [...this.searchCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) this.searchCache.delete(oldest[0]);
+  }
+
+  private indexProductAsync(code: string, product: Record<string, unknown>): void {
+    if (this.indexWriter === undefined) return;
+    void this.indexWriter.upsert(code, product).catch((error: unknown) => {
+      log("error", "search_index_upsert_failed", {
+        code,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    });
+  }
+
   private async lookupWithoutCache(barcode: string): Promise<ProductLookupResult> {
     log("info", "lookup_cache_miss", { barcode });
     const apiResult = await this.apiClient.fetchProduct(barcode);
@@ -107,6 +147,7 @@ export class ProductLookupService {
           error: error instanceof Error ? error.message : "unknown",
         });
       });
+      this.indexProductAsync(barcode, apiResult.product);
       return { outcome: "hit", source: "live-api", product: apiResult.product };
     }
 
@@ -138,6 +179,7 @@ export class ProductLookupService {
           error: error instanceof Error ? error.message : "unknown",
         });
       });
+      this.indexProductAsync(barcode, merged);
 
       log("info", "lookup_cache_refresh_succeeded", {
         barcode,
