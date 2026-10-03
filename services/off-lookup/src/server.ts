@@ -7,18 +7,12 @@ import { ProductLookupService, isValidBarcode } from "./product-lookup-service.j
 import { HttpSearchIndexerClient } from "./search-indexer-client.js";
 
 /**
- * OFF-Lookup: standalone microservice dedicated to barcode -> product resolution.
+ * OFF-Lookup: standalone Open Food Facts boundary.
  *
- * Runs as its OWN container, separate from worker-integrations and from the api service, on
- * purpose:
- *  - it is the only service that talks to the local Open Food Facts MongoDB dump (potentially
- *    tens of GB) and to the public Open Food Facts API;
- *  - worker-integrations calls it over HTTP with its own timeout + circuit breaker (see
- *    the former worker integration adapter) and simply degrades to
- *    "manual entry" if this container is absent, unhealthy, or still restoring the dump;
- *  - the local database is entirely optional (see mongo-product-repository.ts): with
- *    OFF_LOOKUP_MONGO_URL unset, or unreachable, every lookup transparently falls through to the
- *    live API, exactly as if no cache existed at all.
+ * It owns the local OFF Mongo dump for authoritative barcode/cache lookups and exposes the
+ * internal source endpoint consumed by search-indexer during the automatic full-data projection.
+ * Text search is delegated to OpenSearch; the public OFF search API is only the fallback when the
+ * local OpenSearch index has no hit.
  */
 
 const repository = createProductRepository();
