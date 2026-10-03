@@ -3,7 +3,7 @@
 ## Modello
 Ogni bounded context è un processo indipendente con codice, API, database, migration, credenziali, health/readiness, deploy e scaling propri.
 
-**Database-per-service è obbligatorio.** La condivisione fisica dell'istanza PostgreSQL in locale è solo un dettaglio di deployment: i database applicativi restano separati e non esistono tabelle condivise.
+**database-per-service è obbligatorio.** La condivisione fisica dell'istanza PostgreSQL in locale è solo un dettaglio di deployment: i database applicativi restano separati e non esistono tabelle condivise.
 
 ```
 Browser -> Nginx -> Gateway
