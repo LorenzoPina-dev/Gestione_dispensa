@@ -61,37 +61,61 @@ export class OpenFoodFactsApiClient implements OffApiClient {
   }
 
   public async searchProducts(query: string, limit: number): Promise<OffSearchResult> {
-    const normalizedQuery = query.trim();
+    const normalizedQuery = query.trim().replace(/\s+/g, " ");
     if (!normalizedQuery) return { status: "found", hits: [] };
 
+    const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
+    // Search-a-Licious/Open Food Facts can interpret multi-word queries more strictly than
+    // the product-name UX expects. Try the full query first, then individual tokens, and
+    // merge/deduplicate the hits. The final filter keeps only products whose name contains
+    // every requested token, so the fallback cannot turn "lemon soda" into arbitrary soda.
+    const candidates = buildSearchQueries(normalizedQuery);
+    const merged = new Map<string, OffSearchHit>();
+    let lastError: string | undefined;
+
+    for (const candidate of candidates) {
+      const result = await this.searchOnce(candidate, boundedLimit);
+      if (result.status === "error") {
+        lastError = result.reason;
+        continue;
+      }
+      for (const hit of result.hits) {
+        const key = hit.code;
+        if (!merged.has(key)) merged.set(key, hit);
+      }
+      if (merged.size >= boundedLimit && hasAllQueryTokens([...merged.values()], normalizedQuery)) break;
+    }
+
+    const hits = [...merged.values()]
+      .filter((hit) => matchesAllQueryTokens(hit.product, normalizedQuery))
+      .slice(0, boundedLimit);
+
+    if (hits.length > 0) {
+      this.recordSuccess();
+      return { status: "found", hits };
+    }
+
+    return lastError
+      ? { status: "error", hits: [], reason: lastError }
+      : { status: "found", hits: [] };
+  }
+
+  private async searchOnce(query: string, limit: number): Promise<OffSearchResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.offApi.searchTimeoutMs);
     try {
       const url = new URL("/search", config.offApi.searchBaseUrl);
-      url.searchParams.set("q", normalizedQuery);
+      url.searchParams.set("q", query);
       url.searchParams.set("page", "1");
-      url.searchParams.set("page_size", String(Math.min(Math.max(Math.floor(limit), 1), 20)));
+      url.searchParams.set("page_size", String(limit));
       url.searchParams.set("boost_phrase", "true");
-
       for (const lang of ["it", "en"]) url.searchParams.append("langs", lang);
       for (const field of [
-        "code",
-        "product_name",
-        "product_name_it",
-        "brands",
-        "quantity",
-        "product_quantity",
-        "product_quantity_unit",
-        "image_front_url",
-        "image_front_small_url",
-        "categories_tags",
-        "nutriments",
-        "nutrition_data_per",
-        "popularity_key",
-        "completeness",
-      ]) {
-        url.searchParams.append("fields", field);
-      }
+        "code", "product_name", "product_name_it", "brands", "quantity",
+        "product_quantity", "product_quantity_unit", "image_front_url",
+        "image_front_small_url", "categories_tags", "nutriments",
+        "nutrition_data_per", "popularity_key", "completeness",
+      ]) url.searchParams.append("fields", field);
 
       const response = await fetch(url, {
         signal: controller.signal,
@@ -109,17 +133,10 @@ export class OpenFoodFactsApiClient implements OffApiClient {
         };
       }
 
-      const body = (await response.json()) as {
-        hits?: unknown;
-        products?: unknown;
-      };
-      const rawHits = Array.isArray(body.hits)
-        ? body.hits
-        : Array.isArray(body.products)
-          ? body.products
-          : [];
-
+      const body = (await response.json()) as { hits?: unknown; products?: unknown };
+      const rawHits = Array.isArray(body.hits) ? body.hits : Array.isArray(body.products) ? body.products : [];
       const hits: OffSearchHit[] = [];
+
       for (const raw of rawHits) {
         if (!raw || typeof raw !== "object") continue;
         const value = raw as Record<string, unknown>;
@@ -130,8 +147,8 @@ export class OpenFoodFactsApiClient implements OffApiClient {
           isRecord(value._source) ? value._source :
           isRecord(value.product) ? value.product :
           value;
-
         if (!isRecord(product)) continue;
+
         const name =
           (typeof product.product_name_it === "string" ? product.product_name_it : "") ||
           (typeof product.product_name === "string" ? product.product_name : "");
@@ -147,15 +164,12 @@ export class OpenFoodFactsApiClient implements OffApiClient {
         hits: [],
         reason: controller.signal.aborted
           ? "timeout"
-          : error instanceof Error
-            ? error.message
-            : "network_error",
+          : error instanceof Error ? error.message : "network_error",
       };
     } finally {
       clearTimeout(timeout);
     }
   }
-
   public async fetchProduct(barcode: string): Promise<OffApiResult> {
     if (this.isCircuitOpen()) {
       return { status: "error", reason: "circuit_open", retryable: true };
@@ -219,6 +233,38 @@ export class OpenFoodFactsApiClient implements OffApiClient {
       });
     }
   }
+}
+
+function buildSearchQueries(query: string): string[] {
+  const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
+  return [...new Set([
+    query,
+    tokens.length > 1 ? tokens.join(" ") : "",
+    ...tokens.filter((token) => token.length >= 3),
+  ].filter(Boolean))];
+}
+
+function matchesAllQueryTokens(product: Record<string, unknown>, query: string): boolean {
+  const name = normalizeSearchText(
+    (typeof product.product_name_it === "string" ? product.product_name_it : "") ||
+    (typeof product.product_name === "string" ? product.product_name : ""),
+  );
+  const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => name.includes(token));
+}
+
+function hasAllQueryTokens(hits: OffSearchHit[], query: string): boolean {
+  return hits.some((hit) => matchesAllQueryTokens(hit.product, query));
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("it-IT")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
