@@ -177,7 +177,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 function isValidInternalToken(req: Request): boolean {
-  return req.header("authorization") === `Bearer ${config.searchIndexer.token}`;
+  return req.header("authorization") === `Bearer ${config.internalToken}`;
 }
 
 function shutdown(signal: string): void {
