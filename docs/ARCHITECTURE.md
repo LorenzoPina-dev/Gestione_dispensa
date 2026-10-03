@@ -199,3 +199,6 @@ Mongo e viene reindicizzato quando il servizio torna disponibile.
 ### OFF search ranking
 
 La ricerca testuale usa `nameExact` e `brandExact` come keyword normalizzate per exact/prefix match. I campi testuali `name`, `brand`, `category`, `featureText` e `quantityLabel` forniscono il recupero lessicale senza mantenere il campo duplicato `searchText`. La projection version corrente è 3; ogni incremento breaking forza il rebuild dell'indice.
+
+
+La projection OFF corrente è v4 e include anche il campo Mongo `images` per recuperare le immagini annidate (`images.selected.front`) quando i campi `image_front_*` non sono presenti.
