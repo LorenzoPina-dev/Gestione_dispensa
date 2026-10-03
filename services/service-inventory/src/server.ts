@@ -201,6 +201,27 @@ async function authorizeFamily(ctx: Ctx, write: boolean): Promise<AuthResult> {
 
 const requestHash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
+/**
+ * Scala `quantity` da una riga della dispensa già bloccata (FOR UPDATE).
+ * pantry_items.quantity ha CHECK (quantity > 0): quando la giacenza si esaurisce la riga va eliminata
+ * (lo storico resta in `movements`), altrimenti l'UPDATE a 0 viola il vincolo e l'endpoint risponde 500.
+ * Restituisce la stessa forma di `client.query` così i chiamanti usano `updated.rows[0]` come prima.
+ */
+async function applyOutflow(
+  client: PoolClient,
+  row: Record<string, unknown>,
+  quantity: number,
+  ctx: Ctx,
+): Promise<{ rows: Array<Record<string, unknown>> }> {
+  const remaining = Math.round((Number(row.quantity) - quantity) * 1000) / 1000;
+  if (remaining <= 0) {
+    const removed = await client.query("DELETE FROM pantry_items WHERE id=$1 AND family_id=$2 RETURNING *", [row.id, ctx.familyId]);
+    const gone = removed.rows[0] as Record<string, unknown>;
+    return { rows: [{ ...gone, quantity: 0, version: Number(gone.version) + 1, updated_at: new Date().toISOString() }] };
+  }
+  return client.query("UPDATE pantry_items SET quantity=quantity-$1,version=version+1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING *", [quantity, row.id, ctx.familyId]);
+}
+
 async function idempotency(client: PoolClient, key: string, ctx: Ctx, body: unknown) {
   const hash = requestHash(body);
   const result = await client.query("SELECT * FROM idempotency_keys WHERE key=$1 FOR UPDATE", [key]);
@@ -400,7 +421,7 @@ const server = createServer(async (req, res) => {
         const row = current.rows[0];
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
         if (Number(row.quantity) < quantity) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
-        const updated = await client.query("UPDATE pantry_items SET quantity=quantity-$1,version=version+1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING *", [quantity, itemMatch[1], ctx.familyId]);
+        const updated = await applyOutflow(client, row, quantity, ctx);
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'consume',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
         await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "consume", quantity, item: dto(updated.rows[0]) });
         const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
@@ -430,7 +451,7 @@ const server = createServer(async (req, res) => {
         const row = current.rows[0];
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
         if (Number(row.quantity) < quantity) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
-        const updated = await client.query("UPDATE pantry_items SET quantity=quantity-$1,version=version+1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING *", [quantity, itemMatch[1], ctx.familyId]);
+        const updated = await applyOutflow(client, row, quantity, ctx);
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'waste',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
         await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "waste", quantity, item: dto(updated.rows[0]) });
         const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
@@ -459,7 +480,7 @@ const server = createServer(async (req, res) => {
         if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
         const row = current.rows[0];
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
-        const updated = await client.query("UPDATE pantry_items SET expires_at=$1,expiration_source=$2,version=version+1,updated_at=now() WHERE id=$3 AND family_id=$4 RETURNING *", [body.expiresAt === null ? null : new Date(String(body.expiresAt)), body.source ?? "confirmed", itemMatch[1], ctx.familyId]);
+        const updated = await client.query("UPDATE pantry_items SET expires_at=$1,expiration_source=$2,version=version+1,updated_at=now() WHERE id=$3 AND family_id=$4 RETURNING *", [body.expiresAt === null ? null : new Date(String(body.expiresAt)), body.source ?? "declared", itemMatch[1], ctx.familyId]);
         await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "expiration_confirmed", item: dto(updated.rows[0]) });
         const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
         await finish(client, key, 200, output);
@@ -470,6 +491,19 @@ const server = createServer(async (req, res) => {
 
     return fail(res, 404, "NOT_FOUND", "Route not found.", ctx.requestId);
   } catch (error) {
+    if (!(error instanceof RequestBodyValidationError)) {
+      // Prima il 500 era muto: ora la causa (es. SQLSTATE 23514 = CHECK violato) finisce nei log del container.
+      console.error(JSON.stringify({
+        service,
+        event: "request_failed",
+        requestId,
+        method: req.method,
+        path: req.url,
+        error: error instanceof Error ? error.message : String(error),
+        code: (error as { code?: unknown } | null)?.code,
+        constraint: (error as { constraint?: unknown } | null)?.constraint,
+      }));
+    }
     const message = error instanceof RequestBodyValidationError ? error.message : "Unexpected internal error.";
     const status = error instanceof RequestBodyValidationError ? 400 : 500;
     return fail(res, status, error instanceof RequestBodyValidationError ? "VALIDATION_ERROR" : "INTERNAL_ERROR", message, requestId);

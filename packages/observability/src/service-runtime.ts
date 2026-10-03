@@ -364,6 +364,11 @@ function emitSpan(span: SpanRecord): void {
 
 async function flushSpans(): Promise<void> {
   if (!otlpEndpoint || !rawFetch || spanBuffer.length === 0) return;
+  // Rispetta il backoff calcolato dopo un errore e non sovrapporre i flush: senza questi controlli, con il
+  // collector irraggiungibile partiva un fetch ogni 2s e ogni lookup DNS pendente (5s, non annullabile)
+  // occupava un thread del pool libuv, affamando le risoluzioni DNS delle chiamate verso gli altri servizi.
+  if (otlpFlushInFlight || Date.now() < otlpRetryAt) return;
+  otlpFlushInFlight = true;
   const batch = spanBuffer.splice(0, 256);
   const attribute = (key: string, value: string | number) => ({
     key,

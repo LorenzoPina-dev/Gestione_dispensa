@@ -22,7 +22,33 @@ const storesBaseUrl = (process.env.STORES_SERVICE_BASE_URL ?? "http://service-st
 const oidcIssuer = process.env.OIDC_ISSUER ?? "";
 const oidcAudience = process.env.OIDC_AUDIENCE ?? "";
 const oidcJwksUrl = process.env.OIDC_JWKS_URL ?? "http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs";
-const jwks = createRemoteJWKSet(new URL(oidcJwksUrl));
+// jose abbandona il fetch delle chiavi dopo 5s (ERR_JWKS_TIMEOUT -> 401 "Invalid access token"): sotto carico
+// (avvio dello stack, Keycloak freddo) il default è troppo stretto. Le chiavi poi restano in cache.
+const jwks = createRemoteJWKSet(new URL(oidcJwksUrl), {
+  timeoutDuration: Number(process.env.OIDC_JWKS_TIMEOUT_MS ?? 15_000),
+  cooldownDuration: 5_000,
+});
+
+/** Scalda la cache JWKS all'avvio (con retry), così il primo login non paga la lentezza di Keycloak. */
+async function warmJwks(): Promise<void> {
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    try {
+      await jwks({ alg: "RS256" });
+      log.info("oidc.jwks_warmed", { attempt });
+      return;
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      // Chiavi scaricate ma nessuna/più corrispondenze per alg: la cache è comunque popolata.
+      if (code === "ERR_JWKS_NO_MATCHING_KEY" || code === "ERR_JWKS_MULTIPLE_MATCHING_KEYS") {
+        log.info("oidc.jwks_warmed", { attempt });
+        return;
+      }
+      log.warn("oidc.jwks_warmup_failed", { attempt, code }, error);
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    }
+  }
+}
+void warmJwks();
 
 app.disable("x-powered-by");
 // First middleware: assigns requestId/traceId (or continues the ones sent by nginx/browser) and writes one access-log line per request.

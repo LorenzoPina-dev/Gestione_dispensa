@@ -22,6 +22,7 @@ services:
     depends_on:
       gateway: { condition: service_healthy }
       web: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
     restart: unless-stopped
     networks: [edge, backend]
   web:
@@ -50,21 +51,28 @@ services:
       GATEWAY_TIMEOUT_MS: "5000"
       <<: *oidc-env
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+    # Dipendenze del gateway. Il gateway è un proxy che gestisce già a runtime l'indisponibilità dei singoli
+    # servizi (risponde 502 per quella richiesta), quindi il suo avvio NON deve dipendere da tutto lo stack:
+    # nginx dipende dal gateway, e un servizio secondario guasto (es. OCR/MinIO) spegnerebbe l'intera app.
+    #  - core: servono per autenticare e usare l'app (identità, famiglia, dispensa, spesa, catalogo, Keycloak);
+    #  - `required: false`: Compose li avvia e li attende, ma se non diventano healthy avvia comunque il gateway
+    #    (solo un warning). Un servizio secondario guasto degrada una funzione invece di fermare tutto.
+    # `required: false` richiede Docker Compose >= 2.20.
     depends_on:
       service-identity: { condition: service_healthy }
       service-family: { condition: service_healthy }
       service-inventory: { condition: service_healthy }
       service-shopping: { condition: service_healthy }
       service-catalog: { condition: service_healthy }
-      service-notifications: { condition: service_healthy }
-      service-privacy: { condition: service_healthy }
-      service-jobs: { condition: service_healthy }
-      service-recipes: { condition: service_healthy }
-      service-nutrition: { condition: service_healthy }
-      service-stores: { condition: service_healthy }
-      service-shelf-life: { condition: service_healthy }
-      service-ocr: { condition: service_healthy }
       keycloak: { condition: service_healthy }
+      service-notifications: { condition: service_healthy, required: false }
+      service-privacy: { condition: service_healthy, required: false }
+      service-jobs: { condition: service_healthy, required: false }
+      service-recipes: { condition: service_healthy, required: false }
+      service-nutrition: { condition: service_healthy, required: false }
+      service-stores: { condition: service_healthy, required: false }
+      service-shelf-life: { condition: service_healthy, required: false }
+      service-ocr: { condition: service_healthy, required: false }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend]
