@@ -141,13 +141,14 @@ export class ProductLookupService {
 
     if (apiResult.status === "found") {
       // A cache write is deliberately best-effort. The API result is already a valid response.
-      void this.repository.upsertFromLiveApi(barcode, apiResult.product).catch((error: unknown) => {
-        log("error", "lookup_cache_write_failed", {
-          barcode,
-          error: error instanceof Error ? error.message : "unknown",
+      void this.repository.upsertFromLiveApi(barcode, apiResult.product)
+        .then(() => this.indexProductAsync(barcode, apiResult.product))
+        .catch((error: unknown) => {
+          log("error", "lookup_cache_or_index_write_failed", {
+            barcode,
+            error: error instanceof Error ? error.message : "unknown",
+          });
         });
-      });
-      this.indexProductAsync(barcode, apiResult.product);
       return { outcome: "hit", source: "live-api", product: apiResult.product };
     }
 
@@ -173,13 +174,14 @@ export class ProductLookupService {
       // The repository performs the same conservative merge again against the current DB
       // document. This closes the common race where another request enriches the same barcode
       // while this refresh is in flight. The response does not wait for the optional DB write.
-      void this.repository.upsertFromLiveApi(barcode, merged).catch((error: unknown) => {
-        log("error", "lookup_cache_refresh_write_failed", {
-          barcode,
-          error: error instanceof Error ? error.message : "unknown",
+      void this.repository.upsertFromLiveApi(barcode, merged)
+        .then(() => this.indexProductAsync(barcode, merged))
+        .catch((error: unknown) => {
+          log("error", "lookup_cache_refresh_or_index_write_failed", {
+            barcode,
+            error: error instanceof Error ? error.message : "unknown",
+          });
         });
-      });
-      this.indexProductAsync(barcode, merged);
 
       log("info", "lookup_cache_refresh_succeeded", {
         barcode,
