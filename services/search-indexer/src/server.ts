@@ -10,6 +10,7 @@ const sourceToken = stringEnv("OFF_LOOKUP_SOURCE_TOKEN", internalToken);
 const timeoutMs = positiveInt(process.env.OPENSEARCH_TIMEOUT_MS, 1500);
 const sourceTimeoutMs = positiveInt(process.env.OFF_LOOKUP_SOURCE_TIMEOUT_MS, 3000);
 const bootstrapDelayMs = positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_DELAY_MS, 3000);
+const bootstrapEnabled = process.env.OFF_SEARCH_BOOTSTRAP_ENABLED === "true";
 const index = new OpenSearchOffIndex(openSearchUrl, undefined, timeoutMs);
 const sourceSync = new OffSourceSync(index, {
   sourceUrl,
@@ -171,10 +172,13 @@ function stringEnv(name: string, fallback: string): string {
 
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(JSON.stringify({ service: "search-indexer", event: "started", port }));
-  setTimeout(() => { void sourceSync.ensureBootstrapped(); }, bootstrapDelayMs).unref();
-  const retryTimer = setInterval(() => { void sourceSync.ensureBootstrapped(); }, positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_RETRY_MS, 30_000));
+  if (bootstrapEnabled) {
+    setTimeout(() => { void sourceSync.ensureBootstrapped(); }, bootstrapDelayMs).unref();
+  }
+  const retryTimer = setInterval(() => {
+    if (bootstrapEnabled) void sourceSync.ensureBootstrapped();
+  }, positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_RETRY_MS, 30_000));
   retryTimer.unref();
-
 });
 
 async function shutdown(signal: string): Promise<void> {
