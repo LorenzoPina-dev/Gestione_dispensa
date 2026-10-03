@@ -13,16 +13,7 @@ export interface NotificationDeliveryRepository {
   beginDelivery(eventId: string, userId: string): Promise<boolean>;
   completeDelivery(eventId: string, userId: string, status: string): Promise<void>;
   unsubscribe(userId: string, channel: string): Promise<void>;
-  storeInApp(input: {
-    eventId: string;
-    recipientUserId: string;
-    channel: string;
-    category: string;
-    title: string;
-    body: string;
-    traceId?: string;
-  }, ttlSeconds: number): Promise<void>;
-  getPreference(userId: string, category: string, channel?: string): Promise<{ enabled: boolean }>;
+
 }
 
 export interface NotificationProvider {
@@ -133,7 +124,7 @@ export class InMemoryNotificationRepository implements NotificationDeliveryRepos
   private readonly notifications: Array<Record<string, unknown>> = [];
 
   public async getPreference(userId: string, category: string, _channel = "IN_APP"): Promise<{ enabled: boolean }> {
-    return { enabled: this.preferences.get(key(userId, category))?.enabled ?? true };
+    return this.preferences.get(key(userId, category)) ?? { enabled: true };
   }
 
   public async beginDelivery(eventId: string, userId: string): Promise<boolean> {
