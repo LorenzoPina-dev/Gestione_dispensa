@@ -59,12 +59,24 @@ export class OidcTokenVerifier {
     issuer: string,
     audience: string,
     fetchImpl: FetchLike = fetch,
-    options: { discoveryUrl?: string; jwksUrl?: string } = {},
+    options: {
+      discoveryUrl?: string;
+      jwksUrl?: string;
+      discoveryAttempts?: number;
+      discoveryDelayMs?: number;
+      discoveryTimeoutMs?: number;
+    } = {},
   ): Promise<OidcTokenVerifier> {
     const discoveryUrl = options.discoveryUrl
       ? new URL(options.discoveryUrl)
       : new URL(".well-known/openid-configuration", ensureTrailingSlash(issuer));
-    const response = await fetchDiscoveryWithRetry(fetchImpl, discoveryUrl);
+    const response = await fetchDiscoveryWithRetry(
+      fetchImpl,
+      discoveryUrl,
+      options.discoveryAttempts ?? 30,
+      options.discoveryDelayMs ?? 2_000,
+      options.discoveryTimeoutMs ?? 5_000,
+    );
     const discovery = (await response.json()) as Partial<OidcDiscoveryDocument>;
     const discoveryIssuer = discovery.issuer?.replace(/\/+$/, "");
     const expectedIssuer = issuer.replace(/\/+$/, "");
@@ -163,21 +175,31 @@ async function fetchDiscoveryWithRetry(
   url: URL,
   attempts = 30,
   delayMs = 2_000,
+  timeoutMs = 5_000,
 ): Promise<Response> {
   let lastError: unknown;
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const response = await fetchImpl(url);
+      const response = await fetchImpl(url, { signal: controller.signal });
       if (response.ok) {
+        clearTimeout(timer);
         return response;
       }
       lastError = new Error(`OIDC discovery failed with status ${response.status}.`);
     } catch (error) {
       lastError = error;
+    } finally {
+      clearTimeout(timer);
     }
+
     if (attempt < attempts) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
+
   throw lastError instanceof Error ? lastError : new Error("OIDC discovery failed.");
 }
