@@ -695,8 +695,6 @@ function computedImageUrlFromImages(
       }
     }
 
-    const nested = computedImageUrlFromImages(code, object);
-    if (nested) return nested;
   }
 
   return null;
