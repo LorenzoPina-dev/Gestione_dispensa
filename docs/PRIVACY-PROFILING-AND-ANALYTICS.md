@@ -151,3 +151,19 @@ Prima di attivare profilazione o offerte personalizzate:
 - revisione umana dei suggerimenti ad alto impatto;
 - canale per contestare o correggere una preferenza;
 - audit periodico di accessi e usi secondari.
+
+## Product search profiling boundary
+
+La ricerca locale non registra dati personali nel corpus Open Food Facts. Per una futura personalizzazione, il sistema può registrare eventi separati dal documento prodotto:
+
+| Evento | Minimo richiesto |
+|---|---|
+| `search_started` | query normalizzata, actor/family context secondo privacy policy, timestamp |
+| `search_result_shown` | query, product code, posizione |
+| `product_clicked` | query, product code, posizione |
+| `product_confirmed` | query, product code |
+| `product_added` | product code, esito add |
+
+Questi eventi appartengono a un futuro owner di profiling/ranking e non devono essere aggiunti a `off_lookup_db.products`.
+
+Il reranker ML può consumare feature aggregate (lexical score, exact/prefix/phrase, category/brand affinity, completeness/popularity e storico selezioni) senza modificare la source OFF. Consenso, retention e cancellazione seguono questo documento e non il lifecycle del corpus Open Food Facts.
