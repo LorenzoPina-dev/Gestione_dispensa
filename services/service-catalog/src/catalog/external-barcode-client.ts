@@ -146,7 +146,8 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient, Externa
 
   public constructor(options: HttpOffLookupClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
-    this.timeoutMs = options.timeoutMs;
+    this.timeoutMs = options.timeoutMs ?? 2500;
+    this.searchTimeoutMs = options.searchTimeoutMs ?? 8000;
     this.internalToken = options.internalToken;
     this.circuitBreakThreshold = options.circuitBreakThreshold ?? 5;
     this.circuitResetMs = options.circuitResetMs ?? 30_000;
