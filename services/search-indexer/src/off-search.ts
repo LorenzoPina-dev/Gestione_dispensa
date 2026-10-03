@@ -591,6 +591,10 @@ function firstString(...values: unknown[]): string | null {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? null;
 }
 
+function isHttpUrl(value: string): boolean {
+  return /^https?:\\/\\/\\S+$/i.test(value.trim());
+}
+
 function firstImageUrl(product: Record<string, unknown>, code: string): string | null {
   const directKeys = [
     "image_front_url",
@@ -643,13 +647,13 @@ function firstImageUrl(product: Record<string, unknown>, code: string): string |
 }
 
 function imageUrlFromValue(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "string" && isHttpUrl(value)) return value.trim();
   const object = record(value);
   if (!object) return null;
 
   for (const key of ["url", "display", "small", "thumb", "400", "200", "100", "full"]) {
     const candidate = object[key];
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (typeof candidate === "string" && isHttpUrl(candidate)) return candidate.trim();
     const nested = imageUrlFromValue(candidate);
     if (nested) return nested;
   }
