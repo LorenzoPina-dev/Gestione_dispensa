@@ -29,3 +29,41 @@ Ogni service deve avere unit test, integration test sul proprio DB e contract te
 
 ## Failure isolation
 Un service non disponibile deve produrre timeout/partial failure espliciti nelle Composite Views, senza trasformare il Gateway in un nuovo source of truth.
+
+## Operazioni OFF search
+
+### Bootstrap iniziale
+
+`search-indexer` verifica la disponibilità OpenSearch, crea l'indice se assente e, se l'indice contiene zero documenti, avvia un bootstrap paginato dalla source interna di `off-lookup`.
+
+Il bootstrap è asincrono rispetto alla readiness del servizio. Il servizio può risultare ready quando OpenSearch è raggiungibile anche mentre il corpus è ancora in caricamento.
+
+### Retry
+
+Il bootstrap viene ritentato periodicamente se il source service è temporaneamente indisponibile. Il job di bootstrap non deve essere eseguito in parallelo con sé stesso.
+
+### Reindex completo
+
+Il reindex è esplicito tramite endpoint interno e deve essere usato dopo:
+- modifica breaking del mapping;
+- corruzione dell'indice;
+- modifica della funzione di projection;
+- migrazione del dump OFF.
+
+La ricostruzione è paginata e non usa una transazione distribuita.
+
+### Monitoring minimo
+
+Devono essere osservabili almeno:
+- disponibilità OpenSearch;
+- document count;
+- stato bootstrap/rebuild;
+- numero di errori source HTTP;
+- tempo medio/p95 della ricerca locale;
+- p95 del fallback esterno;
+- numero di upsert projection falliti;
+- projection lag quando il meccanismo di eventi/reconciliation sarà attivo.
+
+### Sizing
+
+L'heap OpenSearch nel Compose è un default locale e non uno SLO. La dimensione definitiva deve essere determinata con il corpus reale. Dataset OFF grandi non devono essere caricati integralmente in RAM da Node: il trasferimento source è paginato e la projection è slim.
