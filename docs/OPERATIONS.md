@@ -52,8 +52,13 @@ indisponibili. Il job è serializzato e non può essere eseguito in parallelo co
 ### Migrazione Mongo
 
 All'avvio, il one-shot `off-mongodb-index-maintenance` elimina l'eventuale indice Mongo storico
-`keywords_1`/`_keywords` e mantiene solo l'indice `code_1` necessario al lookup barcode e alla
-pagination del bootstrap. L'operazione non elimina il volume Mongo né i documenti.
+`keywords_1`/`_keywords`, mantiene l'indice `code_1` necessario al lookup barcode e alla pagination
+del bootstrap, e rimuove dal corpus i prodotti con `completeness < 0.70` o con completezza non
+numericamente verificabile. L'operazione non elimina il volume Mongo né il volume del database.
+
+### Quality gate Open Food Facts
+
+La soglia operativa è `70%` (`completeness >= 0.70`). `off-lookup` non salva nuovi prodotti sotto soglia; `search-indexer` non li indicizza; la ricerca OpenSearch li esclude anche se un documento legacy è ancora presente fino alla pulizia. Una modifica della projection/quality policy incrementa la versione della projection e provoca automaticamente un rebuild dell'indice.
 
 ### Reindex completo
 
