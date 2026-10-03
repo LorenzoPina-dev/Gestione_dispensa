@@ -55,6 +55,31 @@ type Candidate = {
   provenanceQuality: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
 };
 
+function candidateFromProduct(p: ProductDto): Candidate {
+  return {
+    productId: p.id,
+    name: p.canonicalName || `Prodotto ${p.id?.slice(0, 8) || ""}`,
+    brand: p.brand,
+    unit: (p.defaultUnit || p.quantityUnit || "piece") as StockItem["unit"],
+    category: p.category,
+    photoUrl: p.photoUrl,
+    calories: p.calories,
+    protein: p.protein,
+    carbs: p.carbs,
+    fat: p.fat,
+    fiber: p.fiber,
+    quantityValue: p.quantityValue,
+    quantityUnit: p.quantityUnit,
+    quantityLabel: p.quantityLabel,
+    servingSize: p.servingSize,
+    servingQuantity: p.servingQuantity,
+    servingUnit: p.servingUnit,
+    images: p.images,
+    openFoodFacts: p.openFoodFacts,
+    provenanceQuality: p.provenanceQuality,
+  };
+}
+
 export default function AddProductModal({ onClose, onAdd }: Props) {
   const [mode, setMode] = useState<AddMode>("menu");
   return (
@@ -72,7 +97,7 @@ export default function AddProductModal({ onClose, onAdd }: Props) {
 function ModeMenu({ onSelect, onClose }: { onSelect: (m: AddMode) => void; onClose: () => void }) {
   const modes = [
     { key: "barcode" as const, icon: "📷", label: "Foto / scansione barcode", desc: "Scatta una foto, carica un'immagine oppure usa la fotocamera" },
-    { key: "manuale" as const, icon: "✏️", label: "Inserimento manuale", desc: "Compila i dati del prodotto a mano" },
+    { key: "manuale" as const, icon: "✏️", label: "Cerca prodotto per nome", desc: "Scrivi il nome e scegli il prodotto da Open Food Facts" },
     { key: "lista" as const, icon: "📋", label: "Importa lista", desc: "Aggiungi più prodotti manualmente" },
   ];
   return (
@@ -120,28 +145,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const result = await api.resolveProductBarcode("BARCODE", normalized);
       if (result.status === "MATCHED" && result.product) {
         const p = result.product;
-        setCandidate({
-          productId: p.id,
-          name: p.canonicalName || `Prodotto ${p.id?.slice(0, 8) || normalized}`,
-          brand: p.brand,
-          unit: (p.defaultUnit || p.quantityUnit || "piece") as StockItem["unit"],
-          category: p.category,
-          photoUrl: p.photoUrl,
-          calories: p.calories,
-          protein: p.protein,
-          carbs: p.carbs,
-          fat: p.fat,
-          fiber: p.fiber,
-          quantityValue: p.quantityValue,
-          quantityUnit: p.quantityUnit,
-          quantityLabel: p.quantityLabel,
-          servingSize: p.servingSize,
-          servingQuantity: p.servingQuantity,
-          servingUnit: p.servingUnit,
-          images: p.images,
-          openFoodFacts: p.openFoodFacts,
-          provenanceQuality: p.provenanceQuality,
-        });
+        setCandidate(candidateFromProduct(p));
         setState("CANDIDATE");
         return;
       }
@@ -246,7 +250,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   );
 }
 
-function CandidateView({ candidate, code, onCorrect, onConfirm }: { candidate: Candidate; code: string; onCorrect: () => void; onConfirm: () => void }) {
+function CandidateView({ candidate, code, message, onCorrect, onConfirm }: { candidate: Candidate; code: string; message?: string; onCorrect: () => void; onConfirm: () => void }) {
   const raw = candidate.openFoodFacts ?? {};
   const nutriments = isRecord(raw.nutriments) ? raw.nutriments : {};
   const frontImage = candidate.images?.front ?? candidate.photoUrl;
@@ -254,7 +258,7 @@ function CandidateView({ candidate, code, onCorrect, onConfirm }: { candidate: C
 
   return (
     <div className="space-y-4">
-      <Message>Barcode rilevato: {code}</Message>
+      <Message>{message ?? "Barcode rilevato: " + code}</Message>
 
       <div className="rounded-2xl p-5 space-y-5" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
         {frontImage && (
@@ -407,7 +411,195 @@ function ManualProduct({ onAdd, code, onBack }: { onAdd: Props["onAdd"]; code: s
   return <div className="space-y-3"><Field label="Nome prodotto" value={name} onChange={setName} /><Field label="Quantità" type="number" value={qty} onChange={setQty} /><Field label="Scadenza" type="date" value={expiry} onChange={setExpiry} /><div><label className="text-xs font-medium block mb-1">Luogo</label><select value={location} onChange={(e) => setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}>{LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select></div><div className="flex gap-3"><button onClick={onBack} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Indietro</button><button disabled={!name.trim()} onClick={() => onAdd({ name: name.trim(), barcode: code || undefined, unit: "piece", category: "Altro", location, batches: [{ quantity: Number(qty), expiryDate: expiry || undefined }] })} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: name.trim() ? "#c4623a" : "#d8cfc0", color: "#fff" }}>Inserisci nella scorta</button></div></div>;
 }
 
-function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) { const [name,setName]=useState(""); const [brand,setBrand]=useState(""); const [qty,setQty]=useState("1"); const [unit,setUnit]=useState<StockItem["unit"]>("piece"); const [expiry,setExpiry]=useState(""); const [location,setLocation]=useState<StorageLocation>("dispensa"); return <div className="p-4 space-y-4 sm:p-6"><button onClick={onBack} className="text-sm">← Indietro</button><Field label="Nome" value={name} onChange={setName}/><Field label="Marca" value={brand} onChange={setBrand}/><Field label="Quantità" type="number" value={qty} onChange={setQty}/><Field label="Scadenza" type="date" value={expiry} onChange={setExpiry}/><select value={unit} onChange={(e)=>setUnit(e.target.value as StockItem["unit"])} className="w-full px-3 py-2 rounded-xl" style={{backgroundColor:"#ede6d6",border:"1px solid #d8cfc0"}}><option value="piece">pz</option><option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="l">l</option><option value="pack">confezione</option></select><select value={location} onChange={(e)=>setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{backgroundColor:"#ede6d6",border:"1px solid #d8cfc0"}}>{LOCATIONS.map(l=><option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select><button disabled={!name.trim()} onClick={()=>onAdd({name:name.trim(),brand:brand||undefined,unit,location,category:"Altro",batches:[{quantity:Number(qty),expiryDate:expiry||undefined}]})} className="w-full py-2.5 rounded-xl" style={{backgroundColor:name.trim()?"#c4623a":"#d8cfc0",color:"#fff"}}>Inserisci nella scorta</button></div>; }
+function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) {
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<Awaited<ReturnType<typeof api.searchCatalogProducts>>["items"]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
+  const [candidateCode, setCandidateCode] = useState("");
+  const [state, setState] = useState<"SEARCH" | "CANDIDATE" | "CONFIRMED" | "FALLBACK">("SEARCH");
+  const [qty, setQty] = useState("1");
+  const [expiry, setExpiry] = useState("");
+  const [location, setLocation] = useState<StorageLocation>("dispensa");
+
+  useEffect(() => {
+    if (state !== "SEARCH") return;
+    const normalized = query.trim();
+    if (normalized.length < 3) {
+      setItems([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await api.searchCatalogProducts(normalized, 8, controller.signal);
+        if (!controller.signal.aborted) setItems(result.items);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setItems([]);
+        setError(isBackendUnreachable(err) ? "Impossibile contattare il server." : "La ricerca prodotto non è disponibile in questo momento.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 450);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [query, state]);
+
+  async function selectProduct(item: (typeof items)[number]) {
+    setLoading(true);
+    setError(null);
+    try {
+      // Selection intentionally reuses the existing barcode path: the complete OFF record is
+      // resolved and persisted in Catalog only after the user chooses a search result.
+      const result = await api.resolveProductBarcode("BARCODE", item.code);
+      if (result.status !== "MATCHED" || !result.product) {
+        setError("Il prodotto selezionato non è più disponibile su Open Food Facts.");
+        return;
+      }
+      setCandidate(candidateFromProduct(result.product));
+      setCandidateCode(item.code);
+      setState("CANDIDATE");
+    } catch (err) {
+      setError(isBackendUnreachable(err) ? "Impossibile contattare il server." : "Non è stato possibile caricare i dati completi del prodotto.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function save() {
+    if (!candidate) return;
+    const quantity = Number(qty);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setError("La quantità deve essere maggiore di zero.");
+      return;
+    }
+    onAdd({
+      productId: candidate.productId,
+      barcode: candidateCode,
+      name: candidate.name,
+      brand: candidate.brand,
+      unit: candidate.unit,
+      category: candidate.category ?? "Altro",
+      calories: candidate.calories,
+      protein: candidate.protein,
+      carbs: candidate.carbs,
+      fat: candidate.fat,
+      fiber: candidate.fiber,
+      location,
+      batches: [{ quantity, expiryDate: expiry || undefined }],
+    });
+  }
+
+  if (state === "CANDIDATE" && candidate) {
+    return (
+      <CandidateView
+        candidate={candidate}
+        code={candidateCode}
+        message="Prodotto selezionato dalla ricerca Open Food Facts"
+        onCorrect={() => setState("SEARCH")}
+        onConfirm={() => setState("CONFIRMED")}
+      />
+    );
+  }
+
+  if (state === "CONFIRMED" && candidate) {
+    return (
+      <ConfirmStock
+        candidate={candidate}
+        qty={qty}
+        setQty={setQty}
+        expiry={expiry}
+        setExpiry={setExpiry}
+        location={location}
+        setLocation={setLocation}
+        onBack={() => setState("CANDIDATE")}
+        onSave={save}
+      />
+    );
+  }
+
+  if (state === "FALLBACK") {
+    return (
+      <div className="space-y-3">
+        <Message>Open Food Facts non ha trovato una corrispondenza. Puoi comunque inserirlo manualmente.</Message>
+        <ManualProduct onAdd={onAdd} code="" onBack={() => setState("SEARCH")} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 space-y-4 sm:p-6">
+      <button onClick={onBack} className="text-sm" style={{ color: "#6b5e4e" }}>← Indietro</button>
+      <div>
+        <p className="text-lg font-semibold" style={{ color: "#1a1510" }}>Trova il prodotto</p>
+        <p className="text-xs mt-1" style={{ color: "#6b5e4e" }}>Scrivi il nome, poi scegli la confezione corretta.</p>
+      </div>
+
+      <Field label="Nome prodotto" value={query} onChange={setQuery} />
+      {query.trim().length > 0 && query.trim().length < 3 && (
+        <p className="text-xs" style={{ color: "#6b5e4e" }}>Inserisci almeno 3 caratteri.</p>
+      )}
+
+      {loading && (
+        <div className="py-6 text-center">
+          <div className="w-8 h-8 mx-auto rounded-full animate-spin" style={{ border: "3px solid #ede6d6", borderTopColor: "#c4623a" }} />
+          <p className="text-xs mt-3" style={{ color: "#6b5e4e" }}>Cerco tra i prodotti Open Food Facts…</p>
+        </div>
+      )}
+
+      {!loading && items.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold" style={{ color: "#6b5e4e" }}>Risultati più pertinenti</p>
+          {items.map((item) => (
+            <button
+              key={item.code}
+              onClick={() => void selectProduct(item)}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl text-left"
+              style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}
+            >
+              {item.imageUrl ? (
+                <img src={item.imageUrl} alt="" className="w-14 h-14 rounded-xl object-contain bg-white border" />
+              ) : (
+                <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#f5f0e8" }}>🍽️</div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate" style={{ color: "#1a1510" }}>{item.name}</p>
+                {item.brand && <p className="text-xs mt-0.5 truncate" style={{ color: "#6b5e4e" }}>{item.brand}</p>}
+                <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[10px]" style={{ color: "#6b5e4e" }}>
+                  {item.packageLabel && <span>{item.packageLabel}</span>}
+                  {item.category && <span>{item.category}</span>}
+                  {item.completeness != null && <span>Dati {Math.round(item.completeness * 100)}%</span>}
+                </div>
+              </div>
+              <span style={{ color: "#d8cfc0" }}>›</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!loading && !error && query.trim().length >= 3 && items.length === 0 && (
+        <Message>Nessun prodotto trovato per “{query.trim()}”.</Message>
+      )}
+      {error && <Message>{error}</Message>}
+
+      {query.trim().length >= 3 && (
+        <button onClick={() => setState("FALLBACK")} className="w-full py-2.5 rounded-xl text-sm" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
+          Inserisci comunque manualmente
+        </button>
+      )}
+    </div>
+  );
+}
 
 function ImportList({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) { const [text,setText]=useState(""); const [done,setDone]=useState(false); const items=text.split("\n").map(x=>x.trim()).filter(Boolean); return <div className="p-4 space-y-4 sm:p-6"><button onClick={onBack} className="text-sm">← Indietro</button><textarea value={text} onChange={e=>setText(e.target.value)} rows={8} className="w-full px-3 py-2 rounded-xl" style={{backgroundColor:"#ede6d6",border:"1px solid #d8cfc0"}} placeholder="Latte\nUova\nPomodori"/><button disabled={!items.length} onClick={()=>{items.forEach(name=>onAdd({name,unit:"piece",location:"dispensa",category:"Altro",batches:[{quantity:1}]}));setDone(true)}} className="w-full py-2.5 rounded-xl" style={{backgroundColor:items.length?"#c4623a":"#d8cfc0",color:"#fff"}}>{done?"Prodotti inseriti ✓":`Inserisci ${items.length} prodotti`}</button></div>; }
 
