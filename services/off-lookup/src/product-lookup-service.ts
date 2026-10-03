@@ -111,17 +111,24 @@ export class ProductLookupService {
     }
 
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
-    const result = { ...external, source: "external" } as OffSearchResult;
+    if (external.status === "found" && external.hits.length > 0) {
+      // External results complement, rather than replace, any partial local projection.
+      // This keeps locally known products visible even when the provider returns fewer hits.
+      const externalHits = external.hits.map((hit) => ({
+        code: hit.code,
+        product: hit.product,
+        score: hit.score,
+      }));
+      const localHits = openSearchResult?.status === "found" ? openSearchResult.hits : [];
+      const mergedHits = mergeSearchHits(localHits, externalHits, boundedLimit);
+      const result = { status: "found", hits: mergedHits, source: "local" } as OffSearchResult;
 
-    // Never cache an empty/error response. A transient provider problem or a temporary
-    // empty local projection must not hide a valid result on the next request.
-    if (result.status === "found" && result.hits.length > 0) {
       this.searchCache.set(normalizedQuery, { at: Date.now(), result });
       this.trimSearchCache();
 
       // Seed the local Mongo/OpenSearch caches asynchronously. The remote hit is returned
       // immediately, so persistence latency is invisible to the user.
-      for (const hit of result.hits) {
+      for (const hit of external.hits) {
         void this.repository.upsertFromLiveApi(hit.code, hit.product)
           .then(() => this.indexProductAsync(hit.code, hit.product))
           .catch((error: unknown) => {
@@ -131,9 +138,19 @@ export class ProductLookupService {
             });
           });
       }
+
+      return result;
     }
 
-    return result;
+    // A provider miss/error must never erase a valid partial local result.
+    if (openSearchResult?.status === "found" && openSearchResult.hits.length > 0) {
+      const result = { ...openSearchResult, source: "local" } as OffSearchResult;
+      this.searchCache.set(normalizedQuery, { at: Date.now(), result });
+      this.trimSearchCache();
+      return result;
+    }
+
+    return { ...external, source: "external" } as OffSearchResult;
   }
 
   public async lookup(barcode: string): Promise<ProductLookupResult> {
