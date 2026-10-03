@@ -959,7 +959,9 @@ Database: `off_lookup_db`. Collection: `products`. Owner: `off-lookup`.
 Il documento completo segue la forma Open Food Facts importata o appresa via API. Il campo `code` è la
 chiave funzionale e deve avere indice ascending per lookup barcode e pagination del bootstrap.
 
-La ricerca testuale utente NON usa MongoDB. Non è richiesto né ammesso un indice `_keywords_1`:
+La ricerca testuale utente NON usa MongoDB.
+
+La quality gate OFF è `completeness >= 0.70`: il maintenance job rimuove dal corpus locale i prodotti sotto soglia o senza completezza numerica verificabile, il bootstrap espone solo documenti eleggibili e OpenSearch applica lo stesso filtro a ogni ricerca. I nuovi risultati live sotto soglia non vengono memorizzati nella cache Mongo né indicizzati. Non è richiesto né ammesso un indice `_keywords_1`:
 la ricerca testuale appartiene a OpenSearch.
 
 Per il bootstrap della projection, `off-lookup` espone solamente una projection source interna
@@ -991,7 +993,8 @@ Mapping minimo:
 | productQuantityUnit | keyword | sì |
 | calories/protein/carbs/fat/fiber | double | sì |
 | popularityKey | double | sì |
-| completeness | double | sì |
+| completeness | double | sì; filtro minimo 0.70 |
+| featureText | text | analyzer `off_text` |
 | searchText | text | analyzer `off_text` |
 
 `dynamic=false` impedisce che il documento OFF proiettato trasformi automaticamente ogni campo arbitrario in un mapping OpenSearch.
