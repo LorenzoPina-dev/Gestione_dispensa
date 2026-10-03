@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { StockItem, StorageLocation } from "../types";
+import type { ProductDto, StockItem, StorageLocation } from "../types";
 import * as api from "../api/endpoints";
 import { isBarcodeDetectorAvailable, detectBestBarcode, computeViewfinderCrop, type BarcodeHit } from "../lib/barcodePreprocess";
 import { isBackendUnreachable } from "../api/client.js";
