@@ -3,7 +3,7 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
-export const OFF_SEARCH_PROJECTION_VERSION = 5;
+export const OFF_SEARCH_PROJECTION_VERSION = 6;
 export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
@@ -522,11 +522,17 @@ function toProviderProductFromSource(source: Record<string, unknown>): Record<st
     ["quantityLabel", "quantity"],
     ["productQuantity", "product_quantity"],
     ["productQuantityUnit", "product_quantity_unit"],
-    ["imageUrl", "image_front_url"],
+    ["imageUrl", "image_front_small_url"],
     ["popularityKey", "popularity_key"],
     ["completeness", "completeness"],
   ] as const) {
     const value = source[sourceKey];
+    if (sourceKey === "imageUrl") {
+      if (typeof value === "string" && isHttpUrl(value)) {
+        product[targetKey] = value;
+      }
+      continue;
+    }
     if (value !== null && value !== undefined && value !== "") product[targetKey] = value;
   }
 
@@ -604,11 +610,11 @@ function firstHttpUrl(...values: unknown[]): string | null {
 
 function firstImageUrl(product: Record<string, unknown>, code: string): string | null {
   const directKeys = [
-    "image_front_url",
     "image_front_small_url",
+    "image_front_url",
     "image_front_thumb_url",
-    "image_url",
     "image_small_url",
+    "image_url",
     "image_thumb_url",
     "image_packaging_url",
     "image_packaging_small_url",
@@ -658,7 +664,7 @@ function imageUrlFromValue(value: unknown): string | null {
   const object = record(value);
   if (!object) return null;
 
-  for (const key of ["url", "display", "small", "thumb", "400", "200", "100", "full"]) {
+  for (const key of ["200", "small", "display", "400", "url", "thumb", "100", "full"]) {
     const candidate = object[key];
     if (typeof candidate === "string" && isHttpUrl(candidate)) return candidate.trim();
     const nested = imageUrlFromValue(candidate);
