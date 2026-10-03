@@ -3,7 +3,7 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
-export const OFF_SEARCH_PROJECTION_VERSION = 4;
+export const OFF_SEARCH_PROJECTION_VERSION = 5;
 export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
@@ -72,12 +72,7 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
   const categoriesTags = stringArray(product.categories_tags);
   const category = firstString(product.category);
   const quantityLabel = quantityLabelOf(product);
-  const imageUrl = firstString(
-    product.image_front_url,
-    product.image_front_small_url,
-    product.image_front_thumb_url,
-    nestedImageUrl(product, "front"),
-  );
+  const imageUrl = firstImageUrl(product, input.code);
   const featureText = buildFeatureText(product);
   const nutriments = record(product.nutriments);
 
@@ -596,27 +591,114 @@ function firstString(...values: unknown[]): string | null {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? null;
 }
 
-function nestedImageUrl(product: Record<string, unknown>, kind: string): string | null {
+function firstImageUrl(product: Record<string, unknown>, code: string): string | null {
+  const directKeys = [
+    "image_front_url",
+    "image_front_small_url",
+    "image_front_thumb_url",
+    "image_url",
+    "image_small_url",
+    "image_thumb_url",
+    "image_packaging_url",
+    "image_packaging_small_url",
+    "image_packaging_thumb_url",
+    "image_ingredients_url",
+    "image_ingredients_small_url",
+    "image_ingredients_thumb_url",
+    "image_nutrition_url",
+    "image_nutrition_small_url",
+    "image_nutrition_thumb_url",
+  ] as const;
+
+  for (const key of directKeys) {
+    const direct = firstString(product[key]);
+    if (direct) return direct;
+  }
+
   const images = record(product.images);
   const selected = record(images?.selected);
-  const value = selected?.[kind] ?? images?.[kind];
-  return imageUrlFromValue(value);
+  const selectedImages = record(product.selected_images);
+
+  for (const candidate of [
+    selected?.front,
+    selectedImages?.front,
+    images?.front,
+    selected?.packaging,
+    selectedImages?.packaging,
+    images?.packaging,
+    selected?.ingredients,
+    selectedImages?.ingredients,
+    images?.ingredients,
+    selected?.nutrition,
+    selectedImages?.nutrition,
+    images?.nutrition,
+    product.selected_images,
+    product.images,
+  ]) {
+    const url = imageUrlFromValue(candidate);
+    if (url) return url;
+  }
+
+  return computedImageUrlFromImages(code, images);
 }
 
 function imageUrlFromValue(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value.trim();
   const object = record(value);
   if (!object) return null;
-  for (const key of ["url", "200", "100"]) {
+
+  for (const key of ["url", "display", "small", "thumb", "400", "200", "100", "full"]) {
     const candidate = object[key];
     if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-    const nested = record(candidate);
-    if (typeof nested?.url === "string" && nested.url.trim()) return nested.url.trim();
+    const nested = imageUrlFromValue(candidate);
+    if (nested) return nested;
   }
+
   for (const child of Object.values(object)) {
     const found = imageUrlFromValue(child);
     if (found) return found;
   }
+  return null;
+}
+
+function computedImageUrlFromImages(
+  code: string,
+  images: Record<string, unknown> | undefined,
+): string | null {
+  if (!images) return null;
+
+  const barcode = code.replace(/\\D/g, "").padStart(13, "0");
+  if (barcode.length < 13) return null;
+
+  const folder = `https://images.openfoodfacts.org/images/products/${barcode.slice(0, 3)}/${barcode.slice(3, 6)}/${barcode.slice(6, 9)}/${barcode.slice(9)}`;
+  const entries = Object.entries(images);
+
+  const priority = (key: string): number => {
+    if (/^front(?:_\\w\\w)?$/.test(key)) return 0;
+    if (/^(?:packaging|ingredients|nutrition)(?:_\\w\\w)?$/.test(key)) return 1;
+    if (/^\\d+$/.test(key)) return 2;
+    return 3;
+  };
+
+  for (const [key, value] of entries.sort(([a], [b]) => priority(a) - priority(b))) {
+    const object = record(value);
+    if (!object) continue;
+
+    if (/^\\d+$/.test(key)) {
+      return `${folder}/${key}.200.jpg`;
+    }
+
+    if (/^(?:front|packaging|ingredients|nutrition)(?:_\\w\\w)?$/.test(key)) {
+      const rev = object.rev;
+      if ((typeof rev === "number" && Number.isInteger(rev)) || (typeof rev === "string" && /^\\d+$/.test(rev))) {
+        return `${folder}/${key}.${rev}.200.jpg`;
+      }
+    }
+
+    const nested = computedImageUrlFromImages(code, object);
+    if (nested) return nested;
+  }
+
   return null;
 }
 
