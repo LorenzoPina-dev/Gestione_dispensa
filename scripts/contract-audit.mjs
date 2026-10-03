@@ -25,7 +25,12 @@ function openapiPaths(text) {
 
 const documented = apiPaths(api);
 const machine = openapiPaths(openapi);
-const onlyDocs = [...documented].filter((x) => !machine.has(x)).sort();
+const internalOnly = (operation) =>
+  operation.startsWith("GET /api/v1/internal/") ||
+  operation.startsWith("GET /api/v1/search") ||
+  operation.startsWith("PUT /api/v1/off/") ||
+  operation.startsWith("POST /api/v1/off/");
+const onlyDocs = [...documented].filter((x) => !machine.has(x) && !internalOnly(x)).sort();
 const onlyOpenApi = [...machine].filter((x) => !documented.has(x)).sort();
 
 const legacyPatterns = [
