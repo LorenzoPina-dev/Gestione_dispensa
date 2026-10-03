@@ -28,7 +28,7 @@ export interface OffSearchResult {
 
 export interface OffApiClient {
   fetchProduct(barcode: string): Promise<OffApiResult>;
-  searchProducts(query: string, limit: number): Promise<OffSearchResult>;
+  searchProducts?(query: string, limit: number): Promise<OffSearchResult>;
   isCircuitOpen(): boolean;
 }
 
