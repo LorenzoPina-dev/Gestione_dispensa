@@ -1,4 +1,4 @@
-import type { OffApiClient } from "./off-api-client.js";
+import type { OffApiClient, OffSearchResult } from "./off-api-client.js";
 import type { ProductRepository, ProductDocument } from "./mongo-product-repository.js";
 import {
   isRefreshCoolingDown,
@@ -34,11 +34,33 @@ export function isValidBarcode(value: string): boolean {
  */
 export class ProductLookupService {
   private readonly refreshInFlight = new Map<string, Promise<ProductLookupResult>>();
+  private readonly searchCache = new Map<string, { at: number; result: OffSearchResult }>();
 
   public constructor(
     private readonly repository: ProductRepository,
     private readonly apiClient: OffApiClient,
   ) {}
+
+  public async search(query: string, limit = 10): Promise<OffSearchResult> {
+    const normalizedQuery = query.trim().replace(/\s+/g, " ");
+    if (normalizedQuery.length < 3) return { status: "found", hits: [] };
+
+    // Search-a-licious is relevance-ranked by default and supports phrase boosting. A tiny
+    // in-process cache protects OFF from repeated requests while the user is typing.
+    const now = Date.now();
+    const cached = this.searchCache.get(normalizedQuery);
+    if (cached !== undefined && now - cached.at < config.offApi.searchCacheMs) {
+      return cached.result;
+    }
+
+    const result = await this.apiClient.searchProducts(normalizedQuery, Math.min(Math.max(limit, 1), 20));
+    this.searchCache.set(normalizedQuery, { at: now, result });
+    if (this.searchCache.size > 50) {
+      const oldest = [...this.searchCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) this.searchCache.delete(oldest[0]);
+    }
+    return result;
+  }
 
   public async lookup(barcode: string): Promise<ProductLookupResult> {
     const cached = await this.repository.findByCode(barcode);
