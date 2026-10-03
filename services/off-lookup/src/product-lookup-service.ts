@@ -55,20 +55,21 @@ export class ProductLookupService {
     const normalizedQuery = query.trim().replace(/\s+/g, " ");
     if (normalizedQuery.length < 3) return { status: "found", hits: [] };
 
-    // Local-first: OpenSearch is the interactive path. The public OFF search API is
-    // fallback-only when the local projection has no match or is unavailable.
+    const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
     const now = Date.now();
     const cached = this.searchCache.get(normalizedQuery);
     if (cached !== undefined && now - cached.at < config.offApi.searchCacheMs) {
       return cached.result;
     }
 
-    const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
+    // OpenSearch is the fast local projection. Do not require it to contain the whole dump:
+    // Mongo remains the authoritative local fallback for name searches.
+    let openSearchResult: OffSearchResult | undefined;
     if (this.localSearch !== undefined) {
       try {
-        const local = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
-        if (local?.status === "found" && local.hits.length > 0) {
-          const result = { ...local, source: "local" } as OffSearchResult;
+        openSearchResult = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
+        if (openSearchResult?.status === "found" && openSearchResult.hits.length >= boundedLimit) {
+          const result = { ...openSearchResult, source: "local" } as OffSearchResult;
           this.searchCache.set(normalizedQuery, { at: now, result });
           this.trimSearchCache();
           return result;
@@ -80,13 +81,40 @@ export class ProductLookupService {
       }
     }
 
-    if (this.apiClient.searchProducts === undefined) return { status: "found", hits: [] };
+    // Complete an incomplete OpenSearch response with the full local Mongo dump. The Mongo
+    // query is forced to use the dedicated _keywords index, so a missing index never triggers
+    // a collection scan: it simply degrades to the remote OFF API.
+    try {
+      const mongoPage = await this.repository.searchByName(normalizedQuery, boundedLimit);
+      if (mongoPage?.items.length) {
+        const mongoHits = rankMongoSearchHits(normalizedQuery, mongoPage.items, boundedLimit);
+        const mergedHits = mergeSearchHits(openSearchResult?.hits ?? [], mongoHits, boundedLimit);
+        const result = { status: "found", hits: mergedHits, source: "local" } as OffSearchResult;
+
+        this.searchCache.set(normalizedQuery, { at: Date.now(), result });
+        this.trimSearchCache();
+
+        for (const hit of mongoHits) {
+          this.indexProductAsync(hit.code, hit.product);
+        }
+        return result;
+      }
+    } catch (error) {
+      log("warn", "mongo_name_search_failed", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
+
+    if (this.apiClient.searchProducts === undefined) {
+      const result = openSearchResult?.status === "found" ? openSearchResult : { status: "found", hits: [] };
+      return result;
+    }
 
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
     const result = { ...external, source: "external" } as OffSearchResult;
 
     // Never cache an empty/error response. A transient provider problem or a temporary
-    // empty index must not hide a valid result on the next request.
+    // empty local projection must not hide a valid result on the next request.
     if (result.status === "found" && result.hits.length > 0) {
       this.searchCache.set(normalizedQuery, { at: Date.now(), result });
       this.trimSearchCache();
