@@ -121,23 +121,41 @@ export class MongoProductRepository implements ProductRepository {
 
     const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
     const candidateLimit = Math.min(safeLimit * 5, 100);
-    const keywordConditions = terms.map((term) => ({
-      _keywords: new RegExp("^" + escapeRegex(term), "i"),
-    }));
-    const filter = keywordConditions.length === 1
-      ? keywordConditions[0]
-      : { $and: keywordConditions };
+    // Prefer exact keyword matches. The dump's _keywords field is normalized/lowercase and
+    // has its own multikey index, so this stays an indexed query even with 4.8M documents.
+    const exactFilter = terms.length === 1
+      ? { _keywords: terms[0] }
+      : { _keywords: { $all: terms } };
 
     return this.withCollection(async (collection) => {
       try {
-        const docs = await collection
-          .find(filter, {
+        let docs = await collection
+          .find(exactFilter, {
             projection: SEARCH_PROJECTION,
             hint: "keywords_1",
             maxTimeMS: config.mongo.searchOperationTimeoutMs,
           })
           .limit(candidateLimit)
           .toArray();
+
+        // While the user is typing, the token may be incomplete (e.g. "gol" for "golia").
+        // Only in that case fall back to anchored prefix matching against the same index.
+        if (docs.length === 0) {
+          const prefixConditions = terms.map((term) => ({
+            _keywords: new RegExp("^" + escapeRegex(term)),
+          }));
+          const prefixFilter = prefixConditions.length === 1
+            ? prefixConditions[0]
+            : { $and: prefixConditions };
+          docs = await collection
+            .find(prefixFilter, {
+              projection: SEARCH_PROJECTION,
+              hint: "keywords_1",
+              maxTimeMS: config.mongo.searchOperationTimeoutMs,
+            })
+            .limit(candidateLimit)
+            .toArray();
+        }
 
         return {
           items: docs.map((doc) => ({
@@ -149,7 +167,7 @@ export class MongoProductRepository implements ProductRepository {
           nextCursor: null,
         };
       } catch (error) {
-        log("warn", "mongo_name_search_unavailable", {
+        log("error", "mongo_name_search_unavailable", {
           error: error instanceof Error ? error.message : "unknown",
         });
         return undefined;
