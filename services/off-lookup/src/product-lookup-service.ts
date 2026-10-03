@@ -117,7 +117,7 @@ export class ProductLookupService {
       const externalHits = external.hits.map((hit) => ({
         code: hit.code,
         product: hit.product,
-        score: hit.score,
+        score: 0,
       }));
       const localHits = openSearchResult?.status === "found" ? openSearchResult.hits : [];
       const mergedHits = mergeSearchHits(localHits, externalHits, boundedLimit);
@@ -319,17 +319,18 @@ function rankMongoSearchHits(
 }
 
 function mergeSearchHits(
-  primary: readonly { code: string; product: Record<string, unknown>; score: number }[],
-  secondary: readonly { code: string; product: Record<string, unknown>; score: number }[],
+  primary: readonly LocalSearchCandidate[],
+  secondary: readonly LocalSearchCandidate[],
   limit: number,
 ): readonly { code: string; product: Record<string, unknown>; score: number }[] {
-  const byCode = new Map<string, { code: string; product: Record<string, unknown>; score: number }>();
+  const byCode = new Map<string, LocalSearchCandidate>();
   for (const hit of [...primary, ...secondary]) {
+    const score = hit.score ?? 0;
     const existing = byCode.get(hit.code);
-    if (existing === undefined || hit.score > existing.score) byCode.set(hit.code, hit);
+    if (existing === undefined || score > (existing.score ?? 0)) byCode.set(hit.code, { ...hit, score });
   }
   return [...byCode.values()]
-    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.code.localeCompare(b.code))
     .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20));
 }
 
