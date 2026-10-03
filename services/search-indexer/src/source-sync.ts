@@ -113,7 +113,7 @@ export class OffSourceSync {
         signal: controller.signal,
         headers: {
           Accept: "application/json",
-          "X-Internal-Service-Token": this.options.token,
+          "Authorization": `Bearer ${this.options.token}`,
         },
       });
       if (!response.ok) throw new Error(`off_source_http_${response.status}`);
