@@ -667,16 +667,16 @@ function computedImageUrlFromImages(
 ): string | null {
   if (!images) return null;
 
-  const barcode = code.replace(/\\D/g, "").padStart(13, "0");
+  const barcode = code.replace(/\D/g, "").padStart(13, "0");
   if (barcode.length < 13) return null;
 
   const folder = `https://images.openfoodfacts.org/images/products/${barcode.slice(0, 3)}/${barcode.slice(3, 6)}/${barcode.slice(6, 9)}/${barcode.slice(9)}`;
   const entries = Object.entries(images);
 
   const priority = (key: string): number => {
-    if (/^front(?:_\\w\\w)?$/.test(key)) return 0;
-    if (/^(?:packaging|ingredients|nutrition)(?:_\\w\\w)?$/.test(key)) return 1;
-    if (/^\\d+$/.test(key)) return 2;
+    if (/^front(?:_\w\w)?$/.test(key)) return 0;
+    if (/^(?:packaging|ingredients|nutrition)(?:_\w\w)?$/.test(key)) return 1;
+    if (/^\d+$/.test(key)) return 2;
     return 3;
   };
 
@@ -684,13 +684,13 @@ function computedImageUrlFromImages(
     const object = record(value);
     if (!object) continue;
 
-    if (/^\\d+$/.test(key)) {
+    if (/^\d+$/.test(key)) {
       return `${folder}/${key}.200.jpg`;
     }
 
-    if (/^(?:front|packaging|ingredients|nutrition)(?:_\\w\\w)?$/.test(key)) {
+    if (/^(?:front|packaging|ingredients|nutrition)(?:_\w\w)?$/.test(key)) {
       const rev = object.rev;
-      if ((typeof rev === "number" && Number.isInteger(rev)) || (typeof rev === "string" && /^\\d+$/.test(rev))) {
+      if ((typeof rev === "number" && Number.isInteger(rev)) || (typeof rev === "string" && /^\d+$/.test(rev))) {
         return `${folder}/${key}.${rev}.200.jpg`;
       }
     }
