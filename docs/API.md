@@ -420,6 +420,46 @@ Response 200: `{data:{resolution,product}}` con lo stesso schema completo di `GE
 
 Il lookup è read-only; 404 se il prodotto non è disponibile, 502 se il provider è irraggiungibile.
 
+### GET /catalog/products/search
+
+Query:
+- `q`: nome o descrizione del prodotto, 3..120 caratteri.
+- `limit`: opzionale, 1..20; default 10.
+
+La ricerca è autenticata e viene eseguita tramite il provider Open Food Facts Search-a-licious. Se `sort_by` non viene specificato, Search-a-licious ordina per rilevanza; `boost_phrase=true` favorisce le corrispondenze consecutive. Il backend usa i risultati solo per la selezione: dopo che l'utente sceglie una voce, il client risolve il relativo barcode con `POST /catalog/barcodes/resolve` per ottenere il record completo Open Food Facts e conservarlo nel Catalogo. citeturn515977view0
+
+Response 200:
+```json
+{
+  "items": [
+    {
+      "code": "8000000000000",
+      "name": "Golia",
+      "brand": "Perfetti",
+      "category": "confectionery-candy",
+      "imageUrl": "https://images.openfoodfacts.org/...",
+      "packageLabel": "50 g",
+      "nutrition": {
+        "kcalPer100g": 390,
+        "proteinGPer100g": 0,
+        "carbsGPer100g": 96,
+        "fatGPer100g": 0,
+        "fiberGPer100g": 0
+      },
+      "popularityKey": null,
+      "completeness": null
+    }
+  ]
+}
+```
+
+Il ranking è del provider e non è una raccomandazione personalizzata dell'app. I valori nutrizionali e gli altri campi sono quelli disponibili su Open Food Facts: il sistema non inventa valori mancanti.
+
+Errori:
+- 400 `VALIDATION_ERROR` se `q` non è valido.
+- 401 `UNAUTHENTICATED` se manca un token valido.
+- 503 `UPSTREAM_ERROR` se il provider di ricerca non è disponibile.
+
 ### POST /catalog/products
 
 Headers: `X-Idempotency-Key` obbligatorio.
