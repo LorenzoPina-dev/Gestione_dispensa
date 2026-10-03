@@ -201,7 +201,7 @@ export class OpenFoodFactsApiClient implements OffApiClient {
         const code = typeof (source.code ?? value.code) === "string"
           ? String(source.code ?? value.code).trim()
           : "";
-        if (!/^\\d{8,14}$/.test(code)) continue;
+        if (!/^\d{8,14}$/.test(code)) continue;
 
         const name =
           (typeof source.product_name_it === "string" ? source.product_name_it : "") ||
