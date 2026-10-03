@@ -264,6 +264,7 @@ services:
       <<: *oidc-env
       OFF_LOOKUP_BASE_URL: "http://off-lookup:3200"
       OFF_LOOKUP_TIMEOUT_MS: "2500"
+      OFF_LOOKUP_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -586,7 +587,7 @@ services:
       OPENSEARCH_TIMEOUT_MS: "1500"
       SEARCH_INDEXER_INTERNAL_TOKEN: "${SEARCH_INDEXER_INTERNAL_TOKEN:-dispensa-internal-dev}"
       OFF_LOOKUP_SOURCE_URL: "http://off-lookup:3200"
-      OFF_LOOKUP_SOURCE_TOKEN: "${OFF_LOOKUP_INDEXING_TOKEN:-dispensa-internal-dev}"
+      OFF_LOOKUP_SOURCE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
       OFF_LOOKUP_SOURCE_TIMEOUT_MS: "3000"
       OFF_SEARCH_BOOTSTRAP_BATCH_SIZE: "500"
       OFF_SEARCH_BOOTSTRAP_DELAY_MS: "3000"
@@ -612,6 +613,7 @@ services:
       OFF_LOOKUP_SEARCH_CACHE_MS: "30000"
       OFF_LOOKUP_SEARCH_INDEXER_BASE_URL: "http://search-indexer:3210"
       OFF_LOOKUP_SEARCH_INDEXER_TOKEN: "${SEARCH_INDEXER_INTERNAL_TOKEN:-dispensa-internal-dev}"
+      OFF_LOOKUP_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
       OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS: "700"
       OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS: "1200"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
