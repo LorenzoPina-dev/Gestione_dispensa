@@ -4,6 +4,7 @@ COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY services/service-privacy/package.json services/service-privacy/tsconfig.json ./services/service-privacy/
 RUN npm install
 COPY services/service-privacy/src ./services/service-privacy/src
+COPY services/service-privacy/migrations ./services/service-privacy/migrations
 RUN npm --workspace @gestione-dispensa/service-privacy run build
 
 FROM node:22-alpine
