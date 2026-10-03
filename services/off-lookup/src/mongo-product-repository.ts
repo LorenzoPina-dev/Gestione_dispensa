@@ -352,17 +352,17 @@ export class MongoProductRepository implements ProductRepository {
 function tokenizeSearchQuery(value: string): string[] {
   return value
     .normalize("NFD")
-    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("it-IT")
-    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
-    .split(/\\s+/)
+    .split(/\s+/)
     .filter((term) => term.length > 0)
     .slice(0, 6);
 }
 
 function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+  return value.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
 }
 
 export function createProductRepository(): ProductRepository {");
