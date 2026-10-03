@@ -134,6 +134,15 @@ describe("service-catalog / HTTP Open Food Facts boundary", () => {
     assert.equal(result.openFoodFacts?.nutriscore_grade, "a");
   });
 
+  it("authenticates the internal search boundary", async () => {
+    mode = "success";
+    const client = new HttpOffLookupClient({ baseUrl, timeoutMs: 500, internalToken: "internal-test-token" });
+    const result = await client.search({ query: "latte", limit: 8, traceId: "trace-search" });
+    assert.ok(result);
+    assert.equal(result.length, 1);
+    assert.equal(requests, 1);
+  });
+
   it("classifies Italian confectionery products for shelf-life", async () => {
     mode = "candy";
     const client = new HttpOffLookupClient({ baseUrl, timeoutMs: 500 });
