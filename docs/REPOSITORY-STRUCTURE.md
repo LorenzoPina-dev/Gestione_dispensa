@@ -225,3 +225,37 @@ Docker Compose may orchestrate them locally, but it must not collapse their logi
 A future service is added under services/ with its own DB if it owns authoritative state. A stateless worker may be added without a DB. A projection may use a dedicated projection store and must remain rebuildable.
 
 No future feature is allowed to create an undocumented shared database.
+
+## OFF search components
+
+```text
+services/
+  off-lookup/
+    src/
+      mongo-product-repository.ts
+      off-api-client.ts
+      product-lookup-service.ts
+      search-indexer-client.ts
+      server.ts
+    Dockerfile
+  search-indexer/
+    src/
+      off-search.ts
+      source-sync.ts
+      server.ts
+    Dockerfile
+    package.json
+  service-catalog/
+    src/catalog/
+      controller.ts
+      external-barcode-client.ts
+      workflow.ts
+      service.ts
+
+apps/
+  web/src/
+    api/
+    components/AddProductModal.tsx
+```
+
+La separazione riflette i confini: OFF completo in `off-lookup`, projection/search in `search-indexer`, dominio applicativo nel Catalogo.
