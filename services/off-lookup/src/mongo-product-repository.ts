@@ -162,7 +162,11 @@ export class MongoProductRepository implements ProductRepository {
       image_front_url: 1,
       image_front_small_url: 1,
       image_front_thumb_url: 1,
-      nutriments: 1,
+      "nutriments.energy-kcal_100g": 1,
+      "nutriments.proteins_100g": 1,
+      "nutriments.carbohydrates_100g": 1,
+      "nutriments.fat_100g": 1,
+      "nutriments.fiber_100g": 1,
       popularity_key: 1,
       completeness: 1,
     } as const;
