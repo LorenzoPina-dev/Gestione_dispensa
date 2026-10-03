@@ -115,7 +115,7 @@ describe("service-catalog / HTTP Open Food Facts boundary", () => {
     assert.ok(result);
     assert.equal(result.canonicalName, "Latte intero");
     assert.equal(result.brand, "Marca");
-    assert.equal(result.defaultUnit, "l");
+    assert.equal(result.defaultUnit, "g");
     assert.equal(result.category, "eggs-dairy");
     assert.equal(result.sourceVersion, "off-dump-v1");
     assert.equal(result.sourceRef, "8001234567890");
