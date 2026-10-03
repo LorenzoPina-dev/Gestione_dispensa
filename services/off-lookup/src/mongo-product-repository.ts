@@ -39,8 +39,6 @@ export interface ProductRepository {
   findByCode(code: string): Promise<ProductDocument | undefined>;
   upsertFromLiveApi(code: string, product: Record<string, unknown>): Promise<void>;
   listSearchSourcePage?(cursor: string | undefined, limit: number): Promise<SearchSourcePage>;
-  /** Indexed local name search over the OFF dump. */
-  searchByName(query: string, limit: number): Promise<SearchSourcePage | undefined>;
   recordRefreshAttempt(code: string, outcome: RefreshOutcome): Promise<void>;
   /** Best-effort liveness check for the readiness endpoint. Never throws. */
   isAvailable(): Promise<boolean>;
@@ -54,9 +52,6 @@ export class NullProductRepository implements ProductRepository {
   }
   public async upsertFromLiveApi(): Promise<void> {
     // no-op
-  }
-  public async searchByName(): Promise<SearchSourcePage | undefined> {
-    return { items: [], nextCursor: null };
   }
   public async recordRefreshAttempt(): Promise<void> {
     // no-op
@@ -113,66 +108,6 @@ export class MongoProductRepository implements ProductRepository {
       void _id;
       return rest as ProductDocument;
     });
-  }
-
-  public async searchByName(query: string, limit: number): Promise<SearchSourcePage | undefined> {
-    const terms = tokenizeSearchQuery(query);
-    if (terms.length === 0) return { items: [], nextCursor: null };
-
-    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
-    const candidateLimit = Math.min(safeLimit * 5, 100);
-    // Prefer exact keyword matches. The dump's _keywords field is normalized/lowercase and
-    // has its own multikey index, so this stays an indexed query even with 4.8M documents.
-    const exactFilter = terms.length === 1
-      ? { _keywords: terms[0] }
-      : { _keywords: { $all: terms } };
-
-    return this.withCollection(async (collection) => {
-      try {
-        let docs = await collection
-          .find(exactFilter, {
-            projection: SEARCH_PROJECTION,
-            hint: "keywords_1",
-            maxTimeMS: config.mongo.searchOperationTimeoutMs,
-          })
-          .limit(candidateLimit)
-          .toArray();
-
-        // While the user is typing, the token may be incomplete (e.g. "gol" for "golia").
-        // Only in that case fall back to anchored prefix matching against the same index.
-        if (docs.length === 0) {
-          const prefixConditions = terms.map((term) => ({
-            _keywords: new RegExp("^" + escapeRegex(term)),
-          }));
-          const prefixFilter = prefixConditions.length === 1
-            ? prefixConditions[0]
-            : { $and: prefixConditions };
-          docs = await collection
-            .find(prefixFilter, {
-              projection: SEARCH_PROJECTION,
-              hint: "keywords_1",
-              maxTimeMS: config.mongo.searchOperationTimeoutMs,
-            })
-            .limit(candidateLimit)
-            .toArray();
-        }
-
-        return {
-          items: docs.map((doc) => ({
-            code: doc.code,
-            product: Object.fromEntries(
-              Object.entries(doc).filter(([key]) => key !== "_id"),
-            ),
-          })),
-          nextCursor: null,
-        };
-      } catch (error) {
-        log("error", "mongo_name_search_unavailable", {
-          error: error instanceof Error ? error.message : "unknown",
-        });
-        return undefined;
-      }
-    }, config.mongo.searchOperationTimeoutMs);
   }
 
   public async upsertFromLiveApi(code: string, product: Record<string, unknown>): Promise<void> {
@@ -365,30 +300,4 @@ export class MongoProductRepository implements ProductRepository {
     });
     return collection;
   }
-}
-
-function tokenizeSearchQuery(value: string): string[] {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("it-IT")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim()
-    .split(/\s+/)
-    .filter((term) => term.length > 0)
-    .slice(0, 6);
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
-}
-
-export function createProductRepository(): ProductRepository {
-  const enabled = config.mongo.url.trim().length > 0;
-  log("info", "mongo_repository_configured", {
-    enabled,
-    db: config.mongo.dbName,
-    collection: config.mongo.collectionName,
-  });
-  return enabled ? new MongoProductRepository() : new NullProductRepository();
 }
