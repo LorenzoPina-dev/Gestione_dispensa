@@ -248,6 +248,15 @@ export class OpenSearchOffIndex {
     return typeof body.count === "number" && Number.isFinite(body.count) ? body.count : 0;
   }
 
+  public async resetIndex(): Promise<void> {
+    const response = await this.rawFetch(`/${encodeURIComponent(this.indexName)}`, { method: "DELETE" });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`opensearch_index_delete_failed_${response.status}`);
+    }
+    this.ensured = false;
+    await this.ensureIndex();
+  }
+
   public async upsert(document: OffSearchDocument): Promise<void> {
     await this.ensureIndex();
     const response = await this.rawFetch(
