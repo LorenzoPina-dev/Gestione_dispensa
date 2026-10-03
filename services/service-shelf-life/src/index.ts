@@ -1,5 +1,5 @@
 import { isBoolean, isConfidence, isPredictionStatus, isStorage } from "./validation.js";
-import express, { type Request, type Response } from "express";
+import express, { type Request, type Response as ExpressResponse } from "express";
 import { Pool, type PoolClient } from "pg";
 import { createClient } from "redis";
 import crypto from "node:crypto";
@@ -19,7 +19,7 @@ type Storage = "PANTRY" | "FRIDGE" | "FREEZER" | "CELLAR" | "OTHER";
 type PredictionStatus = "queued" | "completed" | "applied" | "superseded" | "failed";
 type Body = Record<string, unknown>;
 
-const fail = (res: Response, status: number, code: string, message: string): Response => {
+const fail = (res: ExpressResponse, status: number, code: string, message: string): ExpressResponse => {
   const requestId=crypto.randomUUID();
   return res.status(status).json({
     error:{code,message,details:[],retryable:status>=502,requestId},
@@ -46,7 +46,7 @@ function familyContext(req: Request): string | null {
   return String(req.header("x-family-id") ?? req.query.familyId ?? req.body?.familyId ?? "").trim() || null;
 }
 
-function requireInternal(req: Request, res: Response): boolean {
+function requireInternal(req: Request, res: ExpressResponse): boolean {
   if (!internalServiceToken) {
     fail(res, 503, "SERVICE_UNAVAILABLE", "Internal service authentication is not configured.");
     return false;
@@ -430,13 +430,13 @@ app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) =
       "authorization":req.header("authorization")??"",
       "accept":"application/json",
     };
-    let upstream: Response | null = null;
+    let upstream: globalThis.Response | null = null;
 
     // Inventory uses optimistic concurrency and requires the current item version in If-Match.
     // Read the version immediately before the write. A 412 means the item changed between
     // the read and the write, so refresh the version once and retry the confirm operation.
     for(let attempt=0;attempt<2;attempt++){
-      let currentItem: Response;
+      let currentItem: globalThis.Response;
       try {
         currentItem=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id)),{
           method:"GET",
