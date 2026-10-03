@@ -181,7 +181,22 @@ services:
     command: server /data --console-address ":9001"
     environment: { MINIO_ROOT_USER: minio, MINIO_ROOT_PASSWORD: miniochange, MINIO_PROMETHEUS_AUTH_TYPE: public }
     volumes: [minio_data:/data]
-    healthcheck: { test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null"], interval: 10s, timeout: 5s, retries: 15, start_period: 10s }
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    networks: [data]
+
+  minio-ready:
+    image: busybox:1.37.0
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    depends_on:
+      minio: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://minio:9000/minio/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
     restart: unless-stopped
     networks: [data]
   opensearch:
@@ -571,7 +586,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      minio-ready: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data, messaging]
