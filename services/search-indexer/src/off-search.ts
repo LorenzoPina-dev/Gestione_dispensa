@@ -744,7 +744,7 @@ function collectImageCandidates(
 }
 
 function sizeFromUrl(value: string): number | null {
-  const match = /\\.(100|200|400|800|1024)\\.(?:jpe?g|png|webp|avif)(?:[?#].*)?$/i.exec(value);
+  const match = /\.(100|200|400|800|1024)\.(?:jpe?g|png|webp|avif)(?:[?#].*)?$/i.exec(value);
   if (!match) return null;
   return Number(match[1]);
 }
