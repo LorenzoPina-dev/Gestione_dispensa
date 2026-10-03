@@ -163,6 +163,17 @@ services:
       - >-
         const collections=db.getCollectionNames();
         if(!collections.includes("products")){db.createCollection("products");print("Mongo products collection created");}
+        const minCompleteness=0.7;
+        const qualityFilter={
+          $or:[
+            {completeness:{$exists:false}},
+            {completeness:null},
+            {completeness:{$lt:minCompleteness}}
+          ]
+        };
+        const before=db.products.countDocuments();
+        const removed=db.products.deleteMany(qualityFilter).deletedCount;
+        print("Removed "+removed+" OFF products below "+(minCompleteness*100)+"% completeness from "+before+" documents");
         const idx=db.products.getIndexes();
         const keywords=idx.find(i=>i.name==="keywords_1" || (i.key && i.key._keywords===1));
         if(keywords){print("Dropping obsolete Mongo text index "+keywords.name);db.products.dropIndex(keywords.name);}
@@ -652,6 +663,7 @@ services:
       OFF_SEARCH_BOOTSTRAP_MAX_BATCHES_PER_RUN: "50"
       OFF_SEARCH_BOOTSTRAP_DELAY_MS: "3000"
       OFF_SEARCH_BOOTSTRAP_RETRY_MS: "30000"
+      OFF_SEARCH_MIN_COMPLETENESS: "0.7"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on:
       opensearch: { condition: service_healthy }
@@ -679,6 +691,7 @@ services:
       OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS: "700"
       OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS: "1200"
       OFF_LOOKUP_MONGO_SOURCE_TIMEOUT_MS: "10000"
+      OFF_LOOKUP_MIN_COMPLETENESS: "0.7"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on:
       off-mongodb-index-maintenance: { condition: service_completed_successfully }
