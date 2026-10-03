@@ -6,6 +6,8 @@ export interface SourceSyncOptions {
   readonly token: string;
   readonly batchSize: number;
   readonly timeoutMs: number;
+  readonly batchDelayMs: number;
+  readonly maxBatchesPerRun: number;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -25,34 +27,16 @@ export class OffSourceSync {
     if (this.running || !this.options.sourceUrl.trim()) return;
     this.running = true;
     try {
-      const count = await this.index.count();
-      if (count > 0) return;
+      const state = await this.index.getBootstrapState();
 
-      let cursor: string | undefined;
-      let total = 0;
-
-      for (;;) {
-        const page = await this.fetchPage(cursor);
-        if (page.items.length === 0) break;
-
-        const documents: OffSearchDocument[] = [];
-        for (const item of page.items) {
-          const document = toOffSearchDocument(item);
-          if (document) documents.push(document);
-        }
-
-        await this.index.bulkUpsert(documents);
-        total += documents.length;
-
-        if (!page.nextCursor || page.nextCursor === cursor) break;
-        cursor = page.nextCursor;
+      // Existing documents without a checkpoint come from the previous implementation
+      // (for example a barcode lookup) or from an interrupted legacy bootstrap. They cannot
+      // prove that the full Mongo dump was indexed, so rebuild once and start with a checkpoint.
+      if (state === undefined && (await this.index.count()) > 0) {
+        await this.index.resetIndex();
       }
 
-      console.log(JSON.stringify({
-        service: "search-indexer",
-        event: "off_index_bootstrap_completed",
-        indexed: total,
-      }));
+      await this.syncFromCursor(state?.cursor ?? undefined);
     } catch (error) {
       console.error(JSON.stringify({
         service: "search-indexer",
@@ -69,32 +53,75 @@ export class OffSourceSync {
     this.running = true;
     try {
       await this.index.resetIndex();
-      let cursor: string | undefined;
-      let total = 0;
-
-      for (;;) {
-        const page = await this.fetchPage(cursor);
-        if (page.items.length === 0) break;
-
-        const documents: OffSearchDocument[] = [];
-        for (const item of page.items) {
-          const document = toOffSearchDocument(item);
-          if (document) documents.push(document);
-        }
-        await this.index.bulkUpsert(documents);
-        total += documents.length;
-
-        if (!page.nextCursor || page.nextCursor === cursor) break;
-        cursor = page.nextCursor;
-      }
-
-      console.log(JSON.stringify({
-        service: "search-indexer",
-        event: "off_index_rebuild_completed",
-        indexed: total,
-      }));
+      await this.syncFromCursor(undefined);
     } finally {
       this.running = false;
+    }
+  }
+
+  private async syncFromCursor(initialCursor: string | undefined): Promise<void> {
+    let cursor = initialCursor;
+    let batches = 0;
+    let total = 0;
+
+    await this.index.putBootstrapState({
+      status: "in_progress",
+      cursor: cursor ?? null,
+    });
+
+    for (;;) {
+      const page = await this.fetchPage(cursor);
+      if (page.items.length === 0) {
+        await this.index.putBootstrapState({ status: "complete", cursor: cursor ?? null });
+        console.log(JSON.stringify({
+          service: "search-indexer",
+          event: "off_index_bootstrap_completed",
+          indexed: total,
+          resumedFrom: initialCursor ?? null,
+        }));
+        return;
+      }
+
+      const documents: OffSearchDocument[] = [];
+      for (const item of page.items) {
+        const document = toOffSearchDocument(item);
+        if (document) documents.push(document);
+      }
+
+      await this.index.bulkUpsert(documents);
+      total += documents.length;
+      batches += 1;
+
+      // Persist the cursor only AFTER the corresponding OpenSearch bulk succeeded.
+      // If the process dies before this write, the next run safely replays that last page.
+      cursor = page.nextCursor ?? undefined;
+      await this.index.putBootstrapState({
+        status: cursor ? "in_progress" : "complete",
+        cursor: cursor ?? null,
+      });
+
+      if (!cursor) {
+        console.log(JSON.stringify({
+          service: "search-indexer",
+          event: "off_index_bootstrap_completed",
+          indexed: total,
+          resumedFrom: initialCursor ?? null,
+        }));
+        return;
+      }
+
+      if (batches >= this.options.maxBatchesPerRun) {
+        console.log(JSON.stringify({
+          service: "search-indexer",
+          event: "off_index_bootstrap_paused",
+          indexedThisRun: total,
+          batches,
+          nextCursor: cursor,
+        }));
+        return;
+      }
+
+      await sleep(this.options.batchDelayMs);
     }
   }
 
@@ -131,6 +158,10 @@ export class OffSourceSync {
       clearTimeout(timeout);
     }
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
 function isSourceProduct(value: unknown): value is OffSourceProduct {
