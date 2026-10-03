@@ -8,6 +8,7 @@ import {
   parsePatchProductBody,
   parseResolveBarcodeBody,
 } from "../src/http/validators.js";
+import { OidcTokenVerifier } from "../src/identity/oidc.js";
 
 const meta = { requestId: "request-123456789", traceId: "trace-1234567890", schemaVersion: "1.0" as const };
 const principal = {
@@ -73,6 +74,26 @@ class MemoryCatalogRepository implements CatalogRepository {
     return updated;
   }
 }
+
+describe("service-catalog / OIDC bootstrap", () => {
+  it("uses the explicit internal JWKS URL without performing discovery", async () => {
+    let discoveryCalls = 0;
+    const verifier = await OidcTokenVerifier.fromIssuer(
+      "https://192.168.1.24:8443/realms/dispensa",
+      "account",
+      async () => {
+        discoveryCalls += 1;
+        throw new Error("discovery must not be called");
+      },
+      {
+        jwksUrl: "http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs",
+      },
+    );
+
+    assert.ok(verifier);
+    assert.equal(discoveryCalls, 0);
+  });
+});
 
 describe("service-catalog / pure catalog rules", () => {
   it("normalizes supported barcodes and preserves digits", () => {
