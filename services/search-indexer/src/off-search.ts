@@ -2,6 +2,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
+export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
 
 export interface OffSearchDocument {
   code: string;
@@ -40,6 +41,11 @@ export interface OffSearchResult {
 export interface OffSourceProduct {
   readonly code: string;
   readonly product: Record<string, unknown>;
+}
+
+export interface OffBootstrapState {
+  readonly status: "in_progress" | "complete";
+  readonly cursor: string | null;
 }
 
 const MAX_LIMIT = 50;
@@ -241,11 +247,46 @@ export class OpenSearchOffIndex {
   public async count(): Promise<number> {
     await this.ensureIndex();
     const response = await this.rawFetch(`/${encodeURIComponent(this.indexName)}/_count`, {
-      method: "GET",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: { exists: { field: "code" } } }),
     });
     if (!response.ok) throw new Error(`opensearch_count_failed_${response.status}`);
     const body = await response.json() as { count?: unknown };
     return typeof body.count === "number" && Number.isFinite(body.count) ? body.count : 0;
+  }
+
+  public async getBootstrapState(): Promise<OffBootstrapState | undefined> {
+    await this.ensureIndex();
+    const response = await this.rawFetch(
+      `/${encodeURIComponent(this.indexName)}/_doc/${encodeURIComponent(OFF_BOOTSTRAP_META_ID)}`,
+      { method: "GET" },
+    );
+    if (response.status === 404) return undefined;
+    if (!response.ok) throw new Error(`opensearch_bootstrap_state_get_failed_${response.status}`);
+    const body = await response.json() as { _source?: unknown };
+    if (!body._source || typeof body._source !== "object") return undefined;
+    const source = body._source as Record<string, unknown>;
+    const status = source.status;
+    const cursor = source.cursor;
+    if (status !== "in_progress" && status !== "complete") return undefined;
+    return {
+      status,
+      cursor: typeof cursor === "string" && cursor.length > 0 ? cursor : null,
+    };
+  }
+
+  public async putBootstrapState(state: OffBootstrapState): Promise<void> {
+    await this.ensureIndex();
+    const response = await this.rawFetch(
+      `/${encodeURIComponent(this.indexName)}/_doc/${encodeURIComponent(OFF_BOOTSTRAP_META_ID)}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...state, updatedAt: new Date().toISOString() }),
+      },
+    );
+    if (!response.ok) throw new Error(`opensearch_bootstrap_state_put_failed_${response.status}`);
   }
 
   public async resetIndex(): Promise<void> {
