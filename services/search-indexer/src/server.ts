@@ -99,9 +99,30 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   if (url.pathname === "/api/v1/off/products/reindex" && method === "POST") {
-    // A full delete/rebuild is deliberately not coupled to normal startup. This endpoint is a
-    // maintenance hook; the source data remains in off-lookup/Mongo and can always rebuild the index.
-    sendJson(res, 501, { error: "reindex_not_implemented", message: "Use the documented index reset procedure before re-running bootstrap." });
+    if (sourceSync.isRunning) {
+      sendJson(res, 409, { error: "reindex_in_progress" });
+      return;
+    }
+    void sourceSync.forceRebuild().catch((error) => {
+      console.error(JSON.stringify({
+        service: "search-indexer",
+        event: "off_index_rebuild_failed",
+        error: error instanceof Error ? error.message : "unknown",
+      }));
+    });
+    sendJson(res, 202, { status: "started" });
+    return;
+  }
+
+  if (url.pathname === "/api/v1/off/index/status" && method === "GET") {
+    let count = 0;
+    try {
+      count = await index.count();
+    } catch {
+      sendJson(res, 503, { error: "index_unavailable" });
+      return;
+    }
+    sendJson(res, 200, { index: "off-products-v1", documentCount: count, rebuilding: sourceSync.isRunning });
     return;
   }
 
@@ -149,6 +170,9 @@ function stringEnv(name: string, fallback: string): string {
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(JSON.stringify({ service: "search-indexer", event: "started", port }));
   setTimeout(() => { void sourceSync.ensureBootstrapped(); }, bootstrapDelayMs).unref();
+  const retryTimer = setInterval(() => { void sourceSync.ensureBootstrapped(); }, positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_RETRY_MS, 30_000));
+  retryTimer.unref();
+
 });
 
 async function shutdown(signal: string): Promise<void> {
