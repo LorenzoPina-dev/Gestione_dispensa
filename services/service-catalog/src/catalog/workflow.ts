@@ -62,6 +62,30 @@ export interface ExternalProductMatch {
  * lookup degrades gracefully instead of failing the HTTP request.
  * See services/catalog/external-barcode-client.ts.
  */
+export interface ExternalProductSearchHit {
+  readonly code: string;
+  readonly canonicalName: string;
+  readonly brand?: string;
+  readonly photoUrl?: string;
+  readonly category?: string;
+  readonly quantityLabel?: string;
+  readonly calories?: number;
+  readonly protein?: number;
+  readonly carbs?: number;
+  readonly fat?: number;
+  readonly fiber?: number;
+  readonly popularityKey?: number;
+  readonly completeness?: number;
+}
+
+export interface ExternalProductSearchClient {
+  search(input: {
+    query: string;
+    limit: number;
+    traceId: string;
+  }): Promise<readonly ExternalProductSearchHit[] | undefined>;
+}
+
 export interface ExternalBarcodeLookupClient {
   lookup(input: {
     identifierType: IdentifierType;
@@ -110,15 +134,28 @@ export class CatalogWorkflowService {
   private readonly lookup: CatalogLookupRepository;
   private readonly candidates: CatalogCandidateRepository;
   private readonly externalLookup: ExternalBarcodeLookupClient | undefined;
+  private readonly externalSearch: ExternalProductSearchClient | undefined;
 
   public constructor(
     lookup: CatalogLookupRepository,
     candidates: CatalogCandidateRepository,
     externalLookup?: ExternalBarcodeLookupClient,
+    externalSearch?: ExternalProductSearchClient,
   ) {
     this.lookup = lookup;
     this.candidates = candidates;
     this.externalLookup = externalLookup;
+    this.externalSearch = externalSearch;
+  }
+
+  public async searchProducts(query: string, traceId: string, limit = 10): Promise<readonly ExternalProductSearchHit[]> {
+    const normalizedQuery = query.trim().replace(/\s+/g, " ");
+    if (normalizedQuery.length < 3 || this.externalSearch === undefined) return [];
+    return (await this.externalSearch.search({
+      query: normalizedQuery,
+      limit: Math.min(Math.max(limit, 1), 20),
+      traceId,
+    })) ?? [];
   }
 
   /**
