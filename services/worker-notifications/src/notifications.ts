@@ -9,11 +9,10 @@ export interface NotificationPreference {
 }
 
 export interface NotificationDeliveryRepository {
-  getPreference(userId: string, category: string, channel?: string): Promise<{ enabled: boolean }>;
+  getPreference(userId: string, category: string, channel?: string): Promise<NotificationPreference>;
   beginDelivery(eventId: string, userId: string): Promise<boolean>;
   completeDelivery(eventId: string, userId: string, status: string): Promise<void>;
   unsubscribe(userId: string, channel: string): Promise<void>;
-
 }
 
 export interface NotificationProvider {
