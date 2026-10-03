@@ -14,7 +14,7 @@ COPY package.json package-lock.json ./
 COPY services/service-privacy/package.json ./services/service-privacy/
 RUN npm install --workspace @gestione-dispensa/service-privacy --omit=dev --ignore-scripts
 COPY --from=build /app/services/service-privacy/dist ./services/service-privacy/dist
-COPY --from=build /app/services/service-privacy/migrations ./services/service-privacy/migrations
+COPY --from=build /app/services/service-privacy/migrations ./migrations
 COPY services/service-privacy/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3316
