@@ -68,43 +68,47 @@ async function bootstrap(): Promise<void> {
     console.log(JSON.stringify({ service: "service-catalog", port, event: "http_listening" })),
   );
 
-  try {
-    const verifier = await OidcTokenVerifier.fromIssuer(
-      process.env.OIDC_ISSUER!,
-      process.env.OIDC_AUDIENCE!,
-      fetch,
-      {
-        ...(process.env.OIDC_DISCOVERY_URL
-          ? { discoveryUrl: process.env.OIDC_DISCOVERY_URL }
-          : {}),
-        ...(process.env.OIDC_JWKS_URL ? { jwksUrl: process.env.OIDC_JWKS_URL } : {}),
-      },
-    );
+  for (;;) {
+    try {
+      const verifier = await OidcTokenVerifier.fromIssuer(
+        process.env.OIDC_ISSUER!,
+        process.env.OIDC_AUDIENCE!,
+        fetch,
+        {
+          ...(process.env.OIDC_DISCOVERY_URL
+            ? { discoveryUrl: process.env.OIDC_DISCOVERY_URL }
+            : {}),
+          ...(process.env.OIDC_JWKS_URL ? { jwksUrl: process.env.OIDC_JWKS_URL } : {}),
+          discoveryAttempts: 1,
+          discoveryTimeoutMs: Number(process.env.OIDC_DISCOVERY_TIMEOUT_MS ?? 5_000),
+        },
+      );
 
-    app.use("/api/v1", buildCatalogRouter({ controller, verifier }));
-    app.use((req, res) =>
-      sendFailure(
-        res,
-        404,
-        "NOT_FOUND_OR_NOT_VISIBLE",
-        "The resource is not available.",
-        req.meta ?? buildMeta(req),
-      ),
-    );
-    oidcReady = true;
-    console.log(JSON.stringify({ service: "service-catalog", event: "oidc_ready" }));
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        service: "service-catalog",
-        event: "oidc_bootstrap_failed",
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
-
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await pg.close();
-    process.exitCode = 1;
+      app.use("/api/v1", buildCatalogRouter({ controller, verifier }));
+      app.use((req, res) =>
+        sendFailure(
+          res,
+          404,
+          "NOT_FOUND_OR_NOT_VISIBLE",
+          "The resource is not available.",
+          req.meta ?? buildMeta(req),
+        ),
+      );
+      oidcReady = true;
+      console.log(JSON.stringify({ service: "service-catalog", event: "oidc_ready" }));
+      break;
+    } catch (error) {
+      oidcReady = false;
+      console.error(
+        JSON.stringify({
+          service: "service-catalog",
+          event: "oidc_bootstrap_retry",
+          error: error instanceof Error ? error.message : String(error),
+          retryMs: 2_000,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
   }
 }
 
