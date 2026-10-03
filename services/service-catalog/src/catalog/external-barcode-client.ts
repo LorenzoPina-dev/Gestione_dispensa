@@ -13,6 +13,8 @@ export interface HttpOffLookupClientOptions {
    */
   readonly baseUrl: string;
   readonly timeoutMs: number;
+  /** Hard timeout for product-name search; intentionally longer than barcode resolution. */
+  readonly searchTimeoutMs?: number;
   readonly internalToken?: string;
   /** Consecutive failures before the circuit opens and skips the network call entirely. */
   readonly circuitBreakThreshold?: number;
