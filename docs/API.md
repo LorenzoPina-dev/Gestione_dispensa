@@ -929,3 +929,118 @@ Questi endpoint non richiedono OIDC e non sono esposti al browser.
 6. Le mutation concorrenti che supportano optimistic locking richiedono `If-Match`.
 7. Un service non può restituire dati appartenenti a un altro owner come se fossero propri.
 8. I contratti interni seguono le stesse regole di versioning, errori, tracing e idempotenza.
+
+## OFF search contracts
+
+### GET /catalog/products/search
+
+Endpoint browser-facing, autenticato, esposto solo dal Gateway.
+
+Query:
+- `q`: 3..120 caratteri, normalizzato trim + spazio singolo;
+- `limit`: 1..20, default 10.
+
+Response:
+```json
+{
+  "data": {
+    "items": [
+      {
+        "code": "8000000000000",
+        "name": "Golia",
+        "brand": "Perfetti",
+        "category": "confectionery-candy",
+        "imageUrl": "https://...",
+        "packageLabel": "40 g",
+        "nutrition": {
+          "kcalPer100g": 390,
+          "proteinGPer100g": 0,
+          "carbsGPer100g": 96,
+          "fatGPer100g": 0,
+          "fiberGPer100g": 0
+        },
+        "popularityKey": 123,
+        "completeness": 0.95
+      }
+    ]
+  },
+  "meta": {
+    "requestId": "uuid",
+    "traceId": "trace",
+    "schemaVersion": "1.0"
+  }
+}
+```
+
+Semantica: il servizio Catalog delega la ricerca a off-lookup; off-lookup prova OpenSearch e solo in caso di zero risultati o indisponibilità locale prova il provider Search-a-licious. Il campo di response non distingue il provider al browser perché è un dettaglio infrastrutturale; tracing/logging lato backend lo distingue.
+
+Errori:
+- 400 `VALIDATION_ERROR`: query fuori limite;
+- 401 `UNAUTHENTICATED`;
+- 503 `UPSTREAM_ERROR`: nessuna sorgente di ricerca disponibile.
+
+### GET /api/v1/search (off-lookup interno)
+
+Endpoint non browser-facing.
+
+Query: `q` 3..120, `limit` 1..20.
+
+Risposta:
+```json
+{"source":"local","items":[{"code":"8000000000000","product":{}}]}
+```
+
+`source` è `local` quando OpenSearch produce almeno un match e `external` quando viene usato il fallback Search-a-licious.
+
+### GET /api/v1/internal/search-source/products (off-lookup -> search-indexer)
+
+Autenticazione: `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`.
+
+Query:
+- `cursor`: ultimo codice incluso, opzionale;
+- `limit`: 1..1000, default 500.
+
+Response 200:
+```json
+{
+  "items": [
+    {"code":"8000000000000","product":{"product_name":"Golia","brands":"Perfetti","categories_tags":["en:candies"], "...":"..."}}
+  ],
+  "nextCursor": null
+}
+```
+
+I campi sono una projection interna e non costituiscono un nuovo schema pubblico OFF.
+
+### PUT /api/v1/off/products/{code} (search-indexer interno)
+
+Autenticazione: service token.
+
+Body:
+```json
+{"code":"8000000000000","product":{"product_name":"Golia","brands":"Perfetti"}}
+```
+
+Il servizio valida il codice e costruisce la projection `off-products-v1`. Response `204 No Content`.
+
+### POST /api/v1/off/products/reindex (search-indexer interno)
+
+Autenticazione: service token.
+
+Avvia una ricostruzione completa asincrona. Response:
+```json
+{"status":"started"}
+```
+
+Con una ricostruzione già in corso: `409 reindex_in_progress`.
+
+### GET /api/v1/off/index/status (search-indexer interno)
+
+Autenticazione: service token.
+
+Response:
+```json
+{"index":"off-products-v1","documentCount":12345,"rebuilding":false}
+```
+
+Questi endpoint non sono routati dal Gateway verso il browser.
