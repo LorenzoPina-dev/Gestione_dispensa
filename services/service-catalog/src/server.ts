@@ -82,6 +82,15 @@ async function bootstrap(): Promise<void> {
     );
 
     app.use("/api/v1", buildCatalogRouter({ controller, verifier }));
+    app.use((req, res) =>
+      sendFailure(
+        res,
+        404,
+        "NOT_FOUND_OR_NOT_VISIBLE",
+        "The resource is not available.",
+        req.meta ?? buildMeta(req),
+      ),
+    );
     oidcReady = true;
     console.log(JSON.stringify({ service: "service-catalog", event: "oidc_ready" }));
   } catch (error) {
@@ -104,12 +113,3 @@ void bootstrap().catch((error) => {
   process.exitCode = 1;
 });
 
-app.use((req, res) =>
-  sendFailure(
-    res,
-    404,
-    "NOT_FOUND_OR_NOT_VISIBLE",
-    "The resource is not available.",
-    req.meta ?? buildMeta(req),
-  ),
-);
