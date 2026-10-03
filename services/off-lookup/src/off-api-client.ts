@@ -140,7 +140,7 @@ export class OpenFoodFactsApiClient implements OffApiClient {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const base = baseUrl.replace(/\\/+$/, "");
+      const base = baseUrl.replace(/\/+$/, "");
       const isSearchAlicious = provider === "search-a-licious";
       const url = new URL(isSearchAlicious ? "/search" : "/cgi/search.pl", base);
       url.searchParams.set("q", query);
