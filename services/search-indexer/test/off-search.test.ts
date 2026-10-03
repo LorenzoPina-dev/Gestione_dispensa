@@ -74,6 +74,57 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(doc?.imageUrl, "https://example.test/nested-front-200.jpg");
   });
 
+  it("falls back to selected_images and other OFF image fields", () => {
+    const selected = toOffSearchDocument({
+      code: "3017620422003",
+      product: {
+        product_name: "Pasta",
+        completeness: 0.9,
+        selected_images: {
+          ingredients: {
+            display: {
+              it: "https://example.test/ingredients-400.jpg",
+            },
+          },
+        },
+      },
+    });
+    assert.equal(selected?.imageUrl, "https://example.test/ingredients-400.jpg");
+
+    const generic = toOffSearchDocument({
+      code: "3017620422003",
+      product: {
+        product_name: "Pasta",
+        completeness: 0.9,
+        image_nutrition_small_url: "https://example.test/nutrition-small.jpg",
+      },
+    });
+    assert.equal(generic?.imageUrl, "https://example.test/nutrition-small.jpg");
+  });
+
+  it("computes a usable OFF image URL when image metadata has no direct URL", () => {
+    const doc = toOffSearchDocument({
+      code: "3017620422003",
+      product: {
+        product_name: "Pasta",
+        completeness: 0.9,
+        images: {
+          "1": {
+            imgid: "1",
+            sizes: {
+              "200": { w: 200, h: 200 },
+            },
+          },
+          front_en: {
+            imgid: "1",
+            rev: "12",
+          },
+        },
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://images.openfoodfacts.org/images/products/301/762/042/2003/front_en.12.200.jpg");
+  });
+
   it("keeps exact and prefix matches ahead of weaker lexical matches", () => {
     const hits: OffSearchHit[] = [
       { code: "3", product: { product_name: "Golia gusto menta", completeness: 0.9 }, score: 8 },
