@@ -31,4 +31,53 @@ describe("off-lookup domain",()=>{
   assert.equal(calls,1);
  });
  it("never lets cache write failure change a live hit",async()=>{const r=await new ProductLookupService({findByCode:async()=>undefined,upsertFromLiveApi:async()=>{throw new Error("db down")}},{fetchProduct:async()=>({status:"found",product:{name:"Latte"}}),isCircuitOpen:()=>false}).lookup("8001234567890");assert.equal(r.outcome,"hit")});
+ it("uses OpenSearch locally and does not call external search on a local hit",async()=>{
+  let localCalls=0; let externalCalls=0;
+  const s=new ProductLookupService(
+   {findByCode:async()=>undefined,upsertFromLiveApi:async()=>{},recordRefreshAttempt:async()=>{}},
+   {
+    fetchProduct:async()=>({status:"not_found"}),
+    searchProducts:async()=>{externalCalls++;return{status:"found",hits:[]}},
+    isCircuitOpen:()=>false,
+   },
+   {
+    search:async(query,limit)=>{localCalls++;assert.equal(query,"golia");assert.equal(limit,8);return{status:"found",hits:[{code:"8001234567890",product:{product_name_it:"Golia Caramella"}}]}}
+   },
+  );
+  const result=await s.search(" golia ",8);
+  assert.equal(result.source,"local");
+  assert.equal(result.hits.length,1);
+  assert.equal(localCalls,1);
+  assert.equal(externalCalls,0);
+ });
+ it("falls back to external search when OpenSearch has no local match",async()=>{
+  let externalCalls=0;
+  const s=new ProductLookupService(
+   {findByCode:async()=>undefined,upsertFromLiveApi:async()=>{},recordRefreshAttempt:async()=>{}},
+   {
+    fetchProduct:async()=>({status:"not_found"}),
+    searchProducts:async()=>{externalCalls++;return{status:"found",hits:[{code:"8001234567890",product:{product_name_it:"Prodotto remoto"}}]}},
+    isCircuitOpen:()=>false,
+   },
+   { search:async()=>({status:"found",hits:[]}) },
+  );
+  const result=await s.search("prodotto",8);
+  assert.equal(result.source,"external");
+  assert.equal(result.hits.length,1);
+  assert.equal(externalCalls,1);
+ });
+ it("indexes products learned from the barcode API without blocking the hit",async()=>{
+  let indexed: {code:string;product:Record<string,unknown>}|undefined;
+  const s=new ProductLookupService(
+   {findByCode:async()=>undefined,upsertFromLiveApi:async()=>{},recordRefreshAttempt:async()=>{}},
+   {fetchProduct:async()=>({status:"found",product:{product_name:"Latte"}}),isCircuitOpen:()=>false},
+   undefined,
+   {upsert:async(code,product)=>{indexed={code,product}}},
+  );
+  const result=await s.lookup("8001234567890");
+  assert.equal(result.outcome,"hit");
+  await new Promise(r=>setImmediate(r));
+  assert.equal(indexed?.code,"8001234567890");
+ });
+
 });
