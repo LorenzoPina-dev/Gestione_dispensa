@@ -246,6 +246,24 @@ export class OpenSearchOffIndex {
       throw new Error(`opensearch_index_check_failed_${exists.status}`);
     }
 
+    // Upgrade indexes created by older projection versions without rebuilding the full index.
+    // The bootstrap version check still forces a full rebuild so existing documents receive featureText.
+    const mapping = await this.rawFetch(
+      `/${encodeURIComponent(this.indexName)}/_mapping`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          properties: {
+            featureText: { type: "text", analyzer: "off_text" },
+          },
+        }),
+      },
+    );
+    if (!mapping.ok && mapping.status !== 400) {
+      throw new Error(`opensearch_mapping_update_failed_${mapping.status}`);
+    }
+
     this.ensured = true;
   }
 
