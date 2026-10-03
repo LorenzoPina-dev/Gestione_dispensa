@@ -15,6 +15,7 @@ export interface OffSearchDocument {
   category: string | null;
   categoriesTags: string[];
   quantityLabel: string | null;
+  featureText: string;
   imageUrl: string | null;
   productQuantity: number | null;
   productQuantityUnit: string | null;
@@ -48,7 +49,7 @@ export interface OffSourceProduct {
 export interface OffBootstrapState {
   readonly status: "in_progress" | "complete";
   readonly cursor: string | null;
-  readonly projectionVersion: number | null;
+  readonly projectionVersion?: number | null;
 }
 
 const MAX_LIMIT = 50;
