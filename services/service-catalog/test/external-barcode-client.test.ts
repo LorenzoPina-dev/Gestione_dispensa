@@ -10,6 +10,29 @@ let requests = 0;
 
 before(async () => {
   server = createServer((req, res) => {
+    if (req.url?.startsWith("/api/v1/search")) {
+      requests += 1;
+      if (req.headers.authorization !== "Bearer internal-test-token") {
+        res.statusCode = 401;
+        res.end();
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({
+        source: "local",
+        items: [{
+          code: "8001234567890",
+          product: {
+            product_name_it: "Latte",
+            brands: "Marca",
+            quantity: "90 g",
+            categories_tags: ["en:dairies"],
+          },
+        }],
+      }));
+      return;
+    }
     requests += 1;
     if (mode === "404") {
       res.statusCode = 404;
