@@ -431,25 +431,32 @@ La ricerca è autenticata e viene eseguita tramite il provider Open Food Facts S
 Response 200:
 ```json
 {
-  "items": [
-    {
-      "code": "8000000000000",
-      "name": "Golia",
-      "brand": "Perfetti",
-      "category": "confectionery-candy",
-      "imageUrl": "https://images.openfoodfacts.org/...",
-      "packageLabel": "50 g",
-      "nutrition": {
-        "kcalPer100g": 390,
-        "proteinGPer100g": 0,
-        "carbsGPer100g": 96,
-        "fatGPer100g": 0,
-        "fiberGPer100g": 0
-      },
-      "popularityKey": null,
-      "completeness": null
-    }
-  ]
+  "data": {
+    "items": [
+      {
+        "code": "8000000000000",
+        "name": "Golia",
+        "brand": "Perfetti",
+        "category": "confectionery-candy",
+        "imageUrl": "https://images.openfoodfacts.org/...",
+        "packageLabel": "50 g",
+        "nutrition": {
+          "kcalPer100g": 390,
+          "proteinGPer100g": 0,
+          "carbsGPer100g": 96,
+          "fatGPer100g": 0,
+          "fiberGPer100g": 0
+        },
+        "popularityKey": null,
+        "completeness": null
+      }
+    ]
+  },
+  "meta": {
+    "requestId": "...",
+    "traceId": "...",
+    "schemaVersion": "1.0"
+  }
 }
 ```
 
