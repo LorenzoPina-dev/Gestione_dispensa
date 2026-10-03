@@ -101,21 +101,60 @@ export class OpenFoodFactsApiClient implements OffApiClient {
   }
 
   private async searchOnce(query: string, limit: number): Promise<OffSearchResult> {
+    const primary = await this.searchProvider(
+      config.offApi.searchBaseUrl,
+      config.offApi.searchTimeoutMs,
+      query,
+      limit,
+      "search-a-licious",
+    );
+    if (primary.status === "found" && primary.hits.length > 0) return primary;
+
+    // Compatibility fallback: if Search-a-Licious is temporarily unavailable or its
+    // response changes, use the public OFF search endpoint without exposing the failure
+    // to the user. A definitive empty result remains empty.
+    if (config.offApi.legacySearchBaseUrl && config.offApi.legacySearchBaseUrl !== config.offApi.searchBaseUrl) {
+      const legacy = await this.searchProvider(
+        config.offApi.legacySearchBaseUrl,
+        config.offApi.legacySearchTimeoutMs,
+        query,
+        limit,
+        "legacy-off",
+      );
+      if (legacy.status === "found" && legacy.hits.length > 0) return legacy;
+      if (primary.status === "error" && legacy.status === "error") {
+        return { status: "error", hits: [], reason: `${primary.reason};legacy=${legacy.reason}` };
+      }
+    }
+
+    return primary;
+  }
+
+  private async searchProvider(
+    baseUrl: string,
+    timeoutMs: number,
+    query: string,
+    limit: number,
+    provider: string,
+  ): Promise<OffSearchResult> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.offApi.searchTimeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const url = new URL("/search", config.offApi.searchBaseUrl);
+      const base = baseUrl.replace(/\\/+$/, "");
+      const isSearchAlicious = provider === "search-a-licious";
+      const url = new URL(isSearchAlicious ? "/search" : "/cgi/search.pl", base);
       url.searchParams.set("q", query);
-      url.searchParams.set("page", "1");
-      url.searchParams.set("page_size", String(limit));
-      url.searchParams.set("boost_phrase", "true");
-      for (const lang of ["it", "en"]) url.searchParams.append("langs", lang);
-      for (const field of [
-        "code", "product_name", "product_name_it", "brands", "quantity",
-        "product_quantity", "product_quantity_unit", "image_front_url",
-        "image_front_small_url", "categories_tags", "nutriments",
-        "nutrition_data_per", "popularity_key", "completeness",
-      ]) url.searchParams.append("fields", field);
+      if (isSearchAlicious) {
+        url.searchParams.set("page", "1");
+        url.searchParams.set("page_size", String(limit));
+        url.searchParams.set("langs", "it,en");
+      } else {
+        url.searchParams.set("action", "process");
+        url.searchParams.set("json", "1");
+        url.searchParams.set("page_size", String(limit));
+        url.searchParams.set("search_terms", query);
+        url.searchParams.set("lc", "it");
+      }
 
       const response = await fetch(url, {
         signal: controller.signal,
@@ -126,35 +165,29 @@ export class OpenFoodFactsApiClient implements OffApiClient {
       });
 
       if (!response.ok) {
-        return {
-          status: "error",
-          hits: [],
-          reason: response.status === 429 ? "rate_limited" : `http_${response.status}`,
-        };
+        return { status: "error", hits: [], reason: response.status === 429 ? "rate_limited" : `http_${response.status}` };
       }
 
-      const body = (await response.json()) as { hits?: unknown; products?: unknown };
+      const body = await response.json() as { hits?: unknown; products?: unknown; count?: unknown; };
       const rawHits = Array.isArray(body.hits) ? body.hits : Array.isArray(body.products) ? body.products : [];
       const hits: OffSearchHit[] = [];
 
       for (const raw of rawHits) {
         if (!raw || typeof raw !== "object") continue;
         const value = raw as Record<string, unknown>;
-        const code = typeof value.code === "string" ? value.code.trim() : "";
-        if (!/^\d{8,14}$/.test(code)) continue;
+        const source = isRecord(value._source) ? value._source : isRecord(value.product) ? value.product : value;
+        if (!isRecord(source)) continue;
 
-        const product =
-          isRecord(value._source) ? value._source :
-          isRecord(value.product) ? value.product :
-          value;
-        if (!isRecord(product)) continue;
+        const code = typeof (source.code ?? value.code) === "string"
+          ? String(source.code ?? value.code).trim()
+          : "";
+        if (!/^\\d{8,14}$/.test(code)) continue;
 
         const name =
-          (typeof product.product_name_it === "string" ? product.product_name_it : "") ||
-          (typeof product.product_name === "string" ? product.product_name : "");
+          (typeof source.product_name_it === "string" ? source.product_name_it : "") ||
+          (typeof source.product_name === "string" ? source.product_name : "");
         if (!name.trim()) continue;
-
-        hits.push({ code, product });
+        hits.push({ code, product: source });
       }
 
       return { status: "found", hits };
@@ -162,9 +195,7 @@ export class OpenFoodFactsApiClient implements OffApiClient {
       return {
         status: "error",
         hits: [],
-        reason: controller.signal.aborted
-          ? "timeout"
-          : error instanceof Error ? error.message : "network_error",
+        reason: controller.signal.aborted ? "timeout" : error instanceof Error ? error.message : "network_error",
       };
     } finally {
       clearTimeout(timeout);
