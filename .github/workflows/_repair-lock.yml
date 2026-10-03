@@ -1,0 +1,35 @@
+name: repair-lockfile
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/architecture/microservices-v2' && contains(github.event.head_commit.message, '[repair-lock]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: architecture/microservices-v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Regenerate lockfile from committed manifests
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Remove repair trigger
+        run: rm -f .github/repair-lock-trigger
+      - name: Commit regenerated lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json .github/repair-lock-trigger
+          if git diff --cached --quiet; then
+            echo "Lockfile already synchronized."
+            exit 0
+          fi
+          git commit -m "fix(lockfile): regenerate from workspace manifests"
+          git push origin HEAD:architecture/microservices-v2
