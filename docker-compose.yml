@@ -48,7 +48,7 @@ services:
       STORES_SERVICE_BASE_URL: "http://service-stores:3403/api/v1"
       SHELF_LIFE_SERVICE_BASE_URL: "http://service-shelf-life:3404/api/v1"
       OCR_SERVICE_BASE_URL: "http://service-ocr:3405/api/v1"
-      GATEWAY_TIMEOUT_MS: "5000"
+      GATEWAY_TIMEOUT_MS: "15000"
       <<: *oidc-env
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     # Dipendenze del gateway. Il gateway è un proxy che gestisce già a runtime l'indisponibilità dei singoli
@@ -327,7 +327,7 @@ services:
       <<: *oidc-env
       OFF_LOOKUP_BASE_URL: "http://off-lookup:3200"
       OFF_LOOKUP_TIMEOUT_MS: "2500"
-      OFF_LOOKUP_SEARCH_TIMEOUT_MS: "8000"
+      OFF_LOOKUP_SEARCH_TIMEOUT_MS: "9000"
       OFF_LOOKUP_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
     # Readiness includes PostgreSQL and OIDC discovery. Liveness remains available during bootstrap.
@@ -654,7 +654,7 @@ services:
       PORT: 3210
       SERVICE_NAME: search-indexer
       OPENSEARCH_URL: "http://opensearch:9200"
-      OPENSEARCH_TIMEOUT_MS: "1500"
+      OPENSEARCH_TIMEOUT_MS: "4000"
       SEARCH_INDEXER_INTERNAL_TOKEN: "${SEARCH_INDEXER_INTERNAL_TOKEN:-dispensa-internal-dev}"
       OFF_LOOKUP_SOURCE_URL: "http://off-lookup:3200"
       OFF_LOOKUP_SOURCE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
@@ -690,8 +690,8 @@ services:
       OFF_LOOKUP_SEARCH_INDEXER_BASE_URL: "http://search-indexer:3210"
       OFF_LOOKUP_SEARCH_INDEXER_TOKEN: "${SEARCH_INDEXER_INTERNAL_TOKEN:-dispensa-internal-dev}"
       OFF_LOOKUP_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
-      OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS: "700"
-      OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS: "1200"
+      OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS: "4500"
+      OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS: "2500"
       OFF_LOOKUP_MONGO_SOURCE_TIMEOUT_MS: "10000"
       OFF_LOOKUP_MIN_COMPLETENESS: "0.7"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
