@@ -424,20 +424,87 @@ app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) =
     if(x.status!=="completed"){await client.query("rollback");return fail(res,422,"BUSINESS_RULE_VIOLATION","Only completed predictions can be applied.");}
 
     const inventoryBase=(process.env.INVENTORY_SERVICE_BASE_URL??"http://service-inventory:3312/api/v1").replace(/\/$/,"");
-    let upstream;
-    try {
-      upstream=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id))+"/expiration/confirm",{
-        method:"POST",
-        headers:{"content-type":"application/json","x-user-id":userId,"x-family-id":String(x.family_id ?? ""),"authorization":req.header("authorization")??"","x-idempotency-key":idempotencyKey},
-        body:JSON.stringify({expiresAt:x.estimated_expires_at,source:"estimated"}),
-      });
-    } catch {
-      await client.query("rollback");
-      return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable.");
+    const inventoryHeaders={
+      "x-user-id":userId,
+      "x-family-id":String(x.family_id ?? ""),
+      "authorization":req.header("authorization")??"",
+      "accept":"application/json",
+    };
+    let upstream: Response | null = null;
+
+    // Inventory uses optimistic concurrency and requires the current item version in If-Match.
+    // Read the version immediately before the write. A 412 means the item changed between
+    // the read and the write, so refresh the version once and retry the confirm operation.
+    for(let attempt=0;attempt<2;attempt++){
+      let currentItem: Response;
+      try {
+        currentItem=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id)),{
+          method:"GET",
+          headers:inventoryHeaders,
+          signal:AbortSignal.timeout(5000),
+        });
+      } catch {
+        await client.query("rollback");
+        return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable while reading the current item.");
+      }
+
+      let currentPayload: { data?: { version?: unknown }; error?: { code?: unknown; message?: unknown } } = {};
+      try { currentPayload=await currentItem.json() as typeof currentPayload; } catch {}
+
+      if(!currentItem.ok){
+        await client.query("rollback");
+        const status=currentItem.status>=500?502:currentItem.status;
+        const code=status>=500
+          ?"UPSTREAM_ERROR"
+          :(typeof currentPayload.error?.code==="string"?currentPayload.error.code:"UPSTREAM_ERROR");
+        const message=typeof currentPayload.error?.message==="string"
+          ?currentPayload.error.message
+          :"Inventory could not read the current item.";
+        return fail(res,status,code,message);
+      }
+
+      const version=Number(currentPayload.data?.version);
+      if(!Number.isInteger(version)||version<0){
+        await client.query("rollback");
+        return fail(res,502,"UPSTREAM_ERROR","Inventory returned an invalid item version.");
+      }
+
+      try {
+        upstream=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id))+"/expiration/confirm",{
+          method:"POST",
+          headers:{
+            ...inventoryHeaders,
+            "content-type":"application/json",
+            "x-idempotency-key":idempotencyKey,
+            "if-match":String(version),
+          },
+          body:JSON.stringify({expiresAt:x.estimated_expires_at,source:"estimated"}),
+          signal:AbortSignal.timeout(5000),
+        });
+      } catch {
+        await client.query("rollback");
+        return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable while applying the shelf-life prediction.");
+      }
+
+      if(upstream.ok) break;
+      if(upstream.status===412 && attempt===0) continue;
+      break;
     }
-    if(!upstream.ok){
+
+    if(!upstream||!upstream.ok){
+      let upstreamPayload: { error?: { code?: unknown; message?: unknown } } = {};
+      try { upstreamPayload=await upstream!.json() as typeof upstreamPayload; } catch {}
+
+      const status=upstream!.status>=500?502:upstream!.status;
+      const code=status>=500
+        ?"UPSTREAM_ERROR"
+        :(typeof upstreamPayload.error?.code==="string"?upstreamPayload.error.code:"UPSTREAM_ERROR");
+      const message=typeof upstreamPayload.error?.message==="string"
+        ?upstreamPayload.error.message
+        :"Inventory could not apply the shelf-life prediction.";
+
       await client.query("rollback");
-      return fail(res,502,"UPSTREAM_ERROR","Inventory could not apply the shelf-life prediction.");
+      return fail(res,status,code,message);
     }
 
     const updated=await client.query(
