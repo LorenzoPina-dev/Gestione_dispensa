@@ -65,6 +65,17 @@ export class ProductLookupService {
       return cached.result;
     }
 
+    let openSearchResult: OffSearchResult | undefined;
+    if (this.localSearch !== undefined) {
+      try {
+        openSearchResult = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
+      } catch (error) {
+        log("error", "local_product_search_failed", {
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      }
+    }
+
     // OpenSearch is the authoritative local text-search index. Mongo is intentionally
     // NOT queried by name: it remains the source-of-truth/cache for barcode and the source
     // used by search-indexer during the one-time resumable bulk projection.
@@ -238,15 +249,5 @@ export class ProductLookupService {
 
     return { outcome: "hit", source: "cache", product: cached };
   }
-}
-
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("it-IT")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim()
-    .replace(/\s+/g, " ");
 }
 
