@@ -135,6 +135,7 @@ function parseDefaultUnit(quantity: string | undefined): ProductUnit {
 export class HttpOffLookupClient implements ExternalBarcodeLookupClient, ExternalProductSearchClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly searchTimeoutMs: number;
   private readonly internalToken: string | undefined;
   private readonly circuitBreakThreshold: number;
   private readonly circuitResetMs: number;
@@ -162,7 +163,7 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient, Externa
     if (normalizedQuery.length < 3) return [];
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), this.searchTimeoutMs);
     try {
       const url = new URL(this.baseUrl + "/api/v1/search");
       url.searchParams.set("q", normalizedQuery);
