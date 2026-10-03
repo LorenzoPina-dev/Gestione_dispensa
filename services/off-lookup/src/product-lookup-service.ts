@@ -23,6 +23,9 @@ export interface ProductIndexWriter {
 
 const BARCODE_PATTERN = /^\d{6,14}$/;
 
+type LocalSearchCandidate = { code: string; product: Record<string, unknown>; score?: number };
+type RankedSearchCandidate = { code: string; product: Record<string, unknown>; score: number };
+
 export function isValidBarcode(value: string): boolean {
   return BARCODE_PATTERN.test(value);
 }
@@ -106,8 +109,8 @@ export class ProductLookupService {
     }
 
     if (this.apiClient.searchProducts === undefined) {
-      const result = openSearchResult?.status === "found" ? openSearchResult : { status: "found", hits: [] };
-      return result;
+      if (openSearchResult?.status === "found") return openSearchResult;
+      return { status: "found", hits: [] };
     }
 
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
@@ -322,8 +325,8 @@ function mergeSearchHits(
   primary: readonly LocalSearchCandidate[],
   secondary: readonly LocalSearchCandidate[],
   limit: number,
-): readonly { code: string; product: Record<string, unknown>; score: number }[] {
-  const byCode = new Map<string, LocalSearchCandidate>();
+): readonly RankedSearchCandidate[] {
+  const byCode = new Map<string, RankedSearchCandidate>();
   for (const hit of [...primary, ...secondary]) {
     const score = hit.score ?? 0;
     const existing = byCode.get(hit.code);
@@ -331,7 +334,8 @@ function mergeSearchHits(
   }
   return [...byCode.values()]
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.code.localeCompare(b.code))
-    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20));
+    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20))
+    .map((hit) => ({ code: hit.code, product: hit.product, score: hit.score ?? 0 }));
 }
 
 function normalizeSearchText(value: string): string {
