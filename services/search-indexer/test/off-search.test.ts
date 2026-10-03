@@ -74,6 +74,27 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(doc?.imageUrl, "https://example.test/nested-front-200.jpg");
   });
 
+  it("never treats OFF image metadata such as imgid as an image URL", () => {
+    const doc = toOffSearchDocument({
+      code: "3017620422003",
+      product: {
+        product_name: "Pasta",
+        completeness: 0.9,
+        images: {
+          "9": {
+            imgid: "9",
+            sizes: { "200": { w: 200, h: 200 } },
+          },
+          front_en: {
+            imgid: "9",
+            rev: "12",
+          },
+        },
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://images.openfoodfacts.org/images/products/301/762/042/2003/front_en.12.200.jpg");
+  });
+
   it("falls back to selected_images and other OFF image fields", () => {
     const selected = toOffSearchDocument({
       code: "3017620422003",
