@@ -59,3 +59,7 @@ Questa directory è la **specifica canonica e normativa** della branch `architec
 ## Regola per l'implementazione
 
 Una feature non può essere considerata implementata se manca uno dei suoi contratti. Prima si definiscono owner, DB/schema, endpoint/evento, input/output/errori e invarianti; poi si scrive il codice; infine i contract test dimostrano che il codice rispetta la specifica.
+
+## Capability: OFF local search
+
+La ricerca per nome usa MongoDB come corpus completo, OpenSearch come projection rebuildable e Search-a-licious come fallback esterno. La selezione finale riusa sempre il flusso barcode. Per dettagli vedere `ARCHITECTURE.md`, `API.md`, `DATA.md`, `FLOWS.md` e `TEST-STRATEGY.md`.
