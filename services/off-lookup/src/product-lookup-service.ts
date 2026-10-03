@@ -53,6 +53,7 @@ export class ProductLookupService {
       return cached.result;
     }
 
+    if (this.apiClient.searchProducts === undefined) return { status: "found", hits: [] };
     const result = await this.apiClient.searchProducts(normalizedQuery, Math.min(Math.max(limit, 1), 20));
     this.searchCache.set(normalizedQuery, { at: now, result });
     if (this.searchCache.size > 50) {
