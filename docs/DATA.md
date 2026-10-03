@@ -999,3 +999,10 @@ Il rapporto Mongo -> OpenSearch è eventual-consistent e rebuildable. Un documen
 ### Nessun coupling con i DB applicativi
 
 Il corpus OFF e la projection di ricerca non condividono tabelle PostgreSQL con Family, Inventory, Shopping o gli altri microservizi. `search-indexer` non può aprire una connessione a un DB di dominio per correggere un documento OFF.
+
+
+## Notifications processed event table
+
+`notifications_domain.processed_events` appartiene esclusivamente a `service-notifications` e implementa la deduplicazione degli eventi consumati.
+
+Campi: `event_id` primary key, `event_type`, `schema_version`, `producer`, `processed_at`. È presente un indice su `processed_at DESC`. La tabella è tecnica del service e non è condivisa con altri database.
