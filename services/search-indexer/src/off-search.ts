@@ -682,7 +682,10 @@ function firstImageUrl(product: Record<string, unknown>, code: string): string |
       .sort((a, b) => a.size - b.size || a.order - b.order)[0]?.url ?? null;
   }
 
-  return computedImageUrlFromImages(code, images);
+  const computed = computedImageUrlFromImages(code, images);
+  if (computed) return computed;
+
+  return computedImageUrlFromImages(code, record(product.selected_images));
 }
 
 function collectImageCandidates(
@@ -720,7 +723,7 @@ function collectImageCandidates(
     const candidate = object[key];
     if (typeof candidate === "string" && isHttpUrl(candidate)) {
       output.push({ url: candidate.trim(), kind, size, order: nextOrder() });
-    } else if (isRecord(candidate)) {
+    } else if (record(candidate)) {
       collectImageCandidates(candidate, kind, output, nextOrder, size);
     }
   }
@@ -737,7 +740,7 @@ function collectImageCandidates(
 
   for (const [key, child] of Object.entries(object)) {
     if (["100", "200", "400", "small", "thumb", "medium", "url", "display"].includes(key)) continue;
-    if (isRecord(child) || typeof child === "string") {
+    if (record(child) || typeof child === "string") {
       collectImageCandidates(child, kind, output, nextOrder, inheritedSize);
     }
   }
@@ -748,6 +751,55 @@ function sizeFromUrl(value: string): number | null {
   if (!match) return null;
   return Number(match[1]);
 }
+function computedImageUrlFromImages(
+  code: string,
+  images: Record<string, unknown> | undefined,
+): string | null {
+  if (!images) return null;
+
+  const digits = code.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 14) return null;
+  const barcode = digits.padStart(13, "0");
+  const folder = `https://images.openfoodfacts.org/images/products/${barcode.slice(0, 3)}/${barcode.slice(3, 6)}/${barcode.slice(6, 9)}/${barcode.slice(9)}`;
+
+  const entries = Object.entries(images)
+    .filter(([key, value]) => {
+      const object = record(value);
+      return object !== undefined && /^(?:front|front_\w\w|packaging|ingredients|nutrition)(?:_\w\w)?$/i.test(key);
+    })
+    .sort(([a], [b]) => {
+      const frontA = /^front/i.test(a) ? 0 : 1;
+      const frontB = /^front/i.test(b) ? 0 : 1;
+      return frontA - frontB || a.localeCompare(b);
+    });
+
+  for (const [key, value] of entries) {
+    const object = record(value);
+    if (!object) continue;
+
+    const rev = typeof object.rev === "number"
+      ? String(object.rev)
+      : typeof object.rev === "string" && /^\d+$/.test(object.rev)
+        ? object.rev
+        : undefined;
+    if (!rev) continue;
+
+    const sizes = record(object.sizes);
+    const availableSizes = sizes
+      ? Object.keys(sizes)
+          .map((size) => Number(size))
+          .filter((size) => Number.isFinite(size) && size > 0)
+          .sort((a, b) => a - b)
+      : [];
+
+    const size = availableSizes[0] ?? 200;
+    const safeKey = encodeURIComponent(key);
+    return `${folder}/${safeKey}.${rev}.${size}.jpg`;
+  }
+
+  return null;
+}
+
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
