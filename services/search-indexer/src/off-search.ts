@@ -1,0 +1,432 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+
+export const OFF_SEARCH_INDEX = "off-products-v1";
+
+export interface OffSearchDocument {
+  code: string;
+  name: string;
+  nameExact: string;
+  brand: string | null;
+  brandExact: string | null;
+  category: string | null;
+  categoriesTags: string[];
+  quantityLabel: string | null;
+  imageUrl: string | null;
+  productQuantity: number | null;
+  productQuantityUnit: string | null;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  popularityKey: number | null;
+  completeness: number | null;
+  searchText: string;
+}
+
+export interface OffSearchHit {
+  readonly code: string;
+  readonly product: Record<string, unknown>;
+  readonly score: number;
+}
+
+export interface OffSearchResult {
+  readonly status: "found" | "unavailable";
+  readonly hits: readonly OffSearchHit[];
+  readonly reason?: string;
+}
+
+export interface OffSourceProduct {
+  readonly code: string;
+  readonly product: Record<string, unknown>;
+}
+
+const MAX_LIMIT = 50;
+
+export function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("it-IT")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument | undefined {
+  const product = input.product;
+  const name = firstString(product.product_name_it, product.product_name);
+  if (!name) return undefined;
+
+  const brand = firstString(product.brands);
+  const categoriesTags = stringArray(product.categories_tags);
+  const category = firstString(product.category);
+  const quantityLabel = quantityLabelOf(product);
+  const imageUrl = firstString(product.image_front_url, product.image_front_small_url, product.image_front_thumb_url);
+  const nutriments = record(product.nutriments);
+
+  const calories = numberFrom(nutriments?.["energy-kcal_100g"]);
+  const protein = numberFrom(nutriments?.["proteins_100g"]);
+  const carbs = numberFrom(nutriments?.["carbohydrates_100g"]);
+  const fat = numberFrom(nutriments?.["fat_100g"]);
+  const fiber = numberFrom(nutriments?.["fiber_100g"]);
+  const productQuantity = numberFrom(product.product_quantity);
+  const productQuantityUnit = firstString(product.product_quantity_unit);
+  const popularityKey = numberFrom(product.popularity_key);
+  const completeness = numberFrom(product.completeness);
+
+  const searchText = [name, brand, category, ...categoriesTags, quantityLabel]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+
+  return {
+    code: input.code,
+    name,
+    nameExact: normalizeSearchText(name),
+    brand,
+    brandExact: brand ? normalizeSearchText(brand) : null,
+    category,
+    categoriesTags,
+    quantityLabel,
+    imageUrl,
+    productQuantity,
+    productQuantityUnit,
+    calories,
+    protein,
+    carbs,
+    fat,
+    fiber,
+    popularityKey,
+    completeness,
+    searchText,
+  };
+}
+
+export function toProviderProduct(document: OffSearchDocument): Record<string, unknown> {
+  return {
+    product_name: document.name,
+    ...(document.brand ? { brands: document.brand } : {}),
+    ...(document.category ? { category: document.category } : {}),
+    categories_tags: document.categoriesTags,
+    ...(document.quantityLabel ? { quantity: document.quantityLabel } : {}),
+    ...(document.productQuantity === null ? {} : { product_quantity: document.productQuantity }),
+    ...(document.productQuantityUnit ? { product_quantity_unit: document.productQuantityUnit } : {}),
+    ...(document.imageUrl ? { image_front_url: document.imageUrl } : {}),
+    nutriments: {
+      ...(document.calories === null ? {} : { "energy-kcal_100g": document.calories }),
+      ...(document.protein === null ? {} : { proteins_100g: document.protein }),
+      ...(document.carbs === null ? {} : { "carbohydrates_100g": document.carbs }),
+      ...(document.fat === null ? {} : { "fat_100g": document.fat }),
+      ...(document.fiber === null ? {} : { "fiber_100g": document.fiber }),
+    },
+    ...(document.popularityKey === null ? {} : { popularity_key: document.popularityKey }),
+    ...(document.completeness === null ? {} : { completeness: document.completeness }),
+  };
+}
+
+export function rankOffSearchHits(
+  query: string,
+  hits: readonly OffSearchHit[],
+  limit: number,
+): readonly OffSearchHit[] {
+  const normalized = normalizeSearchText(query);
+  const queryTokens = new Set(normalized.split(" ").filter(Boolean));
+
+  const ranked = hits.map((hit) => {
+    const document = hit.product;
+    const name = normalizeSearchText(String(document.product_name ?? ""));
+    const brand = normalizeSearchText(String(document.brands ?? ""));
+    const category = normalizeSearchText(String(document.category ?? ""));
+    const tokens = new Set(name.split(" ").filter(Boolean));
+
+    const exact = name === normalized ? 1000 : 0;
+    const prefix = name.startsWith(normalized) ? 300 : 0;
+    const phrase = name.includes(normalized) ? 150 : 0;
+    const tokenMatch = [...queryTokens].filter((token) => tokens.has(token)).length * 45;
+    const brandMatch = normalized && brand.includes(normalized) ? 50 : 0;
+    const categoryMatch = normalized && category.includes(normalized) ? 20 : 0;
+    const lexical = Math.min(100, Math.max(0, hit.score)) * 2;
+    const completeness = numberFrom(document.completeness) ?? 0;
+    const popularity = Math.log10(1 + Math.max(0, numberFrom(document.popularity_key) ?? 0));
+    const finalScore = exact + prefix + phrase + tokenMatch + brandMatch + categoryMatch
+      + lexical + completeness * 30 + popularity * 8;
+
+    return { hit, finalScore };
+  });
+
+  return ranked
+    .sort((a, b) => b.finalScore - a.finalScore || a.hit.code.localeCompare(b.hit.code))
+    .slice(0, Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT))
+    .map(({ hit }) => hit);
+}
+
+export class OpenSearchOffIndex {
+  private ensured = false;
+
+  public constructor(
+    private readonly baseUrl: string,
+    private readonly indexName = OFF_SEARCH_INDEX,
+    private readonly timeoutMs = 1500,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {}
+
+  public async ensureIndex(): Promise<void> {
+    if (this.ensured) return;
+
+    const exists = await this.rawFetch(`/${encodeURIComponent(this.indexName)}`, { method: "HEAD" });
+    if (exists.status === 404) {
+      const created = await this.rawFetch(`/${encodeURIComponent(this.indexName)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            index: { number_of_shards: 1, number_of_replicas: 0 },
+            analysis: {
+              analyzer: {
+                off_text: {
+                  type: "custom",
+                  tokenizer: "standard",
+                  filter: ["lowercase", "asciifolding"],
+                },
+              },
+            },
+          },
+          mappings: {
+            dynamic: false,
+            properties: {
+              code: { type: "keyword" },
+              name: { type: "text", analyzer: "off_text" },
+              nameExact: { type: "keyword" },
+              brand: { type: "text", analyzer: "off_text" },
+              brandExact: { type: "keyword" },
+              category: { type: "text", analyzer: "off_text" },
+              categoriesTags: { type: "keyword" },
+              quantityLabel: { type: "text", analyzer: "off_text" },
+              imageUrl: { type: "keyword", index: false },
+              productQuantity: { type: "double" },
+              productQuantityUnit: { type: "keyword" },
+              calories: { type: "double" },
+              protein: { type: "double" },
+              carbs: { type: "double" },
+              fat: { type: "double" },
+              fiber: { type: "double" },
+              popularityKey: { type: "double" },
+              completeness: { type: "double" },
+              searchText: { type: "text", analyzer: "off_text" },
+            },
+          },
+        }),
+      });
+      if (!created.ok && created.status !== 400) {
+        throw new Error(`opensearch_index_create_failed_${created.status}`);
+      }
+    } else if (!exists.ok) {
+      throw new Error(`opensearch_index_check_failed_${exists.status}`);
+    }
+
+    this.ensured = true;
+  }
+
+  public async isAvailable(): Promise<boolean> {
+    try {
+      await this.ensureIndex();
+      const response = await this.rawFetch("/_cluster/health", { method: "GET" });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  public async count(): Promise<number> {
+    await this.ensureIndex();
+    const response = await this.rawFetch(`/${encodeURIComponent(this.indexName)}/_count`, {
+      method: "GET",
+    });
+    if (!response.ok) throw new Error(`opensearch_count_failed_${response.status}`);
+    const body = await response.json() as { count?: unknown };
+    return typeof body.count === "number" && Number.isFinite(body.count) ? body.count : 0;
+  }
+
+  public async upsert(document: OffSearchDocument): Promise<void> {
+    await this.ensureIndex();
+    const response = await this.rawFetch(
+      `/${encodeURIComponent(this.indexName)}/_doc/${encodeURIComponent(document.code)}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(document),
+      },
+    );
+    if (!response.ok) throw new Error(`opensearch_upsert_failed_${response.status}`);
+  }
+
+  public async bulkUpsert(documents: readonly OffSearchDocument[]): Promise<void> {
+    if (documents.length === 0) return;
+    await this.ensureIndex();
+
+    const body = documents.map((document) =>
+      JSON.stringify({ index: { _index: this.indexName, _id: document.code } }) + "\n" +
+      JSON.stringify(document) + "\n"
+    ).join("");
+
+    const response = await this.rawFetch("/_bulk", {
+      method: "POST",
+      headers: { "content-type": "application/x-ndjson" },
+      body,
+    });
+    if (!response.ok) throw new Error(`opensearch_bulk_failed_${response.status}`);
+
+    const result = await response.json() as { errors?: unknown };
+    if (result.errors === true) throw new Error("opensearch_bulk_contains_errors");
+  }
+
+  public async search(query: string, limit: number): Promise<OffSearchResult> {
+    const normalized = normalizeSearchText(query);
+    if (!normalized) return { status: "found", hits: [] };
+
+    try {
+      await this.ensureIndex();
+      const size = Math.min(Math.max(Math.floor(limit) * 5, 10), 50);
+      const body = {
+        size,
+        track_total_hits: false,
+        _source: [
+          "code", "name", "brand", "category", "categoriesTags", "quantityLabel", "imageUrl",
+          "productQuantity", "productQuantityUnit", "calories", "protein", "carbs", "fat", "fiber",
+          "popularityKey", "completeness",
+        ],
+        query: {
+          bool: {
+            should: [
+              { term: { nameExact: { value: normalized, boost: 12 } } },
+              { prefix: { nameExact: { value: normalized, boost: 7 } } },
+              { match_phrase: { name: { query: normalized, boost: 8 } } },
+              { match: { name: { query: normalized, operator: "and", fuzziness: "AUTO", boost: 5 } } },
+              { match_phrase: { brand: { query: normalized, boost: 3 } } },
+              { match: { searchText: { query: normalized, fuzziness: "AUTO", boost: 2 } } },
+            ],
+            minimum_should_match: 1,
+          },
+        },
+      };
+
+      const response = await this.rawFetch(`/${encodeURIComponent(this.indexName)}/_search`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        return { status: "unavailable", hits: [], reason: `http_${response.status}` };
+      }
+
+      const json = await response.json() as {
+        hits?: { hits?: Array<{ _score?: unknown; _source?: unknown }> };
+      };
+      const rawHits = json.hits?.hits ?? [];
+      const hits: OffSearchHit[] = [];
+
+      for (const raw of rawHits) {
+        if (!raw._source || typeof raw._source !== "object") continue;
+        const source = raw._source as Record<string, unknown>;
+        const code = typeof source.code === "string" ? source.code : "";
+        if (!/^\d{8,14}$/.test(code)) continue;
+        const score = typeof raw._score === "number" && Number.isFinite(raw._score) ? raw._score : 0;
+        hits.push({ code, product: toProviderProductFromSource(source), score });
+      }
+
+      return { status: "found", hits: rankOffSearchHits(normalized, hits, limit) };
+    } catch (error) {
+      return {
+        status: "unavailable",
+        hits: [],
+        reason: error instanceof Error ? error.message : "opensearch_error",
+      };
+    }
+  }
+
+  private async rawFetch(path: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const url = `${this.baseUrl.replace(/\/+$/, "")}${path}`;
+      return await this.fetchImpl(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function toProviderProductFromSource(source: Record<string, unknown>): Record<string, unknown> {
+  const categories = Array.isArray(source.categoriesTags)
+    ? source.categoriesTags.filter((value): value is string => typeof value === "string")
+    : [];
+  const nutriments: Record<string, unknown> = {};
+  for (const [field, key] of [
+    ["calories", "energy-kcal_100g"],
+    ["protein", "proteins_100g"],
+    ["carbs", "carbohydrates_100g"],
+    ["fat", "fat_100g"],
+    ["fiber", "fiber_100g"],
+  ] as const) {
+    const value = source[field];
+    if (typeof value === "number" && Number.isFinite(value)) nutriments[key] = value;
+  }
+
+  const product: Record<string, unknown> = {
+    product_name: typeof source.name === "string" ? source.name : "",
+    brands: typeof source.brand === "string" ? source.brand : "",
+    categories_tags: categories,
+    nutriments,
+  };
+
+  for (const [sourceKey, targetKey] of [
+    ["category", "category"],
+    ["quantityLabel", "quantity"],
+    ["productQuantity", "product_quantity"],
+    ["productQuantityUnit", "product_quantity_unit"],
+    ["imageUrl", "image_front_url"],
+    ["popularityKey", "popularity_key"],
+    ["completeness", "completeness"],
+  ] as const) {
+    const value = source[sourceKey];
+    if (value !== null && value !== undefined && value !== "") product[targetKey] = value;
+  }
+
+  return product;
+}
+
+function firstString(...values: unknown[]): string | null {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+    : [];
+}
+
+function numberFrom(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function quantityLabelOf(product: Record<string, unknown>): string | null {
+  const quantity = firstString(product.quantity);
+  if (quantity) return quantity;
+  const value = numberFrom(product.product_quantity);
+  const unit = firstString(product.product_quantity_unit);
+  if (value === null) return null;
+  return `${value}${unit ? ` ${unit}` : ""}`;
+}
