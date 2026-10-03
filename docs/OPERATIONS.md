@@ -58,7 +58,7 @@ numericamente verificabile. L'operazione non elimina il volume Mongo né il volu
 
 ### Quality gate Open Food Facts
 
-La soglia operativa è `70%` (`completeness >= 0.70`). `off-lookup` non salva nuovi prodotti sotto soglia; `search-indexer` non li indicizza; la ricerca OpenSearch li esclude anche se un documento legacy è ancora presente fino alla pulizia. Una modifica della projection/quality policy incrementa la versione della projection e provoca automaticamente un rebuild dell'indice.
+La soglia operativa è `70%` (`completeness >= 0.70`). `off-lookup` non salva nuovi prodotti sotto soglia; `search-indexer` non li indicizza; la ricerca OpenSearch li esclude anche se un documento legacy è ancora presente fino alla pulizia. Una modifica della projection/quality policy incrementa la versione della projection e provoca automaticamente un rebuild dell'indice. La projection corrente usa `nameExact` e `brandExact` per exact/prefix match e non persiste più il campo duplicato `searchText`.
 
 ### Reindex completo
 
