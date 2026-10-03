@@ -116,6 +116,9 @@ export class CatalogController {
     }
 
     const hits = await this.workflow.searchProducts(normalized, meta.traceId, Math.min(Math.max(limit, 1), 20));
+    if (hits === undefined) {
+      throw new CatalogHttpError(503, "UPSTREAM_ERROR", "Product search provider is unavailable.", true);
+    }
     return success({
       items: hits.map((hit) => ({
         code: hit.code,
