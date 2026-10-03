@@ -301,3 +301,14 @@ export class MongoProductRepository implements ProductRepository {
     return collection;
   }
 }
+
+
+export function createProductRepository(): ProductRepository {
+  const enabled = config.mongo.url.trim().length > 0;
+  log("info", "mongo_repository_configured", {
+    enabled,
+    db: config.mongo.dbName,
+    collection: config.mongo.collectionName,
+  });
+  return enabled ? new MongoProductRepository() : new NullProductRepository();
+}
