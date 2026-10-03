@@ -365,9 +365,6 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
 }
 
-export function createProductRepository(): ProductRepository {");
-}
-
 export function createProductRepository(): ProductRepository {
   const enabled = config.mongo.url.trim().length > 0;
   log("info", "mongo_repository_configured", {
