@@ -148,14 +148,20 @@ export class CatalogWorkflowService {
     this.externalSearch = externalSearch;
   }
 
-  public async searchProducts(query: string, traceId: string, limit = 10): Promise<readonly ExternalProductSearchHit[]> {
+  public async searchProducts(
+    query: string,
+    traceId: string,
+    limit = 10,
+  ): Promise<readonly ExternalProductSearchHit[] | undefined> {
     const normalizedQuery = query.trim().replace(/\s+/g, " ");
-    if (normalizedQuery.length < 3 || this.externalSearch === undefined) return [];
-    return (await this.externalSearch.search({
+    if (normalizedQuery.length < 3) return [];
+    if (this.externalSearch === undefined) return undefined;
+
+    return this.externalSearch.search({
       query: normalizedQuery,
       limit: Math.min(Math.max(limit, 1), 20),
       traceId,
-    })) ?? [];
+    });
   }
 
   /**
