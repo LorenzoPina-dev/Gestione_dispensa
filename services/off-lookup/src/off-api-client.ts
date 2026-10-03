@@ -15,8 +15,20 @@ export type OffApiResult =
   | { readonly status: "not_found" }
   | { readonly status: "error"; readonly reason: string; readonly retryable: boolean };
 
+export interface OffSearchHit {
+  readonly code: string;
+  readonly product: Record<string, unknown>;
+}
+
+export interface OffSearchResult {
+  readonly status: "found" | "error";
+  readonly hits: readonly OffSearchHit[];
+  readonly reason?: string;
+}
+
 export interface OffApiClient {
   fetchProduct(barcode: string): Promise<OffApiResult>;
+  searchProducts(query: string, limit: number): Promise<OffSearchResult>;
   isCircuitOpen(): boolean;
 }
 
@@ -45,6 +57,102 @@ export class OpenFoodFactsApiClient implements OffApiClient {
 
   public isCircuitOpen(): boolean {
     return Date.now() < this.circuitOpenUntil;
+  }
+
+  public async searchProducts(query: string, limit: number): Promise<OffSearchResult> {
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) return { status: "found", hits: [] };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.offApi.searchTimeoutMs);
+    try {
+      const url = new URL("/search", config.offApi.searchBaseUrl);
+      url.searchParams.set("q", normalizedQuery);
+      url.searchParams.set("page", "1");
+      url.searchParams.set("page_size", String(Math.min(Math.max(Math.floor(limit), 1), 20)));
+      url.searchParams.set("langs", "it,en");
+      url.searchParams.set("boost_phrase", "true");
+      url.searchParams.set(
+        "fields",
+        [
+          "code",
+          "product_name",
+          "product_name_it",
+          "brands",
+          "quantity",
+          "product_quantity",
+          "product_quantity_unit",
+          "image_front_url",
+          "image_front_small_url",
+          "categories_tags",
+          "nutriments",
+          "nutrition_data_per",
+          "popularity_key",
+          "completeness",
+        ].join(","),
+      );
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": config.offApi.userAgent,
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        return {
+          status: "error",
+          hits: [],
+          reason: response.status === 429 ? "rate_limited" : `http_${response.status}`,
+        };
+      }
+
+      const body = (await response.json()) as {
+        hits?: unknown;
+        products?: unknown;
+      };
+      const rawHits = Array.isArray(body.hits)
+        ? body.hits
+        : Array.isArray(body.products)
+          ? body.products
+          : [];
+
+      const hits: OffSearchHit[] = [];
+      for (const raw of rawHits) {
+        if (!raw || typeof raw !== "object") continue;
+        const value = raw as Record<string, unknown>;
+        const code = typeof value.code === "string" ? value.code.trim() : "";
+        if (!/^\d{8,14}$/.test(code)) continue;
+
+        const product =
+          isRecord(value._source) ? value._source :
+          isRecord(value.product) ? value.product :
+          value;
+
+        if (!isRecord(product)) continue;
+        const name =
+          (typeof product.product_name_it === "string" ? product.product_name_it : "") ||
+          (typeof product.product_name === "string" ? product.product_name : "");
+        if (!name.trim()) continue;
+
+        hits.push({ code, product });
+      }
+
+      return { status: "found", hits };
+    } catch (error) {
+      return {
+        status: "error",
+        hits: [],
+        reason: controller.signal.aborted
+          ? "timeout"
+          : error instanceof Error
+            ? error.message
+            : "network_error",
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   public async fetchProduct(barcode: string): Promise<OffApiResult> {
@@ -110,4 +218,8 @@ export class OpenFoodFactsApiClient implements OffApiClient {
       });
     }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
