@@ -24,6 +24,7 @@ export interface OffSearchResult {
   readonly status: "found" | "error";
   readonly hits: readonly OffSearchHit[];
   readonly reason?: string;
+  readonly source?: "local" | "external";
 }
 
 export interface OffApiClient {
