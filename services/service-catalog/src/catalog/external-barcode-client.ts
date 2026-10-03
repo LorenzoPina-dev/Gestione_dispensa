@@ -208,8 +208,9 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient, Externa
           ? product.brands.split(",")[0]?.trim()
           : undefined;
         const photoUrl =
-          (typeof product.image_front_url === "string" ? product.image_front_url : undefined) ||
-          (typeof product.image_front_small_url === "string" ? product.image_front_small_url : undefined);
+          (typeof product.image_front_small_url === "string" ? product.image_front_small_url : undefined) ||
+          (typeof product.image_front_thumb_url === "string" ? product.image_front_thumb_url : undefined) ||
+          (typeof product.image_front_url === "string" ? product.image_front_url : undefined);
         const quantityLabel =
           typeof product.quantity === "string" && product.quantity.trim()
             ? product.quantity.trim()
