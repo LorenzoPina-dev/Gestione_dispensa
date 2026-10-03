@@ -21,6 +21,24 @@ export interface CatalogHttpSuccess<T> {
   meta: CatalogHttpMeta;
 }
 
+export interface PublicProductSearchHit {
+  code: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  packageLabel: string | null;
+  nutrition: {
+    kcalPer100g: number | null;
+    proteinGPer100g: number | null;
+    carbsGPer100g: number | null;
+    fatGPer100g: number | null;
+    fiberGPer100g: number | null;
+  };
+  popularityKey: number | null;
+  completeness: number | null;
+}
+
 export interface PublicProduct {
   productId: string;
   name: string;
@@ -83,6 +101,40 @@ export class CatalogController {
   public constructor(catalog: CatalogService, workflow: CatalogWorkflowService) {
     this.catalog = catalog;
     this.workflow = workflow;
+  }
+
+  public async searchProducts(
+    principal: Principal | undefined,
+    query: string,
+    limit: number,
+    meta: CatalogHttpMeta,
+  ): Promise<CatalogHttpSuccess<{ items: PublicProductSearchHit[] }>> {
+    if (!principal) throw new CatalogHttpError(401, "UNAUTHENTICATED", "Authentication is required.");
+    const normalized = query.trim().replace(/\s+/g, " ");
+    if (normalized.length < 3 || normalized.length > 120) {
+      throw new CatalogHttpError(400, "VALIDATION_ERROR", "Search query must contain 3-120 characters.");
+    }
+
+    const hits = await this.workflow.searchProducts(normalized, meta.traceId, Math.min(Math.max(limit, 1), 20));
+    return success({
+      items: hits.map((hit) => ({
+        code: hit.code,
+        name: hit.canonicalName,
+        brand: hit.brand ?? null,
+        category: hit.category ?? null,
+        imageUrl: hit.photoUrl ?? null,
+        packageLabel: hit.quantityLabel ?? null,
+        nutrition: {
+          kcalPer100g: hit.calories ?? null,
+          proteinGPer100g: hit.protein ?? null,
+          carbsGPer100g: hit.carbs ?? null,
+          fatGPer100g: hit.fat ?? null,
+          fiberGPer100g: hit.fiber ?? null,
+        },
+        popularityKey: hit.popularityKey ?? null,
+        completeness: hit.completeness ?? null,
+      })),
+    }, meta);
   }
 
   public async getProduct(productId: string, meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<PublicProduct>> {
