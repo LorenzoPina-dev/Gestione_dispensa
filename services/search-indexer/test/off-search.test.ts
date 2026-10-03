@@ -26,6 +26,14 @@ describe("OFF OpenSearch projection", () => {
         ingredients_tags: ["en:milk"],
         quantity: "1 L",
         image_front_url: "https://example.test/front.jpg",
+        images: {
+          selected: {
+            front: {
+              "200": "https://example.test/nested-front-200.jpg",
+              url: "https://example.test/nested-front.jpg",
+            },
+          },
+        },
         nutriments: {
           "energy-kcal_100g": 62,
           proteins_100g: 3.2,
@@ -41,10 +49,29 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(doc?.nameExact, "latte intero");
     assert.equal(doc?.brand, "Marca Test");
     assert.equal(doc?.calories, 62);
+    assert.equal(doc?.imageUrl, "https://example.test/front.jpg");
     assert.equal(doc?.nameExact, "latte intero");
     assert.equal(doc?.brandExact, "marca test");
     assert.equal(doc?.featureText.includes("en:high-protein"), true);
     assert.equal(doc?.featureText.includes("en:carton"), true);
+  });
+
+  it("falls back to nested OFF selected image data", () => {
+    const doc = toOffSearchDocument({
+      code: "8001234567890",
+      product: {
+        product_name: "Pasta",
+        completeness: 0.9,
+        images: {
+          selected: {
+            front: {
+              "200": "https://example.test/nested-front-200.jpg",
+            },
+          },
+        },
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://example.test/nested-front-200.jpg");
   });
 
   it("keeps exact and prefix matches ahead of weaker lexical matches", () => {
