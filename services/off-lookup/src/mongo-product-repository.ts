@@ -121,6 +121,7 @@ const SEARCH_PROJECTION = {
   image_front_url: 1,
   image_front_small_url: 1,
   image_front_thumb_url: 1,
+  images: 1,
   "nutriments.energy-kcal_100g": 1,
   "nutriments.proteins_100g": 1,
   "nutriments.carbohydrates_100g": 1,
