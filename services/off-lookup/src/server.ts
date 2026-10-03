@@ -46,6 +46,40 @@ app.get("/health/ready", (_req: Request, res: Response) => {
 });
 
 app.get(
+  "/api/v1/search",
+  (req: Request, res: Response, next: NextFunction) => {
+    void (async () => {
+      const query = req.query.q?.toString().trim() ?? "";
+      const parsedLimit = Number(req.query.limit ?? 10);
+      const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 20) : 10;
+
+      if (query.length < 3) {
+        res.status(400).json({ error: "invalid_query", message: "q must contain at least 3 characters." });
+        return;
+      }
+
+      const result = await lookupService.search(query, limit);
+      if (result.status === "error") {
+        res.status(503).set("Retry-After", "5").json({
+          error: "search_unavailable",
+          message: "Open Food Facts search is temporarily unavailable.",
+          reason: result.reason,
+        });
+        return;
+      }
+
+      res.status(200).json({
+        query,
+        items: result.hits.map((hit) => ({
+          code: hit.code,
+          product: hit.product,
+        })),
+      });
+    })().catch(next);
+  },
+);
+
+app.get(
   "/api/v1/products/:barcode",
   (req: Request, res: Response, next: NextFunction) => {
     void (async () => {
