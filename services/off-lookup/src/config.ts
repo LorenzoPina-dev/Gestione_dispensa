@@ -35,11 +35,14 @@ export const config = {
   // --- Open Food Facts remote API (v3), used as fallback when the barcode is not cached -----
   offApi: {
     baseUrl: strEnv("OFF_LOOKUP_API_BASE_URL", "https://world.openfoodfacts.org"),
+    searchBaseUrl: strEnv("OFF_LOOKUP_SEARCH_BASE_URL", "https://search.openfoodfacts.org"),
     userAgent: strEnv(
       "OFF_LOOKUP_API_USER_AGENT",
       "GestioneDispensa-OffLookup/0.1 (+https://github.com/, family-local)",
     ),
     timeoutMs: numEnv("OFF_LOOKUP_API_TIMEOUT_MS", 4000),
+    searchTimeoutMs: numEnv("OFF_LOOKUP_SEARCH_TIMEOUT_MS", 5000),
+    searchCacheMs: numEnv("OFF_LOOKUP_SEARCH_CACHE_MS", 30_000),
     // A failed refresh must not hammer Open Food Facts on every scan/F5. The previous cache
     // remains authoritative for fallback purposes until this cooldown expires.
     refreshCooldownMs: numEnv("OFF_LOOKUP_API_REFRESH_COOLDOWN_MS", 10 * 60 * 1000),
