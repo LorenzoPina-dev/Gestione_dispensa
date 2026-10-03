@@ -26,6 +26,7 @@ describe("OFF OpenSearch projection", () => {
         ingredients_tags: ["en:milk"],
         quantity: "1 L",
         image_front_url: "https://example.test/front.jpg",
+        image_front_small_url: "https://example.test/front-200.jpg",
         images: {
           selected: {
             front: {
@@ -49,7 +50,7 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(doc?.nameExact, "latte intero");
     assert.equal(doc?.brand, "Marca Test");
     assert.equal(doc?.calories, 62);
-    assert.equal(doc?.imageUrl, "https://example.test/front.jpg");
+    assert.equal(doc?.imageUrl, "https://example.test/front-200.jpg");
     assert.equal(doc?.nameExact, "latte intero");
     assert.equal(doc?.brandExact, "marca test");
     assert.equal(doc?.featureText.includes("en:high-protein"), true);
@@ -229,6 +230,38 @@ describe("OFF OpenSearch projection", () => {
     assert.match(String(searchCall?.init.body), /brandExact/);
     assert.doesNotMatch(String(searchCall?.init.body), /searchText/);
     assert.match(String(searchCall?.init.body), /completeness/);
+  });
+
+  it("does not expose a stale invalid imageUrl from an OpenSearch hit", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fakeFetch = async (url: string | URL, init: RequestInit = {}) => {
+      const value = String(url);
+      calls.push({ url: value, init });
+      if (init.method === "HEAD") return new Response(null, { status: 200 });
+      if (value.endsWith("/_search")) {
+        return new Response(JSON.stringify({
+          hits: {
+            hits: [{
+              _score: 2,
+              _source: {
+                code: "1901040901922",
+                name: "Hing Goli",
+                brand: "Test",
+                imageUrl: "punchoneman",
+                completeness: 0.9,
+              },
+            }],
+          },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (value.endsWith("/_mapping")) return new Response(null, { status: 200 });
+      return new Response(null, { status: 200 });
+    };
+
+    const index = new OpenSearchOffIndex("http://opensearch:9200", undefined, 1000, fakeFetch);
+    const result = await index.search("hing goli", 8);
+    assert.equal(result.status, "found");
+    assert.equal(result.hits[0]?.product.image_front_url, undefined);
   });
 
   it("does not index a product below the completeness threshold", async () => {
