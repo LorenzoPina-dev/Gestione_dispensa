@@ -3,7 +3,7 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
-export const OFF_SEARCH_PROJECTION_VERSION = 6;
+export const OFF_SEARCH_PROJECTION_VERSION = 7;
 export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
@@ -608,38 +608,54 @@ function firstHttpUrl(...values: unknown[]): string | null {
   return null;
 }
 
-function firstImageUrl(product: Record<string, unknown>, code: string): string | null {
-  const directKeys = [
-    "image_front_small_url",
-    "image_front_url",
-    "image_front_thumb_url",
-    "image_small_url",
-    "image_url",
-    "image_thumb_url",
-    "image_packaging_url",
-    "image_packaging_small_url",
-    "image_packaging_thumb_url",
-    "image_ingredients_url",
-    "image_ingredients_small_url",
-    "image_ingredients_thumb_url",
-    "image_nutrition_url",
-    "image_nutrition_small_url",
-    "image_nutrition_thumb_url",
-  ] as const;
+interface ImageCandidate {
+  readonly url: string;
+  readonly kind: "front" | "other";
+  readonly size: number;
+  readonly order: number;
+}
 
-  for (const key of directKeys) {
-    const direct = firstHttpUrl(product[key]);
-    if (direct) return direct;
+function firstImageUrl(product: Record<string, unknown>, code: string): string | null {
+  const candidates: ImageCandidate[] = [];
+  let order = 0;
+
+  const directFields: Array<{ key: string; kind: ImageCandidate["kind"]; size: number }> = [
+    { key: "image_front_thumb_url", kind: "front", size: 100 },
+    { key: "image_front_small_url", kind: "front", size: 200 },
+    { key: "image_front_url", kind: "front", size: 400 },
+    { key: "image_thumb_url", kind: "other", size: 100 },
+    { key: "image_small_url", kind: "other", size: 200 },
+    { key: "image_url", kind: "other", size: 400 },
+    { key: "image_packaging_thumb_url", kind: "other", size: 100 },
+    { key: "image_packaging_small_url", kind: "other", size: 200 },
+    { key: "image_packaging_url", kind: "other", size: 400 },
+    { key: "image_ingredients_thumb_url", kind: "other", size: 100 },
+    { key: "image_ingredients_small_url", kind: "other", size: 200 },
+    { key: "image_ingredients_url", kind: "other", size: 400 },
+    { key: "image_nutrition_thumb_url", kind: "other", size: 100 },
+    { key: "image_nutrition_small_url", kind: "other", size: 200 },
+    { key: "image_nutrition_url", kind: "other", size: 400 },
+  ];
+
+  for (const field of directFields) {
+    const url = firstHttpUrl(product[field.key]);
+    if (url) candidates.push({ url, kind: field.kind, size: field.size, order: order++ });
   }
 
   const images = record(product.images);
   const selected = record(images?.selected);
   const selectedImages = record(product.selected_images);
 
-  for (const candidate of [
+  const nestedFrontValues = [
     selected?.front,
     selectedImages?.front,
     images?.front,
+  ];
+  for (const value of nestedFrontValues) {
+    collectImageCandidates(value, "front", candidates, () => order++);
+  }
+
+  const nestedOtherValues = [
     selected?.packaging,
     selectedImages?.packaging,
     images?.packaging,
@@ -649,74 +665,89 @@ function firstImageUrl(product: Record<string, unknown>, code: string): string |
     selected?.nutrition,
     selectedImages?.nutrition,
     images?.nutrition,
-    product.selected_images,
-    product.images,
-  ]) {
-    const url = imageUrlFromValue(candidate);
-    if (url) return url;
+  ];
+  for (const value of nestedOtherValues) {
+    collectImageCandidates(value, "other", candidates, () => order++);
+  }
+
+  const valid = candidates.filter((candidate) => candidate.url.length > 0);
+  const fronts = valid.filter((candidate) => candidate.kind === "front");
+  if (fronts.length > 0) {
+    return [...fronts]
+      .sort((a, b) => a.size - b.size || a.order - b.order)[0]?.url ?? null;
+  }
+
+  if (valid.length > 0) {
+    return [...valid]
+      .sort((a, b) => a.size - b.size || a.order - b.order)[0]?.url ?? null;
   }
 
   return computedImageUrlFromImages(code, images);
 }
 
-function imageUrlFromValue(value: unknown): string | null {
-  if (typeof value === "string" && isHttpUrl(value)) return value.trim();
+function collectImageCandidates(
+  value: unknown,
+  kind: ImageCandidate["kind"],
+  output: ImageCandidate[],
+  nextOrder: () => number,
+  inheritedSize = Number.POSITIVE_INFINITY,
+): void {
+  if (typeof value === "string") {
+    if (isHttpUrl(value)) {
+      output.push({
+        url: value.trim(),
+        kind,
+        size: sizeFromUrl(value) ?? inheritedSize,
+        order: nextOrder(),
+      });
+    }
+    return;
+  }
+
   const object = record(value);
-  if (!object) return null;
+  if (!object) return;
 
-  for (const key of ["200", "small", "display", "400", "url", "thumb", "100", "full"]) {
+  const sizeKeys: Array<[string, number]> = [
+    ["100", 100],
+    ["200", 200],
+    ["400", 400],
+    ["small", 200],
+    ["thumb", 100],
+    ["medium", 400],
+  ];
+
+  for (const [key, size] of sizeKeys) {
     const candidate = object[key];
-    if (typeof candidate === "string" && isHttpUrl(candidate)) return candidate.trim();
-    const nested = imageUrlFromValue(candidate);
-    if (nested) return nested;
+    if (typeof candidate === "string" && isHttpUrl(candidate)) {
+      output.push({ url: candidate.trim(), kind, size, order: nextOrder() });
+    } else if (isRecord(candidate)) {
+      collectImageCandidates(candidate, kind, output, nextOrder, size);
+    }
   }
 
-  for (const child of Object.values(object)) {
-    const found = imageUrlFromValue(child);
-    if (found) return found;
+  const directUrl = firstHttpUrl(object.url, object.display);
+  if (directUrl) {
+    output.push({
+      url: directUrl,
+      kind,
+      size: sizeFromUrl(directUrl) ?? inheritedSize,
+      order: nextOrder(),
+    });
   }
-  return null;
+
+  for (const [key, child] of Object.entries(object)) {
+    if (["100", "200", "400", "small", "thumb", "medium", "url", "display"].includes(key)) continue;
+    if (isRecord(child) || typeof child === "string") {
+      collectImageCandidates(child, kind, output, nextOrder, inheritedSize);
+    }
+  }
 }
 
-function computedImageUrlFromImages(
-  code: string,
-  images: Record<string, unknown> | undefined,
-): string | null {
-  if (!images) return null;
-
-  const barcode = code.replace(/\D/g, "").padStart(13, "0");
-  if (barcode.length < 13) return null;
-
-  const folder = `https://images.openfoodfacts.org/images/products/${barcode.slice(0, 3)}/${barcode.slice(3, 6)}/${barcode.slice(6, 9)}/${barcode.slice(9)}`;
-  const entries = Object.entries(images);
-
-  const priority = (key: string): number => {
-    if (/^front(?:_\w\w)?$/.test(key)) return 0;
-    if (/^(?:packaging|ingredients|nutrition)(?:_\w\w)?$/.test(key)) return 1;
-    if (/^\d+$/.test(key)) return 2;
-    return 3;
-  };
-
-  for (const [key, value] of entries.sort(([a], [b]) => priority(a) - priority(b))) {
-    const object = record(value);
-    if (!object) continue;
-
-    if (/^\d+$/.test(key)) {
-      return `${folder}/${key}.200.jpg`;
-    }
-
-    if (/^(?:front|packaging|ingredients|nutrition)(?:_\w\w)?$/.test(key)) {
-      const rev = object.rev;
-      if ((typeof rev === "number" && Number.isInteger(rev)) || (typeof rev === "string" && /^\d+$/.test(rev))) {
-        return `${folder}/${key}.${rev}.200.jpg`;
-      }
-    }
-
-  }
-
-  return null;
+function sizeFromUrl(value: string): number | null {
+  const match = /\\.(100|200|400|800|1024)\\.(?:jpe?g|png|webp|avif)(?:[?#].*)?$/i.exec(value);
+  if (!match) return null;
+  return Number(match[1]);
 }
-
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
