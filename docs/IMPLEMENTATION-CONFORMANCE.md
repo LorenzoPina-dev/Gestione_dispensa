@@ -111,3 +111,21 @@ The canonical documentation set now covers:
 - future extension rules.
 
 No future implementation may invent an undocumented ownership boundary or undocumented public contract.
+
+## OFF search implementation status
+
+| Contract | Implementation |
+|---|---|
+| MongoDB authoritative OFF cache | Implemented in `services/off-lookup/src/mongo-product-repository.ts` |
+| Paginated internal search source | Implemented in `off-lookup` |
+| OpenSearch `off-products-v1` projection | Implemented in `search-indexer/src/off-search.ts` |
+| Local ranked search | Implemented in `search-indexer` + deterministic reranking |
+| Search index bootstrap | Implemented and retried asynchronously |
+| Explicit full reindex | Implemented |
+| External Search-a-licious fallback | Implemented only after local miss/unavailability |
+| Barcode exact selection path | Reuses existing Catalog barcode resolution |
+| Live barcode cache -> index synchronization | Implemented best-effort |
+| Manual UI name-search flow | Implemented with debounce + AbortController |
+| Profile/ML reranker | Contracted as future extension; no trained model is fabricated without interaction data |
+
+The feature is considered production-ready only after the real Docker integration/e2e gates in TEST-STRATEGY have passed.
