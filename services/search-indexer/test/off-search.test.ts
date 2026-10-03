@@ -41,7 +41,8 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(doc?.nameExact, "latte intero");
     assert.equal(doc?.brand, "Marca Test");
     assert.equal(doc?.calories, 62);
-    assert.equal(doc?.searchText.includes("Marca Test"), true);
+    assert.equal(doc?.nameExact, "latte intero");
+    assert.equal(doc?.brandExact, "marca test");
     assert.equal(doc?.featureText.includes("en:high-protein"), true);
     assert.equal(doc?.featureText.includes("en:carton"), true);
   });
@@ -55,6 +56,15 @@ describe("OFF OpenSearch projection", () => {
     const ranked = rankOffSearchHits("golia", hits, 3);
     assert.equal(ranked[0]?.code, "1");
     assert.equal(ranked[1]?.code, "3");
+  });
+
+  it("ranks an exact brand match above a generic feature match", () => {
+    const hits: OffSearchHit[] = [
+      { code: "1", product: { product_name: "Pasta", brands: "Barilla", completeness: 0.9, featureText: "integrale" }, score: 2 },
+      { code: "2", product: { product_name: "Pasta Integrale", brands: "Altra Marca", completeness: 1, featureText: "barilla" }, score: 20 },
+    ];
+    const ranked = rankOffSearchHits("barilla", hits, 2);
+    assert.equal(ranked[0]?.code, "1");
   });
 
   it("talks to OpenSearch through the documented REST surface", async () => {
@@ -102,6 +112,10 @@ describe("OFF OpenSearch projection", () => {
     assert.match(String(searchCall?.init.body), /nameExact/);
     assert.match(String(searchCall?.init.body), /brandExact/);
     assert.match(String(searchCall?.init.body), /featureText/);
+    assert.match(String(searchCall?.init.body), /quantityLabel/);
+    assert.match(String(searchCall?.init.body), /nameExact/);
+    assert.match(String(searchCall?.init.body), /brandExact/);
+    assert.doesNotMatch(String(searchCall?.init.body), /searchText/);
     assert.match(String(searchCall?.init.body), /completeness/);
   });
 
