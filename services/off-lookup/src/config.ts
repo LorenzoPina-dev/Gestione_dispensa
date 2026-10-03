@@ -33,6 +33,13 @@ export const config = {
   },
 
   // --- Open Food Facts remote API (v3), used as fallback when the barcode is not cached -----
+  searchIndexer: {
+    baseUrl: strEnv("OFF_LOOKUP_SEARCH_INDEXER_BASE_URL", "http://search-indexer:3210"),
+    token: strEnv("OFF_LOOKUP_SEARCH_INDEXER_TOKEN", "dispensa-internal-dev"),
+    searchTimeoutMs: numEnv("OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS", 700),
+    writeTimeoutMs: numEnv("OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS", 1200),
+  },
+
   offApi: {
     baseUrl: strEnv("OFF_LOOKUP_API_BASE_URL", "https://world.openfoodfacts.org"),
     searchBaseUrl: strEnv("OFF_LOOKUP_SEARCH_BASE_URL", "https://search.openfoodfacts.org"),
