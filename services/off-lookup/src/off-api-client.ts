@@ -1,6 +1,21 @@
 import { config } from "./config.js";
 import { log } from "./logger.js";
 
+export interface OpenFoodFactsApiClientOptions {
+  readonly baseUrl: string;
+  readonly searchBaseUrl: string;
+  readonly legacySearchBaseUrl: string;
+  readonly userAgent: string;
+  readonly timeoutMs: number;
+  readonly searchTimeoutMs: number;
+  readonly legacySearchTimeoutMs: number;
+  readonly searchCacheMs: number;
+  readonly refreshCooldownMs: number;
+  readonly maxConsecutiveFailures: number;
+  readonly cooldownMs: number;
+}
+
+
 /**
  * Outcome of a live Open Food Facts API call, kept deliberately separate from HTTP semantics:
  *  - "found": the barcode exists on Open Food Facts; `product` is the raw product object exactly
@@ -45,7 +60,7 @@ interface OffV3Response {
  * (https://world.openfoodfacts.org/api/v3/product/{barcode}.json). No API key required.
  *
  * Fault tolerance:
- *  - every request has its own hard timeout (`config.offApi.timeoutMs`) via AbortController;
+ *  - every request has its own hard timeout (`this.options.timeoutMs`) via AbortController;
  *  - every failure mode (network error, timeout, non-2xx, unparsable JSON) is converted into a
  *    typed `{ status: "error" }` result, never thrown;
  *  - a small circuit breaker opens after `maxConsecutiveFailures` in a row and skips the network
@@ -55,6 +70,11 @@ interface OffV3Response {
 export class OpenFoodFactsApiClient implements OffApiClient {
   private consecutiveFailures = 0;
   private circuitOpenUntil = 0;
+  private readonly options: OpenFoodFactsApiClientOptions;
+
+  public constructor(options: Partial<OpenFoodFactsApiClientOptions> = {}) {
+    this.options = { ...config.offApi, ...options };
+  }
 
   public isCircuitOpen(): boolean {
     return Date.now() < this.circuitOpenUntil;
@@ -102,8 +122,8 @@ export class OpenFoodFactsApiClient implements OffApiClient {
 
   private async searchOnce(query: string, limit: number): Promise<OffSearchResult> {
     const primary = await this.searchProvider(
-      config.offApi.searchBaseUrl,
-      config.offApi.searchTimeoutMs,
+      this.options.searchBaseUrl,
+      this.options.searchTimeoutMs,
       query,
       limit,
       "search-a-licious",
@@ -113,10 +133,10 @@ export class OpenFoodFactsApiClient implements OffApiClient {
     // Compatibility fallback: if Search-a-Licious is temporarily unavailable or its
     // response changes, use the public OFF search endpoint without exposing the failure
     // to the user. A definitive empty result remains empty.
-    if (config.offApi.legacySearchBaseUrl && config.offApi.legacySearchBaseUrl !== config.offApi.searchBaseUrl) {
+    if (this.options.legacySearchBaseUrl && this.options.legacySearchBaseUrl !== this.options.searchBaseUrl) {
       const legacy = await this.searchProvider(
-        config.offApi.legacySearchBaseUrl,
-        config.offApi.legacySearchTimeoutMs,
+        this.options.legacySearchBaseUrl,
+        this.options.legacySearchTimeoutMs,
         query,
         limit,
         "legacy-off",
@@ -159,7 +179,7 @@ export class OpenFoodFactsApiClient implements OffApiClient {
       const response = await fetch(url, {
         signal: controller.signal,
         headers: {
-          "User-Agent": config.offApi.userAgent,
+          "User-Agent": this.options.userAgent,
           Accept: "application/json",
         },
       });
@@ -181,7 +201,7 @@ export class OpenFoodFactsApiClient implements OffApiClient {
         const code = typeof (source.code ?? value.code) === "string"
           ? String(source.code ?? value.code).trim()
           : "";
-        if (!/^\\d{8,14}$/.test(code)) continue;
+        if (!/^\d{8,14}$/.test(code)) continue;
 
         const name =
           (typeof source.product_name_it === "string" ? source.product_name_it : "") ||
@@ -207,12 +227,12 @@ export class OpenFoodFactsApiClient implements OffApiClient {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.offApi.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
     try {
-      const url = `${config.offApi.baseUrl.replace(/\/+$/, "")}/api/v3/product/${encodeURIComponent(barcode)}.json?product_type=food&lc=it&generate_images_urls=1`;
+      const url = `${this.options.baseUrl.replace(/\/+$/, "")}/api/v3/product/${encodeURIComponent(barcode)}.json?product_type=food&lc=it&generate_images_urls=1`;
       const response = await fetch(url, {
         signal: controller.signal,
-        headers: { "User-Agent": config.offApi.userAgent, Accept: "application/json" },
+        headers: { "User-Agent": this.options.userAgent, Accept: "application/json" },
       });
 
       if (response.status === 404) {
@@ -256,10 +276,10 @@ export class OpenFoodFactsApiClient implements OffApiClient {
 
   private recordFailure(): void {
     this.consecutiveFailures += 1;
-    if (this.consecutiveFailures >= config.offApi.maxConsecutiveFailures) {
-      this.circuitOpenUntil = Date.now() + config.offApi.cooldownMs;
+    if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
+      this.circuitOpenUntil = Date.now() + this.options.cooldownMs;
       log("error", "off_api_circuit_open", {
-        cooldownMs: config.offApi.cooldownMs,
+        cooldownMs: this.options.cooldownMs,
         resumesAt: new Date(this.circuitOpenUntil).toISOString(),
       });
     }

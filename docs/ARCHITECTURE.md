@@ -57,11 +57,16 @@ Browser
       -> off-lookup
         -> OpenSearch
              |-- hit -> risultati locali ranked
-             '-- miss/unavailable -> Search-a-licious
+             `-- miss/unavailable -> Open Food Facts search API
                                       -> risultati fallback
+                                      -> Mongo raw cache
+                                      -> OpenSearch async upsert
 ```
 
-La risposta contiene solamente i dati necessari alla scelta della confezione: codice, nome, marca, categoria, quantità/confezione, immagine, riepilogo nutrizionale e segnali tecnici di completezza/popolarità. Il JSON OFF completo non viene trasferito durante la digitazione.
+OpenSearch è il solo motore locale della ricerca testuale. MongoDB non viene interrogato per nome
+durante una richiesta utente: viene usato come corpus autorevole dal bootstrap e come cache completa
+per i prodotti appresi dal provider. Se OpenSearch non contiene un match, `off-lookup` usa il provider
+Open Food Facts e salva il risultato localmente così che le ricerche successive non dipendano dal provider.
 
 ### Selezione di un risultato
 
@@ -151,19 +156,27 @@ Gli eventi da raccogliere sono almeno `search_started`, `search_result_shown`, `
 - risultati UI: 8 di default;
 - recupero interno OpenSearch: fino a 5x il limite UI;
 - timeout ricerca off-lookup -> search-indexer: circa 700 ms;
-- fallback esterno solamente dopo miss/unavailable locale;
+- fallback esterno: solamente quando OpenSearch restituisce zero risultati o è indisponibile;
 - cache query in-process: 30 s, massimo 50 query per istanza;
 - sincronizzazione prodotto verso OpenSearch: asincrona e non bloccante;
-- bootstrap corpus: batch fino a 500 documenti;
-- reindex completo: operazione esplicita, mai durante ogni avvio.
+- bootstrap corpus automatico: batch fino a 500 documenti con checkpoint e pausa tra i batch;
+- reindex completo manuale: disponibile per mapping/code changes o ricostruzioni forzate.
 
 I valori sono configurabili e devono essere verificati con benchmark sul dataset e hardware reali prima di dichiarare SLO di latenza.
 
 ### Rebuild e consistency
 
-`search-indexer` crea l'indice se assente. Quando l'indice è vuoto esegue il bootstrap paginato da `off-lookup`. I riavvii non devono ricostruire inutilmente milioni di documenti: il bootstrap automatico parte solamente quando l'indice è vuoto; una reindicizzazione completa è disponibile tramite endpoint interno di manutenzione.
+`search-indexer` crea l'indice se assente e avvia automaticamente il bootstrap dal corpus Mongo.
+Il bootstrap è resumable: persiste il cursor solo dopo un bulk OpenSearch riuscito, si arresta temporaneamente
+dopo un numero configurabile di batch e riprende da solo tramite retry timer. Uno stato `complete` è
+terminale per quel corpus e impedisce di ripartire da capo ai successivi riavvii.
 
-Ogni cache miss barcode che produce un documento in Mongo tenta anche l'upsert dell'elemento nell'indice. Se OpenSearch è indisponibile, il prodotto resta comunque persistito nel Mongo autorevole e il recupero successivo ripara l'indice.
+Il bootstrap porta in OpenSearch una projection compatta, non il documento OFF completo. La perdita o
+ricostruzione dell'indice non comporta perdita del corpus Mongo.
+
+Ogni cache miss barcode o ricerca fallback che produce un documento in Mongo tenta anche l'upsert della
+projection nell'indice. Se OpenSearch è temporaneamente indisponibile, il prodotto resta persistito in
+Mongo e viene reindicizzato quando il servizio torna disponibile.
 
 ### Regole non negoziabili
 

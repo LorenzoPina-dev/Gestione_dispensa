@@ -29,7 +29,6 @@ export const config = {
     collectionName: strEnv("OFF_LOOKUP_MONGO_COLLECTION", "products"),
     connectTimeoutMs: numEnv("OFF_LOOKUP_MONGO_CONNECT_TIMEOUT_MS", 3000),
     operationTimeoutMs: numEnv("OFF_LOOKUP_MONGO_OPERATION_TIMEOUT_MS", 1200),
-    searchOperationTimeoutMs: numEnv("OFF_LOOKUP_MONGO_SEARCH_TIMEOUT_MS", 3000),
     sourceOperationTimeoutMs: numEnv("OFF_LOOKUP_MONGO_SOURCE_TIMEOUT_MS", 10000),
     maxConsecutiveFailures: numEnv("OFF_LOOKUP_MONGO_MAX_CONSECUTIVE_FAILURES", 3),
     cooldownMs: numEnv("OFF_LOOKUP_MONGO_COOLDOWN_MS", 30_000),

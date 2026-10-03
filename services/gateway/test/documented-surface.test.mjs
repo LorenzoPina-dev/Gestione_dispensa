@@ -118,8 +118,11 @@ describe("Gateway / documented API.md edge surface", () => {
     for (const operation of operations) {
       const logical = operation.method + " " + operation.path;
       if (publicRoutes.has(logical)) continue;
-      if (operation.path.startsWith("/internal/")) continue;
+      if (operation.path.startsWith("/internal/") || operation.path.startsWith("/api/v1/internal/")) continue;
       if (operation.path.startsWith("/health/")) continue;
+      // API.md also documents the private OFF Lookup/Search Indexer surface for service-to-service
+      // calls. Those endpoints are intentionally not routed through the browser Gateway.
+      if (operation.path === "/search" || operation.path === "/api/v1/search" || operation.path.startsWith("/off/") || operation.path.startsWith("/api/v1/off/")) continue;
       const result = await request(normalizePath("/api/v1" + operation.path), { method: operation.method });
       assert.equal(result.response.status, 401, logical);
       assert.equal(result.body?.error?.code, "UNAUTHENTICATED", logical);
