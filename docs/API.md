@@ -426,7 +426,7 @@ Query:
 - `q`: nome o descrizione del prodotto, 3..120 caratteri.
 - `limit`: opzionale, 1..20; default 10.
 
-La ricerca è autenticata e viene eseguita tramite il provider Open Food Facts Search-a-licious. Se `sort_by` non viene specificato, Search-a-licious ordina per rilevanza; `boost_phrase=true` favorisce le corrispondenze consecutive. Il backend usa i risultati solo per la selezione: dopo che l'utente sceglie una voce, il client risolve il relativo barcode con `POST /catalog/barcodes/resolve` per ottenere il record completo Open Food Facts e conservarlo nel Catalogo. citeturn515977view0
+La ricerca è autenticata e viene eseguita tramite il provider Open Food Facts Search-a-licious. Se `sort_by` non viene specificato, Search-a-licious ordina per rilevanza; `boost_phrase=true` favorisce le corrispondenze consecutive. Il backend usa i risultati solo per la selezione: dopo che l'utente sceglie una voce, il client risolve il relativo barcode con `POST /catalog/barcodes/resolve` per ottenere il record completo Open Food Facts e conservarlo nel Catalogo. 
 
 Response 200:
 ```json
