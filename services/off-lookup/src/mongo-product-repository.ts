@@ -178,7 +178,7 @@ export class MongoProductRepository implements ProductRepository {
     return this.withCollection(async (collection) => {
       const filter = cursor ? { code: { $gt: cursor } } : {};
       const docs = await collection
-        .find(filter, { projection, maxTimeMS: config.mongo.operationTimeoutMs })
+        .find(filter, { projection, maxTimeMS: config.mongo.sourceOperationTimeoutMs })
         .sort({ code: 1 })
         .limit(safeLimit)
         .toArray();
