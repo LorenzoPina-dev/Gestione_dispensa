@@ -8,7 +8,7 @@ import {
 import { config } from "./config.js";
 import { log } from "./logger.js";
 
-const MIN_OFF_COMPLETENESS = 0.7;
+const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_LOOKUP_MIN_COMPLETENESS", 0.7);
 
 /**
  * Local MongoDB store for Open Food Facts products.
@@ -361,6 +361,11 @@ function completenessValue(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function positiveNumberEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 export function createProductRepository(): ProductRepository {
