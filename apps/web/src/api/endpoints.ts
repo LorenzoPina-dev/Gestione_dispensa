@@ -1,5 +1,5 @@
 import { apiRequest, ApiError, newIdempotencyKey } from "./client";
-import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductImagesDto, ProductUnit, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto } from "./types";
+import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductImagesDto, ProductUnit, ProductSearchResultDto, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto } from "./types";
 
 export function getReadiness(): Promise<ReadinessDto> { return apiRequest<ReadinessDto>("/health/ready"); }
 export interface CurrentUserDto extends UserDto {
@@ -223,6 +223,16 @@ function mapCatalogBarcodeProduct(p: CatalogBarcodeProductDto): ProductDto {
     createdAt: "",
     updatedAt: "",
   };
+}
+
+export function searchCatalogProducts(query: string, limit = 8, signal?: AbortSignal): Promise<{ items: ProductSearchResultDto[] }> {
+  return apiRequest<{ items: ProductSearchResultDto[] }>("/catalog/products/search", {
+    query: {
+      q: query.trim(),
+      limit: Math.min(Math.max(Math.floor(limit), 1), 20),
+    },
+    signal,
+  });
 }
 
 export async function resolveProductBarcode(
