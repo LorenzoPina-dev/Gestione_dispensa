@@ -72,6 +72,14 @@ jobs:
           docker compose exec -T search-indexer node --input-type=module -e '
             const token = process.env.SEARCH_INDEXER_INTERNAL_TOKEN ?? "dispensa-internal-dev";
             const headers = { "authorization": `Bearer ${token}`, "accept": "application/json" };
+            for (let i = 0; i < 60; i++) {
+              const status = await fetch("http://127.0.0.1:3210/api/v1/off/index/status", { headers });
+              if (status.ok) {
+                const body = await status.json();
+                if (body.rebuilding === false) break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
             const start = await fetch("http://127.0.0.1:3210/api/v1/off/products/reindex", { method: "POST", headers });
             if (start.status !== 202) {
               console.error("reindex start status", start.status, await start.text());
