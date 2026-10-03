@@ -3,7 +3,7 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
-export const OFF_SEARCH_PROJECTION_VERSION = 3;
+export const OFF_SEARCH_PROJECTION_VERSION = 4;
 export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
@@ -72,7 +72,12 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
   const categoriesTags = stringArray(product.categories_tags);
   const category = firstString(product.category);
   const quantityLabel = quantityLabelOf(product);
-  const imageUrl = firstString(product.image_front_url, product.image_front_small_url, product.image_front_thumb_url);
+  const imageUrl = firstString(
+    product.image_front_url,
+    product.image_front_small_url,
+    product.image_front_thumb_url,
+    nestedImageUrl(product, "front"),
+  );
   const featureText = buildFeatureText(product);
   const nutriments = record(product.nutriments);
 
@@ -589,6 +594,30 @@ function buildFeatureText(product: Record<string, unknown>): string {
 
 function firstString(...values: unknown[]): string | null {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? null;
+}
+
+function nestedImageUrl(product: Record<string, unknown>, kind: string): string | null {
+  const images = record(product.images);
+  const selected = record(images?.selected);
+  const value = selected?.[kind] ?? images?.[kind];
+  return imageUrlFromValue(value);
+}
+
+function imageUrlFromValue(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  const object = record(value);
+  if (!object) return null;
+  for (const key of ["url", "200", "100"]) {
+    const candidate = object[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    const nested = record(candidate);
+    if (typeof nested?.url === "string" && nested.url.trim()) return nested.url.trim();
+  }
+  for (const child of Object.values(object)) {
+    const found = imageUrlFromValue(child);
+    if (found) return found;
+  }
+  return null;
 }
 
 function stringArray(value: unknown): string[] {
