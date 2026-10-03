@@ -135,6 +135,12 @@ Dopo il recupero iniziale viene applicato un ranking deterministico con segnali 
 
 Il ranking non è una raccomandazione personalizzata e non contiene dati personali.
 
+### Quality gate e ricerca multi-feature
+
+Solo prodotti con `completeness >= 0.70` entrano nella projection OpenSearch. La stessa soglia viene applicata alla source Mongo del bootstrap, all'upsert live e alla ricerca (`range completeness >= 0.70`). Durante la migrazione, `off-mongodb-index-maintenance` elimina dal corpus Mongo i documenti sotto soglia o privi di una completezza numerica verificabile e `search-indexer` elimina eventuali documenti legacy non eleggibili.
+
+La ricerca non è limitata al nome: OpenSearch interroga nome, marca, categoria, quantità e `featureText`. `featureText` aggrega labels, packaging, ingredienti, allergeni/traces, origini, paesi, negozi, gruppi alimentari, additivi, Nutri-Score e NOVA, quando presenti nel documento OFF. I match esatti/prefissi su nome e marca ricevono segnali più forti, ma una query per marca, categoria o caratteristica può produrre un risultato anche senza corrispondenza nel nome.
+
 ### Profilazione e ML futuri
 
 La capability futura deve mantenere separati:
