@@ -3,7 +3,7 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
-export const OFF_SEARCH_PROJECTION_VERSION = 2;
+export const OFF_SEARCH_PROJECTION_VERSION = 3;
 export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
@@ -26,7 +26,6 @@ export interface OffSearchDocument {
   fiber: number | null;
   popularityKey: number | null;
   completeness: number | null;
-  searchText: string;
 }
 
 export interface OffSearchHit {
@@ -87,9 +86,6 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
   const popularityKey = numberFrom(product.popularity_key);
   const completeness = numberFrom(product.completeness);
 
-  const searchText = [name, brand, category, ...categoriesTags, quantityLabel, featureText]
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .join(" ");
 
   return {
     code: input.code,
@@ -111,7 +107,6 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
     fiber,
     popularityKey,
     completeness,
-    searchText,
   };
 }
 
@@ -234,7 +229,6 @@ export class OpenSearchOffIndex {
               fiber: { type: "double" },
               popularityKey: { type: "double" },
               completeness: { type: "double" },
-              searchText: { type: "text", analyzer: "off_text" },
             },
           },
         }),
@@ -246,8 +240,8 @@ export class OpenSearchOffIndex {
       throw new Error(`opensearch_index_check_failed_${exists.status}`);
     }
 
-    // Upgrade indexes created by older projection versions without rebuilding the full index.
-    // The bootstrap version check still forces a full rebuild so existing documents receive featureText.
+    // Keep the mapping compatible with existing indexes. Projection versioning below forces
+    // a full rebuild when the indexed shape changes.
     const mapping = await this.rawFetch(
       `/${encodeURIComponent(this.indexName)}/_mapping`,
       {
@@ -442,7 +436,6 @@ export class OpenSearchOffIndex {
                     "category^5",
                     "featureText^6",
                     "quantityLabel^3",
-                    "searchText^2",
                   ],
                   operator: "and",
                   fuzziness: "AUTO",
