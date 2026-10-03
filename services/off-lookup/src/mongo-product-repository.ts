@@ -30,9 +30,15 @@ export interface ProductDocument {
 
 export type RefreshOutcome = "success" | "not_found" | "error";
 
+export interface SearchSourcePage {
+  readonly items: readonly { code: string; product: Record<string, unknown> }[];
+  readonly nextCursor: string | null;
+}
+
 export interface ProductRepository {
   findByCode(code: string): Promise<ProductDocument | undefined>;
   upsertFromLiveApi(code: string, product: Record<string, unknown>): Promise<void>;
+  listSearchSourcePage?(cursor: string | undefined, limit: number): Promise<SearchSourcePage>;
   recordRefreshAttempt(code: string, outcome: RefreshOutcome): Promise<void>;
   /** Best-effort liveness check for the readiness endpoint. Never throws. */
   isAvailable(): Promise<boolean>;
@@ -136,6 +142,50 @@ export class MongoProductRepository implements ProductRepository {
       );
       return undefined;
     });
+  }
+
+  public async listSearchSourcePage(
+    cursor: string | undefined,
+    limit: number,
+  ): Promise<SearchSourcePage> {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
+    const projection = {
+      _id: 0,
+      code: 1,
+      product_name: 1,
+      product_name_it: 1,
+      brands: 1,
+      categories_tags: 1,
+      quantity: 1,
+      product_quantity: 1,
+      product_quantity_unit: 1,
+      image_front_url: 1,
+      image_front_small_url: 1,
+      image_front_thumb_url: 1,
+      nutriments: 1,
+      popularity_key: 1,
+      completeness: 1,
+    } as const;
+
+    return (await this.withCollection(async (collection) => {
+      const filter = cursor ? { code: { $gt: cursor } } : {};
+      const docs = await collection
+        .find(filter, { projection, maxTimeMS: config.mongo.operationTimeoutMs })
+        .sort({ code: 1 })
+        .limit(safeLimit)
+        .toArray();
+
+      const items = docs.map((doc) => ({
+        code: doc.code,
+        product: Object.fromEntries(
+          Object.entries(doc).filter(([key]) => key !== "_id"),
+        ),
+      }));
+      return {
+        items,
+        nextCursor: items.length === safeLimit ? items.at(-1)?.code ?? null : null,
+      };
+    })) ?? { items: [], nextCursor: null };
   }
 
   public async recordRefreshAttempt(
