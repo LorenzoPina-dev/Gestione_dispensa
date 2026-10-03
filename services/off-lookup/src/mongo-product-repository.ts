@@ -159,6 +159,7 @@ export class MongoProductRepository implements ProductRepository {
       quantity: 1,
       product_quantity: 1,
       product_quantity_unit: 1,
+      category: 1,
       image_front_url: 1,
       image_front_small_url: 1,
       image_front_thumb_url: 1,
