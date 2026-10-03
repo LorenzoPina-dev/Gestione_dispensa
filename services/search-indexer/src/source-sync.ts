@@ -1,5 +1,9 @@
 import type { OffSourceProduct, OffSearchDocument, OpenSearchOffIndex } from "./off-search.js";
-import { toOffSearchDocument } from "./off-search.js";
+import {
+  MIN_OFF_COMPLETENESS,
+  OFF_SEARCH_PROJECTION_VERSION,
+  toOffSearchDocument,
+} from "./off-search.js";
 
 export interface SourceSyncOptions {
   readonly sourceUrl: string;
@@ -27,15 +31,33 @@ export class OffSourceSync {
     if (this.running || !this.options.sourceUrl.trim()) return;
     this.running = true;
     try {
+      const purged = await this.index.purgeIneligibleDocuments();
+      if (purged > 0) {
+        console.log(JSON.stringify({
+          service: "search-indexer",
+          event: "off_index_quality_cleanup",
+          deleted: purged,
+          minimumCompleteness: MIN_OFF_COMPLETENESS,
+        }));
+      }
+
       const state = await this.index.getBootstrapState();
 
       // A completed checkpoint is terminal for this source snapshot. Without this guard the
       // retry timer would restart the 4.8M-document import from the beginning forever.
-      if (state?.status === "complete") {
+      if (
+        state?.status === "complete"
+        && state.projectionVersion === OFF_SEARCH_PROJECTION_VERSION
+      ) {
         return;
       }
 
-      // Existing documents without a checkpoint come from the previous implementation
+      if (state?.status === "complete") {
+        // Projection policy changed (quality gate/features). Rebuild the searchable projection.
+        await this.index.resetIndex();
+      }
+
+      // Existing documents without a checkpoint
       // (for example a barcode lookup) or from an interrupted legacy bootstrap. They cannot
       // prove that the full Mongo dump was indexed, so rebuild once and start with a checkpoint.
       if (state === undefined && (await this.index.count()) > 0) {
