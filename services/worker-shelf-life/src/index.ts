@@ -121,7 +121,7 @@ while (!stopping) {
           predictionId: data.predictionId,
           itemId: data.itemId,
           productId: data.productId,
-          storage: String(data.storage ?? data.storedAt ?? "OTHER"),
+          storage: String(data.storage ?? "OTHER"),
           opened: data.opened === true,
           category: data.category ?? null,
           storedOn: data.storedOn ?? null,
