@@ -23,22 +23,22 @@ export interface ProductIndexWriter {
 
 const BARCODE_PATTERN = /^\d{6,14}$/;
 
-type LocalSearchCandidate = { code: string; product: Record<string, unknown>; score?: number };
-type RankedSearchCandidate = { code: string; product: Record<string, unknown>; score: number };
-
 export function isValidBarcode(value: string): boolean {
   return BARCODE_PATTERN.test(value);
 }
 
 /**
- * Read-through lookup with conservative cache enrichment:
+ * Read-through lookup with two deliberately separate paths:
  *
- *  1. Read Mongo first (official dump and previous live API results share the same collection).
- *  2. On a miss, call OFF and asynchronously persist the result.
- *  3. On an old/incompletely enriched cache entry, call OFF once and merge ONLY missing fields.
- *  4. If OFF fails or says the barcode is no longer present, keep and return the previous cache.
- *  5. A refresh cooldown prevents repeated failed calls; in-flight refreshes are coalesced per
- *     barcode inside this service instance.
+ *  - barcode: Mongo first, then the live OFF API; successful misses are cached in Mongo and indexed
+ *    in OpenSearch asynchronously;
+ *  - text: OpenSearch only, because it is populated automatically from the complete Mongo dump.
+ *    On an OpenSearch miss, the live OFF search API is the fallback and its hits are persisted to
+ *    Mongo and OpenSearch asynchronously.
+ *
+ * Barcode cache enrichment is conservative: existing values are preserved and only missing fields
+ * are filled. A refresh cooldown prevents repeated failed calls; in-flight refreshes are coalesced
+ * per barcode inside this service instance.
  *
  * Existing values are never overwritten by a refresh. This is intentional: the cache is an
  * accelerator/fallback, and Open Food Facts data is sparse and may change independently.
@@ -65,41 +65,14 @@ export class ProductLookupService {
       return cached.result;
     }
 
-    // OpenSearch is the fast local projection. Do not require it to contain the whole dump:
-    // Mongo remains the authoritative local fallback for name searches.
-    let openSearchResult: OffSearchResult | undefined;
-    if (this.localSearch !== undefined) {
-      try {
-        openSearchResult = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
-      } catch (error) {
-        log("error", "local_product_search_failed", {
-          error: error instanceof Error ? error.message : "unknown",
-        });
-      }
-    }
-
-    // Complete an incomplete OpenSearch response with the full local Mongo dump. The Mongo
-    // query is forced to use the dedicated _keywords index, so a missing index never triggers
-    // a collection scan: it simply degrades to the remote OFF API.
-    try {
-      const mongoPage = await this.repository.searchByName(normalizedQuery, boundedLimit);
-      if (mongoPage?.items.length) {
-        const mongoHits = rankMongoSearchHits(normalizedQuery, mongoPage.items, boundedLimit);
-        const mergedHits = mergeSearchHits(openSearchResult?.hits ?? [], mongoHits, boundedLimit);
-        const result = { status: "found", hits: mergedHits, source: "local" } as OffSearchResult;
-
-        this.searchCache.set(normalizedQuery, { at: Date.now(), result });
-        this.trimSearchCache();
-
-        for (const hit of mongoHits) {
-          this.indexProductAsync(hit.code, hit.product);
-        }
-        return result;
-      }
-    } catch (error) {
-      log("warn", "mongo_name_search_failed", {
-        error: error instanceof Error ? error.message : "unknown",
-      });
+    // OpenSearch is the authoritative local text-search index. Mongo is intentionally
+    // NOT queried by name: it remains the source-of-truth/cache for barcode and the source
+    // used by search-indexer during the one-time resumable bulk projection.
+    if (openSearchResult?.status === "found" && openSearchResult.hits.length > 0) {
+      const result = { ...openSearchResult, source: "local" } as OffSearchResult;
+      this.searchCache.set(normalizedQuery, { at: Date.now(), result });
+      this.trimSearchCache();
+      return result;
     }
 
     if (this.apiClient.searchProducts === undefined) {
@@ -109,22 +82,14 @@ export class ProductLookupService {
 
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
     if (external.status === "found" && external.hits.length > 0) {
-      // External results complement, rather than replace, any partial local projection.
-      // This keeps locally known products visible even when the provider returns fewer hits.
-      const externalHits = external.hits.map((hit) => ({
-        code: hit.code,
-        product: hit.product,
-        score: 0,
-      }));
-      const localHits = openSearchResult?.status === "found" ? openSearchResult.hits : [];
-      const mergedHits = mergeSearchHits(localHits, externalHits, boundedLimit);
-      const result = { status: "found", hits: mergedHits, source: "local" } as OffSearchResult;
+      const result = { ...external, source: "external" } as OffSearchResult;
 
       this.searchCache.set(normalizedQuery, { at: Date.now(), result });
       this.trimSearchCache();
 
-      // Seed the local Mongo/OpenSearch caches asynchronously. The remote hit is returned
-      // immediately, so persistence latency is invisible to the user.
+      // An external search hit becomes local data asynchronously. Mongo keeps the raw/complete
+      // cache copy, while OpenSearch receives the compact searchable projection used by future
+      // text searches. The live response never waits for either write.
       for (const hit of external.hits) {
         void this.repository.upsertFromLiveApi(hit.code, hit.product)
           .then(() => this.indexProductAsync(hit.code, hit.product))
@@ -139,14 +104,8 @@ export class ProductLookupService {
       return result;
     }
 
-    // A provider miss/error must never erase a valid partial local result.
-    if (openSearchResult?.status === "found" && openSearchResult.hits.length > 0) {
-      const result = { ...openSearchResult, source: "local" } as OffSearchResult;
-      this.searchCache.set(normalizedQuery, { at: Date.now(), result });
-      this.trimSearchCache();
-      return result;
-    }
-
+    // OpenSearch had no result and the external provider also had none. Preserve the
+    // provider's status/error semantics; there is no Mongo text-search fallback anymore.
     return { ...external, source: "external" } as OffSearchResult;
   }
 
@@ -281,57 +240,6 @@ export class ProductLookupService {
   }
 }
 
-function rankMongoSearchHits(
-  query: string,
-  items: readonly { code: string; product: Record<string, unknown> }[],
-  limit: number,
-): readonly { code: string; product: Record<string, unknown>; score: number }[] {
-  const normalizedQuery = normalizeSearchText(query);
-  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
-
-  return items
-    .map((item) => {
-      const product = item.product;
-      const name = normalizeSearchText(firstString(product.product_name_it, product.product_name_en, product.product_name) ?? "");
-      const brand = normalizeSearchText(firstString(product.brands) ?? "");
-      const category = normalizeSearchText(firstString(product.category) ?? "");
-      const nameTokens = new Set(name.split(" ").filter(Boolean));
-
-      const exact = name === normalizedQuery ? 10000 : 0;
-      const prefix = name.startsWith(normalizedQuery) ? 3000 : 0;
-      const contains = name.includes(normalizedQuery) ? 1500 : 0;
-      const allTokens = queryTokens.every((token) => nameTokens.has(token)) ? 1000 : 0;
-      const tokenMatches = queryTokens.filter((token) => nameTokens.has(token)).length * 150;
-      const brandMatch = brand.includes(normalizedQuery) ? 250 : 0;
-      const categoryMatch = category.includes(normalizedQuery) ? 50 : 0;
-
-      return {
-        code: item.code,
-        product,
-        score: exact + prefix + contains + allTokens + tokenMatches + brandMatch + categoryMatch,
-      };
-    })
-    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
-    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20));
-}
-
-function mergeSearchHits(
-  primary: readonly LocalSearchCandidate[],
-  secondary: readonly LocalSearchCandidate[],
-  limit: number,
-): readonly RankedSearchCandidate[] {
-  const byCode = new Map<string, RankedSearchCandidate>();
-  for (const hit of [...primary, ...secondary]) {
-    const score = hit.score ?? 0;
-    const existing = byCode.get(hit.code);
-    if (existing === undefined || score > (existing.score ?? 0)) byCode.set(hit.code, { ...hit, score });
-  }
-  return [...byCode.values()]
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.code.localeCompare(b.code))
-    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20))
-    .map((hit) => ({ code: hit.code, product: hit.product, score: hit.score ?? 0 }));
-}
-
 function normalizeSearchText(value: string): string {
   return value
     .normalize("NFD")
@@ -342,6 +250,3 @@ function normalizeSearchText(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
-}
