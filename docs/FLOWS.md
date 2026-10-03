@@ -105,3 +105,37 @@ New capability -> identify bounded context -> reuse existing owner or create new
 
 ## 23. Failure classes
 Every flow distinguishes validation failure, authorization failure, business-rule failure, transient downstream failure, permanent provider failure, duplicate command, duplicate event, partial workflow and DLQ. Retryability and recovery are defined in OPERATIONS.md.
+
+## Flusso: inserimento manuale tramite nome
+
+```text
+1. Utente apre "Cerca prodotto per nome".
+2. Browser applica debounce e AbortController.
+3. Browser -> Gateway -> Catalog -> off-lookup.
+4. off-lookup -> OpenSearch locale.
+5. Se ci sono hit: restituisce massimo K risultati ranked.
+6. Se non ci sono hit oppure OpenSearch è indisponibile: off-lookup -> Search-a-licious.
+7. L'utente sceglie una voce; il browser salva soltanto il code.
+8. Browser -> Catalog POST /catalog/barcodes/resolve con quel code.
+9. Catalog controlla il proprio catalogo PostgreSQL.
+10. Se manca, off-lookup risolve exact code prima in Mongo e poi in OFF API v3.
+11. off-lookup persiste il documento completo in Mongo e prova l'upsert OpenSearch in background.
+12. Catalog persiste l'entità applicativa.
+13. UI mostra il CandidateView con nome, categoria, confezione, immagini e nutrizione.
+14. L'utente conferma e inserisce quantità, scadenza opzionale e luogo.
+15. Inventory crea il current pantry item.
+16. Se la scadenza è assente, Inventory avvia il normale workflow Shelf-Life asincrono.
+```
+
+### Failure semantics
+
+- OpenSearch down: ricerca degrada al provider esterno.
+- Provider esterno down dopo miss locale: 503, mai lista inventata.
+- Mongo down durante selezione e provider OFF down: barcode resolution 503/degraded.
+- Search index upsert down: il prodotto completo resta in Mongo/Catalog; l'errore di projection non blocca l'inserimento.
+- Indicizzazione ritardata: il barcode flow resta funzionante.
+- Reindex in corso: le normali ricerche continuano sull'indice precedente finché l'operazione non modifica l'indice; in caso di reset devono accettare la finestra documentata di disponibilità.
+
+### Confini
+
+Il Catalog non deve implementare il ranking OpenSearch. Il ranking appartiene al boundary search. Inventory non riceve mai direttamente un documento OpenSearch o un raw OFF: riceve il ProductId del Catalog.
