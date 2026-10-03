@@ -86,6 +86,7 @@ export class ProductLookupService {
     this.searchCache.set(normalizedQuery, result);
     this.trimSearchCache();
     return result;
+  }
 
   public async lookup(barcode: string): Promise<ProductLookupResult> {
     const cached = await this.repository.findByCode(barcode);
