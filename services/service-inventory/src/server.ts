@@ -311,7 +311,6 @@ const server = createServer(async (req, res) => {
             expiresAt: result.rows[0].expires_at,
             addedAt: result.rows[0].added_at,
             openedAt: result.rows[0].opened_at,
-            openedAt: result.rows[0].opened_at,
           },
           req.headers.authorization ? String(req.headers.authorization) : undefined,
         );
@@ -328,113 +327,113 @@ const server = createServer(async (req, res) => {
       if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) {
         return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
       }
-      if (!isPatchFieldSet(body)) {
-        return fail(res, 400, "VALIDATION_ERROR", "At least one documented inventory field is required.", ctx.requestId);
-      }
-      const quantity = Object.hasOwn(body, "quantity") ? positiveQuantity(body.quantity) : undefined;
-      if (Object.hasOwn(body, "quantity") && quantity === undefined) {
-        return fail(res, 400, "VALIDATION_ERROR", "quantity must be positive.", ctx.requestId);
-      }
-      if (Object.hasOwn(body, "location") && !validOptionalText(body.location)) {
-        return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
-      }
-      if (Object.hasOwn(body, "lotCode") && !validOptionalText(body.lotCode)) {
-        return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
-      }
-      if (Object.hasOwn(body, "expiresAt") && body.expiresAt !== null && !validIsoDate(body.expiresAt)) {
-        return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
-      }
-      if (Object.hasOwn(body, "openedAt") && body.openedAt !== null && !validIsoDate(body.openedAt)) {
-        return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
-      }
-
+      const allowedFields = ["quantity", "unit", "expiresAt", "location", "lotCode", "openedAt"];
+      if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
+      if (!Object.keys(body).length) return fail(res, 400, "VALIDATION_ERROR", "At least one field is required.", ctx.requestId);
+      if (body.quantity !== undefined && positiveQuantity(body.quantity) === undefined) return fail(res, 400, "VALIDATION_ERROR", "quantity must be positive.", ctx.requestId);
+      if (body.expiresAt !== undefined && body.expiresAt !== null && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
+      if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
+      if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
+      if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
         const old = await idempotency(client, key, ctx, body);
         if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
-
         const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
         if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
         const row = current.rows[0];
-        if (!validIfMatch(ifMatch) || Number(row.version) !== Number(ifMatch)) {
-          await client.query("ROLLBACK");
-          return fail(res, 412, "PRECONDITION_FAILED", "Item version changed.", ctx.requestId);
-        }
-
-        const nextQuantity = quantity ?? Number(row.quantity);
-        const nextLocation = Object.hasOwn(body, "location") ? (body.location ?? null) : row.location;
-        const nextExpiresAt = Object.hasOwn(body, "expiresAt") ? (body.expiresAt === null ? null : new Date(String(body.expiresAt))) : row.expires_at;
-        const nextLotCode = Object.hasOwn(body, "lotCode") ? (body.lotCode ?? null) : row.lot_code;
-        const nextOpenedAt = Object.hasOwn(body, "openedAt") ? (body.openedAt === null ? null : new Date(String(body.openedAt))) : row.opened_at;
-        const nextExpirationSource = Object.hasOwn(body, "expiresAt")
-          ? (body.expiresAt === null ? null : "declared")
-          : row.expiration_source;
-
-        const updated = await client.query(
-          "UPDATE pantry_items SET quantity=$3,location=$4,opened_at=$5,expires_at=$6,expiration_source=$7,lot_code=$8,updated_at=now(),version=version+1 WHERE id=$1 AND family_id=$2 RETURNING *",
-          [row.id, ctx.familyId, nextQuantity, nextLocation, nextOpenedAt, nextExpiresAt, nextExpirationSource, nextLotCode],
-        );
+        if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
+        const fields: string[] = [];
+        const values: unknown[] = [];
+        const add = (sql: string, value: unknown) => { fields.push(sql); values.push(value); };
+        if (body.quantity !== undefined) add(`quantity=$${values.length + 1}`, positiveQuantity(body.quantity));
+        if (body.unit !== undefined) add(`unit=$${values.length + 1}`, String(body.unit));
+        if (body.expiresAt !== undefined) add(`expires_at=$${values.length + 1}`, body.expiresAt === null ? null : new Date(String(body.expiresAt)));
+        if (body.location !== undefined) add(`location=$${values.length + 1}`, body.location ?? null);
+        if (body.lotCode !== undefined) add(`lot_code=$${values.length + 1}`, body.lotCode ?? null);
+        if (body.openedAt !== undefined) add(`opened_at=$${values.length + 1}`, body.openedAt === null ? null : new Date(String(body.openedAt)));
+        fields.push(`version=version+1`, "updated_at=now()");
+        values.push(itemMatch[1], ctx.familyId);
+        const updated = await client.query(`UPDATE pantry_items SET ${fields.join(",")} WHERE id=$${values.length - 1} AND family_id=$${values.length} RETURNING *`, values);
         const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
-        await event(client, "PantryItemAdjusted", row.id, ctx, { action: "patch", item: output.data });
+        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "update", item: output.data });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
-        const shouldReestimate =
-          nextExpirationSource !== "declared" &&
-          (nextExpiresAt === null || Object.hasOwn(body, "location") || Object.hasOwn(body, "openedAt"));
-        if (shouldReestimate) {
+        if (body.expiresAt !== undefined || body.openedAt !== undefined) {
           void queueShelfLifePrediction(
             ctx,
             {
-              id: String(row.id),
-              productId: String(row.product_id),
-              location: nextLocation == null ? null : String(nextLocation),
-              expiresAt: nextExpiresAt,
-              addedAt: row.added_at,
-              openedAt: nextOpenedAt,
+              id: String(updated.rows[0].id),
+              productId: String(updated.rows[0].product_id),
+              location: updated.rows[0].location == null ? null : String(updated.rows[0].location),
+              expiresAt: updated.rows[0].expires_at,
+              addedAt: updated.rows[0].added_at,
+              openedAt: updated.rows[0].opened_at,
             },
             req.headers.authorization ? String(req.headers.authorization) : undefined,
-            Object.hasOwn(body, "location") || Object.hasOwn(body, "openedAt"),
+            true,
           );
         }
         return send(res, 200, output, ctx.requestId);
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      } finally {
-        client.release();
-      }
+      } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
 
-    if (req.method === "POST" && itemMatch?.[2] && ["consume", "waste"].includes(itemMatch[2])) {
+    if (req.method === "POST" && itemMatch?.[2] === "consume") {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const quantity = positiveQuantity(body.quantity);
-      const key = String(req.headers["x-idempotency-key"] ?? "");
-      const ifMatch = String(req.headers["if-match"] ?? "");
-      if (!key || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and X-Idempotency-Key are required.", ctx.requestId);
-      if (!validIfMatch(ifMatch)) return fail(res, 428, "PRECONDITION_REQUIRED", "If-Match is required.", ctx.requestId);
-      if (itemMatch[2] === "consume" && !isConsumeReason(body.reason)) return fail(res, 400, "VALIDATION_ERROR", "consume reason is invalid.", ctx.requestId);
+      if (quantity === undefined || !isConsumeReason(body.reason)) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and valid reason are required.", ctx.requestId);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      const ifMatch = String(req.headers["if-match"] ?? "").trim();
+      if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
         const old = await idempotency(client, key, ctx, body);
         if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
-        const result = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
-        if (!result.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
-        const row = result.rows[0];
-        if (Number(row.version) !== Number(ifMatch)) { await client.query("ROLLBACK"); return fail(res, 412, "VERSION_CONFLICT", "Item version changed.", ctx.requestId); }
-        const remaining = Number(row.quantity) - quantity;
-        if (remaining < 0) { await client.query("ROLLBACK"); return fail(res, 422, "BUSINESS_RULE_VIOLATION", "Quantity exceeds available inventory.", ctx.requestId); }
-        const removed = remaining === 0;
-        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now())", [randomUUID(), ctx.familyId, removed ? null : row.id, row.product_id, itemMatch[2] === "consume" ? "consume" : "waste", quantity, row.unit, body.reason ?? null, ctx.userId]);
-        if (removed) await client.query("DELETE FROM pantry_items WHERE id=$1 AND family_id=$2", [row.id, ctx.familyId]);
-        else await client.query("UPDATE pantry_items SET quantity=$3,updated_at=now(),version=version+1 WHERE id=$1 AND family_id=$2", [row.id, ctx.familyId, remaining]);
-        await event(client, "PantryItemAdjusted", row.id, ctx, { action: itemMatch[2], productId: row.product_id, quantity, remainingQuantity: remaining, removed });
-        const output = { data: { itemId: row.id, ...(itemMatch[2] === "consume" ? { consumedQuantity: quantity } : { wastedQuantity: quantity }), remainingQuantity: remaining, removed }, version: Number(row.version) + 1 };
+        const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
+        if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
+        const row = current.rows[0];
+        if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
+        if (Number(row.quantity) < quantity) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
+        const updated = await client.query("UPDATE pantry_items SET quantity=quantity-$1,version=version+1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING *", [quantity, itemMatch[1], ctx.familyId]);
+        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'consume',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
+        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "consume", quantity, item: dto(updated.rows[0]) });
+        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
+        await finish(client, key, 200, output);
+        await client.query("COMMIT");
+        return send(res, 200, output, ctx.requestId);
+      } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+    }
+
+    if (req.method === "POST" && itemMatch?.[2] === "waste") {
+      const auth = await authorizeFamily(ctx, true);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const body = await readBody(req);
+      const quantity = positiveQuantity(body.quantity);
+      if (quantity === undefined || typeof body.reason !== "string" || !body.reason.trim()) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and reason are required.", ctx.requestId);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      const ifMatch = String(req.headers["if-match"] ?? "").trim();
+      if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const old = await idempotency(client, key, ctx, body);
+        if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
+        if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
+        const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
+        if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
+        const row = current.rows[0];
+        if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
+        if (Number(row.quantity) < quantity) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
+        const updated = await client.query("UPDATE pantry_items SET quantity=quantity-$1,version=version+1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING *", [quantity, itemMatch[1], ctx.familyId]);
+        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'waste',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
+        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "waste", quantity, item: dto(updated.rows[0]) });
+        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         return send(res, 200, output, ctx.requestId);
@@ -445,11 +444,11 @@ const server = createServer(async (req, res) => {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
-      const key = String(req.headers["x-idempotency-key"] ?? "");
-      const source = String(body.source ?? "");
-      if (!requiredIdempotencyKey(key) || !body.expiresAt || !isExpirationSource(source)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt, source and X-Idempotency-Key are required.", ctx.requestId);
-      const expiresAt = new Date(String(body.expiresAt));
-      if (Number.isNaN(expiresAt.getTime())) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
+      if (body.expiresAt !== null && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt must be an ISO date or null.", ctx.requestId);
+      if (body.source !== undefined && !isExpirationSource(body.source)) return fail(res, 400, "VALIDATION_ERROR", "source is invalid.", ctx.requestId);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      const ifMatch = String(req.headers["if-match"] ?? "").trim();
+      if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -459,19 +458,10 @@ const server = createServer(async (req, res) => {
         const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
         if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
         const row = current.rows[0];
-
-        // A user-declared expiration date always has precedence over an estimated prediction.
-        if (source === "estimated" && row.expiration_source === "declared") {
-          const output = { data: dto(row), version: Number(row.version) };
-          await finish(client, key, 200, output);
-          await client.query("COMMIT");
-          return send(res, 200, output, ctx.requestId);
-        }
-
-        const result = await client.query("UPDATE pantry_items SET expires_at=$3,expiration_source=$4,updated_at=now(),version=version+1 WHERE id=$1 AND family_id=$2 RETURNING *", [itemMatch[1], ctx.familyId, expiresAt, source]);
-        if (!result.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
-        const output = { data: dto(result.rows[0]), version: Number(result.rows[0].version) };
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "expiration_confirmed", item: output.data });
+        if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
+        const updated = await client.query("UPDATE pantry_items SET expires_at=$1,expiration_source=$2,version=version+1,updated_at=now() WHERE id=$3 AND family_id=$4 RETURNING *", [body.expiresAt === null ? null : new Date(String(body.expiresAt)), body.source ?? "confirmed", itemMatch[1], ctx.familyId]);
+        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "expiration_confirmed", item: dto(updated.rows[0]) });
+        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         return send(res, 200, output, ctx.requestId);
@@ -480,15 +470,10 @@ const server = createServer(async (req, res) => {
 
     return fail(res, 404, "NOT_FOUND", "Route not found.", ctx.requestId);
   } catch (error) {
-    if (error instanceof RequestBodyValidationError) return fail(res, 400, "VALIDATION_ERROR", error.message, requestId);
-    console.error(JSON.stringify({ service, event: "request.failed", error: error instanceof Error ? error.message : String(error) }));
-    return fail(res, 500, "INTERNAL_ERROR", "Unexpected internal error.", requestId);
+    const message = error instanceof RequestBodyValidationError ? error.message : "Unexpected internal error.";
+    const status = error instanceof RequestBodyValidationError ? 400 : 500;
+    return fail(res, status, error instanceof RequestBodyValidationError ? "VALIDATION_ERROR" : "INTERNAL_ERROR", message, requestId);
   }
 });
 
-server.on("error", (error) => {
-  console.error(JSON.stringify({ service, event: "server.error", error: error instanceof Error ? error.message : String(error) }));
-  process.exitCode = 1;
-});
-
-server.listen(port, "0.0.0.0", () => console.log(JSON.stringify({ service, port })));
+server.listen(port, () => console.log(JSON.stringify({ service, port })));
