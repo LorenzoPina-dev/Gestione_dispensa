@@ -448,7 +448,7 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
-    }, 450);
+    }, 300);
 
     return () => {
       controller.abort();
