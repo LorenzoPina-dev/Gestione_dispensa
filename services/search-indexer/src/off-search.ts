@@ -592,7 +592,14 @@ function firstString(...values: unknown[]): string | null {
 }
 
 function isHttpUrl(value: string): boolean {
-  return /^https?:\\/\\/\\S+$/i.test(value.trim());
+  return /^https?:\/\/\S+$/i.test(value.trim());
+}
+
+function firstHttpUrl(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && isHttpUrl(value)) return value.trim();
+  }
+  return null;
 }
 
 function firstImageUrl(product: Record<string, unknown>, code: string): string | null {
@@ -615,7 +622,7 @@ function firstImageUrl(product: Record<string, unknown>, code: string): string |
   ] as const;
 
   for (const key of directKeys) {
-    const direct = firstString(product[key]);
+    const direct = firstHttpUrl(product[key]);
     if (direct) return direct;
   }
 
