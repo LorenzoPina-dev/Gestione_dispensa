@@ -956,10 +956,14 @@ Sono breaking:
 
 Database: `off_lookup_db`. Collection: `products`. Owner: `off-lookup`.
 
-Il documento completo segue la forma Open Food Facts importata o appresa via API. Il campo `code` è la chiave funzionale e deve avere indice ascending.
+Il documento completo segue la forma Open Food Facts importata o appresa via API. Il campo `code` è la
+chiave funzionale e deve avere indice ascending per lookup barcode e pagination del bootstrap.
 
-Per il bootstrap della projection, `off-lookup` espone solamente una projection source interna contenente i campi necessari alla ricerca; i campi OFF non necessari non escono da questo boundary.
+La ricerca testuale utente NON usa MongoDB. Non è richiesto né ammesso un indice `_keywords_1`:
+la ricerca testuale appartiene a OpenSearch.
 
+Per il bootstrap della projection, `off-lookup` espone solamente una projection source interna
+contenente i campi necessari alla ricerca; i campi OFF non necessari non escono da questo boundary.
 La pagina source usa:
 - `cursor`: ultimo `code`;
 - `limit`: 1..1000, default 500;
@@ -994,7 +998,13 @@ Mapping minimo:
 
 ### Consistenza
 
-Il rapporto Mongo -> OpenSearch è eventual-consistent e rebuildable. Un documento può esistere in Mongo prima che compaia nell'indice; questo intervallo non deve bloccare il barcode flow. L'opposto non viene considerato autorevole: un risultato OpenSearch senza documento completo in Mongo deve essere risolto tramite il codice e il boundary `off-lookup`.
+Il rapporto Mongo -> OpenSearch è eventual-consistent e rebuildable. Un documento del dump può esistere
+in Mongo prima che compaia nell'indice durante il bootstrap; in quel caso una ricerca testuale che non
+trova risultati usa il provider Open Food Facts come fallback e il risultato viene salvato localmente.
+Il bootstrap continua in parallelo fino a stato `complete`.
+
+OpenSearch è autorevole per la ricerca testuale; MongoDB resta autorevole per il documento OFF completo
+e per il lookup barcode.
 
 ### Nessun coupling con i DB applicativi
 
