@@ -950,3 +950,52 @@ Sono breaking:
 - rimozione di una colonna ancora usata da un contratto;
 - trasferimento di ownership senza migration plan.
 
+## OFF search data ownership and schema
+
+### MongoDB
+
+Database: `off_lookup_db`. Collection: `products`. Owner: `off-lookup`.
+
+Il documento completo segue la forma Open Food Facts importata o appresa via API. Il campo `code` è la chiave funzionale e deve avere indice ascending.
+
+Per il bootstrap della projection, `off-lookup` espone solamente una projection source interna contenente i campi necessari alla ricerca; i campi OFF non necessari non escono da questo boundary.
+
+La pagina source usa:
+- `cursor`: ultimo `code`;
+- `limit`: 1..1000, default 500;
+- ordinamento `code ASC`;
+- risposta `{items,nextCursor}`.
+
+### OpenSearch
+
+Indice: `off-products-v1`. Owner: `search-indexer`.
+
+Mapping minimo:
+
+| Campo | Tipo | Indicizzazione |
+|---|---|---|
+| code | keyword | sì |
+| name | text | analyzer `off_text` |
+| nameExact | keyword | sì |
+| brand | text | analyzer `off_text` |
+| brandExact | keyword | sì |
+| category | text | analyzer `off_text` |
+| categoriesTags | keyword[] | sì |
+| quantityLabel | text | analyzer `off_text` |
+| imageUrl | keyword | no |
+| productQuantity | double | sì |
+| productQuantityUnit | keyword | sì |
+| calories/protein/carbs/fat/fiber | double | sì |
+| popularityKey | double | sì |
+| completeness | double | sì |
+| searchText | text | analyzer `off_text` |
+
+`dynamic=false` impedisce che il documento OFF proiettato trasformi automaticamente ogni campo arbitrario in un mapping OpenSearch.
+
+### Consistenza
+
+Il rapporto Mongo -> OpenSearch è eventual-consistent e rebuildable. Un documento può esistere in Mongo prima che compaia nell'indice; questo intervallo non deve bloccare il barcode flow. L'opposto non viene considerato autorevole: un risultato OpenSearch senza documento completo in Mongo deve essere risolto tramite il codice e il boundary `off-lookup`.
+
+### Nessun coupling con i DB applicativi
+
+Il corpus OFF e la projection di ricerca non condividono tabelle PostgreSQL con Family, Inventory, Shopping o gli altri microservizi. `search-indexer` non può aprire una connessione a un DB di dominio per correggere un documento OFF.
