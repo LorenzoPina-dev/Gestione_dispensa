@@ -177,4 +177,21 @@ describe("off-lookup domain",()=>{
   assert.equal(indexed?.code,"8001234567890");
  });
 
+ it("warms Mongo and OpenSearch after an external text-search hit",async()=>{
+  let stored: Record<string, unknown> | undefined;
+  let indexed = 0;
+  const s = new ProductLookupService(
+   {findByCode:async()=>undefined,upsertFromLiveApi:async(_code,p)=>{stored=p},recordRefreshAttempt:async()=>{}},
+   {fetchProduct:async()=>({status:"not_found"}),searchProducts:async()=>({status:"found",hits:[{code:"8001234567890",product:{product_name:"Prodotto remoto"}}]}),isCircuitOpen:()=>false},
+   {search:async()=>({status:"found",hits:[]})},
+   {upsert:async()=>{indexed += 1}},
+  );
+  const result=await s.search("prodotto",8);
+  assert.equal(result.source,"external");
+  assert.equal(result.hits.length,1);
+  await new Promise(r=>setImmediate(r));
+  assert.deepEqual(stored,{product_name:"Prodotto remoto"});
+  assert.equal(indexed,1);
+ });
+
 });
