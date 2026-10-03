@@ -35,7 +35,7 @@ export class HttpSearchIndexerClient implements LocalProductSearchClient, Produc
         signal: controller.signal,
         headers: {
           Accept: "application/json",
-          "X-Internal-Service-Token": this.options.token,
+          "Authorization": `Bearer ${this.options.token}`,
           ...(traceId ? { "X-Trace-Id": traceId } : {}),
         },
       });
