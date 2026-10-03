@@ -4,7 +4,7 @@ import { request as httpsRequest } from "node:https";
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
 export const OFF_SEARCH_PROJECTION_VERSION = 2;
-export const MIN_OFF_COMPLETENESS = 0.7;
+export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
   code: string;
@@ -365,7 +365,7 @@ export class OpenSearchOffIndex {
   public async purgeIneligibleDocuments(): Promise<number> {
     await this.ensureIndex();
     const response = await this.rawFetch(
-      "/_delete_by_query?conflicts=proceed&refresh=false",
+      `/${encodeURIComponent(this.indexName)}/_delete_by_query?conflicts=proceed&refresh=false`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -521,6 +521,11 @@ function toProviderProductFromSource(source: Record<string, unknown>): Record<st
   return product;
 }
 
+function positiveNumberEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 function isEligibleSearchDocument(document: OffSearchDocument): boolean {
   return typeof document.completeness === "number"
     && Number.isFinite(document.completeness)
@@ -537,6 +542,7 @@ function buildFeatureText(product: Record<string, unknown>): string {
     product.abbreviated_product_name,
     product.labels,
     ...stringArray(product.labels_tags),
+    ...stringArray(product.brands_tags),
     product.packaging,
     ...stringArray(product.packaging_tags),
     product.packaging_text,
