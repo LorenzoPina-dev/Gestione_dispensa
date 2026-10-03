@@ -165,11 +165,12 @@ services:
         if(!collections.includes("products")){db.createCollection("products");print("Mongo products collection created");}
         const minCompleteness=0.7;
         const qualityFilter={
-          $or:[
-            {completeness:{$exists:false}},
-            {completeness:null},
-            {completeness:{$lt:minCompleteness}}
-          ]
+          $expr:{
+            $lt:[
+              {$convert:{input:"$completeness",to:"double",onError:-1,onNull:-1}},
+              minCompleteness
+            ]
+          }
         };
         const before=db.products.countDocuments();
         const removed=db.products.deleteMany(qualityFilter).deletedCount;
