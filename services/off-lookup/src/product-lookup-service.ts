@@ -69,7 +69,7 @@ export class ProductLookupService {
         const local = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
         if (local?.status === "found" && local.hits.length > 0) {
           const result = { ...local, source: "local" } as OffSearchResult;
-          this.searchCache.set(normalizedQuery, result);
+          this.searchCache.set(normalizedQuery, { at: now, result });
           this.trimSearchCache();
           return result;
         }
@@ -83,7 +83,7 @@ export class ProductLookupService {
     if (this.apiClient.searchProducts === undefined) return { status: "found", hits: [] };
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
     const result = { ...external, source: "external" } as OffSearchResult;
-    this.searchCache.set(normalizedQuery, result);
+    this.searchCache.set(normalizedQuery, { at: now, result });
     this.trimSearchCache();
     return result;
   }
