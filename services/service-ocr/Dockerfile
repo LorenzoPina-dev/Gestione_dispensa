@@ -18,7 +18,7 @@ COPY services/service-ocr/package.json ./services/service-ocr/
 RUN npm install --workspace @gestione-dispensa/service-ocr --omit=dev --ignore-scripts
 COPY --from=build /app/packages/observability/dist ./packages/observability/dist
 COPY --from=build /app/services/service-ocr/dist ./services/service-ocr/dist
-COPY --from=build /app/services/service-ocr/migrations ./services/service-ocr/migrations
+COPY --from=build /app/services/service-ocr/migrations ./migrations
 USER node
 EXPOSE 3405
 CMD ["sh","-c","node services/service-ocr/dist/migrate.js && node services/service-ocr/dist/index.js"]
