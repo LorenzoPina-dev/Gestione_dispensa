@@ -161,6 +161,8 @@ services:
       - --quiet
       - --eval
       - >-
+        const collections=db.getCollectionNames();
+        if(!collections.includes("products")){db.createCollection("products");print("Mongo products collection created");}
         const idx=db.products.getIndexes();
         const keywords=idx.find(i=>i.name==="keywords_1" || (i.key && i.key._keywords===1));
         if(keywords){print("Dropping obsolete Mongo text index "+keywords.name);db.products.dropIndex(keywords.name);}
