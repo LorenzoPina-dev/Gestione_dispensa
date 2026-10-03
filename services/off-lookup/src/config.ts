@@ -18,6 +18,7 @@ function strEnv(name: string, fallback: string): string {
 
 export const config = {
   port: numEnv("OFF_LOOKUP_PORT", 3200),
+  internalToken: strEnv("OFF_LOOKUP_INTERNAL_TOKEN", "dispensa-internal-dev"),
 
   // --- MongoDB (local Open Food Facts dump + read-through cache) ---------------------------
   mongo: {
