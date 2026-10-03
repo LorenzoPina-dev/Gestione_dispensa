@@ -81,10 +81,30 @@ export class ProductLookupService {
     }
 
     if (this.apiClient.searchProducts === undefined) return { status: "found", hits: [] };
+
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
     const result = { ...external, source: "external" } as OffSearchResult;
-    this.searchCache.set(normalizedQuery, { at: now, result });
-    this.trimSearchCache();
+
+    // Never cache an empty/error response. A transient provider problem or a temporary
+    // empty index must not hide a valid result on the next request.
+    if (result.status === "found" && result.hits.length > 0) {
+      this.searchCache.set(normalizedQuery, { at: Date.now(), result });
+      this.trimSearchCache();
+
+      // Seed the local Mongo/OpenSearch caches asynchronously. The remote hit is returned
+      // immediately, so persistence latency is invisible to the user.
+      for (const hit of result.hits) {
+        void this.repository.upsertFromLiveApi(hit.code, hit.product)
+          .then(() => this.indexProductAsync(hit.code, hit.product))
+          .catch((error: unknown) => {
+            log("error", "search_result_cache_write_failed", {
+              code: hit.code,
+              error: error instanceof Error ? error.message : "unknown",
+            });
+          });
+      }
+    }
+
     return result;
   }
 

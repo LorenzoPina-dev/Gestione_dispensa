@@ -440,7 +440,10 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       setError(null);
       try {
         const result = await api.searchCatalogProducts(normalized, 8, controller.signal);
-        if (!controller.signal.aborted) setItems(result.items);
+        if (!controller.signal.aborted) {
+          setItems(result.items);
+          if (result.items.length === 0) setError("Nessun prodotto trovato su Open Food Facts.");
+        }
       } catch (err) {
         if (controller.signal.aborted) return;
         setItems([]);
@@ -588,8 +591,8 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
         </div>
       )}
 
-      {!loading && !error && query.trim().length >= 3 && items.length === 0 && (
-        <Message>Nessun prodotto trovato per “{query.trim()}”.</Message>
+      {!loading && error && query.trim().length >= 3 && items.length === 0 && (
+        <Message>{error}</Message>
       )}
       {error && <Message>{error}</Message>}
 
