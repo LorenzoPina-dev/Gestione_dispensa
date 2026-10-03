@@ -38,7 +38,7 @@ export interface SearchSourcePage {
 export interface ProductRepository {
   findByCode(code: string): Promise<ProductDocument | undefined>;
   upsertFromLiveApi(code: string, product: Record<string, unknown>): Promise<void>;
-  listSearchSourcePage?(cursor: string | undefined, limit: number): Promise<SearchSourcePage>;
+  listSearchSourcePage?(cursor: string | undefined, limit: number): Promise<SearchSourcePage | undefined>;
   recordRefreshAttempt(code: string, outcome: RefreshOutcome): Promise<void>;
   /** Best-effort liveness check for the readiness endpoint. Never throws. */
   isAvailable(): Promise<boolean>;
@@ -171,11 +171,11 @@ export class MongoProductRepository implements ProductRepository {
   public async listSearchSourcePage(
     cursor: string | undefined,
     limit: number,
-  ): Promise<SearchSourcePage> {
+  ): Promise<SearchSourcePage | undefined> {
     const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
     const projection = SEARCH_PROJECTION;
 
-    return (await this.withCollection(async (collection) => {
+    return this.withCollection(async (collection) => {
       const filter = cursor ? { code: { $gt: cursor } } : {};
       const docs = await collection
         .find(filter, { projection, maxTimeMS: config.mongo.operationTimeoutMs })
@@ -193,7 +193,7 @@ export class MongoProductRepository implements ProductRepository {
         items,
         nextCursor: items.length === safeLimit ? items.at(-1)?.code ?? null : null,
       };
-    }, config.mongo.sourceOperationTimeoutMs)) ?? { items: [], nextCursor: null };
+    }, config.mongo.sourceOperationTimeoutMs);
   }
 
   public async recordRefreshAttempt(
