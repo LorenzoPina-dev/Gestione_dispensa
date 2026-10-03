@@ -426,7 +426,7 @@ Query:
 - `q`: nome o descrizione del prodotto, 3..120 caratteri.
 - `limit`: opzionale, 1..20; default 10.
 
-La ricerca è autenticata e viene eseguita tramite il provider Open Food Facts Search-a-licious. Se `sort_by` non viene specificato, Search-a-licious ordina per rilevanza; `boost_phrase=true` favorisce le corrispondenze consecutive. Il backend usa i risultati solo per la selezione: dopo che l'utente sceglie una voce, il client risolve il relativo barcode con `POST /catalog/barcodes/resolve` per ottenere il record completo Open Food Facts e conservarlo nel Catalogo. 
+La ricerca è autenticata e segue il percorso locale-first: Catalog -> off-lookup -> OpenSearch. Search-a-licious viene usato solo quando la projection locale non produce risultati oppure non è disponibile. Il backend usa i risultati solo per la selezione: dopo che l'utente sceglie una voce, il client risolve il relativo barcode con `POST /catalog/barcodes/resolve` per ottenere il record completo Open Food Facts e conservarlo nel Catalogo. 
 
 Response 200:
 ```json
@@ -465,7 +465,7 @@ Il ranking è del provider e non è una raccomandazione personalizzata dell'app.
 Errori:
 - 400 `VALIDATION_ERROR` se `q` non è valido.
 - 401 `UNAUTHENTICATED` se manca un token valido.
-- 503 `UPSTREAM_ERROR` se il provider di ricerca non è disponibile.
+- 503 `UPSTREAM_ERROR` se OpenSearch e il fallback esterno non sono disponibili.
 
 ### POST /catalog/products
 
