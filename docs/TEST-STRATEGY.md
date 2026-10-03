@@ -92,3 +92,61 @@ Artifact per release: test report, coverage per domain rule, contract compatibil
 ## 9. Quality target
 
 Coverage numerica non sostituisce casi di dominio. Le invarianti famiglia/invito/inventario, autorizzazione e recovery devono avere test diretti anche se la coverage globale e alta.
+
+## Test matrix: OFF search
+
+### Unit
+
+```text
+normalizzazione query
+projection OFF -> OpenSearch
+mapping nutriments
+ranking exact > prefix > weak lexical
+gestione campi mancanti
+barcode validation
+cache hit della query
+local hit -> nessun fallback esterno
+local miss -> fallback esterno
+local unavailable -> fallback esterno
+upsert index async non blocca barcode hit
+```
+
+### Integration
+
+Il profilo Docker deve verificare almeno:
+1. OpenSearch healthy.
+2. search-indexer healthy.
+3. inserimento di un documento synthetic tramite endpoint interno.
+4. ricerca synthetic via search-indexer.
+5. off-lookup restituisce `source=local` per il synthetic.
+6. una query senza hit locale usa il confine Search-a-licious (test di unit/component con provider simulato; nessuna dipendenza dal servizio pubblico nel test deterministico).
+7. reindex ricostruisce il documento a partire dalla source Mongo nel test con fixture.
+
+### E2E manual product
+
+Journey obbligatoria:
+
+```text
+"Golia"
+ -> lista risultati
+ -> selezione di un code
+ -> CandidateView completo
+ -> quantità
+ -> scadenza vuota
+ -> luogo
+ -> Inventory item
+ -> Shelf-Life queued
+ -> eventuale expiration_source=estimated
+```
+
+Il test deve inoltre verificare che digitando rapidamente query successive le richieste precedenti vengano abortite lato browser e che un risultato vecchio non sovrascriva una query più recente.
+
+### Regression
+
+La ricerca per barcode deve continuare a funzionare quando:
+- OpenSearch è spento;
+- search-indexer è spento;
+- Mongo è presente;
+- Mongo è vuoto ma OFF API simulata è disponibile;
+- Catalog contiene già il prodotto;
+- Catalog non contiene il prodotto.
