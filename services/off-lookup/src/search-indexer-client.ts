@@ -54,8 +54,18 @@ export class HttpSearchIndexerClient implements LocalProductSearchClient, Produc
               if (!item || typeof item !== "object") return undefined;
               const value = item as Record<string, unknown>;
               const code = typeof value.code === "string" ? value.code : "";
-              const product = value.product;
-              if (!/^\d{8,14}$/.test(code) || !isRecord(product)) return undefined;
+              const product = isRecord(value.product)
+                ? value.product
+                : isRecord(value._source)
+                  ? value._source
+                  : isRecord(value)
+                    ? value
+                    : undefined;
+              if (!/^\d{8,14}$/.test(code) || !product) return undefined;
+              const name =
+                (typeof product.product_name_it === "string" ? product.product_name_it : "") ||
+                (typeof product.product_name === "string" ? product.product_name : "");
+              if (!name.trim()) return undefined;
               return { code, product };
             })
             .filter((item): item is { code: string; product: Record<string, unknown> } => item !== undefined)
@@ -85,7 +95,7 @@ export class HttpSearchIndexerClient implements LocalProductSearchClient, Produc
           headers: {
             "content-type": "application/json",
             Accept: "application/json",
-            "X-Internal-Service-Token": this.options.token,
+            "Authorization": `Bearer ${this.options.token}`,
           },
           body: JSON.stringify({ code, product }),
         },
