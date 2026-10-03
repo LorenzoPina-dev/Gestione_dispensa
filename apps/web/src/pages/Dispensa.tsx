@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import type { StockItem, StorageLocation, ExpiryStatus } from "../types";
+import type { StockBatch, StockItem, StorageLocation, ExpiryStatus } from "../types";
 import AddProductModal from "../components/AddProductModal";
 import { Modal } from "../components/ui/Modal";
 import { colors, fonts, freshnessColor, provenanceColor } from "../tokens";
@@ -12,7 +12,9 @@ const LOCATIONS: { key: StorageLocation; label: string; icon: string }[] = [
   { key: "altro", label: "Altro", icon: "📦" },
 ];
 
-function getExpiryStatus(batches: StockItem["batches"]): ExpiryStatus {
+type BatchLike = Pick<StockBatch, "quantity" | "expiryDate">;
+
+function getExpiryStatus(batches: ReadonlyArray<BatchLike>): ExpiryStatus {
   const dates = batches.map((b) => b.expiryDate).filter(Boolean) as string[];
   if (!dates.length) return "UNKNOWN";
   const minDays = Math.min(...dates.map((d) => Math.ceil((new Date(d).getTime() - Date.now()) / 86400000)));
@@ -21,17 +23,17 @@ function getExpiryStatus(batches: StockItem["batches"]): ExpiryStatus {
   return "FRESH";
 }
 
-function expiryDays(batches: StockItem["batches"]): number | null {
+function expiryDays(batches: ReadonlyArray<BatchLike>): number | null {
   const dates = batches.map((b) => b.expiryDate).filter(Boolean) as string[];
   if (!dates.length) return null;
   return Math.ceil((Math.min(...dates.map((d) => new Date(d).getTime())) - Date.now()) / 86400000);
 }
 
-function totalQuantity(item: StockItem): number {
+function totalQuantity(item: { batches: ReadonlyArray<Pick<StockBatch, "quantity">> }): number {
   return item.batches.reduce((sum, b) => sum + b.quantity, 0);
 }
 
-interface DisplayBatch extends StockItem["batches"][number] {
+interface DisplayBatch extends StockBatch {
   sourceId: string;
   sourceVersion: number;
 }
