@@ -70,27 +70,27 @@ export class OpenFoodFactsApiClient implements OffApiClient {
       url.searchParams.set("q", normalizedQuery);
       url.searchParams.set("page", "1");
       url.searchParams.set("page_size", String(Math.min(Math.max(Math.floor(limit), 1), 20)));
-      url.searchParams.set("langs", "it,en");
       url.searchParams.set("boost_phrase", "true");
-      url.searchParams.set(
-        "fields",
-        [
-          "code",
-          "product_name",
-          "product_name_it",
-          "brands",
-          "quantity",
-          "product_quantity",
-          "product_quantity_unit",
-          "image_front_url",
-          "image_front_small_url",
-          "categories_tags",
-          "nutriments",
-          "nutrition_data_per",
-          "popularity_key",
-          "completeness",
-        ].join(","),
-      );
+
+      for (const lang of ["it", "en"]) url.searchParams.append("langs", lang);
+      for (const field of [
+        "code",
+        "product_name",
+        "product_name_it",
+        "brands",
+        "quantity",
+        "product_quantity",
+        "product_quantity_unit",
+        "image_front_url",
+        "image_front_small_url",
+        "categories_tags",
+        "nutriments",
+        "nutrition_data_per",
+        "popularity_key",
+        "completeness",
+      ]) {
+        url.searchParams.append("fields", field);
+      }
 
       const response = await fetch(url, {
         signal: controller.signal,
