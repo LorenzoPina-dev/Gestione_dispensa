@@ -63,6 +63,28 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     .all(methodNotAllowed);
 
   router
+    .route("/catalog/products/search")
+    .get(
+      asyncHandler(async (req, res) => {
+        const principal = await resolvePrincipal(req, verifier);
+        if (!principal) {
+          sendFailure(res, 401, "UNAUTHENTICATED", "Authentication is required.", req.meta);
+          return;
+        }
+        const query = typeof req.query.q === "string" ? req.query.q : "";
+        const parsedLimit = Number(req.query.limit ?? 10);
+        const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 20) : 10;
+        await respond(
+          res,
+          req.meta,
+          controller.searchProducts(principal, query, limit, req.meta),
+          toCatalogHttpError,
+        );
+      }),
+    )
+    .all(methodNotAllowed);
+
+  router
     .route("/catalog/products/:productId")
     .get(
       asyncHandler(async (req, res) => {
