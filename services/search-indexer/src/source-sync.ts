@@ -12,6 +12,10 @@ export interface SourceSyncOptions {
 export class OffSourceSync {
   private running = false;
 
+  public get isRunning(): boolean {
+    return this.running;
+  }
+
   public constructor(
     private readonly index: OpenSearchOffIndex,
     private readonly options: SourceSyncOptions,
@@ -64,12 +68,31 @@ export class OffSourceSync {
     if (this.running) throw new Error("off_index_rebuild_already_running");
     this.running = true;
     try {
-      const deleteResponse = await fetch(
-        `${this.options.sourceUrl.replace(/\/+$/, "").replace(/:3200$/, ":3210")}/health/live`,
-      );
-      void deleteResponse;
-      // Recreate-by-delete is intentionally handled by OpenSearchClient's index lifecycle in server.ts.
-      throw new Error("forceRebuild_requires_index_reset");
+      await this.index.resetIndex();
+      let cursor: string | undefined;
+      let total = 0;
+
+      for (;;) {
+        const page = await this.fetchPage(cursor);
+        if (page.items.length === 0) break;
+
+        const documents: OffSearchDocument[] = [];
+        for (const item of page.items) {
+          const document = toOffSearchDocument(item);
+          if (document) documents.push(document);
+        }
+        await this.index.bulkUpsert(documents);
+        total += documents.length;
+
+        if (!page.nextCursor || page.nextCursor === cursor) break;
+        cursor = page.nextCursor;
+      }
+
+      console.log(JSON.stringify({
+        service: "search-indexer",
+        event: "off_index_rebuild_completed",
+        indexed: total,
+      }));
     } finally {
       this.running = false;
     }
