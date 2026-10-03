@@ -86,8 +86,9 @@ jobs:
             process.exit(1);
           '
           docker compose exec -T off-lookup node --input-type=module -e '
+            const token = process.env.OFF_LOOKUP_SEARCH_INDEXER_TOKEN ?? "dispensa-internal-dev";
             const result = await fetch("http://127.0.0.1:3200/api/v1/search?q=Golia%20Test&limit=8", {
-              headers: { "accept": "application/json", "x-trace-id": "ci-search-smoke" }
+              headers: { "accept": "application/json", "authorization": `Bearer ${token}`, "x-trace-id": "ci-search-smoke" }
             });
             const body = await result.json();
             if (result.status !== 200 || body.source !== "local" || !Array.isArray(body.items) || !body.items.some((item) => item.code === "80000000000001")) {
