@@ -13,6 +13,8 @@ export interface HttpOffLookupClientOptions {
    */
   readonly baseUrl: string;
   readonly timeoutMs: number;
+  /** Hard timeout for product-name search; intentionally longer than barcode resolution. */
+  readonly searchTimeoutMs?: number;
   readonly internalToken?: string;
   /** Consecutive failures before the circuit opens and skips the network call entirely. */
   readonly circuitBreakThreshold?: number;
@@ -146,7 +148,8 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient, Externa
 
   public constructor(options: HttpOffLookupClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
-    this.timeoutMs = options.timeoutMs;
+    this.timeoutMs = options.timeoutMs ?? 2500;
+    this.searchTimeoutMs = options.searchTimeoutMs ?? 8000;
     this.internalToken = options.internalToken;
     this.circuitBreakThreshold = options.circuitBreakThreshold ?? 5;
     this.circuitResetMs = options.circuitResetMs ?? 30_000;
