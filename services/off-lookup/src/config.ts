@@ -44,12 +44,14 @@ export const config = {
   offApi: {
     baseUrl: strEnv("OFF_LOOKUP_API_BASE_URL", "https://world.openfoodfacts.org"),
     searchBaseUrl: strEnv("OFF_LOOKUP_SEARCH_BASE_URL", "https://search.openfoodfacts.org"),
+    legacySearchBaseUrl: strEnv("OFF_LOOKUP_LEGACY_SEARCH_BASE_URL", "https://world.openfoodfacts.org"),
     userAgent: strEnv(
       "OFF_LOOKUP_API_USER_AGENT",
       "GestioneDispensa-OffLookup/0.1 (+https://github.com/, family-local)",
     ),
     timeoutMs: numEnv("OFF_LOOKUP_API_TIMEOUT_MS", 4000),
-    searchTimeoutMs: numEnv("OFF_LOOKUP_SEARCH_TIMEOUT_MS", 5000),
+    searchTimeoutMs: numEnv("OFF_LOOKUP_SEARCH_TIMEOUT_MS", 8000),
+    legacySearchTimeoutMs: numEnv("OFF_LOOKUP_LEGACY_SEARCH_TIMEOUT_MS", 6000),
     searchCacheMs: numEnv("OFF_LOOKUP_SEARCH_CACHE_MS", 30_000),
     // A failed refresh must not hammer Open Food Facts on every scan/F5. The previous cache
     // remains authoritative for fallback purposes until this cooldown expires.
