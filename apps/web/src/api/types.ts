@@ -74,6 +74,23 @@ export interface ProductDto {
   createdAt: string;
   updatedAt: string;
 }
+export interface ProductSearchResultDto {
+  code: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  packageLabel: string | null;
+  nutrition: {
+    kcalPer100g: number | null;
+    proteinGPer100g: number | null;
+    carbsGPer100g: number | null;
+    fatGPer100g: number | null;
+    fiberGPer100g: number | null;
+  };
+  popularityKey: number | null;
+  completeness: number | null;
+}
 export type BarcodeResolutionStatus = "MATCHED" | "UNKNOWN" | "DEGRADED";
 export interface BarcodeResolutionDto { status: BarcodeResolutionStatus; identifierType: string; normalizedValue: string; product?: ProductDto; }
 export type InventoryUnit = ProductUnit;
