@@ -31,6 +31,76 @@ function totalQuantity(item: StockItem): number {
   return item.batches.reduce((sum, b) => sum + b.quantity, 0);
 }
 
+interface DisplayBatch extends StockItem["batches"][number] {
+  sourceId: string;
+  sourceVersion: number;
+}
+
+interface GroupedStockItem extends Omit<StockItem, "batches"> {
+  aggregateKey: string;
+  sources: StockItem[];
+  batches: DisplayBatch[];
+}
+
+function normalizeGroupPart(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stockGroupingKey(item: StockItem): string {
+  const product = item.productId
+    ? `product:${item.productId}`
+    : `name:${normalizeGroupPart(item.name)}|brand:${normalizeGroupPart(item.brand)}`;
+  return `${product}|location:${item.location}|unit:${normalizeGroupPart(item.unit)}`;
+}
+
+function groupStockItems(items: StockItem[]): GroupedStockItem[] {
+  const groups = new Map<string, GroupedStockItem>();
+
+  for (const item of items) {
+    if (totalQuantity(item) <= 0) continue;
+
+    const aggregateKey = stockGroupingKey(item);
+    const existing = groups.get(aggregateKey);
+
+    if (!existing) {
+      groups.set(aggregateKey, {
+        ...item,
+        aggregateKey,
+        sources: [item],
+        batches: item.batches.map((batch) => ({
+          ...batch,
+          sourceId: item.id,
+          sourceVersion: item.version,
+        })),
+      });
+      continue;
+    }
+
+    existing.sources.push(item);
+    existing.batches.push(
+      ...item.batches.map((batch) => ({
+        ...batch,
+        sourceId: item.id,
+        sourceVersion: item.version,
+      })),
+    );
+  }
+
+  return [...groups.values()].map((group) => ({
+    ...group,
+    batches: [...group.batches].sort((a, b) => {
+      const da = a.expiryDate ? new Date(a.expiryDate).getTime() : Number.POSITIVE_INFINITY;
+      const db = b.expiryDate ? new Date(b.expiryDate).getTime() : Number.POSITIVE_INFINITY;
+      return da - db;
+    }),
+  }));
+}
+
 interface Props {
   stock: StockItem[];
   setStock: React.Dispatch<React.SetStateAction<StockItem[]>>;
@@ -41,7 +111,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
   const [locFilter, setLocFilter] = useState<StorageLocation | "tutti">("tutti");
   const [statusFilter, setStatusFilter] = useState<ExpiryStatus | "tutti">("tutti");
   const [search, setSearch] = useState("");
-  const [detail, setDetail] = useState<StockItem | null>(null);
+  const [detail, setDetail] = useState<GroupedStockItem | null>(null);
   const [showAdd, setShowAdd] = useState(false);
 
   // Consume modal state
@@ -49,8 +119,10 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
   const [consumeQty, setConsumeQty] = useState("1");
   const [consumeError, setConsumeError] = useState<string | null>(null);
 
+  const groupedItems = useMemo(() => groupStockItems(stock), [stock]);
+
   const filtered = useMemo(() => {
-    return stock
+    return groupedItems
       .filter((s) => {
         const st = getExpiryStatus(s.batches);
         const totalQty = totalQuantity(s);
@@ -67,7 +139,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
         const order: Record<ExpiryStatus, number> = { EXPIRED: 0, EXPIRING: 1, FRESH: 2, UNKNOWN: 3 };
         return order[getExpiryStatus(a.batches)] - order[getExpiryStatus(b.batches)];
       });
-  }, [stock, locFilter, statusFilter, search]);
+  }, [groupedItems, locFilter, statusFilter, search]);
 
   const grouped = useMemo(() => {
     const locs = locFilter === "tutti" ? LOCATIONS.map((l) => l.key) : [locFilter as StorageLocation];
@@ -77,16 +149,23 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
     })).filter((g) => g.items.length > 0);
   }, [filtered, locFilter]);
 
-  const expiredCount = stock.filter((s) => getExpiryStatus(s.batches) === "EXPIRED").length;
-  const expiringCount = stock.filter((s) => getExpiryStatus(s.batches) === "EXPIRING").length;
+  const expiredCount = groupedItems.filter((s) => getExpiryStatus(s.batches) === "EXPIRED").length;
+  const expiringCount = groupedItems.filter((s) => getExpiryStatus(s.batches) === "EXPIRING").length;
 
   function handleAddFromModal(item: Omit<StockItem, "id" | "version" | "provenance">) {
-    const newItem: StockItem = { ...item, id: "si_" + Date.now(), version: 1, provenance: "VERIFIED" };
+    // Keep the storage model lot-level. The derived UI groups equal products immediately,
+    // while useInventory persists the new underlying lot as a separate inventory item.
+    const newItem: StockItem = {
+      ...item,
+      id: "si_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      version: 1,
+      provenance: "VERIFIED",
+    };
     setStock((p) => [...p, newItem]);
     setShowAdd(false);
   }
 
-  function openConsumeModal(item: StockItem) {
+  function openConsumeModal(item: GroupedStockItem) {
     setConsumeTarget(item);
     setConsumeQty("1");
     setConsumeError(null);
@@ -114,28 +193,41 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
       return;
     }
 
-    // Consumo distribuito sui batches in ordine FEFO (quelli con scadenza più vicina prima),
-    // esattamente come fa il backend in PostgresInventoryRepository.recordMovementAtomic.
+    // FEFO across every underlying lot: the UI can present one product while the backend
+    // continues to own separate lot rows with independent expiration dates.
+    let remaining = qty;
+    const consumptionBySource = new Map<string, number>();
+    for (const batch of consumeTarget.batches) {
+      if (remaining <= 0) break;
+      const take = Math.min(batch.quantity, remaining);
+      remaining -= take;
+      consumptionBySource.set(batch.sourceId, (consumptionBySource.get(batch.sourceId) ?? 0) + take);
+    }
+
     setStock((prev) =>
-      prev.map((s) => {
-        if (s.id !== consumeTarget.id) return s;
-        let remaining = qty;
-        const orderedBatches = [...s.batches].sort((a, b) => {
-          const da = a.expiryDate ? new Date(a.expiryDate).getTime() : Number.POSITIVE_INFINITY;
-          const db = b.expiryDate ? new Date(b.expiryDate).getTime() : Number.POSITIVE_INFINITY;
-          return da - db;
-        });
-        const updated = orderedBatches.map((b) => {
-          if (remaining <= 0) return b;
-          const take = Math.min(b.quantity, remaining);
-          remaining -= take;
-          return { ...b, quantity: b.quantity - take };
-        });
-        const pruned = updated.filter((b) => b.quantity > 0);
+      prev.map((item) => {
+        const sourceConsume = consumptionBySource.get(item.id);
+        if (!sourceConsume) return item;
+
+        let sourceRemaining = sourceConsume;
+        const updatedBatches = [...item.batches]
+          .sort((a, b) => {
+            const da = a.expiryDate ? new Date(a.expiryDate).getTime() : Number.POSITIVE_INFINITY;
+            const db = b.expiryDate ? new Date(b.expiryDate).getTime() : Number.POSITIVE_INFINITY;
+            return da - db;
+          })
+          .map((batch) => {
+            if (sourceRemaining <= 0) return batch;
+            const take = Math.min(batch.quantity, sourceRemaining);
+            sourceRemaining -= take;
+            return { ...batch, quantity: batch.quantity - take };
+          });
+
+        const pruned = updatedBatches.filter((batch) => batch.quantity > 0);
         return {
-          ...s,
+          ...item,
           batches: pruned.length > 0 ? pruned : [{ quantity: 0 }],
-          version: s.version + 1,
+          version: item.version + 1,
         };
       }),
     );
@@ -144,8 +236,9 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
     setDetail(null);
   }
 
-  function handleWaste(item: StockItem) {
-    setStock((p) => p.filter((s) => s.id !== item.id));
+  function handleWaste(item: GroupedStockItem) {
+    const sourceIds = new Set(item.sources.map((source) => source.id));
+    setStock((prev) => prev.filter((source) => !sourceIds.has(source.id)));
     setDetail(null);
   }
 
@@ -157,6 +250,9 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
     const days = expiryDays(detail.batches);
     const prov = provenanceColor[detail.provenance];
     const totalQty = totalQuantity(detail);
+    const datedBatches = detail.batches.filter((batch) => batch.expiryDate);
+    const uniqueExpiryDates = [...new Set(datedBatches.map((batch) => batch.expiryDate as string))]
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
     return (
       <>
         <div className="space-y-6">
@@ -189,17 +285,28 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
                 ))}
               </div>
 
-              {days !== null && (
-                <div className="rounded-xl p-3 flex items-center gap-3" style={{ backgroundColor: st === "EXPIRED" ? colors.terracottaLight : st === "EXPIRING" ? colors.amberLight : colors.sageLight }}>
-                  <span className="text-lg">{st === "EXPIRED" ? "⚠️" : st === "EXPIRING" ? "📅" : "✓"}</span>
-                  <div>
-                    <p className="text-sm font-medium" style={{ color: freshnessColor[st] }}>
-                      {st === "EXPIRED" ? "Scaduto" : st === "EXPIRING" ? `Scade in ${days} giorni` : `Fresco ancora ${days} giorni`}
-                    </p>
-                    <p className="text-xs" style={{ color: colors.inkMuted }}>
-                      {new Date(detail.batches[0].expiryDate!).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}
-                    </p>
+              {days !== null && uniqueExpiryDates.length > 0 && (
+                <div className="rounded-xl p-3 space-y-2" style={{ backgroundColor: st === "EXPIRED" ? colors.terracottaLight : st === "EXPIRING" ? colors.amberLight : colors.sageLight }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">{st === "EXPIRED" ? "⚠️" : st === "EXPIRING" ? "📅" : "✓"}</span>
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: freshnessColor[st] }}>
+                        {uniqueExpiryDates.length > 1 ? "Scadenza più vicina" : st === "EXPIRED" ? "Scaduto" : st === "EXPIRING" ? `Scade in ${days} giorni` : `Fresco ancora ${days} giorni`}
+                      </p>
+                      <p className="text-xs" style={{ color: colors.inkMuted }}>
+                        {new Date(uniqueExpiryDates[0]).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}
+                      </p>
+                    </div>
                   </div>
+                  {uniqueExpiryDates.length > 1 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {uniqueExpiryDates.map((date) => (
+                        <span key={date} className="text-[10px] px-2 py-1 rounded-full" style={{ backgroundColor: colors.white, color: colors.inkMuted }}>
+                          {new Date(date).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
