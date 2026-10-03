@@ -1,5 +1,10 @@
 import type { IdentifierType, ProductUnit } from "./service.js";
-import type { ExternalBarcodeLookupClient, ExternalProductMatch } from "./workflow.js";
+import type {
+  ExternalBarcodeLookupClient,
+  ExternalProductMatch,
+  ExternalProductSearchClient,
+  ExternalProductSearchHit,
+} from "./workflow.js";
 
 export interface HttpOffLookupClientOptions {
   /**
@@ -126,7 +131,7 @@ function parseDefaultUnit(quantity: string | undefined): ProductUnit {
  *    failures, so a down or restarting off-lookup container degrades to instant UNKNOWN rather
  *    than every scan waiting out the full timeout.
  */
-export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
+export class HttpOffLookupClient implements ExternalBarcodeLookupClient, ExternalProductSearchClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
   private readonly circuitBreakThreshold: number;
@@ -143,6 +148,87 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
     this.circuitResetMs = options.circuitResetMs ?? 30_000;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
+  }
+
+  public async search(input: {
+    query: string;
+    limit: number;
+    traceId: string;
+  }): Promise<readonly ExternalProductSearchHit[] | undefined> {
+    const normalizedQuery = input.query.trim().replace(/\s+/g, " ");
+    if (normalizedQuery.length < 3) return [];
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const url = new URL(this.baseUrl + "/api/v1/search");
+      url.searchParams.set("q", normalizedQuery);
+      url.searchParams.set("limit", String(Math.min(Math.max(Math.floor(input.limit), 1), 20)));
+      const response = await this.fetchImpl(url, {
+        signal: controller.signal,
+        headers: { Accept: "application/json", "X-Trace-Id": input.traceId },
+      });
+      if (!response.ok) return undefined;
+
+      const body = await response.json() as {
+        items?: Array<{ code?: unknown; product?: Record<string, unknown> }>;
+      };
+      const results: ExternalProductSearchHit[] = [];
+      for (const item of body.items ?? []) {
+        const product = item.product;
+        const code = typeof item.code === "string" ? item.code.trim() : "";
+        if (!product || !/^\d{8,14}$/.test(code)) continue;
+
+        const name =
+          (typeof product.product_name_it === "string" ? product.product_name_it : "") ||
+          (typeof product.product_name === "string" ? product.product_name : "");
+        if (!name.trim()) continue;
+
+        const nutriments = isRecord(product.nutriments) ? product.nutriments : {};
+        const numberField = (key: string): number | undefined => {
+          const value = nutriments[key];
+          return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+        };
+        const categories = Array.isArray(product.categories_tags)
+          ? product.categories_tags.filter((v): v is string => typeof v === "string")
+          : [];
+        const category = normalizeOffCategory(categories, name);
+        const brand = typeof product.brands === "string"
+          ? product.brands.split(",")[0]?.trim()
+          : undefined;
+        const photoUrl =
+          (typeof product.image_front_url === "string" ? product.image_front_url : undefined) ||
+          (typeof product.image_front_small_url === "string" ? product.image_front_small_url : undefined);
+        const quantityLabel =
+          typeof product.quantity === "string" && product.quantity.trim()
+            ? product.quantity.trim()
+            : product.product_quantity != null
+              ? String(product.product_quantity) + (product.product_quantity_unit ? " " + product.product_quantity_unit : "")
+              : undefined;
+
+        const hit: ExternalProductSearchHit = {
+          code,
+          canonicalName: name.trim(),
+          ...(brand ? { brand } : {}),
+          ...(photoUrl ? { photoUrl } : {}),
+          ...(category ? { category } : {}),
+          ...(quantityLabel ? { quantityLabel } : {}),
+          ...(numberField("energy-kcal_100g") !== undefined ? { calories: numberField("energy-kcal_100g") } : {}),
+          ...(numberField("proteins_100g") !== undefined ? { protein: numberField("proteins_100g") } : {}),
+          ...(numberField("carbohydrates_100g") !== undefined ? { carbs: numberField("carbohydrates_100g") } : {}),
+          ...(numberField("fat_100g") !== undefined ? { fat: numberField("fat_100g") } : {}),
+          ...(numberField("fiber_100g") !== undefined ? { fiber: numberField("fiber_100g") } : {}),
+          ...(typeof product.popularity_key === "number" ? { popularityKey: product.popularity_key } : {}),
+          ...(typeof product.completeness === "number" ? { completeness: product.completeness } : {}),
+        };
+        results.push(hit);
+      }
+      return results;
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   public async lookup(input: {
