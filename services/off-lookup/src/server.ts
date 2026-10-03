@@ -4,6 +4,7 @@ import { log } from "./logger.js";
 import { createProductRepository } from "./mongo-product-repository.js";
 import { OpenFoodFactsApiClient } from "./off-api-client.js";
 import { ProductLookupService, isValidBarcode } from "./product-lookup-service.js";
+import { HttpSearchIndexerClient } from "./search-indexer-client.js";
 
 /**
  * OFF-Lookup: standalone microservice dedicated to barcode -> product resolution.
@@ -22,7 +23,13 @@ import { ProductLookupService, isValidBarcode } from "./product-lookup-service.j
 
 const repository = createProductRepository();
 const apiClient = new OpenFoodFactsApiClient();
-const lookupService = new ProductLookupService(repository, apiClient);
+const searchIndexer = new HttpSearchIndexerClient({
+  baseUrl: config.searchIndexer.baseUrl,
+  token: config.searchIndexer.token,
+  searchTimeoutMs: config.searchIndexer.searchTimeoutMs,
+  writeTimeoutMs: config.searchIndexer.writeTimeoutMs,
+});
+const lookupService = new ProductLookupService(repository, apiClient, searchIndexer, searchIndexer);
 
 const app = express();
 app.disable("x-powered-by");
@@ -58,7 +65,7 @@ app.get(
         return;
       }
 
-      const result = await lookupService.search(query, limit);
+      const result = await lookupService.search(query, limit, req.header("X-Trace-Id") ?? undefined);
       if (result.status === "error") {
         res.status(503).set("Retry-After", "5").json({
           error: "search_unavailable",
@@ -70,11 +77,38 @@ app.get(
 
       res.status(200).json({
         query,
+        source: result.source ?? "external",
         items: result.hits.map((hit) => ({
           code: hit.code,
           product: hit.product,
         })),
       });
+    })().catch(next);
+  },
+);
+
+app.get(
+  "/api/v1/internal/search-source/products",
+  (req: Request, res: Response, next: NextFunction) => {
+    void (async () => {
+      if (!isValidInternalToken(req)) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
+      if (repository.listSearchSourcePage === undefined) {
+        res.status(503).json({ error: "search_source_unavailable" });
+        return;
+      }
+
+      const rawLimit = Number(req.query.limit ?? 500);
+      const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
+      const cursor = req.query.cursor?.toString().trim() || undefined;
+      const page = await repository.listSearchSourcePage(cursor, limit);
+      if (page === undefined) {
+        res.status(503).json({ error: "search_source_unavailable" });
+        return;
+      }
+      res.status(200).json(page);
     })().catch(next);
   },
 );
@@ -141,6 +175,10 @@ process.on("uncaughtException", (error) => {
 process.on("unhandledRejection", (reason) => {
   log("error", "unhandled_rejection", { reason: reason instanceof Error ? reason.message : String(reason) });
 });
+
+function isValidInternalToken(req: Request): boolean {
+  return req.header("X-Internal-Service-Token") === config.searchIndexer.token;
+}
 
 function shutdown(signal: string): void {
   log("info", "off_lookup_shutdown", { signal });
