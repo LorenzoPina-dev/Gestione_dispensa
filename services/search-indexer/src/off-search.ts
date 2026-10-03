@@ -3,6 +3,8 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
+export const OFF_SEARCH_PROJECTION_VERSION = 2;
+export const MIN_OFF_COMPLETENESS = 0.7;
 
 export interface OffSearchDocument {
   code: string;
@@ -46,6 +48,7 @@ export interface OffSourceProduct {
 export interface OffBootstrapState {
   readonly status: "in_progress" | "complete";
   readonly cursor: string | null;
+  readonly projectionVersion: number | null;
 }
 
 const MAX_LIMIT = 50;
@@ -70,6 +73,7 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
   const category = firstString(product.category);
   const quantityLabel = quantityLabelOf(product);
   const imageUrl = firstString(product.image_front_url, product.image_front_small_url, product.image_front_thumb_url);
+  const featureText = buildFeatureText(product);
   const nutriments = record(product.nutriments);
 
   const calories = numberFrom(nutriments?.["energy-kcal_100g"]);
@@ -82,7 +86,7 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
   const popularityKey = numberFrom(product.popularity_key);
   const completeness = numberFrom(product.completeness);
 
-  const searchText = [name, brand, category, ...categoriesTags, quantityLabel]
+  const searchText = [name, brand, category, ...categoriesTags, quantityLabel, featureText]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join(" ");
 
@@ -95,6 +99,7 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
     category,
     categoriesTags,
     quantityLabel,
+    featureText,
     imageUrl,
     productQuantity,
     productQuantityUnit,
@@ -144,19 +149,28 @@ export function rankOffSearchHits(
     const name = normalizeSearchText(String(document.product_name ?? ""));
     const brand = normalizeSearchText(String(document.brands ?? ""));
     const category = normalizeSearchText(String(document.category ?? ""));
-    const tokens = new Set(name.split(" ").filter(Boolean));
+    const featureText = normalizeSearchText(String(document.featureText ?? ""));
+    const tokens = new Set([
+      ...name.split(" ").filter(Boolean),
+      ...brand.split(" ").filter(Boolean),
+      ...category.split(" ").filter(Boolean),
+      ...featureText.split(" ").filter(Boolean),
+    ]);
 
     const exact = name === normalized ? 1000 : 0;
     const prefix = name.startsWith(normalized) ? 300 : 0;
     const phrase = name.includes(normalized) ? 150 : 0;
+    const exactBrand = brand === normalized ? 850 : 0;
+    const brandPrefix = brand.startsWith(normalized) ? 280 : 0;
     const tokenMatch = [...queryTokens].filter((token) => tokens.has(token)).length * 45;
-    const brandMatch = normalized && brand.includes(normalized) ? 50 : 0;
-    const categoryMatch = normalized && category.includes(normalized) ? 20 : 0;
+    const brandMatch = normalized && brand.includes(normalized) ? 100 : 0;
+    const categoryMatch = normalized && category.includes(normalized) ? 45 : 0;
+    const featureMatch = normalized && featureText.includes(normalized) ? 80 : 0;
     const lexical = Math.min(100, Math.max(0, hit.score)) * 2;
     const completeness = numberFrom(document.completeness) ?? 0;
     const popularity = Math.log10(1 + Math.max(0, numberFrom(document.popularity_key) ?? 0));
-    const finalScore = exact + prefix + phrase + tokenMatch + brandMatch + categoryMatch
-      + lexical + completeness * 30 + popularity * 8;
+    const finalScore = exact + prefix + phrase + exactBrand + brandPrefix + tokenMatch
+      + brandMatch + categoryMatch + featureMatch + lexical + completeness * 30 + popularity * 8;
 
     return { hit, finalScore };
   });
@@ -249,7 +263,14 @@ export class OpenSearchOffIndex {
     const response = await this.rawFetch(`/${encodeURIComponent(this.indexName)}/_count`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query: { exists: { field: "code" } } }),
+      body: JSON.stringify({
+        query: {
+          bool: {
+            filter: [{ range: { completeness: { gte: MIN_OFF_COMPLETENESS } } }],
+            must: [{ exists: { field: "code" } }],
+          },
+        },
+      }),
     });
     if (!response.ok) throw new Error(`opensearch_count_failed_${response.status}`);
     const body = await response.json() as { count?: unknown };
@@ -273,6 +294,10 @@ export class OpenSearchOffIndex {
     return {
       status,
       cursor: typeof cursor === "string" && cursor.length > 0 ? cursor : null,
+      projectionVersion:
+        typeof source.projectionVersion === "number" && Number.isInteger(source.projectionVersion)
+          ? source.projectionVersion
+          : null,
     };
   }
 
@@ -283,7 +308,11 @@ export class OpenSearchOffIndex {
       {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...state, updatedAt: new Date().toISOString() }),
+        body: JSON.stringify({
+          ...state,
+          projectionVersion: OFF_SEARCH_PROJECTION_VERSION,
+          updatedAt: new Date().toISOString(),
+        }),
       },
     );
     if (!response.ok) throw new Error(`opensearch_bootstrap_state_put_failed_${response.status}`);
@@ -299,6 +328,7 @@ export class OpenSearchOffIndex {
   }
 
   public async upsert(document: OffSearchDocument): Promise<void> {
+    if (!isEligibleSearchDocument(document)) return;
     await this.ensureIndex();
     const response = await this.rawFetch(
       `/${encodeURIComponent(this.indexName)}/_doc/${encodeURIComponent(document.code)}`,
@@ -312,10 +342,11 @@ export class OpenSearchOffIndex {
   }
 
   public async bulkUpsert(documents: readonly OffSearchDocument[]): Promise<void> {
-    if (documents.length === 0) return;
+    const eligibleDocuments = documents.filter(isEligibleSearchDocument);
+    if (eligibleDocuments.length === 0) return;
     await this.ensureIndex();
 
-    const body = documents.map((document) =>
+    const body = eligibleDocuments.map((document) =>
       JSON.stringify({ index: { _index: this.indexName, _id: document.code } }) + "\n" +
       JSON.stringify(document) + "\n"
     ).join("");
@@ -331,6 +362,32 @@ export class OpenSearchOffIndex {
     if (result.errors === true) throw new Error("opensearch_bulk_contains_errors");
   }
 
+  public async purgeIneligibleDocuments(): Promise<number> {
+    await this.ensureIndex();
+    const response = await this.rawFetch(
+      "/_delete_by_query?conflicts=proceed&refresh=false",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          query: {
+            bool: {
+              must_not: [{ ids: { values: [OFF_BOOTSTRAP_META_ID] } }],
+              should: [
+                { range: { completeness: { lt: MIN_OFF_COMPLETENESS } } },
+                { bool: { must_not: [{ exists: { field: "completeness" } }] } },
+              ],
+              minimum_should_match: 1,
+            },
+          },
+        }),
+      },
+    );
+    if (!response.ok) throw new Error("opensearch_quality_cleanup_failed_" + response.status);
+    const body = await response.json() as { deleted?: unknown };
+    return typeof body.deleted === "number" && Number.isFinite(body.deleted) ? body.deleted : 0;
+  }
+
   public async search(query: string, limit: number): Promise<OffSearchResult> {
     const normalized = normalizeSearchText(query);
     if (!normalized) return { status: "found", hits: [] };
@@ -342,19 +399,36 @@ export class OpenSearchOffIndex {
         size,
         track_total_hits: false,
         _source: [
-          "code", "name", "brand", "category", "categoriesTags", "quantityLabel", "imageUrl",
+          "code", "name", "brand", "category", "categoriesTags", "quantityLabel", "featureText", "imageUrl",
           "productQuantity", "productQuantityUnit", "calories", "protein", "carbs", "fat", "fiber",
           "popularityKey", "completeness",
         ],
         query: {
           bool: {
+            filter: [{ range: { completeness: { gte: MIN_OFF_COMPLETENESS } } }],
             should: [
-              { term: { nameExact: { value: normalized, boost: 12 } } },
-              { prefix: { nameExact: { value: normalized, boost: 7 } } },
-              { match_phrase: { name: { query: normalized, boost: 8 } } },
-              { match: { name: { query: normalized, operator: "and", fuzziness: "AUTO", boost: 5 } } },
-              { match_phrase: { brand: { query: normalized, boost: 3 } } },
-              { match: { searchText: { query: normalized, fuzziness: "AUTO", boost: 2 } } },
+              { term: { nameExact: { value: normalized, boost: 14 } } },
+              { prefix: { nameExact: { value: normalized, boost: 8 } } },
+              { term: { brandExact: { value: normalized, boost: 12 } } },
+              { prefix: { brandExact: { value: normalized, boost: 7 } } },
+              { match_phrase: { name: { query: normalized, boost: 10 } } },
+              { match_phrase: { brand: { query: normalized, boost: 9 } } },
+              { match_phrase: { category: { query: normalized, boost: 6 } } },
+              {
+                multi_match: {
+                  query: normalized,
+                  fields: [
+                    "name^8",
+                    "brand^8",
+                    "category^5",
+                    "featureText^6",
+                    "quantityLabel^3",
+                    "searchText^2",
+                  ],
+                  operator: "and",
+                  fuzziness: "AUTO",
+                },
+              },
             ],
             minimum_should_match: 1,
           },
@@ -445,6 +519,54 @@ function toProviderProductFromSource(source: Record<string, unknown>): Record<st
   }
 
   return product;
+}
+
+function isEligibleSearchDocument(document: OffSearchDocument): boolean {
+  return typeof document.completeness === "number"
+    && Number.isFinite(document.completeness)
+    && document.completeness >= MIN_OFF_COMPLETENESS;
+}
+
+function buildFeatureText(product: Record<string, unknown>): string {
+  const values = [
+    product.generic_name_it,
+    product.generic_name_en,
+    product.generic_name,
+    product.abbreviated_product_name_it,
+    product.abbreviated_product_name_en,
+    product.abbreviated_product_name,
+    product.labels,
+    ...stringArray(product.labels_tags),
+    product.packaging,
+    ...stringArray(product.packaging_tags),
+    product.packaging_text,
+    product.ingredients_text_it,
+    product.ingredients_text_en,
+    product.ingredients_text,
+    ...stringArray(product.ingredients_tags),
+    product.allergens,
+    ...stringArray(product.allergens_tags),
+    product.traces,
+    ...stringArray(product.traces_tags),
+    product.origins,
+    ...stringArray(product.origins_tags),
+    product.stores,
+    ...stringArray(product.stores_tags),
+    product.countries,
+    ...stringArray(product.countries_tags),
+    product.manufacturing_places,
+    ...stringArray(product.manufacturing_places_tags),
+    ...stringArray(product.food_groups_tags),
+    ...stringArray(product.additives_tags),
+    product.nutriscore_grade,
+    product.nova_group,
+  ].flatMap((value) => {
+    if (typeof value === "number" && Number.isFinite(value)) return [String(value)];
+    if (typeof value === "string" && value.trim().length > 0) return [value.trim()];
+    return [];
+  });
+
+  return values.join(" ").slice(0, 6000);
 }
 
 function firstString(...values: unknown[]): string | null {
