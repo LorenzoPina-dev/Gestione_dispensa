@@ -8,6 +8,8 @@ import {
 import { config } from "./config.js";
 import { log } from "./logger.js";
 
+const MIN_OFF_COMPLETENESS = 0.7;
+
 /**
  * Local MongoDB store for Open Food Facts products.
  *
@@ -76,12 +78,46 @@ const SEARCH_PROJECTION = {
   product_name: 1,
   product_name_it: 1,
   product_name_en: 1,
+  generic_name: 1,
+  generic_name_it: 1,
+  generic_name_en: 1,
+  abbreviated_product_name: 1,
+  abbreviated_product_name_it: 1,
+  abbreviated_product_name_en: 1,
   brands: 1,
+  brands_tags: 1,
+  categories: 1,
   categories_tags: 1,
+  category: 1,
+  labels: 1,
+  labels_tags: 1,
+  packaging: 1,
+  packaging_tags: 1,
+  packaging_text: 1,
+  ingredients_text: 1,
+  ingredients_text_it: 1,
+  ingredients_text_en: 1,
+  ingredients_tags: 1,
+  allergens: 1,
+  allergens_tags: 1,
+  traces: 1,
+  traces_tags: 1,
+  origins: 1,
+  origins_tags: 1,
+  stores: 1,
+  stores_tags: 1,
+  countries: 1,
+  countries_tags: 1,
+  manufacturing_places: 1,
+  manufacturing_places_tags: 1,
+  food_groups_tags: 1,
+  additives_tags: 1,
   quantity: 1,
   product_quantity: 1,
   product_quantity_unit: 1,
-  category: 1,
+  serving_size: 1,
+  nutriscore_grade: 1,
+  nova_group: 1,
   image_front_url: 1,
   image_front_small_url: 1,
   image_front_thumb_url: 1,
@@ -102,7 +138,10 @@ export class MongoProductRepository implements ProductRepository {
 
   public async findByCode(code: string): Promise<ProductDocument | undefined> {
     return this.withCollection(async (collection) => {
-      const doc = await collection.findOne({ code }, { maxTimeMS: config.mongo.operationTimeoutMs });
+      const doc = await collection.findOne(
+        { code, completeness: { $gte: MIN_OFF_COMPLETENESS } },
+        { maxTimeMS: config.mongo.operationTimeoutMs },
+      );
       if (doc === null) return undefined;
       const { _id, ...rest } = doc;
       void _id;
@@ -111,6 +150,16 @@ export class MongoProductRepository implements ProductRepository {
   }
 
   public async upsertFromLiveApi(code: string, product: Record<string, unknown>): Promise<void> {
+    const incomingCompleteness = completenessValue(product.completeness);
+    if (incomingCompleteness === null || incomingCompleteness < MIN_OFF_COMPLETENESS) {
+      log("info", "low_quality_product_skipped", {
+        code,
+        completeness: incomingCompleteness,
+        minimumCompleteness: MIN_OFF_COMPLETENESS,
+      });
+      return;
+    }
+
     await this.withCollection(async (collection) => {
       const existingDoc = await collection.findOne(
         { code },
@@ -176,7 +225,9 @@ export class MongoProductRepository implements ProductRepository {
     const projection = SEARCH_PROJECTION;
 
     return this.withCollection(async (collection) => {
-      const filter = cursor ? { code: { $gt: cursor } } : {};
+      const filter = cursor
+        ? { code: { $gt: cursor }, completeness: { $gte: MIN_OFF_COMPLETENESS } }
+        : { completeness: { $gte: MIN_OFF_COMPLETENESS } };
       const docs = await collection
         .find(filter, { projection, maxTimeMS: config.mongo.sourceOperationTimeoutMs })
         .sort({ code: 1 })
@@ -302,6 +353,15 @@ export class MongoProductRepository implements ProductRepository {
   }
 }
 
+
+function completenessValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
 
 export function createProductRepository(): ProductRepository {
   const enabled = config.mongo.url.trim().length > 0;
