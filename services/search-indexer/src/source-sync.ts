@@ -52,9 +52,13 @@ export class OffSourceSync {
         return;
       }
 
+      let syncCursor = state?.cursor ?? undefined;
+
       if (state?.status === "complete") {
-        // Projection policy changed (quality gate/features). Rebuild the searchable projection.
+        // Projection policy changed (quality gate/features). The old cursor belongs to the old
+        // projection, so a reset MUST restart from the first eligible Mongo document.
         await this.index.resetIndex();
+        syncCursor = undefined;
       }
 
       // Existing documents without a checkpoint
@@ -62,9 +66,10 @@ export class OffSourceSync {
       // prove that the full Mongo dump was indexed, so rebuild once and start with a checkpoint.
       if (state === undefined && (await this.index.count()) > 0) {
         await this.index.resetIndex();
+        syncCursor = undefined;
       }
 
-      await this.syncFromCursor(state?.cursor ?? undefined);
+      await this.syncFromCursor(syncCursor);
     } catch (error) {
       console.error(JSON.stringify({
         service: "search-indexer",
