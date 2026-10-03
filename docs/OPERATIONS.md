@@ -34,13 +34,26 @@ Un service non disponibile deve produrre timeout/partial failure espliciti nelle
 
 ### Bootstrap iniziale
 
-`search-indexer` verifica la disponibilità OpenSearch, crea l'indice se assente e, se l'indice contiene zero documenti, avvia un bootstrap paginato dalla source interna di `off-lookup`.
+`search-indexer` verifica la disponibilità OpenSearch, crea l'indice se assente e avvia automaticamente
+un bootstrap paginato dalla source interna di `off-lookup`.
 
-Il bootstrap è asincrono rispetto alla readiness del servizio. Il servizio può risultare ready quando OpenSearch è raggiungibile anche mentre il corpus è ancora in caricamento.
+Il bootstrap:
+- usa batch piccoli e un ritardo configurabile per evitare picchi di CPU/I/O;
+- persiste un cursor solo dopo un bulk riuscito;
+- può essere interrotto e ripreso senza ricominciare dal primo prodotto;
+- termina con stato `complete` e non riparte ai successivi avvii;
+- continua in background mentre il servizio è già ready.
 
 ### Retry
 
-Il bootstrap viene ritentato periodicamente se il source service è temporaneamente indisponibile. Il job di bootstrap non deve essere eseguito in parallelo con sé stesso.
+Il bootstrap viene ritentato periodicamente se OpenSearch o il source service sono temporaneamente
+indisponibili. Il job è serializzato e non può essere eseguito in parallelo con sé stesso.
+
+### Migrazione Mongo
+
+All'avvio, il one-shot `off-mongodb-index-maintenance` elimina l'eventuale indice Mongo storico
+`keywords_1`/`_keywords` e mantiene solo l'indice `code_1` necessario al lookup barcode e alla
+pagination del bootstrap. L'operazione non elimina il volume Mongo né i documenti.
 
 ### Reindex completo
 
