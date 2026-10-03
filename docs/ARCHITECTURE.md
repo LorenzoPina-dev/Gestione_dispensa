@@ -194,3 +194,8 @@ Mongo e viene reindicizzato quando il servizio torna disponibile.
 6. La selezione di un risultato usa il codice barcode e riusa il flusso barcode.
 7. Nessun dato personalizzato viene scritto nel corpus OFF.
 8. Nessuna perdita temporanea dell'indice deve rendere irrecuperabili i prodotti.
+
+
+### OFF search ranking
+
+La ricerca testuale usa `nameExact` e `brandExact` come keyword normalizzate per exact/prefix match. I campi testuali `name`, `brand`, `category`, `featureText` e `quantityLabel` forniscono il recupero lessicale senza mantenere il campo duplicato `searchText`. La projection version corrente è 3; ogni incremento breaking forza il rebuild dell'indice.
