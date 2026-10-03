@@ -71,12 +71,6 @@ export class ProductLookupService {
     if (this.localSearch !== undefined) {
       try {
         openSearchResult = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
-        if (openSearchResult?.status === "found" && openSearchResult.hits.length >= boundedLimit) {
-          const result = { ...openSearchResult, source: "local" } as OffSearchResult;
-          this.searchCache.set(normalizedQuery, { at: now, result });
-          this.trimSearchCache();
-          return result;
-        }
       } catch (error) {
         log("error", "local_product_search_failed", {
           error: error instanceof Error ? error.message : "unknown",
