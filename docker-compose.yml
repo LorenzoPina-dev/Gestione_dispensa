@@ -189,8 +189,8 @@ services:
           if(!codeIndex) db.products.createIndex({code:1},{name:"code_1"});
           maintenance.updateOne(
             {_id:"quality-gate-v1"},
-            {$set:{minCompleteness,appliedAt:new Date().toISOString()}},
-            {upsert:true}
+            {[dollar+"set"]:{minCompleteness,appliedAt:new Date().toISOString()}},
+            {[dollar+"upsert"]:true}
           );
           print("OFF Mongo quality gate marker stored");
         }
