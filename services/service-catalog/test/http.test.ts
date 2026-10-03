@@ -64,6 +64,23 @@ const workflow = new CatalogWorkflowService(
     throw new Error("unexpected external persistence");
   } },
   { applyImportedCandidate: async (input) => input.candidate },
+  {
+    search: async ({ query, limit }) => [{
+      code: "8001234567890",
+      canonicalName: query === "golia" ? "Golia Caramella" : "Test Product",
+      brand: "Perfetti",
+      category: "confectionery-candy",
+      photoUrl: "https://example.test/golia.jpg",
+      quantityLabel: "50 g",
+      calories: 410,
+      protein: 0,
+      carbs: 96,
+      fat: 0,
+      fiber: 0,
+      popularityKey: 100,
+      completeness: 0.96,
+    }].slice(0, limit),
+  },
 );
 const controller = new CatalogController(service, workflow);
 
@@ -130,6 +147,25 @@ describe("service-catalog / real Express HTTP adapter", () => {
     assert.equal(response.status, 400);
     assert.equal(body?.error?.code, "VALIDATION_ERROR");
     assert.equal(repo.size, 0);
+  });
+
+  it("returns ranked Open Food Facts search results", async () => {
+    const { response, body } = await request("/api/v1/catalog/products/search?q=golia&limit=8", {
+      headers: { authorization },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(body?.data?.items?.[0]?.code, "8001234567890");
+    assert.equal(body?.data?.items?.[0]?.name, "Golia Caramella");
+    assert.equal(body?.data?.items?.[0]?.category, "confectionery-candy");
+    assert.equal(body?.data?.items?.[0]?.nutrition?.kcalPer100g, 410);
+  });
+
+  it("rejects too-short product search queries", async () => {
+    const { response, body } = await request("/api/v1/catalog/products/search?q=go", {
+      headers: { authorization },
+    });
+    assert.equal(response.status, 400);
+    assert.equal(body?.error?.code, "VALIDATION_ERROR");
   });
 
   it("requires idempotency for product creation", async () => {
