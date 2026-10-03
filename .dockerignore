@@ -4,3 +4,12 @@ coverage
 .git
 .env
 *.log
+
+# Large Open Food Facts / data files must never enter Docker build contexts.
+*.jsonl
+*.jsonl.gz
+*.csv
+*.csv.gz
+*.zip
+*.tar
+*.tar.gz

@@ -55,20 +55,21 @@ export class ProductLookupService {
     const normalizedQuery = query.trim().replace(/\s+/g, " ");
     if (normalizedQuery.length < 3) return { status: "found", hits: [] };
 
-    // Local-first: OpenSearch is the interactive path. The public OFF search API is
-    // fallback-only when the local projection has no match or is unavailable.
+    const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
     const now = Date.now();
     const cached = this.searchCache.get(normalizedQuery);
     if (cached !== undefined && now - cached.at < config.offApi.searchCacheMs) {
       return cached.result;
     }
 
-    const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
+    // OpenSearch is the fast local projection. Do not require it to contain the whole dump:
+    // Mongo remains the authoritative local fallback for name searches.
+    let openSearchResult: OffSearchResult | undefined;
     if (this.localSearch !== undefined) {
       try {
-        const local = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
-        if (local?.status === "found" && local.hits.length > 0) {
-          const result = { ...local, source: "local" } as OffSearchResult;
+        openSearchResult = await this.localSearch.search(normalizedQuery, boundedLimit, traceId);
+        if (openSearchResult?.status === "found" && openSearchResult.hits.length >= boundedLimit) {
+          const result = { ...openSearchResult, source: "local" } as OffSearchResult;
           this.searchCache.set(normalizedQuery, { at: now, result });
           this.trimSearchCache();
           return result;
@@ -80,20 +81,54 @@ export class ProductLookupService {
       }
     }
 
-    if (this.apiClient.searchProducts === undefined) return { status: "found", hits: [] };
+    // Complete an incomplete OpenSearch response with the full local Mongo dump. The Mongo
+    // query is forced to use the dedicated _keywords index, so a missing index never triggers
+    // a collection scan: it simply degrades to the remote OFF API.
+    try {
+      const mongoPage = await this.repository.searchByName(normalizedQuery, boundedLimit);
+      if (mongoPage?.items.length) {
+        const mongoHits = rankMongoSearchHits(normalizedQuery, mongoPage.items, boundedLimit);
+        const mergedHits = mergeSearchHits(openSearchResult?.hits ?? [], mongoHits, boundedLimit);
+        const result = { status: "found", hits: mergedHits, source: "local" } as OffSearchResult;
+
+        this.searchCache.set(normalizedQuery, { at: Date.now(), result });
+        this.trimSearchCache();
+
+        for (const hit of mongoHits) {
+          this.indexProductAsync(hit.code, hit.product);
+        }
+        return result;
+      }
+    } catch (error) {
+      log("warn", "mongo_name_search_failed", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
+
+    if (this.apiClient.searchProducts === undefined) {
+      const result = openSearchResult?.status === "found" ? openSearchResult : { status: "found", hits: [] };
+      return result;
+    }
 
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
-    const result = { ...external, source: "external" } as OffSearchResult;
+    if (external.status === "found" && external.hits.length > 0) {
+      // External results complement, rather than replace, any partial local projection.
+      // This keeps locally known products visible even when the provider returns fewer hits.
+      const externalHits = external.hits.map((hit) => ({
+        code: hit.code,
+        product: hit.product,
+        score: hit.score,
+      }));
+      const localHits = openSearchResult?.status === "found" ? openSearchResult.hits : [];
+      const mergedHits = mergeSearchHits(localHits, externalHits, boundedLimit);
+      const result = { status: "found", hits: mergedHits, source: "local" } as OffSearchResult;
 
-    // Never cache an empty/error response. A transient provider problem or a temporary
-    // empty index must not hide a valid result on the next request.
-    if (result.status === "found" && result.hits.length > 0) {
       this.searchCache.set(normalizedQuery, { at: Date.now(), result });
       this.trimSearchCache();
 
       // Seed the local Mongo/OpenSearch caches asynchronously. The remote hit is returned
       // immediately, so persistence latency is invisible to the user.
-      for (const hit of result.hits) {
+      for (const hit of external.hits) {
         void this.repository.upsertFromLiveApi(hit.code, hit.product)
           .then(() => this.indexProductAsync(hit.code, hit.product))
           .catch((error: unknown) => {
@@ -103,9 +138,19 @@ export class ProductLookupService {
             });
           });
       }
+
+      return result;
     }
 
-    return result;
+    // A provider miss/error must never erase a valid partial local result.
+    if (openSearchResult?.status === "found" && openSearchResult.hits.length > 0) {
+      const result = { ...openSearchResult, source: "local" } as OffSearchResult;
+      this.searchCache.set(normalizedQuery, { at: Date.now(), result });
+      this.trimSearchCache();
+      return result;
+    }
+
+    return { ...external, source: "external" } as OffSearchResult;
   }
 
   public async lookup(barcode: string): Promise<ProductLookupResult> {
@@ -237,4 +282,67 @@ export class ProductLookupService {
 
     return { outcome: "hit", source: "cache", product: cached };
   }
+}
+
+function rankMongoSearchHits(
+  query: string,
+  items: readonly { code: string; product: Record<string, unknown> }[],
+  limit: number,
+): readonly { code: string; product: Record<string, unknown>; score: number }[] {
+  const normalizedQuery = normalizeSearchText(query);
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+
+  return items
+    .map((item) => {
+      const product = item.product;
+      const name = normalizeSearchText(firstString(product.product_name_it, product.product_name_en, product.product_name) ?? "");
+      const brand = normalizeSearchText(firstString(product.brands) ?? "");
+      const category = normalizeSearchText(firstString(product.category) ?? "");
+      const nameTokens = new Set(name.split(" ").filter(Boolean));
+
+      const exact = name === normalizedQuery ? 10000 : 0;
+      const prefix = name.startsWith(normalizedQuery) ? 3000 : 0;
+      const contains = name.includes(normalizedQuery) ? 1500 : 0;
+      const allTokens = queryTokens.every((token) => nameTokens.has(token)) ? 1000 : 0;
+      const tokenMatches = queryTokens.filter((token) => nameTokens.has(token)).length * 150;
+      const brandMatch = brand.includes(normalizedQuery) ? 250 : 0;
+      const categoryMatch = category.includes(normalizedQuery) ? 50 : 0;
+
+      return {
+        code: item.code,
+        product,
+        score: exact + prefix + contains + allTokens + tokenMatches + brandMatch + categoryMatch,
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20));
+}
+
+function mergeSearchHits(
+  primary: readonly { code: string; product: Record<string, unknown>; score: number }[],
+  secondary: readonly { code: string; product: Record<string, unknown>; score: number }[],
+  limit: number,
+): readonly { code: string; product: Record<string, unknown>; score: number }[] {
+  const byCode = new Map<string, { code: string; product: Record<string, unknown>; score: number }>();
+  for (const hit of [...primary, ...secondary]) {
+    const existing = byCode.get(hit.code);
+    if (existing === undefined || hit.score > existing.score) byCode.set(hit.code, hit);
+  }
+  return [...byCode.values()]
+    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20));
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("it-IT")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
 }

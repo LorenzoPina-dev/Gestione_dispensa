@@ -16,6 +16,8 @@ const sourceSync = new OffSourceSync(index, {
   token: sourceToken,
   batchSize: positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_BATCH_SIZE, 500),
   timeoutMs: sourceTimeoutMs,
+  batchDelayMs: positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_BATCH_DELAY_MS, 500),
+  maxBatchesPerRun: positiveInt(process.env.OFF_SEARCH_BOOTSTRAP_MAX_BATCHES_PER_RUN, 50),
 });
 
 const app = createServer((req, res) => {
