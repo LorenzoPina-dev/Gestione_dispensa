@@ -672,7 +672,8 @@ services:
       OFF_LOOKUP_MONGO_SEARCH_TIMEOUT_MS: "3000"
       OFF_LOOKUP_MONGO_SOURCE_TIMEOUT_MS: "10000"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
-    depends_on: { mongodb: { condition: service_healthy } }
+    depends_on:
+      off-mongodb-index-init: { condition: service_completed_successfully }
     healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"], interval: 10s, timeout: 3s, retries: 5, start_period: 10s }
     restart: unless-stopped
     networks: [backend, data, egress]
