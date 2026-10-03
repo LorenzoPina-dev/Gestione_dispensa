@@ -574,6 +574,28 @@ services:
     restart: unless-stopped
     networks: [backend, data, messaging]
 
+  search-indexer:
+    build:
+      context: .
+      dockerfile: services/search-indexer/Dockerfile
+    environment:
+      PORT: 3210
+      SERVICE_NAME: search-indexer
+      OPENSEARCH_URL: "http://opensearch:9200"
+      OPENSEARCH_TIMEOUT_MS: "1500"
+      SEARCH_INDEXER_INTERNAL_TOKEN: "${SEARCH_INDEXER_INTERNAL_TOKEN:-dispensa-internal-dev}"
+      OFF_LOOKUP_SOURCE_URL: "http://off-lookup:3200"
+      OFF_LOOKUP_SOURCE_TOKEN: "${OFF_LOOKUP_INDEXING_TOKEN:-dispensa-internal-dev}"
+      OFF_LOOKUP_SOURCE_TIMEOUT_MS: "3000"
+      OFF_SEARCH_BOOTSTRAP_BATCH_SIZE: "500"
+      OFF_SEARCH_BOOTSTRAP_DELAY_MS: "3000"
+      OFF_SEARCH_BOOTSTRAP_RETRY_MS: "30000"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+    depends_on: { opensearch: { condition: service_healthy } }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
+    networks: [backend, data]
+
   off-lookup:
     build:
       context: .
@@ -587,6 +609,10 @@ services:
       OFF_LOOKUP_SEARCH_BASE_URL: "https://search.openfoodfacts.org"
       OFF_LOOKUP_SEARCH_TIMEOUT_MS: "5000"
       OFF_LOOKUP_SEARCH_CACHE_MS: "30000"
+      OFF_LOOKUP_SEARCH_INDEXER_BASE_URL: "http://search-indexer:3210"
+      OFF_LOOKUP_SEARCH_INDEXER_TOKEN: "${SEARCH_INDEXER_INTERNAL_TOKEN:-dispensa-internal-dev}"
+      OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS: "700"
+      OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS: "1200"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on: { mongodb: { condition: service_healthy } }
     healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"], interval: 10s, timeout: 3s, retries: 5, start_period: 10s }
