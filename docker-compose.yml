@@ -149,7 +149,9 @@ services:
     restart: unless-stopped
     networks: [data]
 
-  off-mongodb-index-init:
+  # One-shot migration for existing dumps: the text index is no longer needed because
+  # OpenSearch is the sole text-search engine. The barcode/code index remains.
+  off-mongodb-index-maintenance:
     image: mongo:8
     cpus: 1.0
     mem_limit: 1g
@@ -159,8 +161,11 @@ services:
       - --quiet
       - --eval
       - >-
+        const idx=db.products.getIndexes();
+        const keywords=idx.find(i=>i.name==="keywords_1" || (i.key && i.key._keywords===1));
+        if(keywords){print("Dropping obsolete Mongo text index "+keywords.name);db.products.dropIndex(keywords.name);}
+        else{print("Mongo text index already absent");}
         db.products.createIndex({code:1},{name:"code_1"});
-        db.products.createIndex({_keywords:1},{name:"keywords_1"});
     depends_on:
       mongodb: { condition: service_healthy }
     restart: "no"
@@ -639,14 +644,16 @@ services:
       OFF_LOOKUP_SOURCE_URL: "http://off-lookup:3200"
       OFF_LOOKUP_SOURCE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
       OFF_LOOKUP_SOURCE_TIMEOUT_MS: "3000"
-      OFF_SEARCH_BOOTSTRAP_ENABLED: "false"
+      OFF_SEARCH_BOOTSTRAP_ENABLED: "true"
       OFF_SEARCH_BOOTSTRAP_BATCH_SIZE: "500"
       OFF_SEARCH_BOOTSTRAP_BATCH_DELAY_MS: "500"
       OFF_SEARCH_BOOTSTRAP_MAX_BATCHES_PER_RUN: "50"
       OFF_SEARCH_BOOTSTRAP_DELAY_MS: "3000"
       OFF_SEARCH_BOOTSTRAP_RETRY_MS: "30000"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
-    depends_on: { opensearch: { condition: service_healthy } }
+    depends_on:
+      opensearch: { condition: service_healthy }
+      off-lookup: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
@@ -669,11 +676,10 @@ services:
       OFF_LOOKUP_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
       OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS: "700"
       OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS: "1200"
-      OFF_LOOKUP_MONGO_SEARCH_TIMEOUT_MS: "3000"
       OFF_LOOKUP_MONGO_SOURCE_TIMEOUT_MS: "10000"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on:
-      off-mongodb-index-init: { condition: service_completed_successfully }
+      off-mongodb-index-maintenance: { condition: service_completed_successfully }
     healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:3200/health/live"], interval: 10s, timeout: 3s, retries: 5, start_period: 10s }
     restart: unless-stopped
     networks: [backend, data, egress]
