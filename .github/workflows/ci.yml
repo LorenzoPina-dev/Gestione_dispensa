@@ -44,6 +44,66 @@ jobs:
           docker compose up -d --wait --wait-timeout 240
           docker compose ps
           test "$(docker compose ps --status running --services | wc -l)" -ge 20
+      - name: OFF search architecture smoke
+        run: |
+          docker compose exec -T mongodb mongosh --quiet --eval '
+            const dbRef = db.getSiblingDB("off_lookup_db");
+            dbRef.products.updateOne(
+              { code: "80000000000001" },
+              { $set: {
+                  code: "80000000000001",
+                  product_name: "Golia Test",
+                  product_name_it: "Golia Test",
+                  brands: "Perfetti Test",
+                  category: "confectionery-candy",
+                  categories_tags: ["en:candies", "en:confectioneries"],
+                  quantity: "40 g",
+                  product_quantity: 40,
+                  product_quantity_unit: "g",
+                  completeness: 0.99,
+                  popularity_key: 999
+                } },
+              { upsert: true }
+            );
+          '
+          docker compose exec -T search-indexer node --input-type=module -e '
+            const token = process.env.SEARCH_INDEXER_INTERNAL_TOKEN ?? "dispensa-internal-dev";
+            const headers = { "authorization": `Bearer ${token}`, "accept": "application/json" };
+            const start = await fetch("http://127.0.0.1:3210/api/v1/off/products/reindex", { method: "POST", headers });
+            if (start.status !== 202) {
+              console.error("reindex start status", start.status, await start.text());
+              process.exit(1);
+            }
+            for (let i = 0; i < 60; i++) {
+              const status = await fetch("http://127.0.0.1:3210/api/v1/off/index/status", { headers });
+              const body = await status.json();
+              if (status.ok && body.documentCount > 0 && body.rebuilding === false) process.exit(0);
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            console.error("search index did not finish rebuilding");
+            process.exit(1);
+          '
+          docker compose exec -T off-lookup node --input-type=module -e '
+            const result = await fetch("http://127.0.0.1:3200/api/v1/search?q=Golia%20Test&limit=8", {
+              headers: { "accept": "application/json", "x-trace-id": "ci-search-smoke" }
+            });
+            const body = await result.json();
+            if (result.status !== 200 || body.source !== "local" || !Array.isArray(body.items) || !body.items.some((item) => item.code === "80000000000001")) {
+              console.error("local search assertion failed", result.status, JSON.stringify(body));
+              process.exit(1);
+            }
+          '
+          docker compose exec -T off-lookup node --input-type=module -e '
+            const result = await fetch("http://127.0.0.1:3200/api/v1/products/80000000000001", {
+              headers: { "accept": "application/json" }
+            });
+            const body = await result.json();
+            if (result.status !== 200 || body.source !== "cache" || body.product?.product_name !== "Golia Test") {
+              console.error("mongo barcode assertion failed", result.status, JSON.stringify(body));
+              process.exit(1);
+            }
+          '
+
       - name: Show service logs on startup failure
         if: failure()
         run: docker compose logs --tail=200
