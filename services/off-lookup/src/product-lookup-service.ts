@@ -266,3 +266,66 @@ export class ProductLookupService {
     return { outcome: "hit", source: "cache", product: cached };
   }
 }
+
+function rankMongoSearchHits(
+  query: string,
+  items: readonly { code: string; product: Record<string, unknown> }[],
+  limit: number,
+): readonly { code: string; product: Record<string, unknown>; score: number }[] {
+  const normalizedQuery = normalizeSearchText(query);
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+
+  return items
+    .map((item) => {
+      const product = item.product;
+      const name = normalizeSearchText(firstString(product.product_name_it, product.product_name_en, product.product_name) ?? "");
+      const brand = normalizeSearchText(firstString(product.brands) ?? "");
+      const category = normalizeSearchText(firstString(product.category) ?? "");
+      const nameTokens = new Set(name.split(" ").filter(Boolean));
+
+      const exact = name === normalizedQuery ? 10000 : 0;
+      const prefix = name.startsWith(normalizedQuery) ? 3000 : 0;
+      const contains = name.includes(normalizedQuery) ? 1500 : 0;
+      const allTokens = queryTokens.every((token) => nameTokens.has(token)) ? 1000 : 0;
+      const tokenMatches = queryTokens.filter((token) => nameTokens.has(token)).length * 150;
+      const brandMatch = brand.includes(normalizedQuery) ? 250 : 0;
+      const categoryMatch = category.includes(normalizedQuery) ? 50 : 0;
+
+      return {
+        code: item.code,
+        product,
+        score: exact + prefix + contains + allTokens + tokenMatches + brandMatch + categoryMatch,
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20));
+}
+
+function mergeSearchHits(
+  primary: readonly { code: string; product: Record<string, unknown>; score: number }[],
+  secondary: readonly { code: string; product: Record<string, unknown>; score: number }[],
+  limit: number,
+): readonly { code: string; product: Record<string, unknown>; score: number }[] {
+  const byCode = new Map<string, { code: string; product: Record<string, unknown>; score: number }>();
+  for (const hit of [...primary, ...secondary]) {
+    const existing = byCode.get(hit.code);
+    if (existing === undefined || hit.score > existing.score) byCode.set(hit.code, hit);
+  }
+  return [...byCode.values()]
+    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .slice(0, Math.min(Math.max(Math.floor(limit), 1), 20));
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("it-IT")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
+}
