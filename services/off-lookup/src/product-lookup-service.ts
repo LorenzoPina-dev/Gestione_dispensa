@@ -102,14 +102,15 @@ export class ProductLookupService {
       // cache copy, while OpenSearch receives the compact searchable projection used by future
       // text searches. The live response never waits for either write.
       for (const hit of external.hits) {
-        void this.repository.upsertFromLiveApi(hit.code, hit.product)
-          .then(() => this.indexProductAsync(hit.code, hit.product))
-          .catch((error: unknown) => {
-            log("error", "search_result_cache_write_failed", {
-              code: hit.code,
-              error: error instanceof Error ? error.message : "unknown",
-            });
+        // Keep Mongo as the complete cache/source of truth when available, but do not make
+        // OpenSearch population depend on Mongo write latency or availability.
+        void this.repository.upsertFromLiveApi(hit.code, hit.product).catch((error: unknown) => {
+          log("error", "search_result_cache_write_failed", {
+            code: hit.code,
+            error: error instanceof Error ? error.message : "unknown",
           });
+        });
+        this.indexProductAsync(hit.code, hit.product);
       }
 
       return result;
