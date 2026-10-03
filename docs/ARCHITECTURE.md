@@ -31,3 +31,147 @@ Gateway: routing, auth context, correlation, rate limiting, error normalization 
 HTTP è usato per operazioni immediate; eventi/job per OCR, vision, shelf-life, enrichment, notifiche e indicizzazione. Redis Streams è transport, non source of truth: Outbox e DB di dominio restano autorevoli.
 
 Le mutazioni locali sono transazionali. Gli eventi usano Outbox Pattern, consumer idempotenti, retry bounded e DLQ. Non si usano transazioni distribuite.
+
+## OFF product search architecture
+
+La ricerca dei prodotti Open Food Facts è una capability locale-first e non deve dipendere da una chiamata HTTP esterna per ogni carattere digitato.
+
+### Ownership
+
+| Componente | Owner | Stato dei dati | Ruolo |
+|---|---|---|---|
+| MongoDB `off_lookup_db.products` | `off-lookup` | autorevole per il corpus OFF locale/cache | documenti OFF completi |
+| OpenSearch indice `off-products-v1` | `search-indexer` | projection ricostruibile | ricerca e ranking |
+| Search-a-licious / Search OFF | provider esterno, chiamato da `off-lookup` | non autorevole | fallback per query non presenti localmente |
+| Catalog PostgreSQL | `service-catalog` | autorevole per il catalogo applicativo | normalizzazione/persistenza del prodotto selezionato |
+| Inventory PostgreSQL | `service-inventory` | autorevole per la scorta | quantità, lotto, posizione, scadenza |
+
+Nessun client browser accede direttamente a MongoDB, OpenSearch o al provider OFF.
+
+### Flusso di ricerca per nome
+
+```text
+Browser
+  -> Gateway
+    -> Catalog
+      -> off-lookup
+        -> OpenSearch
+             |-- hit -> risultati locali ranked
+             '-- miss/unavailable -> Search-a-licious
+                                      -> risultati fallback
+```
+
+La risposta contiene solamente i dati necessari alla scelta della confezione: codice, nome, marca, categoria, quantità/confezione, immagine, riepilogo nutrizionale e segnali tecnici di completezza/popolarità. Il JSON OFF completo non viene trasferito durante la digitazione.
+
+### Selezione di un risultato
+
+La selezione usa il codice EAN/GTIN come identificatore stabile e riusa il contratto barcode:
+
+```text
+risultato selezionato
+  -> code
+    -> POST /catalog/barcodes/resolve
+       -> Catalog PostgreSQL
+          |-- hit -> prodotto applicativo locale
+          '-- miss -> off-lookup
+                    -> MongoDB exact code
+                       |-- hit -> documento OFF completo
+                       '-- miss -> OFF API v3
+                                  -> MongoDB upsert
+                                  -> OpenSearch async upsert
+                       -> Catalog persistExternalMatch
+  -> UI candidate/confirm
+  -> Inventory add
+```
+
+L'indice OpenSearch non è mai la fonte dei dati completi. Se un codice arriva dal provider fallback ma non è ancora in Mongo, il recupero completo avviene tramite il normale flusso barcode e l'indice viene aggiornato in modalità best-effort.
+
+### Projection document
+
+Il documento indicizzato è deliberatamente piccolo:
+
+```json
+{
+  "code": "8000000000000",
+  "name": "Golia",
+  "nameExact": "golia",
+  "brand": "Perfetti",
+  "brandExact": "perfetti",
+  "category": "confectionery-candy",
+  "categoriesTags": ["en:candies"],
+  "quantityLabel": "40 g",
+  "imageUrl": "https://...",
+  "productQuantity": 40,
+  "productQuantityUnit": "g",
+  "calories": 390,
+  "protein": 0,
+  "carbs": 96,
+  "fat": 0,
+  "fiber": 0,
+  "popularityKey": 123,
+  "completeness": 0.95,
+  "searchText": "Golia Perfetti confectionery-candy en:candies 40 g"
+}
+```
+
+Il documento di projection può essere eliminato e ricostruito in qualsiasi momento dal corpus Mongo; la perdita dell'indice non implica perdita di dati di dominio.
+
+### Mapping e ranking
+
+OpenSearch usa analisi lower-case + ASCII folding. Il recupero locale combina:
+
+- corrispondenza esatta del nome;
+- prefisso del nome;
+- phrase match;
+- token match con fuzziness automatica;
+- marca e testo secondario.
+
+Dopo il recupero iniziale viene applicato un ranking deterministico con segnali lexicali, completezza e popolarità. Questo ranking è la baseline verificabile e il punto di ingresso per un futuro reranker ML.
+
+Il ranking non è una raccomandazione personalizzata e non contiene dati personali.
+
+### Profilazione e ML futuri
+
+La capability futura deve mantenere separati:
+
+```text
+OpenSearch top-N
+   -> feature enrichment
+      -> profile/ranking service
+         -> ML reranker
+            -> top-K UI
+```
+
+Gli eventi da raccogliere sono almeno `search_started`, `search_result_shown`, `product_clicked`, `product_confirmed` e `product_added`. Il profilo utente/famiglia e tali eventi non entrano nei documenti OFF. Un primo modello ammesso è un ranker tabulare; la ricerca semantica/hybrid è una fase successiva e non sostituisce l'accuratezza lexical di EAN/nome.
+
+### Soglie operative
+
+- debounce client: 250-400 ms;
+- query minima: 3 caratteri;
+- risultati UI: 8 di default;
+- recupero interno OpenSearch: fino a 5x il limite UI;
+- timeout ricerca off-lookup -> search-indexer: circa 700 ms;
+- fallback esterno solamente dopo miss/unavailable locale;
+- cache query in-process: 30 s, massimo 50 query per istanza;
+- sincronizzazione prodotto verso OpenSearch: asincrona e non bloccante;
+- bootstrap corpus: batch fino a 500 documenti;
+- reindex completo: operazione esplicita, mai durante ogni avvio.
+
+I valori sono configurabili e devono essere verificati con benchmark sul dataset e hardware reali prima di dichiarare SLO di latenza.
+
+### Rebuild e consistency
+
+`search-indexer` crea l'indice se assente. Quando l'indice è vuoto esegue il bootstrap paginato da `off-lookup`. I riavvii non devono ricostruire inutilmente milioni di documenti: il bootstrap automatico parte solamente quando l'indice è vuoto; una reindicizzazione completa è disponibile tramite endpoint interno di manutenzione.
+
+Ogni cache miss barcode che produce un documento in Mongo tenta anche l'upsert dell'elemento nell'indice. Se OpenSearch è indisponibile, il prodotto resta comunque persistito nel Mongo autorevole e il recupero successivo ripara l'indice.
+
+### Regole non negoziabili
+
+1. OpenSearch è una projection, non una source of truth.
+2. MongoDB resta il proprietario dei documenti OFF completi.
+3. Catalog non accede direttamente a MongoDB/OpenSearch.
+4. Browser e Gateway non accedono direttamente a MongoDB/OpenSearch.
+5. Search-a-licious non è il percorso principale durante la digitazione.
+6. La selezione di un risultato usa il codice barcode e riusa il flusso barcode.
+7. Nessun dato personalizzato viene scritto nel corpus OFF.
+8. Nessuna perdita temporanea dell'indice deve rendere irrecuperabili i prodotti.
