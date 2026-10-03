@@ -164,10 +164,11 @@ services:
         const collections=db.getCollectionNames();
         if(!collections.includes("products")){db.createCollection("products");print("Mongo products collection created");}
         const minCompleteness=0.7;
+        const dollar=String.fromCharCode(36);
         const qualityFilter={
-          $expr:{
-            $lt:[
-              {$convert:{input:"$completeness",to:"double",onError:-1,onNull:-1}},
+          [dollar+"expr"]:{
+            [dollar+"lt"]:[
+              {[dollar+"convert"]:{input:dollar+"completeness",to:"double",onError:-1,onNull:-1}},
               minCompleteness
             ]
           }
