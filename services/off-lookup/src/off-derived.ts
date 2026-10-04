@@ -182,7 +182,7 @@ export function resolveImages(
         const meta = record(value);
         const revision = meta ? scalar(meta.rev) : null;
         if (!meta || !revision) continue;
-        const imageId = scalar(meta.imgid); ?? (imageId ? scalar(record(images?.uploaded)?.[imageId] && record(record(images?.uploaded)?.[imageId])?.rev) : null);
+        const imageId = scalar(meta.imgid);
         const sizesSource =
           record(meta.sizes) ??
           (imageId ? record(record(images?.uploaded)?.[imageId])?.sizes as Record<string, unknown> | undefined : undefined) ??
