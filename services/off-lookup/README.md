@@ -80,9 +80,9 @@ The barcode path is intentionally **not** a completeness-gated cache lookup:
 
 ### Persisted vs derived image data
 
-The adapter treats image metadata and image URLs as different things. Current OFF schema versions can store selections below `images.selected.<type>.<language>`, while older dumps can expose `selected_images`. The adapter supports both forms. It uses the selected image's `imgid`/revision and the product barcode path to reconstruct the OFF image-server filenames. The official Product Opener implementation documents the directory split and selected filename format. urlOpen Food Facts Product Opener image implementationhttps://github.com/openfoodfacts/openfoodfacts-server/blob/main/lib/ProductOpener/Images.pm
+The adapter treats image metadata and image URLs as different things. Current OFF schema versions can store selections below `images.selected.<type>.<language>`, while older dumps can expose `selected_images`. The adapter supports both forms. It uses the selected image's `imgid`/revision and the product barcode path to reconstruct the OFF image-server filenames. The official Product Opener implementation documents the directory split and selected filename format. Open Food Facts Product Opener image implementation: https://github.com/openfoodfacts/openfoodfacts-server/blob/main/lib/ProductOpener/Images.pm
 
-The image bytes are never copied into the OFF MongoDB database by the lookup service. URLs are deterministic references to the OFF image server. This is consistent with the OFF server's own separation between persisted image metadata and generated image URLs. citeturn0search0turn0search1
+The image bytes are never copied into the OFF MongoDB database by the lookup service. URLs are deterministic references to the OFF image server. This is consistent with the OFF server's own separation between persisted image metadata and generated image URLs.
 
 ### API fallback policy
 
@@ -96,4 +96,4 @@ Do **not** interpret every absent optional field as an API failure. OFF products
 
 ### Important schema-version detail
 
-Open Food Facts changed the image structure in product schema 1002/API 3.3: uploaded and selected images are separated under the `images` structure. The adapter therefore supports both the newer nested structure and legacy `selected_images` documents instead of assuming one dump schema. citeturn0search2
+Open Food Facts changed the image structure in product schema 1002/API 3.3: uploaded and selected images are separated under the `images` structure. The adapter therefore supports both the newer nested structure and legacy `selected_images` documents instead of assuming one dump schema.
