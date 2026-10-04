@@ -65,7 +65,7 @@ async function checkHttp(url: string): Promise<number> {
     headers: { "User-Agent": "GestioneDispensa-OffImageIntegrationTest/1.0" },
   });
 
-  if (head.status !== 405) return head.status;
+  if (head.status >= 200 && head.status < 400) return head.status;
 
   const get = await fetch(url, {
     method: "GET",
