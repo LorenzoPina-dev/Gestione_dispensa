@@ -207,7 +207,7 @@ function makeImageUrl(
   if (size === null) return null;
 
   const file = `${encodeURIComponent(image.key)}.${image.revision}.${size}.jpg`;
-  return `${imagesBaseUrl.replace(/\\/+$/, "")}/${path}/${file}`;
+  return `${imagesBaseUrl.replace(/\/+$/, "")}/${path}/${file}`;
 }
 
 function productImagePath(code: string): string | null {
