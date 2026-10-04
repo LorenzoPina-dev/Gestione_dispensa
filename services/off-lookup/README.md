@@ -94,13 +94,13 @@ The image round-trip integration test validates real dump data instead of synthe
 4. compares the local image path/filename with the API-generated front-image URL;
 5. verifies that both the locally reconstructed URL and the API URL are reachable over HTTP.
 
-It is intentionally opt-in because it requires the real OFF dump and makes live HTTP requests:
+It is intentionally opt-in because it requires the real OFF dump and makes live HTTP requests. The repository runs this test in Docker so MongoDB stays private on the internal `data` network and is never exposed on the host:
 
 ```powershell
-$env:OFF_LOOKUP_IMAGE_INTEGRATION="1"
-$env:OFF_LOOKUP_IMAGE_TEST_LIMIT="10"
-npm run test:integration:images --workspace @gestione-dispensa/off-lookup
+npm.cmd run test:integration:images:docker --workspace @gestione-dispensa/off-lookup
 ```
+
+The Compose service is in the `integration` profile, so normal `docker compose up` does not start it. The test container joins both `data` (for `mongodb:27017`) and `egress` (for the live Open Food Facts HTTP endpoints).
 
 The test fails if no derivable front images are found, if the local URL disagrees with the API path, or if either image URL is not reachable. It does not silently convert a missing/invalid image into a passing test.
 
