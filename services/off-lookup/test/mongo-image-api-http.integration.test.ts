@@ -111,8 +111,22 @@ test(
         `Mongo collection ${mongoDb}.${mongoCollection} is empty. The integration test requires the OFF dump to be imported before running it.`,
       );
 
+      // Do not scan an arbitrary prefix of the dump: image-bearing products may appear far
+      // beyond the first N documents. Query the supported image schemas explicitly and only then
+      // inspect a bounded number of candidates.
+      const imageCandidateFilter = {
+        $or: [
+          { "images.selected.front": { $exists: true } },
+          { "selected_images.front": { $exists: true } },
+          { "images.front": { $exists: true } },
+          { "images.front_it": { $exists: true } },
+        ],
+      };
+
+      const imageCandidateCount = await collection.countDocuments(imageCandidateFilter);
+
       const cursor = collection.find(
-        {},
+        imageCandidateFilter,
         {
           projection: {
             _id: 0,
@@ -181,7 +195,7 @@ test(
 
       assert.ok(
         checked > 0,
-        `Mongo ${mongoDb}.${mongoCollection} contains ${totalDocuments} document(s) and ${barcodeDocuments} barcode-like document(s), but none exposes a derivable front image through the supported OFF image schemas.`,
+        `Mongo ${mongoDb}.${mongoCollection} contains ${totalDocuments} document(s), ${barcodeDocuments} barcode-like document(s), and ${imageCandidateCount} image candidate document(s), but none exposes a derivable front image through the supported OFF image schemas.`,
       );
       assert.deepEqual(
         failures,
