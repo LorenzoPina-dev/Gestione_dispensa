@@ -9,7 +9,7 @@ import { config } from "./config.js";
 import { deriveProductFields } from "./off-derived.js";
 import { log } from "./logger.js";
 
-const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_LOOKUP_MIN_COMPLETENESS", 0.7);
+const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_LOOKUP_MIN_COMPLETENESS", 0);
 
 /**
  * Local MongoDB store for Open Food Facts products.
@@ -157,8 +157,11 @@ export class MongoProductRepository implements ProductRepository {
 
   public async findByCode(code: string): Promise<ProductDocument | undefined> {
     return this.withCollection(async (collection) => {
+      const qualityFilter = MIN_OFF_COMPLETENESS > 0
+        ? { completeness: { $gte: MIN_OFF_COMPLETENESS } }
+        : {};
       const doc = await collection.findOne(
-        { code, completeness: { $gte: MIN_OFF_COMPLETENESS } },
+        { code, ...qualityFilter },
         { maxTimeMS: config.mongo.operationTimeoutMs },
       );
       if (doc === null) return undefined;
@@ -244,9 +247,12 @@ export class MongoProductRepository implements ProductRepository {
     const projection = SEARCH_PROJECTION;
 
     return this.withCollection(async (collection) => {
+      const qualityFilter = MIN_OFF_COMPLETENESS > 0
+        ? { completeness: { $gte: MIN_OFF_COMPLETENESS } }
+        : {};
       const filter = cursor
-        ? { code: { $gt: cursor }, completeness: { $gte: MIN_OFF_COMPLETENESS } }
-        : { completeness: { $gte: MIN_OFF_COMPLETENESS } };
+        ? { code: { $gt: cursor }, ...qualityFilter }
+        : qualityFilter;
       const docs = await collection
         .find(filter, { projection, maxTimeMS: config.mongo.sourceOperationTimeoutMs })
         .sort({ code: 1 })
