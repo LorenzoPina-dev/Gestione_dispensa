@@ -84,6 +84,26 @@ The adapter treats image metadata and image URLs as different things. Current OF
 
 The image bytes are never copied into the OFF MongoDB database by the lookup service. URLs are deterministic references to the OFF image server. This is consistent with the OFF server's own separation between persisted image metadata and generated image URLs.
 
+### Automatic Mongo → API → HTTP image verification
+
+The image round-trip integration test validates real dump data instead of synthetic fixtures:
+
+1. reads products with front-image metadata directly from the configured Mongo dump;
+2. derives the local `image_front_url` from the persisted metadata;
+3. calls the live OFF v3 API with `generate_images_urls=1`;
+4. compares the local image path/filename with the API-generated front-image URL;
+5. verifies that both the locally reconstructed URL and the API URL are reachable over HTTP.
+
+It is intentionally opt-in because it requires the real OFF dump and makes live HTTP requests:
+
+```powershell
+$env:OFF_LOOKUP_IMAGE_INTEGRATION="1"
+$env:OFF_LOOKUP_IMAGE_TEST_LIMIT="10"
+npm run test:integration:images --workspace @gestione-dispensa/off-lookup
+```
+
+The test fails if no derivable front images are found, if the local URL disagrees with the API path, or if either image URL is not reachable. It does not silently convert a missing/invalid image into a passing test.
+
 ### API fallback policy
 
 `OFF_LOOKUP_REMOTE_ENRICHMENT=missing` is the recommended mode. Its default required field is `name`, because a product without any usable name cannot be presented safely. Additional fields can be declared with `OFF_LOOKUP_REQUIRED_LOCAL_FIELDS`, for example:
