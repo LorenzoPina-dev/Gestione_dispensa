@@ -82,9 +82,9 @@ export function toOffApiView(
       storedSelectedUrl(legacySelected, kind, "thumb", languageOrder),
     );
 
-    derived[`image_${kind}_url`] = display;
-    derived[`image_${kind}_small_url`] = small;
-    derived[`image_${kind}_thumb_url`] = thumb;
+    derived[`image_${kind}_url` as keyof OffApiViewImages] = display;
+    derived[`image_${kind}_small_url` as keyof OffApiViewImages] = small;
+    derived[`image_${kind}_thumb_url` as keyof OffApiViewImages] = thumb;
   }
 
   derived.image_url = derived.image_front_url ?? getString(current, "image_url") ?? null;
