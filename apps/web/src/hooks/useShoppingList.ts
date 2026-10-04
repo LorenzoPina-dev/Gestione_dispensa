@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ShoppingList, ShoppingItemState as UiItemState } from "../types";
+import type { ShoppingItem, ShoppingList } from "../types";
 import * as api from "../api/endpoints";
+import type { ShoppingItemPatch } from "../api/endpoints";
 import { ApiError, isBackendUnreachable, isNotFound } from "../api/client";
 import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
 import { mapActiveShoppingListDtoToUi } from "../api/mappers";
@@ -14,30 +15,54 @@ import {
   beginShoppingBatchAction,
   resolveShoppingBatchResult,
 } from "../domain/shopping-workflow";
+import { normalizeUnit } from "../domain/units";
 
 export type SetShoppingList = React.Dispatch<React.SetStateAction<ShoppingList>>;
 
 export interface UseShoppingListResult {
   list: ShoppingList;
   setList: SetShoppingList;
+  /** Re-reads the active list from the server and makes it the new sync baseline (no re-POSTs). */
+  refresh: () => Promise<void>;
   isDemo: boolean;
   loading: boolean;
   demoReason: string | null;
 }
 
+const EMPTY_LIST: ShoppingList = { id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] };
+
+/** Session-only data the server does not store (who added what) plus optimistic→server ids. */
+interface LocalMeta {
+  attribution: Map<string, { addedBy?: string; addedAt?: string }>;
+  idMap: Map<string, string>;
+  listId?: string;
+  lastEditedBy?: string;
+  lastEditedAt?: string;
+}
+
+interface SyncContext {
+  meta: LocalMeta;
+  refresh: () => Promise<void>;
+}
+
 /**
- * Loads `GET /api/v1/shopping/lists/active?familyId=...` and keeps it in sync the same way
- * `useInventory` does: pages call `setList(updater)` exactly like React state, and this hook
- * diffs the before/after lists to work out which endpoint to call — add item, a single item's
- * state change (`PATCH .../items/{id}`, with the item's `version` as `If-Match`), or a
- * batch-action when several items change to the same state at once (Spesa.tsx's "accetta
- * selezionati").
+ * Keeps the active shopping list in sync with Shopping through the gateway.
  *
- * @param familyId See the matching parameter on `useInventory`.
+ * Same contract as `useInventory`: pages call `setList(updater)` like React state and this hook
+ * diffs the before/after lists to decide which endpoint to call:
+ *
+ *  - new item            -> POST   /shopping/lists/{id}/items  (source = manual|recipe|low_stock|offer)
+ *  - quantity/unit/check -> PATCH  /shopping/lists/{id}/items/{itemId}  (If-Match = item version)
+ *  - removed item        -> DELETE /shopping/lists/{id}/items/{itemId}   (If-Match = item version)
+ *
+ * Shopping persists one flag, so `COMPLETED` (in the cart) <-> `checked: true`; everything else on
+ * the server is "still to buy". Writes run one at a time (so If-Match versions stay consistent)
+ * and, once the queue is empty, the canonical list is reloaded: optimistic ids are replaced by
+ * server ids/versions. If the family has no open list yet, the first write creates it.
  */
 export function useShoppingList(familyId?: string | null, initialList?: ShoppingList | null): UseShoppingListResult {
   const effectiveFamilyId = familyId ?? DEFAULT_FAMILY_ID ?? null;
-  const [list, setListState] = useState<ShoppingList>({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
+  const [list, setListState] = useState<ShoppingList>(EMPTY_LIST);
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [demoReason, setDemoReason] = useState<string | null>(null);
@@ -47,20 +72,58 @@ export function useShoppingList(familyId?: string | null, initialList?: Shopping
   familyIdRef.current = effectiveFamilyId;
   const prevListRef = useRef<ShoppingList | null>(null);
   const hydrationTargetRef = useRef<ShoppingList | null>(null);
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRef = useRef(0);
+  const metaRef = useRef<LocalMeta>({ attribution: new Map(), idMap: new Map() });
+
+  /** Installs a server-side list as the sync baseline, re-attaching session-only attribution. */
+  const hydrate = useCallback((next: ShoppingList) => {
+    const meta = metaRef.current;
+    const decorated: ShoppingList = {
+      ...next,
+      items: next.items.map((item) => {
+        const local = meta.attribution.get(item.id);
+        return local ? { ...item, addedBy: item.addedBy ?? local.addedBy, addedAt: item.addedAt ?? local.addedAt } : item;
+      }),
+      lastEditedBy: next.lastEditedBy ?? meta.lastEditedBy,
+      lastEditedAt: next.lastEditedAt ?? meta.lastEditedAt,
+    };
+    meta.idMap.clear();
+    if (decorated.id) meta.listId = decorated.id;
+    hydrationTargetRef.current = decorated;
+    prevListRef.current = decorated;
+    setListState(decorated);
+  }, []);
+
+  const loadCanonical = useCallback(async (family: string): Promise<ShoppingList | null> => {
+    try {
+      return mapActiveShoppingListDtoToUi(await api.getActiveShoppingList(family));
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    const family = familyIdRef.current;
+    if (!family) return;
+    await queueRef.current; // let in-flight writes land first
+    const next = await loadCanonical(family);
+    hydrate(next ?? EMPTY_LIST);
+  }, [hydrate, loadCanonical]);
 
   useEffect(() => {
     if (initialList !== undefined) {
-      // Composite hydration is the authoritative remote baseline.
-      hydrationTargetRef.current = initialList;
-      prevListRef.current = initialList;
-      setListState(initialList ?? { id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
+      // Composite hydration is the authoritative remote baseline, but never clobber edits in flight.
+      if (pendingRef.current > 0) return;
+      hydrate(initialList ?? EMPTY_LIST);
       setIsDemo(false);
       setDemoReason(null);
       setLoading(false);
       return;
     }
     if (!effectiveFamilyId) {
-      setListState({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
+      hydrate(EMPTY_LIST);
       setIsDemo(false);
       setDemoReason("Nessuna famiglia attiva");
       setLoading(false);
@@ -70,33 +133,17 @@ export function useShoppingList(familyId?: string | null, initialList?: Shopping
     setLoading(true);
     (async () => {
       try {
-        const dto = await api.getActiveShoppingList(effectiveFamilyId);
+        const next = await loadCanonical(effectiveFamilyId);
         if (cancelled) return;
-        setListState(mapActiveShoppingListDtoToUi(dto));
+        // No open list yet is a legitimate empty state; the first write creates one.
+        hydrate(next ?? EMPTY_LIST);
         setIsDemo(false);
         setDemoReason(null);
       } catch (err) {
-        if (isNotFound(err)) {
-          // No active list yet for this family — legitimate empty state, not a failure. Create
-          // one so the UI has a real (non-demo) list to add items to.
-          try {
-            const created = await api.createShoppingList(effectiveFamilyId, "Spesa settimanale");
-            if (cancelled) return;
-            setListState({ id: created.id, name: created.name, status: created.status, version: created.version, items: [] });
-            setIsDemo(false);
-            setDemoReason(null);
-          } catch (createErr) {
-            if (cancelled) return;
-            setListState({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
-            setIsDemo(false);
-            setDemoReason(describeError(createErr));
-          }
-        } else {
-          if (cancelled) return;
-          setListState({ id: "", name: "Spesa", status: "ACTIVE", version: 0, items: [] });
-          setIsDemo(false);
-          setDemoReason(describeError(err));
-        }
+        if (cancelled) return;
+        hydrate(EMPTY_LIST);
+        setIsDemo(false);
+        setDemoReason(describeError(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -104,187 +151,212 @@ export function useShoppingList(familyId?: string | null, initialList?: Shopping
     return () => {
       cancelled = true;
     };
-  }, [effectiveFamilyId, initialList]);
+  }, [effectiveFamilyId, initialList, hydrate, loadCanonical]);
 
+  const enqueue = useCallback((task: () => Promise<void>) => {
+    pendingRef.current += 1;
+    queueRef.current = queueRef.current
+      .then(task)
+      .catch(() => undefined)
+      .then(async () => {
+        pendingRef.current -= 1;
+        if (pendingRef.current !== 0) return;
+        const family = familyIdRef.current;
+        if (!family) return;
+        const reload = async () => {
+          const canonical = await loadCanonical(family);
+          if (pendingRef.current === 0 && canonical) hydrate(canonical);
+        };
+        try {
+          await reload();
+        } catch (err) {
+          reportIssue("Impossibile riallineare la lista della spesa con il server.", err, reload);
+        }
+      });
+  }, [hydrate, loadCanonical]);
+
+  // Side effects live OUTSIDE the state updater so StrictMode cannot duplicate network writes.
   useEffect(() => {
-    // Wait for the exact remote object to become committed before treating list changes
-    // as user mutations. This also keeps React StrictMode from duplicating writes.
     if (hydrationTargetRef.current !== null) {
       if (list !== hydrationTargetRef.current) return;
       hydrationTargetRef.current = null;
       prevListRef.current = list;
       return;
     }
-
     const prev = prevListRef.current;
     if (prev === null || prev === list) return;
     prevListRef.current = list;
     const family = familyIdRef.current;
     if (isDemoRef.current || !family) return;
-    void syncShoppingDiff(family, prev, list);
-  }, [list]);
+    metaRef.current.lastEditedBy = list.lastEditedBy;
+    metaRef.current.lastEditedAt = list.lastEditedAt;
+    enqueue(() => syncShoppingDiff(family, prev, list, { meta: metaRef.current, refresh }));
+  }, [list, enqueue, refresh]);
 
   const setList = useCallback<SetShoppingList>((updater) => {
-    // Pure state update. Synchronization happens after commit, outside the updater,
-    // so React StrictMode cannot duplicate the network mutation.
     setListState((prev) =>
-      typeof updater === "function"
-        ? (updater as (p: ShoppingList) => ShoppingList)(prev)
-        : updater,
+      typeof updater === "function" ? (updater as (p: ShoppingList) => ShoppingList)(prev) : updater,
     );
   }, []);
 
-  return { list, setList, isDemo, loading, demoReason };
+  return { list, setList, refresh, isDemo, loading, demoReason };
 }
 
-async function syncShoppingDiff(familyId: string, prev: ShoppingList, next: ShoppingList): Promise<void> {
-  const listId = next.id;
+async function resolveListId(familyId: string, known: string, ctx: SyncContext): Promise<string> {
+  const existing = known || ctx.meta.listId;
+  if (existing) return existing;
+  let listId: string;
+  try {
+    listId = (await api.getActiveShoppingList(familyId)).list.listId;
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+    listId = (await api.createShoppingList(familyId, "Spesa settimanale")).id;
+  }
+  ctx.meta.listId = listId;
+  return listId;
+}
+
+interface PendingUpdate {
+  item: ShoppingItem;
+  before: ShoppingItem;
+  patch: ShoppingItemPatch;
+}
+
+function diffItem(before: ShoppingItem, item: ShoppingItem): ShoppingItemPatch | null {
+  const patch: ShoppingItemPatch = {};
+  if (item.displayName !== before.displayName) patch.label = item.displayName;
+  if (item.quantity !== before.quantity) patch.quantity = item.quantity;
+  if (normalizeUnit(item.unit) !== normalizeUnit(before.unit)) patch.unit = normalizeUnit(item.unit);
+  if ((item.state === "COMPLETED") !== (before.state === "COMPLETED")) patch.checked = item.state === "COMPLETED";
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+async function syncShoppingDiff(familyId: string, prev: ShoppingList, next: ShoppingList, ctx: SyncContext): Promise<void> {
   const prevById = new Map(prev.items.map((item) => [item.id, item]));
   const nextById = new Map(next.items.map((item) => [item.id, item]));
+  const knownListId = next.id || prev.id;
 
-  const created = next.items.filter((item) => !prevById.has(item.id));
-  for (const item of created) {
-    const input = {
-      displayName: item.displayName,
-      quantity: item.quantity,
-      unit: item.unit as import("../api/types.js").InventoryUnit,
-      sourceType: item.sourceType as import("../api/types.js").ShoppingSourceType,
+  for (const item of next.items.filter((i) => !prevById.has(i.id))) {
+    const create = async () => {
+      const listId = await resolveListId(familyId, knownListId, ctx);
+      const dto = await api.addShoppingItem(familyId, listId, {
+        displayName: item.displayName,
+        quantity: item.quantity,
+        unit: normalizeUnit(item.unit),
+        sourceType: item.sourceType,
+        ...(item.productId ? { productId: item.productId } : {}),
+        ...(item.sourceRef ? { sourceRef: item.sourceRef } : {}),
+        // Stable per optimistic id: a retry replays instead of creating a duplicate.
+        idempotencyKey: `shopping-add:${familyId}:${item.id}`,
+      });
+      ctx.meta.idMap.set(item.id, dto.itemId);
+      ctx.meta.attribution.set(dto.itemId, { addedBy: item.addedBy, addedAt: item.addedAt });
     };
-    await api
-      .addShoppingItem(familyId, listId, input)
-      .catch((err) =>
-        reportIssue(
-          "shopping",
-          `Aggiunta di "${item.displayName}" non salvata sul server.`,
-          err,
-          () => api.addShoppingItem(familyId, listId, input).then(() => undefined),
-        ),
-      );
+    await create().catch((err) =>
+      reportIssue(`Aggiunta di "${item.displayName}" non salvata sul server.`, err, () => create().then(ctx.refresh)),
+    );
   }
 
-  const changed: { id: string; from: UiItemState; to: UiItemState; version: number }[] = [];
+  const updates: PendingUpdate[] = [];
   for (const item of next.items) {
     const before = prevById.get(item.id);
-    if (before && before.state !== item.state) {
-      changed.push({ id: item.id, from: before.state, to: item.state, version: before.version });
-    }
+    if (!before) continue;
+    const patch = diffItem(before, item);
+    if (patch) updates.push({ item, before, patch });
   }
 
-  if (changed.length > 1) {
-    const targetState = changed[0].to;
-    const allSameTarget = changed.every((c) => c.to === targetState);
-    if (allSameTarget) {
-      await syncBatch(familyId, listId, changed.map((c) => ({ itemId: c.id, version: c.version })), targetState, next.version);
-    } else {
-      for (const c of changed) await syncSingle(familyId, listId, c.id, c.to, c.version);
-    }
-  } else if (changed.length === 1) {
-    const [c] = changed;
-    await syncSingle(familyId, listId, c.id, c.to, c.version);
+  const onlyChecked = updates.length > 1 && updates.every((u) => Object.keys(u.patch).length === 1 && u.patch.checked !== undefined);
+  const sameTarget = onlyChecked && updates.every((u) => u.patch.checked === updates[0]?.patch.checked);
+  if (sameTarget) {
+    await syncBatch(familyId, knownListId || ctx.meta.listId || "", updates, ctx);
+  } else {
+    for (const update of updates) await syncPatch(familyId, knownListId || ctx.meta.listId || "", update, ctx);
   }
 
   for (const item of prev.items) {
-    if (!nextById.has(item.id)) {
-      await api.deleteShoppingItem(familyId, listId, item.id, item.version).catch((err) =>
-        reportIssue(
-          "shopping",
-          `Rimozione di "${item.displayName}" non salvata sul server.`,
-          err,
-          () => api.deleteShoppingItem(familyId, listId, item.id, item.version),
-        ),
-      );
-    }
+    if (nextById.has(item.id)) continue;
+    const remove = async () => {
+      const serverId = ctx.meta.idMap.get(item.id) ?? item.id;
+      await api.deleteShoppingItem(familyId, knownListId || ctx.meta.listId || "", serverId, item.version, `shopping-delete:${serverId}:${item.version}`);
+    };
+    await remove().catch((err) =>
+      reportIssue(`Rimozione di "${item.displayName}" non salvata sul server.`, err, () => remove().then(ctx.refresh)),
+    );
   }
 }
 
-async function syncSingle(
-  familyId: string,
-  listId: string,
-  itemId: string,
-  state: UiItemState,
-  version: number,
-): Promise<void> {
-  const action: ShoppingAction =
-    state === "ACCEPTED" ? "ACCEPT" : state === "SNOOZED" ? "SNOOZE" : state === "IGNORED" ? "REJECT" : "EDIT";
-  let journey = beginShoppingAction(action, version);
+function actionFor(patch: ShoppingItemPatch): ShoppingAction {
+  if (patch.checked === true) return "COMPLETE";
+  if (patch.checked === false && Object.keys(patch).length === 1) return "ACCEPT";
+  return "EDIT";
+}
+
+async function syncPatch(familyId: string, listId: string, update: PendingUpdate, ctx: SyncContext): Promise<void> {
+  const { item, before, patch } = update;
+  const serverId = ctx.meta.idMap.get(item.id) ?? item.id;
+  const send = () =>
+    api.updateShoppingItem(familyId, listId, serverId, before.version, patch, `shopping-update:${serverId}:${before.version}:${JSON.stringify(patch)}`);
+  let journey = beginShoppingAction(actionFor(patch), before.version);
   try {
-    await api.updateShoppingItemState(familyId, listId, itemId, version, state);
+    await send();
     journey = resolveShoppingResult(journey, "SUCCESS");
   } catch (err) {
     journey = resolveShoppingResult(journey, classifyOutcome(err));
-    reportIssue(
-      "shopping",
-      "Modifica di un articolo della spesa non salvata sul server.",
-      err,
-      () => api.updateShoppingItemState(familyId, listId, itemId, version, state).then(() => undefined),
-    );
+    reportIssue(`Modifica di "${item.displayName}" non salvata sul server.`, err, () => send().then(ctx.refresh));
   } finally {
     console.debug(`[shopping] ${journey.action}: ${journey.message}`);
   }
 }
 
-async function syncBatch(
-  familyId: string,
-  listId: string,
-  items: Array<{ itemId: string; version: number }>,
-  state: UiItemState,
-  listVersion: number,
-): Promise<void> {
-  const action = state === "ACCEPTED" ? "ACCEPT" : "REJECT";
-  let batch = beginShoppingBatchAction(action, items.map((item) => item.itemId), listVersion);
-  try {
+async function syncBatch(familyId: string, listId: string, updates: PendingUpdate[], ctx: SyncContext): Promise<void> {
+  const state = updates[0]?.patch.checked ? "COMPLETED" : "ACCEPTED";
+  const entries = updates.map((u) => ({ itemId: ctx.meta.idMap.get(u.item.id) ?? u.item.id, version: u.before.version }));
+  // Batch vocabulary only knows ACCEPT/REJECT; it is used for logging and partial-failure reporting.
+  let batch = beginShoppingBatchAction("ACCEPT", entries.map((e) => e.itemId), updates[0]?.item.version ?? 0);
+  const run = async (items: typeof entries) => {
     const result = await api.batchUpdateShoppingItems(familyId, listId, items, state);
-    batch = resolveShoppingBatchResult(
-      batch,
-      result.failedItemIds.length === 0
-        ? { outcome: "SUCCESS" }
-        : { outcome: "PARTIAL_SUCCESS", failedItemIds: result.failedItemIds },
-    );
     if (result.failedItemIds.length > 0) {
+      const failed = items.filter((e) => result.failedItemIds.includes(e.itemId));
+      batch = resolveShoppingBatchResult(batch, { outcome: "PARTIAL_SUCCESS", failedItemIds: result.failedItemIds });
       reportSyncIssue({
         domain: "shopping",
-        message: `${result.failedItemIds.length} articoli non aggiornati sul server.`,
+        message: `${failed.length} articoli non aggiornati sul server.`,
         retryable: true,
-        retry: () => syncBatch(familyId, listId, items.filter((item) => result.failedItemIds.includes(item.itemId)), state, listVersion),
+        retry: () => run(failed).then(ctx.refresh),
       });
+    } else {
+      batch = resolveShoppingBatchResult(batch, { outcome: "SUCCESS" });
     }
+  };
+  try {
+    await run(entries);
   } catch (err) {
     batch = resolveShoppingBatchResult(batch, { outcome: classifyOutcome(err) });
-    reportIssue(
-      "shopping",
-      `Azione su ${items.length} articoli non salvata sul server.`,
-      err,
-      () => syncBatch(familyId, listId, items, state, listVersion),
-    );
+    reportIssue(`Azione su ${entries.length} articoli non salvata sul server.`, err, () => run(entries).then(ctx.refresh));
   } finally {
     console.debug(`[shopping] batch ${batch.action}: ${batch.message}`);
   }
 }
 
-function reportIssue(
-  domain: "shopping",
-  message: string,
-  err: unknown,
-  retry: () => Promise<void>,
-): void {
-  logSyncFailure(message, err);
-  const conflict = err instanceof ApiError && err.code === "VERSION_CONFLICT";
-  reportSyncIssue({
-    domain,
-    message: conflict ? `${message} La lista è cambiata altrove: ricarica per vedere lo stato attuale.` : message,
-    retryable: !conflict,
-    retry,
-  });
+function isConflict(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 412 || err.code === "VERSION_CONFLICT" || err.code === "PRECONDITION_FAILED");
 }
 
 function classifyOutcome(err: unknown): "CONFLICT" | "RETRYABLE_ERROR" | "OFFLINE" {
   if (isBackendUnreachable(err)) return "OFFLINE";
-  if (err instanceof ApiError && err.code === "VERSION_CONFLICT") return "CONFLICT";
+  if (isConflict(err)) return "CONFLICT";
   return "RETRYABLE_ERROR";
 }
 
-function logSyncFailure(action: string, err: unknown): void {
-  console.warn(`[shopping] failed to sync "${action}" to the backend:`, err);
+function reportIssue(message: string, err: unknown, retry: () => Promise<void>): void {
+  console.warn(`[shopping] ${message}`, err);
+  const conflict = isConflict(err);
+  reportSyncIssue({
+    domain: "shopping",
+    message: conflict ? `${message} La lista è cambiata altrove: ricarica per vedere lo stato attuale.` : message,
+    retryable: !conflict,
+    retry,
+  });
 }
 
 function describeError(err: unknown): string {

@@ -16,9 +16,42 @@ function strEnv(name: string, fallback: string): string {
   return raw !== undefined && raw.trim().length > 0 ? raw : fallback;
 }
 
+function listEnv(name: string, fallback: readonly string[]): string[] {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim().length === 0) return [...fallback];
+  const items = raw.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+  return items.length > 0 ? items : [...fallback];
+}
+
+function oneOfEnv<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
+  const raw = process.env[name]?.trim();
+  return raw !== undefined && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
+}
+
 export const config = {
   port: numEnv("OFF_LOOKUP_PORT", 3200),
   internalToken: strEnv("OFF_LOOKUP_INTERNAL_TOKEN", "dispensa-internal-dev"),
+
+  // --- Local-first lookup policy ------------------------------------------------------------
+  lookup: {
+    // When is the live OFF API allowed to enrich a product that exists in the local dump?
+    //  - "missing": only if a field listed in requiredLocalFields is still missing AFTER local
+    //               derivation (default: the dump is the source of truth, the API is a fallback);
+    //  - "always":  legacy behaviour, one refresh pass for every product not yet enriched;
+    //  - "never":   the API is only used when the barcode is not in the local dump at all.
+    remoteEnrichment: oneOfEnv("OFF_LOOKUP_REMOTE_ENRICHMENT", ["missing", "always", "never"] as const, "missing"),
+    // Comma separated. Known names: name, image, quantity, nutriments, ingredients.
+    requiredLocalFields: listEnv("OFF_LOOKUP_REQUIRED_LOCAL_FIELDS", ["name"]),
+  },
+
+  // --- Derivation of API-only fields from the persisted dump (see off-derived.ts) ----------
+  derived: {
+    imagesBaseUrl: strEnv("OFF_IMAGES_BASE_URL", "https://images.openfoodfacts.org/images/products"),
+    // Language priority; it-IT is the product language of this project.
+    languages: listEnv("OFF_LOOKUP_LANGUAGES", ["it", "en"]),
+    imagePolicy: oneOfEnv("OFF_LOOKUP_DERIVED_IMAGE_POLICY", ["fill", "prefer"] as const, "fill"),
+    uploadFallback: oneOfEnv("OFF_LOOKUP_IMAGE_UPLOAD_FALLBACK", ["none", "newest"] as const, "none"),
+  },
 
   // --- MongoDB (local Open Food Facts dump + read-through cache) ---------------------------
   mongo: {

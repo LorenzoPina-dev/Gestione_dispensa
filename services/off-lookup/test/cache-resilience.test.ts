@@ -10,6 +10,11 @@ import { ProductLookupService } from "../src/product-lookup-service.js";
 
 const BARCODE = "8001234567890";
 
+// These tests cover the refresh machinery itself (merge, cooldown, coalescing, failure handling),
+// which is exercised by the legacy "refresh every product not yet enriched" mode. The default
+// local-first policy is covered in local-first-lookup.test.ts.
+const LEGACY = { remoteEnrichment: "always" } as const;
+
 function currentMeta(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     origin: "bulk-import",
@@ -120,6 +125,9 @@ describe("off-lookup resilient cache enrichment", () => {
         },
         isCircuitOpen: () => false,
       },
+      undefined,
+      undefined,
+      LEGACY,
     );
 
     const result = await service.lookup(BARCODE);
@@ -171,6 +179,9 @@ describe("off-lookup resilient cache enrichment", () => {
         },
         isCircuitOpen: () => false,
       },
+      undefined,
+      undefined,
+      LEGACY,
     );
 
     const result = await service.lookup(BARCODE);
@@ -214,6 +225,9 @@ describe("off-lookup resilient cache enrichment", () => {
         },
         isCircuitOpen: () => false,
       },
+      undefined,
+      undefined,
+      LEGACY,
     );
 
     const result = await service.lookup(BARCODE);
@@ -255,6 +269,9 @@ describe("off-lookup resilient cache enrichment", () => {
         },
         isCircuitOpen: () => false,
       },
+      undefined,
+      undefined,
+      LEGACY,
     );
 
     const result = await service.lookup(BARCODE);
@@ -299,6 +316,9 @@ describe("off-lookup resilient cache enrichment", () => {
         },
         isCircuitOpen: () => false,
       },
+      undefined,
+      undefined,
+      LEGACY,
     );
 
     const first = service.lookup(BARCODE);

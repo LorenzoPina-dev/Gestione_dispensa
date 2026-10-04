@@ -255,7 +255,7 @@ function CandidateView({ candidate, code, message, onCorrect, onConfirm }: { can
   const raw = candidate.openFoodFacts ?? {};
   const nutriments = isRecord(raw.nutriments) ? raw.nutriments : {};
   const frontImage = candidate.images?.front ?? candidate.photoUrl;
-  const imageEntries = Object.entries(candidate.images ?? {}).filter(([, value]) => typeof value === "string" && value.length > 0) as Array<[string, string]>;
+  const imageEntries = galleryImages(candidate.images);
 
   return (
     <div className="space-y-4">
@@ -308,7 +308,7 @@ function CandidateView({ candidate, code, message, onCorrect, onConfirm }: { can
   );
 }
 
-function OpenFoodFactsSection({ raw, images }: { raw: Record<string, unknown>; images: Array<[string, string]> }) {
+function OpenFoodFactsSection({ raw, images }: { raw: Record<string, unknown>; images: GalleryImage[] }) {
   const stringValue = (key: string) => typeof raw[key] === "string" ? raw[key] as string : undefined;
   const arrayValue = (key: string) => Array.isArray(raw[key]) ? (raw[key] as unknown[]).filter((v): v is string => typeof v === "string") : [];
 
@@ -331,10 +331,10 @@ function OpenFoodFactsSection({ raw, images }: { raw: Record<string, unknown>; i
         <div>
           <p className="text-xs font-semibold mb-2" style={{ color: "#6b5e4e" }}>Immagini disponibili</p>
           <div className="grid grid-cols-3 gap-2">
-            {images.map(([name, src]) => (
-              <a key={name} href={src} target="_blank" rel="noreferrer" className="block">
-                <img src={src} alt={name} className="w-full h-24 rounded-lg object-cover bg-white border" />
-                <span className="block text-[10px] mt-1 truncate" style={{ color: "#6b5e4e" }}>{humanizeOffKey(name)}</span>
+            {images.map(({ key, full, preview }) => (
+              <a key={key} href={full} target="_blank" rel="noreferrer" className="block">
+                <img src={preview} alt={key} loading="lazy" className="w-full h-24 rounded-lg object-cover bg-white border" />
+                <span className="block text-[10px] mt-1 truncate" style={{ color: "#6b5e4e" }}>{humanizeOffKey(key)}</span>
               </a>
             ))}
           </div>
@@ -378,6 +378,30 @@ function InfoCell({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-medium mt-0.5 break-words" style={{ color: "#1a1510" }}>{value}</p>
     </div>
   );
+}
+
+type GalleryImage = { key: string; full: string; preview: string };
+
+const GALLERY_KINDS = ["front", "ingredients", "nutrition", "packaging"] as const;
+
+/**
+ * One entry per image kind instead of one per rendition: the catalog stores front/frontSmall/
+ * frontThumb (and the same for the other kinds) but they are the same picture. The Small
+ * rendition is used as the on-screen thumbnail, the full one as the link target.
+ */
+function galleryImages(images: Candidate["images"]): GalleryImage[] {
+  if (!images) return [];
+  const pick = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
+  const result: GalleryImage[] = [];
+  for (const kind of GALLERY_KINDS) {
+    const full = pick(images[kind]);
+    const small = pick(images[`${kind}Small` as keyof typeof images]);
+    const thumb = pick(images[`${kind}Thumb` as keyof typeof images]);
+    const preview = small ?? thumb ?? full;
+    if (!preview) continue;
+    result.push({ key: kind, full: full ?? preview, preview });
+  }
+  return result;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -572,7 +596,7 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
               style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}
             >
               {item.imageUrl ? (
-                <img src={item.imageUrl} alt="" className="w-14 h-14 rounded-xl object-contain bg-white border" />
+                <img src={item.imageUrl} alt="" loading="lazy" className="w-14 h-14 rounded-xl object-contain bg-white border" />
               ) : (
                 <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#f5f0e8" }}>🍽️</div>
               )}

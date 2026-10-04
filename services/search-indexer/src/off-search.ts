@@ -3,7 +3,10 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
-export const OFF_SEARCH_PROJECTION_VERSION = 7;
+// v8: the stored preview image is now the 200px "front small" rendition (was the smallest
+// front thumbnail) and is also computed from `images.<key>.rev` when OFF has no direct URL.
+// Bumping the version makes OffSourceSync reset and rebuild the index from off-lookup.
+export const OFF_SEARCH_PROJECTION_VERSION = 8;
 export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
@@ -670,22 +673,33 @@ function firstImageUrl(product: Record<string, unknown>, code: string): string |
     collectImageCandidates(value, "other", candidates, () => order++);
   }
 
+  // The Mongo dump usually stores only `images.<key>.rev` (no URL), so the URL is derived from
+  // the barcode + key + rev. These compete with the direct/nested URLs on equal terms: what
+  // decides the winner is the size preference, not where the URL came from.
+  for (const source of [images, selectedImages]) {
+    for (const computed of computedImageCandidates(code, source)) {
+      candidates.push({ ...computed, order: order++ });
+    }
+  }
+
   const valid = candidates.filter((candidate) => candidate.url.length > 0);
   const fronts = valid.filter((candidate) => candidate.kind === "front");
-  if (fronts.length > 0) {
-    return [...fronts]
-      .sort((a, b) => a.size - b.size || a.order - b.order)[0]?.url ?? null;
-  }
+  return pickPreferredImage(fronts) ?? pickPreferredImage(valid);
+}
 
-  if (valid.length > 0) {
-    return [...valid]
-      .sort((a, b) => a.size - b.size || a.order - b.order)[0]?.url ?? null;
-  }
+// The search preview is rendered in a small square slot: the 200px OFF "small" rendition is the
+// right trade-off. 100px is the fallback, then bigger renditions.
+const PREVIEW_SIZE_PREFERENCE = [200, 100, 400, 800, 1024];
 
-  const computed = computedImageUrlFromImages(code, images);
-  if (computed) return computed;
+function sizeRank(size: number): number {
+  const index = PREVIEW_SIZE_PREFERENCE.indexOf(size);
+  return index === -1 ? PREVIEW_SIZE_PREFERENCE.length : index;
+}
 
-  return computedImageUrlFromImages(code, record(product.selected_images));
+function pickPreferredImage(candidates: readonly ImageCandidate[]): string | null {
+  if (candidates.length === 0) return null;
+  return [...candidates]
+    .sort((a, b) => sizeRank(a.size) - sizeRank(b.size) || a.order - b.order)[0]?.url ?? null;
 }
 
 function collectImageCandidates(
@@ -751,16 +765,22 @@ function sizeFromUrl(value: string): number | null {
   if (!match) return null;
   return Number(match[1]);
 }
-function computedImageUrlFromImages(
+function computedImageCandidates(
   code: string,
   images: Record<string, unknown> | undefined,
-): string | null {
-  if (!images) return null;
+): Array<Omit<ImageCandidate, "order">> {
+  if (!images) return [];
 
-  const digits = code.replace(/\D/g, "");
-  if (digits.length < 8 || digits.length > 14) return null;
-  const barcode = digits.padStart(13, "0");
-  const folder = `https://images.openfoodfacts.org/images/products/${barcode.slice(0, 3)}/${barcode.slice(3, 6)}/${barcode.slice(6, 9)}/${barcode.slice(9)}`;
+  const folder = openFoodFactsImageFolder(code);
+  if (!folder) return [];
+
+  // Language preference among front images: Italian, English, language-less, then any other.
+  const languageRank = (key: string): number => {
+    if (/^front_it$/i.test(key)) return 0;
+    if (/^front_en$/i.test(key)) return 1;
+    if (/^front$/i.test(key)) return 2;
+    return 3;
+  };
 
   const entries = Object.entries(images)
     .filter(([key, value]) => {
@@ -770,9 +790,10 @@ function computedImageUrlFromImages(
     .sort(([a], [b]) => {
       const frontA = /^front/i.test(a) ? 0 : 1;
       const frontB = /^front/i.test(b) ? 0 : 1;
-      return frontA - frontB || a.localeCompare(b);
+      return frontA - frontB || languageRank(a) - languageRank(b) || a.localeCompare(b);
     });
 
+  const output: Array<Omit<ImageCandidate, "order">> = [];
   for (const [key, value] of entries) {
     const object = record(value);
     if (!object) continue;
@@ -789,15 +810,41 @@ function computedImageUrlFromImages(
       ? Object.keys(sizes)
           .map((size) => Number(size))
           .filter((size) => Number.isFinite(size) && size > 0)
-          .sort((a, b) => a - b)
       : [];
 
-    const size = availableSizes[0] ?? 200;
-    const safeKey = encodeURIComponent(key);
-    return `${folder}/${safeKey}.${rev}.${size}.jpg`;
+    // OFF generates 100, 200 and 400 renditions. Use 200 when it is listed (or when the dump
+    // does not list sizes at all), otherwise the closest listed one.
+    const size = availableSizes.length === 0
+      ? 200
+      : [200, 100, 400].find((candidate) => availableSizes.includes(candidate))
+        ?? [...availableSizes].sort((a, b) => a - b)[0]!;
+
+    output.push({
+      url: `${folder}/${encodeURIComponent(key)}.${rev}.${size}.jpg`,
+      kind: /^front/i.test(key) ? "front" : "other",
+      size,
+    });
   }
 
-  return null;
+  return output;
+}
+
+/**
+ * Folder of a product on images.openfoodfacts.org (Product Opener `split_code`): barcodes with 9 or
+ * more digits are split as 3/3/3/rest, shorter ones (EAN-8) use the code itself. No padding.
+ * Same rule as off-lookup's derivation layer, which is the primary source of image URLs; this one
+ * is only the last-resort fallback for documents that reach the indexer without a direct URL.
+ */
+function openFoodFactsImageFolder(code: string): string | null {
+  const digits = code.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 14) return null;
+
+  const base = "https://images.openfoodfacts.org/images/products";
+  const match = /^(\d{3})(\d{3})(\d{3})(\d*)$/.exec(digits);
+  if (!match) return `${base}/${digits}`;
+  return match[4]
+    ? `${base}/${match[1]}/${match[2]}/${match[3]}/${match[4]}`
+    : `${base}/${match[1]}/${match[2]}/${match[3]}`;
 }
 
 function stringArray(value: unknown): string[] {

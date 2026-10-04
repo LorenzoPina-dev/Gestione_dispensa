@@ -100,7 +100,7 @@ export interface RecordMovementResultDto { stockItem?: StockItemDto; itemId: str
 export type ShoppingItemState = "SUGGESTED" | "ACCEPTED" | "SNOOZED" | "IGNORED" | "COMPLETED";
 export type ShoppingSourceType = "MANUAL" | "REORDER" | "OFFER" | "RECIPE";
 export interface ShoppingListDto { listId: string; name: string; status: "open" | "closed" | "archived"; itemCount?: number; version: number; familyId?: string; ownerUserId?: string; }
-export interface ShoppingItemDto { itemId: string; listId?: string; productId?: string; label: string; displayName?: string; quantity: number; unit: InventoryUnit; checked: boolean; state?: ShoppingItemState; sourceType?: ShoppingSourceType; sourceRef?: string; version: number; }
+export interface ShoppingItemDto { itemId: string; listId?: string; productId?: string | null; source?: string | null; label: string; displayName?: string; quantity: number; unit: InventoryUnit; checked: boolean; state?: ShoppingItemState; sourceType?: ShoppingSourceType; sourceRef?: string; version: number; }
 export interface ActiveShoppingListDto { list: ShoppingListDto; items: ShoppingItemDto[]; }
 export interface AddShoppingItemResultDto { item: ShoppingItemDto; merged: boolean; }
 export interface NotificationDto { notificationId?: string; id?: string; familyId?: string; type?: string; category?: "REORDER" | "INVITE" | "SYSTEM"; title: string; body: string; readAt?: string | null; createdAt: string; }
@@ -109,5 +109,12 @@ export interface RecipeIngredientDto { id?: string; productId?: string | null; n
 export interface RecipeDto { recipeId?: string; id?: string; title: string; source?: string; quality?: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN"; servings: number; timeMinutes?: number; difficulty?: "Facile" | "Medio" | "Difficile"; image?: string; tags?: string[]; caloriesPerServing?: number; steps: string[]; ingredients: RecipeIngredientDto[]; }
 export interface RecipeMatchDto { recipe: RecipeDto; score: number; matchedIngredientNames?: string[]; missingIngredients: RecipeIngredientDto[]; }
 export interface NutritionSummaryDto { caloriesKcal?: number; proteinG?: number; carbsG?: number; fatG?: number; period?: "today" | "week"; since?: string; totals?: { calories: number; protein: number; carbs: number; fat: number; fiber: number }; items?: Array<{ movementId: string; productId: string; productName: string; quantity: number; unit: string; occurredAt: string; nutrients: { calories: number; protein: number; carbs: number; fat: number; fiber: number }; confidence: "CONFIRMED" | "ESTIMATED" | "UNKNOWN" }>; }
+export interface StoreDto { storeId: string; name: string; chain: string | null; address: string | null; }
+export interface StoreOfferDto { offerId: string; productId: string; storeId: string; type: "percentage" | "fixed"; value: number; validFrom: string; validTo: string; }
+export interface CatalogProductRefDto { productId: string; name: string; brand?: string | null; category?: string | null; }
+export type OcrJobStatus = "queued" | "processing" | "completed" | "needs_review" | "failed" | "cancelled";
+export interface OcrJobDto { jobId: string; status: OcrJobStatus; type: "receipt" | "pantry_image"; progress: number; draftId: string | null; error: string | null; }
+export interface OcrDraftItemDto { name: string; barcode: string | null; quantity: number | null; unit: string | null; priceMinor: number | null; currency: string | null; confidence: number; productId?: string; }
+export interface OcrDraftDto { draftId: string; jobId: string; type: string; confidence: number; items: OcrDraftItemDto[]; }
 export interface ReadinessDto { status: "ready"; dependencies: Record<string, unknown>; }
 export interface MovementDto { id: string; stockItemId?: string; kind?: MovementKind; type?: string; quantity: number; unit: InventoryUnit; source?: string; reason?: string | null; actorId?: string; actorUserId?: string; actorName?: string; occurredAt: string; createdAt?: string; metadata?: Record<string, unknown>; }

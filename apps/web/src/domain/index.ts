@@ -5,4 +5,8 @@ export * from "./family-onboarding.js";
 export * from "./inventory-journey.js";
 export * from "./inventory-workflow.js";
 export * from "./shopping-journey.js";
+export * from "./units.js";
+export * from "./shopping-suggestions.js";
+export * from "./shopping-checkout.js";
+export * from "./receipt-scan.js";
 export * from "./runtime.js";

@@ -6,6 +6,7 @@ import {
   isRecord,
 } from "./cache-policy.js";
 import { config } from "./config.js";
+import { deriveProductFields } from "./off-derived.js";
 import { log } from "./logger.js";
 
 const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_LOOKUP_MIN_COMPLETENESS", 0.7);
@@ -135,6 +136,10 @@ const SEARCH_PROJECTION = {
   image_nutrition_thumb_url: 1,
   selected_images: 1,
   images: 1,
+  // Needed by the derivation layer (language fallback / taxonomy), not indexed as such.
+  lang: 1,
+  lc: 1,
+  categories_hierarchy: 1,
   "nutriments.energy-kcal_100g": 1,
   "nutriments.proteins_100g": 1,
   "nutriments.carbohydrates_100g": 1,
@@ -248,12 +253,13 @@ export class MongoProductRepository implements ProductRepository {
         .limit(safeLimit)
         .toArray();
 
-      const items = docs.map((doc) => ({
-        code: doc.code,
-        product: Object.fromEntries(
-          Object.entries(doc).filter(([key]) => key !== "_id"),
-        ),
-      }));
+      // The dump stores image METADATA, not the URLs the API exposes. The URLs (and other
+      // derivable fields) are computed here, once, so every consumer of the search source
+      // (search-indexer) gets the same values without calling the OFF API.
+      const items = docs.map((doc) => {
+        const raw = Object.fromEntries(Object.entries(doc).filter(([key]) => key !== "_id"));
+        return { code: doc.code, product: deriveProductFields(doc.code, raw).product };
+      });
       return {
         items,
         nextCursor: items.length === safeLimit ? items.at(-1)?.code ?? null : null,

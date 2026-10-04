@@ -77,6 +77,7 @@ export interface ShoppingItem {
   state: ShoppingItemState;
   sourceType: ShoppingItemSource;
   sourceRef?: string;
+  productId?: string;
   version: number;
   addedBy?: string;
   addedAt?: string;

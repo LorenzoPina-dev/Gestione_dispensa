@@ -137,7 +137,7 @@ describe("OFF OpenSearch projection", () => {
     assert.equal(generic?.imageUrl, "https://example.test/nutrition-small.jpg");
   });
 
-  it("prefers the smallest available front image across all OFF fields", () => {
+  it("prefers the 200px small front image across all OFF fields", () => {
     const doc = toOffSearchDocument({
       code: "1901040901922",
       product: {
@@ -155,6 +155,76 @@ describe("OFF OpenSearch projection", () => {
       },
     });
     assert.equal(doc?.imageUrl, "https://images.openfoodfacts.org/images/products/190/104/090/1922/front_en.3.200.jpg");
+  });
+
+  it("uses the 200px front rendition instead of the 100px thumbnail", () => {
+    const doc = toOffSearchDocument({
+      code: "8076800195057",
+      product: {
+        product_name: "Rotini",
+        completeness: 0.9,
+        image_front_thumb_url: "https://example.test/front.100.jpg",
+        image_front_small_url: "https://example.test/front.200.jpg",
+        image_front_url: "https://example.test/front.400.jpg",
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://example.test/front.200.jpg");
+  });
+
+  it("falls back to the thumbnail before the full-size front image", () => {
+    const doc = toOffSearchDocument({
+      code: "8076800195057",
+      product: {
+        product_name: "Rotini",
+        completeness: 0.9,
+        image_front_thumb_url: "https://example.test/front.100.jpg",
+        image_front_url: "https://example.test/front.400.jpg",
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://example.test/front.100.jpg");
+  });
+
+  it("computes the 200px front URL from images.<key>.rev even when only a thumbnail URL exists", () => {
+    const doc = toOffSearchDocument({
+      code: "8076800195057",
+      product: {
+        product_name: "Rotini",
+        completeness: 0.9,
+        image_front_thumb_url: "https://example.test/front.100.jpg",
+        images: {
+          front_it: { imgid: "1", rev: 7, sizes: { "100": { w: 100, h: 100 }, "200": { w: 200, h: 200 }, "400": { w: 400, h: 400 }, full: { w: 800, h: 800 } } },
+        },
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://images.openfoodfacts.org/images/products/807/680/019/5057/front_it.7.200.jpg");
+  });
+
+  it("prefers the Italian front image when computing the URL, and a front over other images", () => {
+    const doc = toOffSearchDocument({
+      code: "8076800195057",
+      product: {
+        product_name: "Rotini",
+        completeness: 0.9,
+        images: {
+          nutrition_it: { rev: "3" },
+          front_en: { rev: "5" },
+          front_it: { rev: "9" },
+        },
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://images.openfoodfacts.org/images/products/807/680/019/5057/front_it.9.200.jpg");
+  });
+
+  it("uses the unpadded barcode as image folder for 8-digit codes", () => {
+    const doc = toOffSearchDocument({
+      code: "96385074",
+      product: {
+        product_name: "Test",
+        completeness: 0.9,
+        images: { front_en: { rev: "2" } },
+      },
+    });
+    assert.equal(doc?.imageUrl, "https://images.openfoodfacts.org/images/products/96385074/front_en.2.200.jpg");
   });
 
   it("uses a non-front image only when no front image is available", () => {

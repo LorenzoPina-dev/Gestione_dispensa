@@ -1,5 +1,6 @@
 import { apiRequest, ApiError, newIdempotencyKey } from "./client";
-import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductImagesDto, ProductUnit, ProductSearchResultDto, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto } from "./types";
+import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductImagesDto, ProductUnit, ProductSearchResultDto, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto, StoreDto, StoreOfferDto, CatalogProductRefDto } from "./types";
+import { isUuid, shoppingSourceToApi } from "./mappers";
 
 export function getReadiness(): Promise<ReadinessDto> { return apiRequest<ReadinessDto>("/health/ready"); }
 export interface CurrentUserDto extends UserDto {
@@ -144,10 +145,26 @@ export function createStockItem(input: { familyId: string; productId: string; pa
 export function recordMovement(stockItemId: string, version: number, input: { familyId: string; kind: MovementKind; quantity: number; unit: InventoryUnit; occurredAt: string; idempotencyKey?: string }): Promise<RecordMovementResultDto> { const path = input.kind === "WASTE" ? `/inventory/${stockItemId}/waste` : `/inventory/${stockItemId}/consume`; return apiRequest(path, { method: "POST", idempotencyKey: input.idempotencyKey, ifMatch: version, query: { familyId: input.familyId }, body: { quantity: input.quantity, reason: input.kind === "WASTE" ? "spoiled" : "used" } }); }
 export async function getActiveShoppingList(familyId: string): Promise<ActiveShoppingListDto> { const r = await apiRequest<{ items: Array<{ listId: string; name: string; status: string; itemCount: number; version: number }>; nextCursor: string | null }>("/shopping/lists", { query: { familyId } }); const a = r.items.find((i) => i.status === "open"); if (!a) throw new ApiError(404, { error: { code: "NOT_FOUND", message: "No active shopping list exists.", retryable: false }, meta: { requestId: "", traceId: "", schemaVersion: "2.0" } }); const d = await apiRequest<{ listId: string; name: string; status: "open" | "closed" | "archived"; items: ShoppingItemDto[]; version: number }>(`/shopping/lists/${a.listId}`, { query: { familyId } }); return { list: { listId: d.listId, name: d.name, status: d.status, version: d.version }, items: d.items }; }
 export async function createShoppingList(familyId: string, name: string): Promise<{ id: string; familyId: string; ownerUserId: string; name: string; status: "ACTIVE" | "ARCHIVED"; version: number }> { const r = await apiRequest<{ listId: string; name: string; status: "open" | "closed" | "archived"; version: number }>("/shopping/lists", { method: "POST", body: { familyId, name } }); return { id: r.listId, familyId, ownerUserId: "", name: r.name, status: r.status === "open" ? "ACTIVE" : "ARCHIVED", version: r.version }; }
-export function addShoppingItem(familyId: string, listId: string, input: { displayName: string; quantity: number; unit: InventoryUnit; productId?: string; sourceType: ShoppingSourceType; sourceRef?: string }): Promise<ShoppingItemDto> { return apiRequest(`/shopping/lists/${listId}/items`, { method: "POST", body: { familyId, label: input.displayName, quantity: input.quantity, unit: input.unit, ...(input.productId ? { productId: input.productId } : {}) } }); }
-export function updateShoppingItemState(familyId: string, listId: string, itemId: string, version: number, state: ShoppingItemState): Promise<ShoppingItemDto> { return apiRequest(`/shopping/lists/${listId}/items/${itemId}`, { method: "PATCH", ifMatch: version, query: { familyId }, body: { checked: state === "ACCEPTED" || state === "COMPLETED" } }); }
-export async function batchUpdateShoppingItems(familyId: string, listId: string, items: Array<{ itemId: string; version: number }>, state: ShoppingItemState): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> { const updated: ShoppingItemDto[] = []; const failedItemIds: string[] = []; for (const i of items) { try { updated.push(await updateShoppingItemState(familyId, listId, i.itemId, i.version, state)); } catch { failedItemIds.push(i.itemId); } } return { updated, failedItemIds }; }
-export function deleteShoppingItem(familyId: string, listId: string, itemId: string, version: number): Promise<void> { return apiRequest<void>(`/shopping/lists/${listId}/items/${itemId}`, { method: "DELETE", query: { familyId }, ifMatch: version }); }
+export function addShoppingItem(familyId: string, listId: string, input: { displayName: string; quantity: number; unit: InventoryUnit; productId?: string; sourceType: ShoppingSourceType; sourceRef?: string; idempotencyKey?: string }): Promise<ShoppingItemDto> {
+  return apiRequest(`/shopping/lists/${listId}/items`, {
+    method: "POST",
+    idempotencyKey: input.idempotencyKey,
+    body: {
+      familyId,
+      label: input.displayName,
+      quantity: input.quantity,
+      unit: input.unit,
+      source: shoppingSourceToApi(input.sourceType),
+      ...(input.productId && isUuid(input.productId) ? { productId: input.productId } : {}),
+    },
+  });
+}
+export interface ShoppingItemPatch { label?: string; quantity?: number; unit?: InventoryUnit; checked?: boolean; }
+export function updateShoppingItem(familyId: string, listId: string, itemId: string, version: number, patch: ShoppingItemPatch, idempotencyKey?: string): Promise<ShoppingItemDto> { return apiRequest(`/shopping/lists/${listId}/items/${itemId}`, { method: "PATCH", ifMatch: version, idempotencyKey, query: { familyId }, body: patch }); }
+// Shopping persists one flag: only COMPLETED (in the cart) is checked. ACCEPTED means still to buy.
+export function updateShoppingItemState(familyId: string, listId: string, itemId: string, version: number, state: ShoppingItemState, idempotencyKey?: string): Promise<ShoppingItemDto> { return updateShoppingItem(familyId, listId, itemId, version, { checked: state === "COMPLETED" }, idempotencyKey); }
+export async function batchUpdateShoppingItems(familyId: string, listId: string, items: Array<{ itemId: string; version: number }>, state: ShoppingItemState): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> { const updated: ShoppingItemDto[] = []; const failedItemIds: string[] = []; for (const i of items) { try { updated.push(await updateShoppingItemState(familyId, listId, i.itemId, i.version, state, `shopping-state:${i.itemId}:${i.version}:${state}`)); } catch { failedItemIds.push(i.itemId); } } return { updated, failedItemIds }; }
+export function deleteShoppingItem(familyId: string, listId: string, itemId: string, version: number, idempotencyKey?: string): Promise<void> { return apiRequest<void>(`/shopping/lists/${listId}/items/${itemId}`, { method: "DELETE", idempotencyKey, query: { familyId }, ifMatch: version }); }
 export async function listNotifications(familyId: string): Promise<{ notifications: NotificationDto[] }> { const r = await apiRequest<{ items: NotificationDto[]; nextCursor: string | null }>("/notifications", { query: { familyId } }); return { notifications: r.items }; }
 export function markNotificationRead(familyId: string, notificationId: string): Promise<NotificationDto> { return apiRequest(`/notifications/${notificationId}/read`, { method: "POST", body: { familyId } }); }
 export async function createOcrJob(input: { familyId: string; type: "receipt" | "pantry_image"; file: File }): Promise<{ jobId: string; status: string; type: string; objectKey: string }> { const f = new FormData(); f.set("familyId", input.familyId); f.set("type", input.type); f.set("file", input.file, input.file.name); return apiRequest("/ocr/jobs", { method: "POST", body: f }); }
@@ -300,4 +317,18 @@ export async function addRecipeMissingIngredients(
     method: "POST",
     body: { familyId },
   });
+}
+
+export async function listStores(query?: string, limit = 10, signal?: AbortSignal): Promise<{ stores: StoreDto[] }> {
+  const r = await apiRequest<{ items: StoreDto[]; nextCursor: string | null }>("/stores", { query: { q: query?.trim() || undefined, limit }, signal });
+  return { stores: r.items };
+}
+
+export async function listStoreOffers(storeId: string, limit = 20, signal?: AbortSignal): Promise<{ offers: StoreOfferDto[] }> {
+  const r = await apiRequest<{ items: StoreOfferDto[]; nextCursor: string | null }>(`/stores/${storeId}/offers`, { query: { active: "true", limit }, signal });
+  return { offers: r.items };
+}
+
+export function getCatalogProduct(productId: string, signal?: AbortSignal): Promise<CatalogProductRefDto> {
+  return apiRequest<CatalogProductRefDto>(`/catalog/products/${productId}`, { signal });
 }

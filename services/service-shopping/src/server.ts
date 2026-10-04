@@ -1,7 +1,7 @@
 import express from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
-import { isShoppingUnit, normalizeListName, parseIfMatch, positiveQuantity, validFamilyId, validIdempotencyKey } from "./validation.js";
+import { isOptionalUuid, isShoppingSource, isShoppingUnit, normalizeListName, parseIfMatch, positiveQuantity, validFamilyId, validIdempotencyKey } from "./validation.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -166,6 +166,7 @@ function toItem(row: Record<string, unknown>): Record<string, unknown> {
   return {
     itemId: String(row.id),
     productId: row.product_id === null || row.product_id === undefined ? null : String(row.product_id),
+    source: row.source === null || row.source === undefined ? "manual" : String(row.source),
     label: String(row.label),
     quantity: Number(row.quantity),
     unit: row.unit === null || row.unit === undefined ? null : String(row.unit),
@@ -293,6 +294,8 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
   const quantity = positiveQuantity(body.quantity);
   const unit = typeof body.unit === "string" ? body.unit : "";
   if (!label || quantity === undefined || !isShoppingUnit(unit)) return fail(res, 400, "VALIDATION_ERROR", "label, quantity and unit are required.");
+  if (!isOptionalUuid(body.productId)) return fail(res, 400, "VALIDATION_ERROR", "productId must be a UUID.");
+  if (body.source !== undefined && !isShoppingSource(body.source)) return fail(res, 400, "VALIDATION_ERROR", "source must be manual, recipe, low_stock or offer.");
 
   const client = await pool.connect();
   try {

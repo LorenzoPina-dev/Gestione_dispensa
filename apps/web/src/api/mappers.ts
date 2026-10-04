@@ -1,4 +1,4 @@
-import type { ShoppingItem, ShoppingList, StockItem } from "../types";
+import type { ShoppingItem, ShoppingItemSource, ShoppingList, StockItem } from "../types";
 import type { ActiveShoppingListDto, ShoppingItemDto, StockItemDto } from "./types";
 
 const DEFAULT_UNIT_FALLBACK = "pz";
@@ -33,16 +33,45 @@ export function mapStockItemDtoToUi(dto: StockItemDto): StockItem {
   };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isUuid(value: string | null | undefined): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
+/** Backend vocabulary (docs/EVENTS.md): manual | recipe | low_stock | offer. */
+export type ShoppingSourceApi = "manual" | "recipe" | "low_stock" | "offer";
+
+export function shoppingSourceFromApi(source: string | null | undefined): ShoppingItemSource {
+  switch (String(source ?? "").toLowerCase()) {
+    case "recipe": return "RECIPE";
+    case "low_stock":
+    case "reorder": return "REORDER";
+    case "offer": return "OFFER";
+    default: return "MANUAL";
+  }
+}
+
+export function shoppingSourceToApi(sourceType: ShoppingItemSource | string | undefined): ShoppingSourceApi {
+  switch (sourceType) {
+    case "RECIPE": return "recipe";
+    case "REORDER": return "low_stock";
+    case "OFFER": return "offer";
+    default: return "manual";
+  }
+}
+
 export function mapShoppingItemDtoToUi(dto: ShoppingItemDto): ShoppingItem {
   return {
     id: dto.itemId,
     displayName: dto.displayName ?? dto.label,
     quantity: dto.quantity,
     unit: dto.unit,
-    // Real backend states (SUGGESTED/ACCEPTED/SNOOZED/IGNORED/COMPLETED) already match the UI's
-    // ShoppingItemState 1:1, unlike the old openapi.yaml-based mapping — no translation needed.
-    state: dto.state ?? (dto.checked ? "COMPLETED" : "SUGGESTED"),
-    sourceType: dto.sourceType ?? "MANUAL",
+    // Shopping persists a single flag. unchecked = still to buy (ACCEPTED), checked = in the cart
+    // (COMPLETED). SUGGESTED is never stored: suggestions are derived client-side from Inventory,
+    // Recipes and Stores (domain/shopping-suggestions.ts) and become items only when added.
+    state: dto.state ?? (dto.checked ? "COMPLETED" : "ACCEPTED"),
+    sourceType: dto.sourceType ?? shoppingSourceFromApi(dto.source),
+    ...(dto.productId ? { productId: dto.productId } : {}),
     ...(dto.sourceRef ? { sourceRef: dto.sourceRef } : {}),
     version: dto.version,
   };

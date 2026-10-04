@@ -508,15 +508,17 @@ Request: `{"familyId":"uuid","name":"Spesa"}`. `familyId` identifica la famiglia
 
 Response 200:
 ```json
-{"data":{"listId":"uuid","name":"Spesa","status":"open","items":[{"itemId":"uuid","productId":"uuid","label":"Latte","quantity":2,"unit":"L","checked":false,"version":1}],"version":2}}
+{"data":{"listId":"uuid","name":"Spesa","status":"open","items":[{"itemId":"uuid","productId":"uuid","source":"manual","label":"Latte","quantity":2,"unit":"l","checked":false,"version":1}],"version":2}}
 ```
+`checked=false` è un articolo ancora da acquistare, `checked=true` è nel carrello. `source` indica l'origine (`manual` | `recipe` | `low_stock` | `offer`). I suggerimenti (scorte basse, ricette, offerte) non sono persistiti: diventano item solo quando l'utente li aggiunge.
 
 ### POST /shopping/lists/{listId}/items
 
 Request:
 ```json
-{"productId":"uuid","label":"Latte","quantity":2,"unit":"L"}
+{"productId":"uuid","label":"Latte","quantity":2,"unit":"l","source":"manual"}
 ```
+`unit` ∈ `g|kg|ml|l|piece|pack`. `productId` (opzionale) deve essere un UUID Catalog. `source` (opzionale, default `manual`) ∈ `manual|recipe|low_stock|offer`; valori diversi → `400 VALIDATION_ERROR`.
 Response 201 item + version.
 
 ### PATCH /shopping/lists/{listId}/items/{itemId}

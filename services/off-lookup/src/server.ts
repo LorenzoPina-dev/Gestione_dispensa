@@ -117,13 +117,23 @@ app.get(
         return;
       }
 
-      const result = await lookupService.lookup(barcode);
+      // `?source=local` answers from the local dump only and never calls the OFF API. It exists
+      // for verification (compare local derivation with the live API) and for callers that must
+      // not incur remote latency.
+      const localOnly = req.query.source?.toString() === "local";
+      const result = await lookupService.lookup(barcode, { allowRemote: !localOnly });
       switch (result.outcome) {
         case "hit": {
           // _cache_meta is private implementation metadata and is not part of the OFF contract.
           const { _cache_meta, ...product } = result.product;
           void _cache_meta;
-          res.status(200).json({ code: barcode, source: result.source, product });
+          res.status(200).json({
+            code: barcode,
+            source: result.source,
+            // Which fields were computed locally rather than read from the stored document.
+            ...(result.derivedFields ? { derived: result.derivedFields } : {}),
+            product,
+          });
           return;
         }
         case "not_found": {

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isShoppingUnit, normalizeListName, parseIfMatch, positiveQuantity, validFamilyId, validIdempotencyKey } from "../src/validation.js";
+import { isOptionalUuid, isShoppingSource, isShoppingUnit, normalizeListName, parseIfMatch, positiveQuantity, validFamilyId, validIdempotencyKey } from "../src/validation.js";
 
 describe("service-shopping / pure validation", () => {
   it("normalizes list names", () => {
@@ -37,5 +37,15 @@ describe("service-shopping / pure validation", () => {
     assert.equal(validFamilyId("family-1"), true);
     assert.equal(validFamilyId(""), false);
     assert.equal(validFamilyId(null), false);
+  });
+
+  it("accepts only the documented item sources", () => {
+    for (const source of ["manual", "recipe", "low_stock", "offer"]) assert.equal(isShoppingSource(source), true);
+    for (const source of ["", "Manual", "reorder", 1, null, undefined]) assert.equal(isShoppingSource(source), false);
+  });
+
+  it("accepts a product reference only when absent, null or a UUID", () => {
+    for (const value of [undefined, null, "3f2b8c1e-5d4a-4b7e-9c1d-0a1b2c3d4e5f"]) assert.equal(isOptionalUuid(value), true);
+    for (const value of ["", "abc", "not-a-uuid", 12]) assert.equal(isOptionalUuid(value), false);
   });
 });

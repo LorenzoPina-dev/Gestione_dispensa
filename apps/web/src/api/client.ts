@@ -199,4 +199,4 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 export function isBackendUnreachable(error: unknown): boolean { return error instanceof NetworkUnavailableError; }
-export function isNotFound(error: unknown): boolean { return error instanceof ApiError && error.code === "NOT_FOUND_OR_NOT_VISIBLE"; }
+export function isNotFound(error: unknown): boolean { return error instanceof ApiError && (error.status === 404 || error.code === "NOT_FOUND_OR_NOT_VISIBLE"); }

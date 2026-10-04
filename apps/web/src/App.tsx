@@ -497,7 +497,12 @@ export default function App() {
             <Spesa
               list={shoppingList}
               setList={setShoppingList}
+              stock={stock}
+              setStock={setStock}
               currentUserName={currentUser.name}
+              familyId={familyId}
+              readOnly={!canWrite}
+              onListRefresh={shopping.refresh}
             />
           )}
 
@@ -505,6 +510,7 @@ export default function App() {
             <Ricette
               stock={stock}
               setList={setShoppingList}
+              onShoppingChanged={shopping.refresh}
               familyId={familyId}
               suggestedRecipes={composite.data?.suggestedRecipes}
             />

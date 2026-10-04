@@ -428,7 +428,7 @@ Producer: Shopping. Payload: `{listId, familyId, name, status, version}`.
 
 ### ShoppingItemAdded v1
 Producer: Shopping. Payload: `{itemId, listId, productId, label, quantity, unit, checked, source, version}`.
-`source` is optional at consumer level and currently uses `manual|recipe|low_stock`.
+`source` is optional at consumer level and currently uses `manual|recipe|low_stock|offer`. The Shopping API validates it against this set and returns it on every item.
 
 ### ShoppingItemUpdated v1
 Producer: Shopping. Payload: `{itemId, listId, changedFields, version}`.

@@ -1,15 +1,30 @@
 import type { OffApiClient, OffSearchResult } from "./off-api-client.js";
 import type { ProductRepository, ProductDocument } from "./mongo-product-repository.js";
 import {
+  CURRENT_CACHE_ENRICHMENT_VERSION,
+  getCacheMetadata,
   isRefreshCoolingDown,
   mergeMissingFields,
   needsCacheEnrichment,
 } from "./cache-policy.js";
 import { config } from "./config.js";
+import {
+  defaultDerivationOptions,
+  deriveProductFields,
+  isRequiredFieldMissing,
+  type DerivationOptions,
+  type DerivationResult,
+} from "./off-derived.js";
 import { log } from "./logger.js";
 
 export type ProductLookupResult =
-  | { readonly outcome: "hit"; readonly source: "cache" | "live-api"; readonly product: Record<string, unknown> }
+  | {
+      readonly outcome: "hit";
+      readonly source: "cache" | "live-api";
+      readonly product: Record<string, unknown>;
+      /** Fields computed locally from the persisted data (absent when nothing was derived). */
+      readonly derivedFields?: readonly string[];
+    }
   | { readonly outcome: "not_found" }
   | { readonly outcome: "unavailable"; readonly reason: string };
 
@@ -21,6 +36,31 @@ export interface ProductIndexWriter {
   upsert(code: string, product: Record<string, unknown>): Promise<void>;
 }
 
+/**
+ * When the live OFF API may be used for a product that already exists in the local dump.
+ *  - "missing": only when a field in `requiredLocalFields` is still missing AFTER local derivation;
+ *  - "always":  legacy behaviour, one refresh pass for every product not yet enriched;
+ *  - "never":   the API is only used when the barcode is absent from the local dump.
+ */
+export interface LookupPolicy {
+  readonly remoteEnrichment: "missing" | "always" | "never";
+  readonly requiredLocalFields: readonly string[];
+  readonly derivation: DerivationOptions;
+}
+
+export interface LookupOptions {
+  /** false = answer from the local dump only; the OFF API is never called. */
+  readonly allowRemote?: boolean;
+}
+
+export function defaultLookupPolicy(): LookupPolicy {
+  return {
+    remoteEnrichment: config.lookup.remoteEnrichment,
+    requiredLocalFields: config.lookup.requiredLocalFields,
+    derivation: defaultDerivationOptions(),
+  };
+}
+
 const BARCODE_PATTERN = /^\d{6,14}$/;
 
 export function isValidBarcode(value: string): boolean {
@@ -28,31 +68,39 @@ export function isValidBarcode(value: string): boolean {
 }
 
 /**
- * Read-through lookup with two deliberately separate paths:
+ * Read-through lookup, local-first:
  *
- *  - barcode: Mongo first, then the live OFF API; successful misses are cached in Mongo and indexed
- *    in OpenSearch asynchronously;
+ *  - barcode: Mongo first. The persisted document is passed through the derivation layer
+ *    (off-derived.ts) which computes, WITHOUT any network call, the fields the OFF API would add
+ *    (image URLs, language-resolved names, ...). The live API is consulted only when the barcode
+ *    is not in Mongo, or when a field declared required (`requiredLocalFields`) is still missing
+ *    after derivation. Successful live results are cached in Mongo (raw, never derived) and
+ *    indexed in OpenSearch asynchronously;
  *  - text: OpenSearch only, because it is populated automatically from the complete Mongo dump.
  *    On an OpenSearch miss, the live OFF search API is the fallback and its hits are persisted to
  *    Mongo and OpenSearch asynchronously.
  *
- * Barcode cache enrichment is conservative: existing values are preserved and only missing fields
- * are filled. A refresh cooldown prevents repeated failed calls; in-flight refreshes are coalesced
- * per barcode inside this service instance.
+ * Enrichment is conservative: existing values are preserved and only missing fields are filled.
+ * A refresh cooldown prevents repeated failed calls; in-flight refreshes are coalesced per barcode
+ * inside this service instance.
  *
- * Existing values are never overwritten by a refresh. This is intentional: the cache is an
- * accelerator/fallback, and Open Food Facts data is sparse and may change independently.
+ * Derived values are NEVER written to Mongo: they are deterministic functions of persisted data,
+ * so storing them would only duplicate data and let it drift from the derivation rules.
  */
 export class ProductLookupService {
   private readonly refreshInFlight = new Map<string, Promise<ProductLookupResult>>();
   private readonly searchCache = new Map<string, { at: number; result: OffSearchResult }>();
+  private readonly policy: LookupPolicy;
 
   public constructor(
     private readonly repository: ProductRepository,
     private readonly apiClient: OffApiClient,
     private readonly localSearch?: LocalProductSearchClient,
     private readonly indexWriter?: ProductIndexWriter,
-  ) {}
+    policy: Partial<LookupPolicy> = {},
+  ) {
+    this.policy = { ...defaultLookupPolicy(), ...policy };
+  }
 
   public async search(query: string, limit = 10, traceId?: string): Promise<OffSearchResult> {
     const normalizedQuery = query.trim().replace(/\s+/g, " ");
@@ -101,16 +149,20 @@ export class ProductLookupService {
       // An external search hit becomes local data asynchronously. Mongo keeps the raw/complete
       // cache copy, while OpenSearch receives the compact searchable projection used by future
       // text searches. The live response never waits for either write.
+      //
+      // The projection is built from what Mongo holds AFTER the conservative merge, not from the
+      // raw live-search payload: that payload is much poorer (often no image fields at all) and
+      // indexing it would overwrite a good document with one that has lost its picture.
       for (const hit of external.hits) {
-        // Keep Mongo as the complete cache/source of truth when available, but do not make
-        // OpenSearch population depend on Mongo write latency or availability.
-        void this.repository.upsertFromLiveApi(hit.code, hit.product).catch((error: unknown) => {
-          log("error", "search_result_cache_write_failed", {
-            code: hit.code,
-            error: error instanceof Error ? error.message : "unknown",
-          });
-        });
-        this.indexProductAsync(hit.code, hit.product);
+        void this.repository.upsertFromLiveApi(hit.code, hit.product)
+          .catch((error: unknown) => {
+            log("error", "search_result_cache_write_failed", {
+              code: hit.code,
+              error: error instanceof Error ? error.message : "unknown",
+            });
+          })
+          // OpenSearch population must not depend on Mongo write latency or availability.
+          .then(() => this.indexSearchHit(hit.code, hit.product));
       }
 
       return result;
@@ -121,19 +173,25 @@ export class ProductLookupService {
     return { ...external, source: "external" } as OffSearchResult;
   }
 
-  public async lookup(barcode: string): Promise<ProductLookupResult> {
+  public async lookup(barcode: string, options: LookupOptions = {}): Promise<ProductLookupResult> {
+    const allowRemote = options.allowRemote !== false;
     const cached = await this.repository.findByCode(barcode);
 
     if (cached === undefined) {
+      if (!allowRemote) return { outcome: "not_found" };
       return this.lookupWithoutCache(barcode);
     }
 
+    // Everything derivable is computed first; only then is "do we still need the API?" decided.
+    const local = this.derive(barcode, cached);
+
     if (
-      !needsCacheEnrichment(cached) ||
+      !allowRemote ||
+      !this.shouldEnrichRemotely(local.product) ||
       isRefreshCoolingDown(cached, Date.now(), config.offApi.refreshCooldownMs)
     ) {
-      log("info", "lookup_cache_hit", { barcode });
-      return { outcome: "hit", source: "cache", product: cached };
+      log("info", "lookup_cache_hit", { barcode, derived: local.derived.length });
+      return this.hit("cache", local);
     }
 
     const existingRefresh = this.refreshInFlight.get(barcode);
@@ -153,10 +211,57 @@ export class ProductLookupService {
     }
   }
 
+  private derive(code: string, product: Record<string, unknown>): DerivationResult {
+    return deriveProductFields(code, product, this.policy.derivation);
+  }
+
+  private hit(source: "cache" | "live-api", derived: DerivationResult): ProductLookupResult {
+    return {
+      outcome: "hit",
+      source,
+      product: derived.product,
+      ...(derived.derived.length > 0 ? { derivedFields: derived.derived } : {}),
+    };
+  }
+
+  /** Whether the live API is worth calling for a product that is already in the local dump. */
+  private shouldEnrichRemotely(derivedProduct: Record<string, unknown>): boolean {
+    switch (this.policy.remoteEnrichment) {
+      case "never":
+        return false;
+      case "always":
+        return needsCacheEnrichment(derivedProduct);
+      case "missing": {
+        // A previous successful refresh already asked OFF: do not ask again just because OFF
+        // itself does not have the field.
+        if (getCacheMetadata(derivedProduct)?.enrichmentVersion === CURRENT_CACHE_ENRICHMENT_VERSION) {
+          return false;
+        }
+        return this.policy.requiredLocalFields.some((field) => isRequiredFieldMissing(derivedProduct, field));
+      }
+    }
+  }
+
   private trimSearchCache(): void {
     if (this.searchCache.size <= 50) return;
     const oldest = [...this.searchCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
     if (oldest) this.searchCache.delete(oldest[0]);
+  }
+
+  /**
+   * Indexes a live-search hit using the document stored in Mongo when there is one (it keeps
+   * every field a previous dump/lookup already provided, images included), and the raw hit
+   * otherwise. Derived fields are added before indexing. Never throws.
+   */
+  private async indexSearchHit(code: string, hit: Record<string, unknown>): Promise<void> {
+    let source: Record<string, unknown> = hit;
+    try {
+      const stored = await this.repository.findByCode(code);
+      if (stored !== undefined) source = stored;
+    } catch {
+      // Mongo is an optional accelerator: fall back to the live payload.
+    }
+    this.indexProductAsync(code, this.derive(code, source).product);
   }
 
   private indexProductAsync(code: string, product: Record<string, unknown>): void {
@@ -174,16 +279,18 @@ export class ProductLookupService {
     const apiResult = await this.apiClient.fetchProduct(barcode);
 
     if (apiResult.status === "found") {
+      const local = this.derive(barcode, apiResult.product);
       // A cache write is deliberately best-effort. The API result is already a valid response.
+      // The raw API payload is what gets stored; only the index receives the derived view.
       void this.repository.upsertFromLiveApi(barcode, apiResult.product)
-        .then(() => this.indexProductAsync(barcode, apiResult.product))
+        .then(() => this.indexProductAsync(barcode, local.product))
         .catch((error: unknown) => {
           log("error", "lookup_cache_or_index_write_failed", {
             barcode,
             error: error instanceof Error ? error.message : "unknown",
           });
         });
-      return { outcome: "hit", source: "live-api", product: apiResult.product };
+      return this.hit("live-api", local);
     }
 
     if (apiResult.status === "not_found") {
@@ -204,12 +311,13 @@ export class ProductLookupService {
 
     if (apiResult.status === "found") {
       const merged = mergeMissingFields(cached, apiResult.product);
+      const local = this.derive(barcode, merged);
 
       // The repository performs the same conservative merge again against the current DB
       // document. This closes the common race where another request enriches the same barcode
       // while this refresh is in flight. The response does not wait for the optional DB write.
       void this.repository.upsertFromLiveApi(barcode, merged)
-        .then(() => this.indexProductAsync(barcode, merged))
+        .then(() => this.indexProductAsync(barcode, local.product))
         .catch((error: unknown) => {
           log("error", "lookup_cache_refresh_or_index_write_failed", {
             barcode,
@@ -222,7 +330,7 @@ export class ProductLookupService {
         hadCachedProduct: true,
       });
 
-      return { outcome: "hit", source: "cache", product: merged };
+      return this.hit("cache", local);
     }
 
     if (apiResult.status === "not_found") {
@@ -233,7 +341,7 @@ export class ProductLookupService {
         });
       });
       // Never delete a previously cached product merely because a later lookup got a 404.
-      return { outcome: "hit", source: "cache", product: cached };
+      return this.hit("cache", this.derive(barcode, cached));
     }
 
     void this.repository.recordRefreshAttempt(barcode, "error").catch((error: unknown) => {
@@ -248,7 +356,6 @@ export class ProductLookupService {
       reason: apiResult.reason,
     });
 
-    return { outcome: "hit", source: "cache", product: cached };
+    return this.hit("cache", this.derive(barcode, cached));
   }
 }
-

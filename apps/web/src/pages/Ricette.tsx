@@ -6,32 +6,17 @@ import { colors, fonts } from "../tokens";
 import Toggle from "../components/ui/Toggle";
 import SectionHeading from "../components/ui/SectionHeading";
 import EmptyState from "../components/ui/EmptyState";
-interface Props { stock: import("../types").StockItem[]; setList: React.Dispatch<React.SetStateAction<ShoppingList>>; familyId?: string | null; suggestedRecipes?: RecipeMatchDto[]; }
+interface Props { stock: import("../types").StockItem[]; setList: React.Dispatch<React.SetStateAction<ShoppingList>>; onShoppingChanged?: () => Promise<void>; familyId?: string | null; suggestedRecipes?: RecipeMatchDto[]; }
 const QUALITY_META:Record<string,{label:string;color:string;bg:string}>={VERIFIED:{label:"ricetta verificata",color:colors.sageDark,bg:colors.sageLight},IMPORTED:{label:"fonte esterna",color:colors.amberDark,bg:colors.amberLight},ESTIMATED:{label:"dati stimati",color:colors.inkMuted,bg:colors.creamDark},UNKNOWN:{label:"fonte ignota",color:colors.inkMuted,bg:colors.creamDark}};
 function mapMatch(m:RecipeMatchDto):RecipeMatch{const r=m.recipe;const recipe:Recipe={id:r.id??r.recipeId??"",title:r.title,source:r.source??"",quality:r.quality??"UNKNOWN",servings:r.servings,time:r.timeMinutes??0,difficulty:r.difficulty??"Facile",ingredients:r.ingredients.map(i=>({name:i.displayName??i.name??"Ingrediente",stockItemId:i.productId??undefined,amount:i.amount??i.quantity??0,unit:i.unit,allergens:i.allergens??[]})),steps:r.steps,image:r.image??"",tags:r.tags??[],caloriesPerServing:r.caloriesPerServing??0};return{recipe,score:m.score,matchedIngredients:m.matchedIngredientNames??[],missingIngredients:m.missingIngredients.map(i=>i.displayName??i.name??"Ingrediente")};}
-export default function Ricette({setList,familyId,suggestedRecipes=[]}:Props){const[onlyFeasible,setOnlyFeasible]=useState(false),[detail,setDetail]=useState<RecipeMatch|null>(null),[addedMissing,setAddedMissing]=useState<Set<string>>(new Set()),[matches,setMatches]=useState<RecipeMatch[]>([]),[loading,setLoading]=useState(true);useEffect(()=>{setMatches(suggestedRecipes.map(mapMatch));setLoading(false)},[suggestedRecipes]);const visible=useMemo(()=>onlyFeasible?matches.filter(m=>m.score===1):matches,[matches,onlyFeasible]);
+export default function Ricette({onShoppingChanged,familyId,suggestedRecipes=[]}:Props){const[onlyFeasible,setOnlyFeasible]=useState(false),[detail,setDetail]=useState<RecipeMatch|null>(null),[addedMissing,setAddedMissing]=useState<Set<string>>(new Set()),[matches,setMatches]=useState<RecipeMatch[]>([]),[loading,setLoading]=useState(true);useEffect(()=>{setMatches(suggestedRecipes.map(mapMatch));setLoading(false)},[suggestedRecipes]);const visible=useMemo(()=>onlyFeasible?matches.filter(m=>m.score===1):matches,[matches,onlyFeasible]);
 async function addMissingToCart(m:RecipeMatch){
   if(!familyId)return;
   try{
     await api.addRecipeMissingIngredients(familyId,m.recipe.id);
-    const refreshed=await api.getActiveShoppingList(familyId);
-    setList(l=>({
-      ...l,
-      id:refreshed.list.listId,
-      name:refreshed.list.name,
-      status:refreshed.list.status==="open"?"ACTIVE":"ARCHIVED",
-      version:refreshed.list.version,
-      items:refreshed.items.map(i=>({
-        id:i.itemId,
-        displayName:i.displayName??i.label,
-        quantity:i.quantity,
-        unit:i.unit,
-        state:i.state??(i.checked?"ACCEPTED":"SUGGESTED"),
-        sourceType:i.sourceType??"MANUAL",
-        ...(i.sourceRef?{sourceRef:i.sourceRef}:{}),
-        version:i.version,
-      })),
-    }));
+    // The server created the items: re-read the list through the shopping hook so the new items
+    // become the sync baseline (setting them as local state would re-POST them as duplicates).
+    await onShoppingChanged?.();
     setAddedMissing(s=>new Set(s).add(m.recipe.id));
   }catch(error){
     console.error("[recipes] unable to add missing ingredients:",error);
