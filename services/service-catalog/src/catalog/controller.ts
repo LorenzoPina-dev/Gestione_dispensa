@@ -9,6 +9,7 @@ import {
   type Product,
 } from "./service.js";
 import { CatalogWorkflowService } from "./workflow.js";
+import { toOffApiView } from "./off-api-view.js";
 
 export interface CatalogHttpMeta {
   requestId: string;
@@ -220,6 +221,22 @@ export class CatalogController {
 }
 
 function toPublicProduct(product: Product): PublicProduct {
+  const barcode = product.barcodes[0] ?? product.externalRef ?? "";
+  const offView = toOffApiView(barcode, product.openFoodFacts);
+
+  const imageFront = product.images?.front ?? offView?.images.image_front_url ?? null;
+  const imageFrontSmall = product.images?.frontSmall ?? offView?.images.image_front_small_url ?? null;
+  const imageFrontThumb = product.images?.frontThumb ?? offView?.images.image_front_thumb_url ?? null;
+  const imageIngredients = product.images?.ingredients ?? offView?.images.image_ingredients_url ?? null;
+  const imageIngredientsSmall = product.images?.ingredientsSmall ?? offView?.images.image_ingredients_small_url ?? null;
+  const imageIngredientsThumb = product.images?.ingredientsThumb ?? offView?.images.image_ingredients_thumb_url ?? null;
+  const imageNutrition = product.images?.nutrition ?? offView?.images.image_nutrition_url ?? null;
+  const imageNutritionSmall = product.images?.nutritionSmall ?? offView?.images.image_nutrition_small_url ?? null;
+  const imageNutritionThumb = product.images?.nutritionThumb ?? offView?.images.image_nutrition_thumb_url ?? null;
+  const imagePackaging = product.images?.packaging ?? offView?.images.image_packaging_url ?? null;
+  const imagePackagingSmall = product.images?.packagingSmall ?? offView?.images.image_packaging_small_url ?? null;
+  const imagePackagingThumb = product.images?.packagingThumb ?? offView?.images.image_packaging_thumb_url ?? null;
+
   return {
     productId: product.id,
     name: product.canonicalName,
@@ -245,20 +262,23 @@ function toPublicProduct(product: Product): PublicProduct {
       unit: product.servingUnit ?? null,
     },
     images: {
-      front: product.images?.front ?? null,
-      frontSmall: product.images?.frontSmall ?? null,
-      frontThumb: product.images?.frontThumb ?? null,
-      ingredients: product.images?.ingredients ?? null,
-      ingredientsSmall: product.images?.ingredientsSmall ?? null,
-      ingredientsThumb: product.images?.ingredientsThumb ?? null,
-      nutrition: product.images?.nutrition ?? null,
-      nutritionSmall: product.images?.nutritionSmall ?? null,
-      nutritionThumb: product.images?.nutritionThumb ?? null,
-      packaging: product.images?.packaging ?? null,
-      packagingSmall: product.images?.packagingSmall ?? null,
-      packagingThumb: product.images?.packagingThumb ?? null,
+      front: imageFront,
+      frontSmall: imageFrontSmall,
+      frontThumb: imageFrontThumb,
+      ingredients: imageIngredients,
+      ingredientsSmall: imageIngredientsSmall,
+      ingredientsThumb: imageIngredientsThumb,
+      nutrition: imageNutrition,
+      nutritionSmall: imageNutritionSmall,
+      nutritionThumb: imageNutritionThumb,
+      packaging: imagePackaging,
+      packagingSmall: imagePackagingSmall,
+      packagingThumb: imagePackagingThumb,
     },
-    openFoodFacts: product.openFoodFacts ?? null,
+    // Keep the original OFF fields available for the product-details view, but never expose the
+    // persisted Mongo representation as-is: image URLs and other deterministic API-shaped fields
+    // are materialized before the response reaches the UI.
+    openFoodFacts: offView?.product ?? product.openFoodFacts ?? null,
     source: {
       type: product.externalSource ?? "manual",
       id: product.externalRef ?? "manual",
