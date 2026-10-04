@@ -145,6 +145,7 @@ export function resolveImages(
 ): Partial<Record<ImageKind, ResolvedImage>> {
   const images = record(product.images);
   const selectedImages = record(product.selected_images);
+  const nestedImages = record(images?.selected);
   const productLang = primaryLanguage(firstString(product.lang, product.lc));
   const order = unique([...options.languages.map(primaryLanguage), productLang]
     .filter((value): value is string => value !== null));
@@ -172,15 +173,20 @@ export function resolveImages(
     }
 
     // Explicit selection wins over the implicit one for the same language.
-    const selectedForKind = record(selectedImages?.[kind]);
+    // OFF product schema 1002+ stores selections under images.selected.<kind>.<lang>.
+    // Older dumps used the top-level selected_images structure. Support both.
+    const selectedForKind = record(nestedImages?.[kind]) ?? record(selectedImages?.[kind]);
     if (selectedForKind) {
       for (const [lang, value] of Object.entries(selectedForKind)) {
         if (lang === "display" || lang === "small" || lang === "thumb") continue; // API-shaped URL maps
         const meta = record(value);
         const revision = meta ? scalar(meta.rev) : null;
         if (!meta || !revision) continue;
-        const imageId = scalar(meta.imgid);
-        const sizesSource = record(meta.sizes) ?? (imageId ? record(record(images?.[imageId])?.sizes) : undefined);
+        const imageId = scalar(meta.imgid); ?? (imageId ? scalar(record(images?.uploaded)?.[imageId] && record(record(images?.uploaded)?.[imageId])?.rev) : null);
+        const sizesSource =
+          record(meta.sizes) ??
+          (imageId ? record(record(images?.uploaded)?.[imageId])?.sizes as Record<string, unknown> | undefined : undefined) ??
+          (imageId ? record(record(images?.[imageId])?.sizes) : undefined);
         const normalizedLang = lang.toLowerCase();
         byLanguage.set(normalizedLang, {
           kind, origin: "selected", key: `${kind}_${normalizedLang}`, lang: normalizedLang,
