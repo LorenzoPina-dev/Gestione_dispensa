@@ -63,8 +63,12 @@ export function defaultLookupPolicy(): LookupPolicy {
 
 const BARCODE_PATTERN = /^\d{6,14}$/;
 
+export function normalizeBarcode(value: string): string {
+  return value.trim().replace(/\s+/g, "");
+}
+
 export function isValidBarcode(value: string): boolean {
-  return BARCODE_PATTERN.test(value);
+  return BARCODE_PATTERN.test(normalizeBarcode(value));
 }
 
 /**
@@ -174,39 +178,40 @@ export class ProductLookupService {
   }
 
   public async lookup(barcode: string, options: LookupOptions = {}): Promise<ProductLookupResult> {
+    const normalizedBarcode = normalizeBarcode(barcode);
     const allowRemote = options.allowRemote !== false;
-    const cached = await this.repository.findByCode(barcode);
+    const cached = await this.repository.findByCode(normalizedBarcode);
 
     if (cached === undefined) {
       if (!allowRemote) return { outcome: "not_found" };
-      return this.lookupWithoutCache(barcode);
+      return this.lookupWithoutCache(normalizedBarcode);
     }
 
     // Everything derivable is computed first; only then is "do we still need the API?" decided.
-    const local = this.derive(barcode, cached);
+    const local = this.derive(normalizedBarcode, cached);
 
     if (
       !allowRemote ||
       !this.shouldEnrichRemotely(local.product) ||
       isRefreshCoolingDown(cached, Date.now(), config.offApi.refreshCooldownMs)
     ) {
-      log("info", "lookup_cache_hit", { barcode, derived: local.derived.length });
+      log("info", "lookup_cache_hit", { barcode: normalizedBarcode, derived: local.derived.length });
       return this.hit("cache", local);
     }
 
-    const existingRefresh = this.refreshInFlight.get(barcode);
+    const existingRefresh = this.refreshInFlight.get(normalizedBarcode);
     if (existingRefresh !== undefined) {
       return existingRefresh;
     }
 
-    const refreshPromise = this.refreshCachedProduct(barcode, cached);
-    this.refreshInFlight.set(barcode, refreshPromise);
+    const refreshPromise = this.refreshCachedProduct(normalizedBarcode, cached);
+    this.refreshInFlight.set(normalizedBarcode, refreshPromise);
 
     try {
       return await refreshPromise;
     } finally {
-      if (this.refreshInFlight.get(barcode) === refreshPromise) {
-        this.refreshInFlight.delete(barcode);
+      if (this.refreshInFlight.get(normalizedBarcode) === refreshPromise) {
+        this.refreshInFlight.delete(normalizedBarcode);
       }
     }
   }
