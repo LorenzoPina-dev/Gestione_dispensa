@@ -22,3 +22,18 @@ For Open Food Facts barcode resolution, Catalog maps package and serving data de
 - `serving.size` ← `serving_size` (fallback: `serving_quantity + serving_quantity_unit`)
 
 The complete upstream OFF document remains available through `openFoodFacts` and is persisted in `openfoodfacts_raw`.
+
+## Barcode resolve response contract
+
+`POST /api/v1/catalog/barcodes/resolve` never exposes the persisted Mongo representation as the UI contract. The response is mapped to `PublicProduct`.
+
+For products previously stored with `images_json = null` but with the original OFF document in `openfoodfacts_raw`, Catalog reconstructs the deterministic OFF image URL fields before responding:
+
+- `images.front/frontSmall/frontThumb`
+- `images.ingredients/ingredientsSmall/ingredientsThumb`
+- `images.nutrition/nutritionSmall/nutritionThumb`
+- `images.packaging/packagingSmall/packagingThumb`
+
+The same URLs are also materialized into the `openFoodFacts.image_*_url` fields so the UI never has to understand OFF image metadata (`imgid`, `rev`, `sizes`) or reconstruct image paths itself.
+
+The original OFF data remains available in `openFoodFacts` for the product-details/debug view, but it is returned as an API-shaped/enriched view rather than as the raw Mongo cache document.

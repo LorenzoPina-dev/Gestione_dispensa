@@ -714,6 +714,22 @@ services:
     restart: unless-stopped
     networks: [backend, data, egress]
 
+  off-image-integration-test:
+    build:
+      context: .
+      dockerfile: services/off-lookup/Dockerfile.integration
+    environment:
+      OFF_LOOKUP_IMAGE_INTEGRATION: "1"
+      OFF_LOOKUP_IMAGE_TEST_LIMIT: "10"
+      OFF_LOOKUP_MONGO_URL: "mongodb://mongodb:27017"
+      OFF_LOOKUP_MONGO_DB: off_lookup_db
+      OFF_LOOKUP_MONGO_COLLECTION: products
+      OFF_LOOKUP_API_BASE_URL: "https://world.openfoodfacts.org"
+    depends_on:
+      off-mongodb-index-maintenance: { condition: service_completed_successfully }
+    profiles: ["integration"]
+    networks: [data, egress]
+
 volumes:
   keycloak_db:
   postgres_data:
