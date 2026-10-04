@@ -63,3 +63,37 @@ docker compose exec mongodb mongosh --quiet off_lookup_db --eval 'db.products.de
 
 Documents originating from the official dump are left intact. If a dump document is enriched from the
 live API, its original `bulk-import` provenance is retained, so the reset command does not delete it.
+
+
+## Local-first barcode resolution
+
+The barcode path is intentionally **not** a completeness-gated cache lookup:
+
+1. normalize the barcode as a string (spaces removed; leading zeroes preserved);
+2. query MongoDB by the indexed `code` field;
+3. if a document exists, run the OFF derivation layer first;
+4. only if a configured required field is still missing after derivation may the live OFF API be called;
+5. if the API is unavailable, the locally derived product remains usable;
+6. successful remote enrichment is merged conservatively and cached without overwriting existing values.
+
+`OFF_LOOKUP_MIN_COMPLETENESS` defaults to `0` and should remain `0` for barcode lookup. OFF's own completeness score is a product-quality metric, not evidence that a barcode is absent or unusable. A sparse but valid OFF document must therefore still be returned.
+
+### Persisted vs derived image data
+
+The adapter treats image metadata and image URLs as different things. Current OFF schema versions can store selections below `images.selected.<type>.<language>`, while older dumps can expose `selected_images`. The adapter supports both forms. It uses the selected image's `imgid`/revision and the product barcode path to reconstruct the OFF image-server filenames. The official Product Opener implementation documents the directory split and selected filename format. urlOpen Food Facts Product Opener image implementationhttps://github.com/openfoodfacts/openfoodfacts-server/blob/main/lib/ProductOpener/Images.pm
+
+The image bytes are never copied into the OFF MongoDB database by the lookup service. URLs are deterministic references to the OFF image server. This is consistent with the OFF server's own separation between persisted image metadata and generated image URLs. citeturn0search0turn0search1
+
+### API fallback policy
+
+`OFF_LOOKUP_REMOTE_ENRICHMENT=missing` is the recommended mode. Its default required field is `name`, because a product without any usable name cannot be presented safely. Additional fields can be declared with `OFF_LOOKUP_REQUIRED_LOCAL_FIELDS`, for example:
+
+```text
+name,image,ingredients,nutriments,quantity
+```
+
+Do **not** interpret every absent optional field as an API failure. OFF products are legitimately sparse. A remote call is justified only when the application explicitly requires a field that cannot be obtained from persisted data or deterministic derivation.
+
+### Important schema-version detail
+
+Open Food Facts changed the image structure in product schema 1002/API 3.3: uploaded and selected images are separated under the `images` structure. The adapter therefore supports both the newer nested structure and legacy `selected_images` documents instead of assuming one dump schema. citeturn0search2
