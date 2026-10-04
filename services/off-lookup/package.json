@@ -24,6 +24,6 @@
     "test:http": "node --import tsx --test test/http.test.ts",
     "test:integration": "node --import tsx --test test/integration.test.ts",
     "test:integration:images": "node --import tsx --test test/mongo-image-api-http.integration.test.ts",
-    "test:integration:images:docker": "docker compose -f ../../docker-compose.yml run --rm off-image-integration-test"
+    "test:integration:images:docker": "docker compose --profile integration -f ../../docker-compose.yml run --rm off-image-integration-test"
   }
 }
