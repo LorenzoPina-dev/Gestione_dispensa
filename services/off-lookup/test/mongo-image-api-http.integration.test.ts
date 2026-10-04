@@ -98,33 +98,45 @@ test(
       await client.connect();
       const collection = client.db(mongoDb).collection<Product>(mongoCollection);
 
+      const totalDocuments = await collection.countDocuments();
+      const barcodeDocuments = await collection.countDocuments({
+        $or: [
+          { code: { $type: "string", $regex: /^\\d{6,14}$/ } },
+          { code: { $type: ["int", "long", "double", "decimal"] } },
+        ],
+      });
+
+      assert.ok(
+        totalDocuments > 0,
+        `Mongo collection ${mongoDb}.${mongoCollection} is empty. The integration test requires the OFF dump to be imported before running it.`,
+      );
+
       const cursor = collection.find(
-        {
-          code: { $type: "string", $regex: /^\\d{8,14}$/ },
-          $or: [
-            { "images.selected.front": { $exists: true } },
-            { "selected_images.front": { $exists: true } },
-            { "images.front": { $exists: true } },
-            { "images.front_it": { $exists: true } },
-          ],
-        },
+        {},
         {
           projection: {
             _id: 0,
             code: 1,
+            product_name: 1,
+            product_name_it: 1,
             lang: 1,
             lc: 1,
             images: 1,
             selected_images: 1,
           },
         },
-      ).limit(maxProducts * 5);
+      ).limit(Math.max(maxProducts * 100, 1000));
 
       for await (const product of cursor) {
         if (checked >= maxProducts) break;
 
-        const code = typeof product.code === "string" ? product.code.trim() : "";
-        if (!/^\\d{8,14}$/.test(code)) continue;
+        const code =
+          typeof product.code === "string"
+            ? product.code.trim()
+            : typeof product.code === "number" && Number.isSafeInteger(product.code)
+              ? String(product.code)
+              : "";
+        if (!/^\\d{6,14}$/.test(code)) continue;
 
         const derived = derivedImageFields(code, product, defaultDerivationOptions());
         const localUrl = derived.image_front_url;
@@ -169,7 +181,7 @@ test(
 
       assert.ok(
         checked > 0,
-        "No Mongo products with a derivable front image were found. Check the dump/schema and Mongo configuration.",
+        `Mongo ${mongoDb}.${mongoCollection} contains ${totalDocuments} document(s) and ${barcodeDocuments} barcode-like document(s), but none exposes a derivable front image through the supported OFF image schemas.`,
       );
       assert.deepEqual(
         failures,
