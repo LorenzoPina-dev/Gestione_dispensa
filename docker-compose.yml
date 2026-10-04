@@ -706,7 +706,7 @@ services:
       OFF_LOOKUP_SEARCH_INDEXER_TIMEOUT_MS: "4500"
       OFF_LOOKUP_SEARCH_INDEXER_WRITE_TIMEOUT_MS: "2500"
       OFF_LOOKUP_MONGO_SOURCE_TIMEOUT_MS: "10000"
-      OFF_LOOKUP_MIN_COMPLETENESS: "0.7"
+      OFF_LOOKUP_MIN_COMPLETENESS: "0"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
     depends_on:
       off-mongodb-index-maintenance: { condition: service_completed_successfully }
