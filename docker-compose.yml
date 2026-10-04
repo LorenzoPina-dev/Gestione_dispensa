@@ -151,6 +151,9 @@ services:
 
   # One-shot migration for existing dumps: the text index is no longer needed because
   # OpenSearch is the sole text-search engine. The barcode/code index remains.
+  # One-shot maintenance for the OFF Mongo source. This service NEVER deletes products based
+  # on completeness: completeness is metadata/quality, not a presence gate. It only ensures the
+  # products collection and its barcode index exist and removes the obsolete Mongo text index.
   off-mongodb-index-maintenance:
     image: mongo:8
     cpus: 1.0
@@ -163,37 +166,13 @@ services:
       - >-
         const collections=db.getCollectionNames();
         if(!collections.includes("products")){db.createCollection("products");print("Mongo products collection created");}
-        const minCompleteness=0.7;
-        const maintenance=db.getCollection("off_maintenance_meta");
-        const marker=maintenance.findOne({_id:"quality-gate-v1"});
-        if(marker && Number(marker.minCompleteness)===minCompleteness){
-          print("OFF Mongo quality gate already applied at "+(minCompleteness*100)+"%; no cleanup needed");
-        } else {
-          const dollar=String.fromCharCode(36);
-          const qualityFilter={
-            [dollar+"expr"]:{
-              [dollar+"lt"]:[
-                {[dollar+"convert"]:{input:dollar+"completeness",to:"double",onError:-1,onNull:-1}},
-                minCompleteness
-              ]
-            }
-          };
-          const before=db.products.countDocuments();
-          const removed=db.products.deleteMany(qualityFilter).deletedCount;
-          print("Removed "+removed+" OFF products below "+(minCompleteness*100)+"% completeness from "+before+" documents");
-          const idx=db.products.getIndexes();
-          const keywords=idx.find(i=>i.name==="keywords_1" || (i.key && i.key._keywords===1));
-          if(keywords){print("Dropping obsolete Mongo text index "+keywords.name);db.products.dropIndex(keywords.name);}
-          else{print("Mongo text index already absent");}
-          const codeIndex=idx.find(i=>i.name==="code_1" || (i.key && i.key.code===1));
-          if(!codeIndex) db.products.createIndex({code:1},{name:"code_1"});
-          maintenance.updateOne(
-            {_id:"quality-gate-v1"},
-            {[dollar+"set"]:{minCompleteness,appliedAt:new Date().toISOString()}},
-            {[dollar+"upsert"]:true}
-          );
-          print("OFF Mongo quality gate marker stored");
-        }
+        const idx=db.products.getIndexes();
+        const keywords=idx.find(i=>i.name==="keywords_1" || (i.key && i.key._keywords===1));
+        if(keywords){print("Dropping obsolete Mongo text index "+keywords.name);db.products.dropIndex(keywords.name);}
+        else{print("Mongo text index already absent");}
+        const codeIndex=idx.find(i=>i.name==="code_1" || (i.key && i.key.code===1));
+        if(!codeIndex) db.products.createIndex({code:1},{name:"code_1"});
+        print("OFF Mongo source maintenance completed without deleting product data");
     depends_on:
       mongodb: { condition: service_healthy }
     restart: "no"
