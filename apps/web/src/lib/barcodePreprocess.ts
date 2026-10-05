@@ -6,14 +6,13 @@ import { normalizeProductBarcode, isValidGs1Checksum } from "../domain/barcode.j
 // Pensato per essere chiamato sia su frame video (loop live) che su foto caricate.
 //
 // Il detector nativo BarcodeDetector funziona discretamente su immagini "pulite",
-// ma su plastica lucida / luce non uniforme / messa a fuoco morbida sbaglia o non
-// trova nulla. Generando più varianti preprocessate in parallelo e passandole tutte
-// al detector, la probabilità di lettura sale drasticamente — anche di 10-20× nei
-// casi difficili.
+// ma su plastica lucida / luce non uniforme / messa a fuoco morbida può fallire.
+// Le varianti vengono provate in ordine con early-exit, così miglioriamo la
+// robustezza senza saturare il main thread durante la scansione live.
 
 export type PreprocessVariant = "raw" | "equalized" | "bradley" | "upscaled";
 
-/** Ordine di esecuzione: prima le varianti più economiche, ma tutte partono in parallelo. */
+/** Ordine di esecuzione: prima le varianti più economiche, con early-exit sui match affidabili. */
 export const PREPROCESS_VARIANTS: readonly PreprocessVariant[] = [
   "raw",
   "equalized",
@@ -375,7 +374,7 @@ export interface DetectOptions {
 }
 
 /**
- * Esegue la pipeline su tutte le varianti in parallelo e restituisce tutti gli hit.
+ * Esegue la pipeline sulle varianti in ordine e restituisce gli hit affidabili.
  * Se almeno un hit supera il check GS1, filtra solo quelli (falsi positivi eliminati).
  * Altrimenti restituisce tutti gli hit "raw" così il chiamante può decidere se
  * presentarli come "da confermare" invece di scartarli silenziosamente.
@@ -473,9 +472,9 @@ export async function detectBestBarcode(
 }
 
 /**
- * Calcola il ritaglio del mirino (regione centrale ~60% × 35%) in coordinate sorgente.
- * Il mirino nell'UI è un rettangolo orizzontale largo circa il 60% della viewport e
- * alto il 35% — questa funzione approssima quella stessa area sul frame video.
+ * Calcola il ritaglio del mirino (regione centrale ~82% × 38%) in coordinate sorgente.
+ * Il mirino nell'UI usa le stesse proporzioni, così la regione mostrata all'utente
+ * coincide con la regione passata al decoder.
  */
 export function computeViewfinderCrop(srcW: number, srcH: number): CropRect {
   // Broad ROI: users do not have to position the barcode with pixel precision,
