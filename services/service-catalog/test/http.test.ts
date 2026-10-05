@@ -60,9 +60,15 @@ const service = new CatalogService(
   { now: () => new Date("2026-10-02T00:00:00Z") },
 );
 const workflow = new CatalogWorkflowService(
-  { findByIdentifier: async () => undefined, persistExternalMatch: async () => {
-    throw new Error("unexpected external persistence");
-  } },
+  {
+    findByIdentifier: async () => undefined,
+    persistExternalMatch: async () => {
+      throw new Error("unexpected external persistence");
+    },
+    refreshExternalMatch: async () => {
+      throw new Error("unexpected external refresh");
+    },
+  },
   { applyImportedCandidate: async (input) => input.candidate },
   {
     search: async ({ query, limit }) => [{
