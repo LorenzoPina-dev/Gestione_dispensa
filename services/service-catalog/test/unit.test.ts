@@ -338,7 +338,7 @@ describe("service-catalog / barcode workflow", () => {
     let externalCalls = 0;
     const lookup: CatalogLookupRepository = {
       findByIdentifier: async () => product(),
-      persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
+      persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
     };
     const external: ExternalBarcodeLookupClient = {
       lookup: async () => {
@@ -620,7 +620,7 @@ describe("service-catalog / barcode persistence error handling", () => {
     const workflow = new CatalogWorkflowService(
       {
         findByIdentifier: async () => undefined,
-        persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
+        persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
       },
       { applyImportedCandidate: async (input) => input.candidate },
       {
