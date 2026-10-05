@@ -20,7 +20,7 @@
     "start": "node dist/server.js",
     "dev": "tsx watch --env-file=../../.env src/server.ts",
     "test": "npm run build && node --import tsx --test test/*.test.ts",
-    "test:unit": "node --import tsx --test test/unit.test.ts test/http-client.test.ts",
+    "test:unit": "node --import tsx --test test/unit.test.ts test/http-client.test.ts test/off-canonical.test.ts",
     "test:http": "node --import tsx --test test/http.test.ts",
     "test:integration": "node --import tsx --test test/integration.test.ts",
     "test:integration:images": "node --import tsx --test test/mongo-image-api-http.integration.test.ts",
