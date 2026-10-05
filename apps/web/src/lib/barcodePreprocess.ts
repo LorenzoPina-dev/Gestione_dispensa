@@ -1,4 +1,4 @@
-import { isValidGs1Checksum } from "../domain/barcode.js";
+import { isValidGs1Checksum, productBarcodePriority } from "../domain/barcode.js";
 import type { BarcodeBounds } from "../domain/barcode-scanner.js";
 // services/web/src/lib/barcodePreprocess.ts
 //
@@ -11,12 +11,14 @@ import type { BarcodeBounds } from "../domain/barcode-scanner.js";
 // Le varianti vengono provate in ordine con early-exit, così miglioriamo la
 // robustezza senza saturare il main thread durante la scansione live.
 
-export type PreprocessVariant = "raw" | "equalized" | "bradley" | "upscaled";
+export type PreprocessVariant = "raw" | "equalized" | "clahe" | "sauvola" | "bradley" | "upscaled";
 
 /** Ordine di esecuzione: prima le varianti più economiche, con early-exit sui match affidabili. */
 export const PREPROCESS_VARIANTS: readonly PreprocessVariant[] = [
   "raw",
   "equalized",
+  "clahe",
+  "sauvola",
   "bradley",
   "upscaled",
 ];
@@ -30,6 +32,8 @@ export const BARCODE_FORMATS = [
   "code_128",
   "code_39",
   "itf",
+  "data_matrix",
+  "qr_code",
 ] as const;
 
 export interface CropRect {
@@ -113,14 +117,12 @@ async function detectWithFallback(
         ...(location.bounds ? { bounds: location.bounds } : {}),
       };
       hits.push(hit);
-      if (hit.validated) return [hit];
     } catch {
       // No barcode in this variant; continue with the next preprocessing pass.
     }
   }
 
-  const validated = hits.filter((hit) => hit.validated);
-  return validated.length > 0 ? validated : hits;
+  return rankBarcodeHits(hits, srcW, srcH, opts.crop);
 }
 
 export function isBarcodeDetectorAvailable(): boolean {
@@ -293,7 +295,13 @@ export function preprocessToCanvas(
       break;
     case "equalized":
       histogramEqualize(gray);
-      applyGamma(gray, 1.15); // solleva le ombre di ~15%
+      applyGamma(gray, 1.15);
+      break;
+    case "clahe":
+      claheApprox(gray, outW, outH, 8, 2.5);
+      break;
+    case "sauvola":
+      sauvolaThreshold(gray, outW, outH, 0.12, 0.34);
       break;
     case "bradley":
       bradleyThreshold(gray, outW, outH);
@@ -346,6 +354,50 @@ function histogramEqualize(gray: Uint8ClampedArray): void {
     lut[i] = Math.round(((cdf[i] - cdfMin) / denom) * 255);
   }
   for (let i = 0; i < gray.length; i++) gray[i] = lut[gray[i]];
+}
+
+/** Lightweight tile CLAHE approximation for mobile Canvas. */
+function claheApprox(gray: Uint8ClampedArray, w: number, h: number, tiles: number, clipLimit: number): void {
+  const tw = Math.max(1, Math.ceil(w / tiles));
+  const th = Math.max(1, Math.ceil(h / tiles));
+  const out = new Uint8ClampedArray(gray.length);
+  const lut = new Uint8ClampedArray(256);
+  for (let ty = 0; ty < tiles; ty++) {
+    for (let tx = 0; tx < tiles; tx++) {
+      const x0 = tx * tw, x1 = Math.min(w, x0 + tw);
+      const y0 = ty * th, y1 = Math.min(h, y0 + th);
+      const hist = new Uint32Array(256);
+      let count = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { hist[gray[y*w+x]]++; count++; }
+      const limit = Math.max(1, Math.floor((count / 256) * clipLimit));
+      let excess = 0;
+      for (let i = 0; i < 256; i++) { if (hist[i] > limit) { excess += hist[i] - limit; hist[i] = limit; } }
+      const add = Math.floor(excess / 256);
+      for (let i = 0; i < 256; i++) hist[i] += add;
+      let acc = 0;
+      for (let i = 0; i < 256; i++) { acc += hist[i]; lut[i] = Math.round((acc / Math.max(1,count)) * 255); }
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) out[y*w+x] = lut[gray[y*w+x]];
+    }
+  }
+  gray.set(out);
+}
+
+/** Sauvola: T(x,y)=m(x,y)*(1+k*(s/R-1)). Integral images keep it O(n). */
+function sauvolaThreshold(gray: Uint8ClampedArray, w: number, h: number, k=0.12, r=0.34): void {
+  const radius = Math.max(4, Math.floor(Math.min(w,h) * 0.035));
+  const iw = w + 1;
+  const sum = new Float64Array(iw * (h+1));
+  const sq = new Float64Array(iw * (h+1));
+  for (let y=0;y<h;y++) { let rs=0, rq=0; for (let x=0;x<w;x++) { const v=gray[y*w+x]; rs+=v; rq+=v*v; sum[(y+1)*iw+x+1]=sum[y*iw+x+1]+rs; sq[(y+1)*iw+x+1]=sq[y*iw+x+1]+rq; } }
+  const out = new Uint8ClampedArray(gray.length);
+  for (let y=0;y<h;y++) for (let x=0;x<w;x++) {
+    const x0=Math.max(0,x-radius), x1=Math.min(w-1,x+radius), y0=Math.max(0,y-radius), y1=Math.min(h-1,y+radius);
+    const A=y0*iw+x0, B=y0*iw+x1+1, C=(y1+1)*iw+x0, D=(y1+1)*iw+x1+1;
+    const n=(x1-x0+1)*(y1-y0+1); const m=(sum[D]-sum[B]-sum[C]+sum[A])/n;
+    const variance=Math.max(0,(sq[D]-sq[B]-sq[C]+sq[A])/n-m*m); const s=Math.sqrt(variance);
+    const threshold=m*(1+k*(s/255/r-1)); out[y*w+x]=gray[y*w+x] <= threshold ? 0 : 255;
+  }
+  gray.set(out);
 }
 
 function applyGamma(gray: Uint8ClampedArray, gamma: number): void {
@@ -468,6 +520,33 @@ export interface DetectOptions {
  * Non lancia mai: se il detector non è disponibile, o tutte le varianti falliscono,
  * restituisce [].
  */
+/** Never trust the first valid numeric result: aggregate decoder variants before selection. */
+function rankBarcodeHits(
+  hits: readonly BarcodeHit[],
+  srcW: number,
+  srcH: number,
+  crop?: CropRect,
+): BarcodeHit[] {
+  const groups = new Map<string, { hit: BarcodeHit; count: number }>();
+  for (const hit of hits) {
+    const current = groups.get(hit.rawValue);
+    if (current) current.count += 1;
+    else groups.set(hit.rawValue, { hit, count: 1 });
+  }
+  const cx = crop ? crop.x + crop.width / 2 : srcW / 2;
+  const cy = crop ? crop.y + crop.height / 2 : srcH / 2;
+  const extent = Math.max(srcW, srcH);
+  return [...groups.values()].sort((a, b) => {
+    const score = (entry: {hit: BarcodeHit; count: number}) => {
+      const validity = entry.hit.validated ? 10000 : 0;
+      const symbology = productBarcodePriority(entry.hit.rawValue);
+      const distance = entry.hit.center ? Math.hypot(entry.hit.center.x-cx, entry.hit.center.y-cy)/extent : 1;
+      return validity + symbology + entry.count*50 - distance*100;
+    };
+    return score(b) - score(a);
+  }).map((entry) => entry.hit);
+}
+
 export async function detectBarcodes(
   source: CanvasImageSource,
   srcW: number,
@@ -510,7 +589,6 @@ export async function detectBarcodes(
           }
 
           nativeHits.push(hit);
-          if (hit.validated) return [hit];
         }
       } catch {
         // Continue with the next variant.
@@ -525,10 +603,7 @@ export async function detectBarcodes(
     variants,
     ...(crop ? { crop } : {}),
   });
-  if (fallback.length > 0) return fallback;
-
-  const validatedNative = nativeHits.filter((hit) => hit.validated);
-  return validatedNative.length > 0 ? validatedNative : nativeHits;
+  return rankBarcodeHits([...nativeHits, ...fallback], srcW, srcH, crop);
 }
 
 /**

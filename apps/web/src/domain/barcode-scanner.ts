@@ -144,10 +144,46 @@ export function barcodeObservationsAgree(
   return true;
 }
 
+export type BarcodeConsensusCandidate = BarcodeObservation & {
+  validated: boolean;
+  priority: number;
+  format?: string;
+};
+
+/**
+ * Require repeated agreement for difficult frames. A checksum-valid EAN/UPC still
+ * needs temporal confirmation because a decoder can consistently hallucinate a
+ * different valid GTIN from a dense 1D pattern.
+ */
 export function consensusRequiredFrames(
   validated: boolean,
   quality: FrameQuality,
 ): number {
-  if (!validated) return 3;
-  return quality === "good" ? 2 : 3;
+  if (!validated) return 4;
+  return quality === "good" ? 3 : 4;
+}
+
+export function chooseStableBarcodeCandidate(
+  candidates: readonly BarcodeConsensusCandidate[],
+): BarcodeConsensusCandidate | null {
+  if (candidates.length === 0) return null;
+
+  const grouped = new Map<string, { candidate: BarcodeConsensusCandidate; count: number; priority: number }>();
+  for (const candidate of candidates) {
+    const current = grouped.get(candidate.value);
+    if (!current) {
+      grouped.set(candidate.value, { candidate, count: 1, priority: candidate.priority });
+      continue;
+    }
+    current.count += 1;
+    current.priority = Math.max(current.priority, candidate.priority);
+    if (candidate.validated && !current.candidate.validated) current.candidate = candidate;
+  }
+
+  return [...grouped.values()]
+    .sort((a, b) =>
+      Number(b.candidate.validated) - Number(a.candidate.validated) ||
+      b.count - a.count ||
+      b.priority - a.priority,
+    )[0]?.candidate ?? null;
 }

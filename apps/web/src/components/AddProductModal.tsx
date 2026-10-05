@@ -264,7 +264,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     if (stoppedRef.current || scanBusyRef.current) return;
 
     const now = performance.now();
-    if (now - lastScanAtRef.current < 280) {
+    if (now - lastScanAtRef.current < 90) {
       scheduleScan();
       return;
     }
@@ -326,10 +326,10 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const quality = metrics?.quality ?? "usable";
       const variants: readonly PreprocessVariant[] =
         quality === "good"
-          ? ["raw", "equalized", "upscaled"]
+          ? ["raw", "equalized", "clahe", "upscaled"]
           : quality === "usable"
-            ? ["raw", "equalized", "upscaled", "bradley"]
-            : ["upscaled", "bradley", "equalized"];
+            ? ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"]
+            : ["raw", "upscaled", "clahe", "sauvola", "bradley", "equalized"];
       const activeCrop = computeViewfinderCrop(
         video.videoWidth,
         video.videoHeight,
@@ -442,7 +442,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
     timerRef.current = window.setTimeout(() => {
       void scanFrame();
-    }, 280);
+    }, 90);
   }
 
   async function startCamera() {
