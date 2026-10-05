@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
-import { detectBestBarcode, computeViewfinderCrop, type BarcodeHit } from "../lib/barcodePreprocess";
+import { computeViewfinderCrop, detectBestBarcode, type BarcodeHit } from "../lib/barcodePreprocess";
+import { analyzeBarcodeFrame } from "../lib/barcodeQuality";
+import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityResult } from "../domain/barcode-scanner.js";
 import { normalizeProductBarcode } from "../domain/barcode.js";
-import { openBarcodeCamera, readCameraDiagnostics, setBarcodeTorch, type CameraDiagnostics } from "../lib/barcodeCamera";
+import { increaseBarcodeZoom, openBarcodeCamera, readCameraDiagnostics, recoverBarcodeFocus, setBarcodeTorch, type CameraDiagnostics } from "../lib/barcodeCamera";
 import { isBackendUnreachable } from "../api/client.js";
 
 type AddMode = "menu" | "barcode" | "manuale" | "lista";
@@ -114,6 +116,8 @@ function ModeMenu({ onSelect, onClose }: { onSelect: (m: AddMode) => void; onClo
 }
 
 function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) {
+  type ScannerPhase = "IDLE" | "INITIALIZING" | "FOCUS_SETTLING" | "QUALITY_CHECK" | "DECODING" | "VERIFYING" | "RECOVERING";
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -122,8 +126,19 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const scanBusyRef = useRef(false);
   const lastScanAtRef = useRef(0);
   const stoppedRef = useRef(false);
-  const lastRef = useRef({ value: "", count: 0 });
+  const previousFingerprintRef = useRef<Uint8Array | undefined>();
+  const consensusRef = useRef<{ value: string; count: number; hit: BarcodeHit } | null>(null);
+  const poorFrameCountRef = useRef(0);
+  const goodNoHitFramesRef = useRef(0);
+  const lastRecoveryAtRef = useRef(0);
+  const zoomBoostedRef = useRef(false);
+  const expandedViewfinderRef = useRef(false);
+
   const [state, setState] = useState<BarcodeState>("IDLE");
+  const [scannerPhase, setScannerPhase] = useState<ScannerPhase>("IDLE");
+  const [scannerMessage, setScannerMessage] = useState("Posiziona il barcode nel riquadro.");
+  const [frameQuality, setFrameQuality] = useState<FrameQualityResult | null>(null);
+  const [expandedViewfinder, setExpandedViewfinder] = useState(false);
   const [code, setCode] = useState("");
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +161,16 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     }
     frameRequestRef.current = null;
     scanBusyRef.current = false;
-    lastRef.current = { value: "", count: 0 };
+    previousFingerprintRef.current = undefined;
+    consensusRef.current = null;
+    poorFrameCountRef.current = 0;
+    goodNoHitFramesRef.current = 0;
+    lastRecoveryAtRef.current = 0;
+    zoomBoostedRef.current = false;
+    expandedViewfinderRef.current = false;
+    setExpandedViewfinder(false);
+    setFrameQuality(null);
+    setScannerPhase("IDLE");
   }, []);
 
   useEffect(() => stopCamera, [stopCamera]);
@@ -202,11 +226,219 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     }
   }
 
+  function qualityMessage(metrics: FrameQualityResult, noHitFrames: number): string {
+    if (metrics.advice === "STEADY") return "Mantieni fermo il dispositivo.";
+    if (metrics.advice === "FOCUS") return "Attendi la messa a fuoco o avvicinati lentamente.";
+    if (metrics.advice === "GLARE") return "Evita i riflessi: inclina leggermente la confezione.";
+    if (metrics.advice === "LIGHT") return "C'è poca luce. Attiva la luce della fotocamera.";
+    if (noHitFrames >= 4) return "Avvicina il barcode e riempi il riquadro.";
+    return "Inquadra le barre nel riquadro.";
+  }
+
+  async function recoverCamera(track: MediaStreamTrack) {
+    const now = performance.now();
+    if (now - lastRecoveryAtRef.current < 1800) return;
+    lastRecoveryAtRef.current = now;
+    setScannerPhase("RECOVERING");
+    setScannerMessage("Rimetto a fuoco la fotocamera…");
+    const diagnostics = await recoverBarcodeFocus(track);
+    if (!stoppedRef.current) {
+      setCameraDiagnostics(diagnostics);
+      setScannerPhase("QUALITY_CHECK");
+    }
+  }
+
+  async function scanFrame() {
+    if (stoppedRef.current || scanBusyRef.current) return;
+
+    const now = performance.now();
+    if (now - lastScanAtRef.current < 280) {
+      scheduleScan();
+      return;
+    }
+
+    const video = videoRef.current;
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!video || !track || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      scheduleScan();
+      return;
+    }
+
+    scanBusyRef.current = true;
+    lastScanAtRef.current = now;
+
+    try {
+      const cropMode = expandedViewfinderRef.current ? "expanded" : "standard";
+      const crop = computeViewfinderCrop(video.videoWidth, video.videoHeight, cropMode);
+      const sample = analyzeBarcodeFrame(
+        video,
+        video.videoWidth,
+        video.videoHeight,
+        crop,
+        previousFingerprintRef.current,
+      );
+
+      if (sample) {
+        previousFingerprintRef.current = sample.fingerprint;
+        setFrameQuality(sample.metrics);
+        setScannerPhase("QUALITY_CHECK");
+      }
+
+      const metrics = sample?.metrics;
+      if (metrics) {
+        if (metrics.quality === "poor") poorFrameCountRef.current++;
+        else poorFrameCountRef.current = 0;
+
+        setScannerMessage(qualityMessage(metrics, goodNoHitFramesRef.current));
+
+        if (
+          metrics.quality === "poor" &&
+          poorFrameCountRef.current >= 4 &&
+          performance.now() - lastRecoveryAtRef.current >= 1800
+        ) {
+          await recoverCamera(track);
+          return;
+        }
+
+        // Motion-heavy frames are not useful for a decoder. For other poor frames
+        // we still sample every third frame because thresholding can recover glare.
+        if (
+          metrics.quality === "poor" &&
+          (metrics.motion > 0.28 || poorFrameCountRef.current % 3 !== 0)
+        ) {
+          return;
+        }
+      }
+
+      setScannerPhase("DECODING");
+      const quality = metrics?.quality ?? "usable";
+      const variants =
+        quality === "good"
+          ? ["raw", "equalized", "upscaled"]
+          : quality === "usable"
+            ? ["raw", "equalized", "upscaled", "bradley"]
+            : ["upscaled", "bradley", "equalized"];
+      const activeCrop = computeViewfinderCrop(
+        video.videoWidth,
+        video.videoHeight,
+        expandedViewfinderRef.current ? "expanded" : "standard",
+      );
+
+      const hit = await detectBestBarcode(
+        video,
+        video.videoWidth,
+        video.videoHeight,
+        {
+          maxDimension: Math.min(1440, Math.max(video.videoWidth, video.videoHeight)),
+          crop: activeCrop,
+          variants,
+        },
+      );
+
+      if (stoppedRef.current) return;
+
+      if (!hit) {
+        if (metrics?.quality === "good") {
+          goodNoHitFramesRef.current++;
+          if (goodNoHitFramesRef.current === 5) {
+            expandedViewfinderRef.current = true;
+            setExpandedViewfinder(true);
+          } else if (
+            goodNoHitFramesRef.current >= 9 &&
+            !zoomBoostedRef.current
+          ) {
+            const diagnostics = await increaseBarcodeZoom(track);
+            zoomBoostedRef.current = diagnostics.zoom != null && diagnostics.zoom > (cameraDiagnostics?.zoom ?? 0);
+            setCameraDiagnostics(diagnostics);
+          }
+        } else {
+          goodNoHitFramesRef.current = 0;
+        }
+        setScannerPhase("QUALITY_CHECK");
+        return;
+      }
+
+      goodNoHitFramesRef.current = 0;
+      const normalized = normalizeProductBarcode(hit.rawValue);
+      if (!normalized) {
+        consensusRef.current = null;
+        setScannerPhase("QUALITY_CHECK");
+        return;
+      }
+
+      const validated = /^[0-9]+$/.test(normalized) && normalized.length >= 8
+        ? hit.validated
+        : false;
+      const observation = {
+        value: normalized,
+        ...(hit.center ? { center: hit.center } : {}),
+        ...(hit.bounds ? { bounds: hit.bounds } : {}),
+      };
+
+      setScannerPhase("VERIFYING");
+      const previous = consensusRef.current;
+      if (
+        previous &&
+        previous.value === normalized &&
+        barcodeObservationsAgree(
+          observation,
+          {
+            value: previous.value,
+            ...(previous.hit.center ? { center: previous.hit.center } : {}),
+            ...(previous.hit.bounds ? { bounds: previous.hit.bounds } : {}),
+          },
+          video.videoWidth,
+          video.videoHeight,
+        )
+      ) {
+        consensusRef.current = { value: normalized, count: previous.count + 1, hit };
+      } else {
+        consensusRef.current = { value: normalized, count: 1, hit };
+      }
+
+      const required = consensusRequiredFrames(validated, quality);
+      if ((consensusRef.current?.count ?? 0) >= required) {
+        const found = normalized;
+        setScannerMessage("Barcode verificato. Cerco il prodotto…");
+        stopCamera();
+        await resolve(found);
+        return;
+      }
+    } catch {
+      // Camera decoding is best-effort; acquisition remains alive.
+    } finally {
+      scanBusyRef.current = false;
+      if (!stoppedRef.current) scheduleScan();
+    }
+  }
+
+  function scheduleScan() {
+    if (stoppedRef.current) return;
+    const video = videoRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: (now: number, metadata: unknown) => number | void) => number;
+    }) | null;
+    if (!video) return;
+
+    if (video.requestVideoFrameCallback) {
+      frameRequestRef.current = video.requestVideoFrameCallback(() => {
+        void scanFrame();
+      });
+      return;
+    }
+
+    timerRef.current = window.setTimeout(() => {
+      void scanFrame();
+    }, 280);
+  }
+
   async function startCamera() {
     setState("SCANNING");
+    setScannerPhase("INITIALIZING");
+    setScannerMessage("Apro la fotocamera…");
     setError(null);
     stoppedRef.current = false;
     setCameraDiagnostics(null);
+    setFrameQuality(null);
 
     try {
       const { stream, track, diagnostics } = await openBarcodeCamera();
@@ -236,11 +468,14 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         setCameraAspectRatio(`${video.videoWidth}/${video.videoHeight}`);
       }
 
-      // Allow the camera ISP/autofocus to settle before decoding.
-      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      setScannerPhase("FOCUS_SETTLING");
+      setScannerMessage("Stabilizzo autofocus e immagine…");
+      await new Promise((resolveTimer) => window.setTimeout(resolveTimer, 350));
       if (stoppedRef.current) return;
 
       setCameraDiagnostics(readCameraDiagnostics(track));
+      setScannerPhase("QUALITY_CHECK");
+      setScannerMessage("Posiziona il barcode nel riquadro.");
       scheduleScan();
     } catch (err) {
       stopCamera();
@@ -250,90 +485,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           : "Impossibile accedere alla fotocamera. Controlla i permessi del browser.",
       );
       setState("IDLE");
-    }
-  }
-
-  function scheduleScan() {
-    if (stoppedRef.current) return;
-    const video = videoRef.current as (HTMLVideoElement & {
-      requestVideoFrameCallback?: (callback: (now: number, metadata: unknown) => void) => number;
-    }) | null;
-    if (!video) return;
-
-    if (video.requestVideoFrameCallback) {
-      frameRequestRef.current = video.requestVideoFrameCallback(() => {
-        void scanFrame();
-      });
-      return;
-    }
-
-    timerRef.current = window.setTimeout(() => {
-      void scanFrame();
-    }, 280);
-  }
-
-  async function scanFrame() {
-    if (stoppedRef.current || scanBusyRef.current) return;
-
-    const now = performance.now();
-    if (now - lastScanAtRef.current < 280) {
-      scheduleScan();
-      return;
-    }
-
-    const video = videoRef.current;
-    if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-      scheduleScan();
-      return;
-    }
-
-    scanBusyRef.current = true;
-    lastScanAtRef.current = now;
-
-    try {
-      const crop = computeViewfinderCrop(video.videoWidth, video.videoHeight);
-      const hit = await detectBestBarcode(
-        video,
-        video.videoWidth,
-        video.videoHeight,
-        {
-          maxDimension: Math.min(1440, Math.max(video.videoWidth, video.videoHeight)),
-          crop,
-          variants: ["raw", "equalized", "upscaled", "bradley"],
-        },
-      );
-
-      if (stoppedRef.current) return;
-
-      if (hit) {
-        const normalized = normalizeProductBarcode(hit.rawValue);
-        if (!normalized) {
-          lastRef.current = { value: "", count: 0 };
-          return;
-        }
-
-        lastRef.current =
-          lastRef.current.value === normalized
-            ? { value: normalized, count: lastRef.current.count + 1 }
-            : { value: normalized, count: 1 };
-
-        // A checksum-valid hit still needs two identical frames. An unvalidated
-        // numeric hit needs three frames to reduce false positives further.
-        const required = hit.validated ? 2 : 3;
-        if (lastRef.current.count >= required) {
-          const found = normalized;
-          stopCamera();
-          await resolve(found);
-          return;
-        }
-      } else {
-        lastRef.current = { value: "", count: 0 };
-      }
-    } catch {
-      // Camera decoding is best-effort; acquisition remains alive.
-    } finally {
-      scanBusyRef.current = false;
-      if (!stoppedRef.current) scheduleScan();
     }
   }
 
@@ -356,13 +507,23 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     onAdd({ productId: candidate.productId, barcode: code, name: candidate.name, brand: candidate.brand, unit: candidate.unit, category: candidate.category ?? "Altro", calories: candidate.calories, protein: candidate.protein, carbs: candidate.carbs, fat: candidate.fat, fiber: candidate.fiber, location, batches: [{ quantity, expiryDate: expiry || undefined }] });
   }
 
+  const phaseLabel: Record<ScannerPhase, string> = {
+    IDLE: "",
+    INITIALIZING: "Avvio",
+    FOCUS_SETTLING: "Autofocus",
+    QUALITY_CHECK: "Qualità",
+    DECODING: "Lettura",
+    VERIFYING: "Verifica",
+    RECOVERING: "Recovery",
+  };
+
   return (
     <div className="p-4 space-y-5 sm:p-6">
       <div className="flex items-center gap-3"><button onClick={() => { stopCamera(); onBack(); }} className="text-sm" style={{ color: "#6b5e4e" }}>← Indietro</button><h3 className="text-lg font-light flex-1" style={{ color: "#1a1510" }}>Foto / barcode</h3></div>
 
       {state === "IDLE" && <div className="space-y-4">
         <button onClick={startCamera} className="w-full py-4 rounded-2xl flex flex-col items-center gap-2" style={{ backgroundColor: "#fff", border: "2px dashed #d8cfc0" }}><span className="text-4xl">📷</span><p className="font-medium text-sm">Scatta con la fotocamera</p><p className="text-xs" style={{ color: "#6b5e4e" }}>Inquadra il barcode del prodotto</p></button>
-        <label className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 cursor-pointer" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}><span>🖼️</span><span className="text-sm font-medium" style={{ color: "#6b5e4e" }}>Carica una foto del barcode</span><input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; const bitmap = await createImageBitmap(file); try { await scanSource(bitmap, bitmap.width, bitmap.height); } finally { bitmap.close(); } }} /></label>
+        <label className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 cursor-pointer" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}><span>🖼️</span><span className="text-sm font-medium" style={{ color: "#6b5e4e" }}>Carica una foto del barcode</span><input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; try { const bitmap = await createImageBitmap(file); try { await scanSource(bitmap, bitmap.width, bitmap.height); } finally { bitmap.close(); } } catch { setError("Non è stato possibile aprire l'immagine."); setState("MANUAL_REQUIRED"); } }} /></label>
         <div className="flex gap-2"><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Inserisci barcode manualmente" className="flex-1 px-3 py-2.5 rounded-xl text-sm" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }} /><button onClick={() => code.trim() && resolve(code)} className="px-4 rounded-xl text-sm font-medium" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Cerca</button></div>
         {error && <Message>{error}</Message>}
       </div>}
@@ -382,7 +543,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
             />
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div
-                className="w-[82%] h-[38%] border-2 rounded-xl"
+                className={expandedViewfinder ? "w-[94%] h-[56%] border-2 rounded-xl" : "w-[82%] h-[38%] border-2 rounded-xl"}
                 style={{
                   borderColor: "#c4623a",
                   boxShadow: "0 0 0 9999px rgba(0,0,0,.45)",
@@ -404,16 +565,20 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
             )}
           </div>
 
-          {cameraDiagnostics && (
-            <div className="rounded-xl px-3 py-2 text-[11px]" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                <span>Camera {cameraDiagnostics.width}×{cameraDiagnostics.height}</span>
-                {cameraDiagnostics.frameRate != null && <span>{Math.round(cameraDiagnostics.frameRate)} fps</span>}
-                <span>{cameraDiagnostics.continuousFocus ? "AF continuo" : "AF continuo non disponibile"}</span>
-                {cameraDiagnostics.zoom != null && <span>Zoom {cameraDiagnostics.zoom.toFixed(1)}×</span>}
-              </div>
+          <div className="rounded-xl px-3 py-2 text-[11px]" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {cameraDiagnostics && <span>Camera {cameraDiagnostics.width}×{cameraDiagnostics.height}</span>}
+              {cameraDiagnostics?.frameRate != null && <span>{Math.round(cameraDiagnostics.frameRate)} fps</span>}
+              {cameraDiagnostics && <span>{cameraDiagnostics.continuousFocus ? "AF continuo" : "AF non disponibile"}</span>}
+              {cameraDiagnostics?.zoom != null && <span>Zoom {cameraDiagnostics.zoom.toFixed(1)}×</span>}
+              {phaseLabel[scannerPhase] && <span>Fase: {phaseLabel[scannerPhase]}</span>}
+              {frameQuality && <span>Qualità {frameQuality.quality === "good" ? "buona" : frameQuality.quality === "usable" ? "discreta" : "bassa"} ({Math.round(frameQuality.score * 100)}%)</span>}
             </div>
-          )}
+          </div>
+
+          <div className="rounded-xl px-3 py-2 text-sm" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0", color: "#4b4035" }}>
+            {scannerMessage}
+          </div>
 
           <button
             onClick={() => { stopCamera(); setState("IDLE"); }}
