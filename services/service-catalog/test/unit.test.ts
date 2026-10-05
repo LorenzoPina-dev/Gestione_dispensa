@@ -339,7 +339,6 @@ describe("service-catalog / barcode workflow", () => {
     const lookup: CatalogLookupRepository = {
       findByIdentifier: async () => product(),
       persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
-      refreshExternalMatch: async () => product(),
     };
     const external: ExternalBarcodeLookupClient = {
       lookup: async () => {
