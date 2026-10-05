@@ -8,12 +8,12 @@
  * temporal consensus layer.
  */
 
-const PRODUCT_BARCODE_PATTERN = /^(?:\\d{8}|\\d{12}|\\d{13}|\\d{14})$/;
+const PRODUCT_BARCODE_PATTERN = /^(?:\d{8}|\d{12}|\d{13}|\d{14})$/;
 
 export type ProductBarcodeKind = "EAN_8" | "UPC_A" | "EAN_13" | "GTIN_14";
 
 export function normalizeProductBarcode(value: string): string | null {
-  const normalized = value.trim().replace(/[\\s-]+/g, "");
+  const normalized = value.trim().replace(/[\s-]+/g, "");
   return PRODUCT_BARCODE_PATTERN.test(normalized) ? normalized : null;
 }
 
