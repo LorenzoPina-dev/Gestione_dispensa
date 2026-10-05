@@ -145,8 +145,9 @@ export async function configureBarcodeCamera(
 
   const zoomRange = numericRange(capabilities.zoom);
   const settings = track.getSettings();
+  const settingsBag = settings as Record<string, unknown>;
   const currentZoom =
-    typeof settings.zoom === "number" ? settings.zoom : zoomRange?.min ?? null;
+    typeof settingsBag.zoom === "number" ? settingsBag.zoom : zoomRange?.min ?? null;
 
   if (zoomRange && supported.zoom !== false) {
     const targetZoom = clampToStep(
