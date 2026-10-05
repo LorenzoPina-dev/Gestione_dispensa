@@ -16,6 +16,7 @@ import {
   type DerivationResult,
 } from "./off-derived.js";
 import { log } from "./logger.js";
+import { normalizeOffProduct } from "./off-canonical.js";
 
 export interface ProductLookupProvenance {
   /** Where the persisted product originated. */
@@ -114,7 +115,14 @@ export class ProductLookupService {
     }
 
     if (openSearchResult?.status === "found" && openSearchResult.hits.length > 0) {
-      const result = { ...openSearchResult, source: "local" } as OffSearchResult;
+      const result = {
+        ...openSearchResult,
+        source: "local",
+        hits: openSearchResult.hits.map((hit) => ({
+          code: hit.code,
+          product: this.derive(hit.code, hit.product).product,
+        })),
+      } as OffSearchResult;
       this.searchCache.set(normalizedQuery, { at: Date.now(), result });
       this.trimSearchCache();
       return result;
@@ -127,7 +135,14 @@ export class ProductLookupService {
 
     const external = await this.apiClient.searchProducts(normalizedQuery, boundedLimit);
     if (external.status === "found" && external.hits.length > 0) {
-      const result = { ...external, source: "external" } as OffSearchResult;
+      const result = {
+        ...external,
+        source: "external",
+        hits: external.hits.map((hit) => ({
+          code: hit.code,
+          product: this.derive(hit.code, hit.product).product,
+        })),
+      } as OffSearchResult;
       this.searchCache.set(normalizedQuery, { at: Date.now(), result });
       this.trimSearchCache();
       for (const hit of external.hits) {
@@ -141,7 +156,14 @@ export class ProductLookupService {
       return result;
     }
 
-    return { ...external, source: "external" } as OffSearchResult;
+    return {
+      ...external,
+      source: "external",
+      hits: external.hits.map((hit) => ({
+        code: hit.code,
+        product: this.derive(hit.code, hit.product).product,
+      })),
+    } as OffSearchResult;
   }
 
   public async lookup(barcode: string, options: LookupOptions = {}): Promise<ProductLookupResult> {
@@ -177,7 +199,12 @@ export class ProductLookupService {
   }
 
   private derive(code: string, product: Record<string, unknown>): DerivationResult {
-    return deriveProductFields(code, product, this.policy.derivation);
+    const derived = deriveProductFields(code, product, this.policy.derivation);
+    const canonical = normalizeOffProduct(code, derived.product, this.policy.derivation);
+    return {
+      product: canonical,
+      derived: derived.derived,
+    };
   }
 
   private hit(
