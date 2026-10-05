@@ -279,8 +279,14 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
       await transaction.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["catalog-barcode:" + input.identifierType + ":" + input.normalizedValue]);
       const existing = await transaction.query<ProductRow>("SELECT p.id,p.canonical_name,b.name AS brand,p.default_unit,p.status,p.provenance_quality,p.version,p.category,p.photo_url,p.calories_per_100,p.protein_per_100,p.carbs_per_100,p.fat_per_100,p.fiber_per_100,p.quantity_value,p.quantity_unit,p.quantity_label,p.serving_size,p.serving_quantity,p.images_json,p.openfoodfacts_raw,p.created_at,p.updated_at,COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2 WHERE i2.product_id=p.id),'[]') AS barcodes_json,p.external_source,p.external_ref FROM product_identifiers i JOIN products p ON p.id=i.product_id LEFT JOIN brands b ON b.id=p.brand_id WHERE i.identifier_type=$1 AND i.normalized_value=$2 AND p.status=$3 LIMIT 1", [input.identifierType, input.normalizedValue, "ACTIVE"]);
       if (existing.rows[0]) {
+        const current = mapProduct(existing.rows[0]);
         await transaction.commit();
-        return mapProduct(existing.rows[0]);
+        // A manual product remains authoritative. For an existing OpenFoodFacts projection,
+        // reconcile it in a fresh transaction so an older partial snapshot cannot survive forever.
+        if (current.externalSource?.trim().toLowerCase() === "openfoodfacts") {
+          return this.refreshExternalMatch(input);
+        }
+        return current;
       }
       const sourceId = await ensureSource(transaction, "PROVIDER", input.match.source);
       const brandId = await ensureBrand(transaction, input.match.brand);
@@ -370,6 +376,153 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
       return fresh.rows[0] ? mapProduct(fresh.rows[0]) : mapProduct({ ...row, brand: input.match.brand ?? null });
     } catch (error) {
       await transaction.rollback();
+      throw error;
+    }
+  }
+
+  public async refreshExternalMatch(input: {
+    identifierType: IdentifierType;
+    normalizedValue: string;
+    match: ExternalProductMatch;
+    traceId: string;
+  }): Promise<Product> {
+    const transaction = await this.database.transaction();
+    try {
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        ["catalog-barcode:" + input.identifierType + ":" + input.normalizedValue],
+      );
+
+      const existing = await transaction.query<ProductRow>(
+        `SELECT p.id,p.canonical_name,b.name AS brand,p.default_unit,p.status,p.provenance_quality,
+          p.version,p.category,p.photo_url,p.calories_per_100,p.protein_per_100,p.carbs_per_100,p.fat_per_100,
+          p.fiber_per_100,p.quantity_value,p.quantity_unit,p.quantity_label,p.serving_size,p.serving_quantity,
+          p.serving_unit,p.images_json,p.openfoodfacts_raw,p.created_at,p.updated_at,
+          COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2
+            WHERE i2.product_id=p.id),'[]') AS barcodes_json,
+          p.external_source,p.external_ref
+         FROM product_identifiers i
+         JOIN products p ON p.id=i.product_id
+         LEFT JOIN brands b ON b.id=p.brand_id
+         WHERE i.identifier_type=$1 AND i.normalized_value=$2 AND p.status='ACTIVE'
+         LIMIT 1`,
+        [input.identifierType, input.normalizedValue],
+      );
+      const row = existing.rows[0];
+      if (!row) {
+        await transaction.rollback();
+        throw new Error("Cannot refresh missing Catalog product.");
+      }
+
+      const current = mapProduct(row);
+      if (current.externalSource?.trim().toLowerCase() !== "openfoodfacts") {
+        await transaction.commit();
+        return current;
+      }
+
+      const sourceId = await ensureSource(transaction, "PROVIDER", input.match.source);
+      const brandId = await ensureBrand(transaction, input.match.brand);
+      const nutritionConfidence = input.match.calories !== undefined ? "ESTIMATED" : "UNKNOWN";
+
+      await transaction.query(
+        `UPDATE products SET
+          canonical_name=$2,
+          brand_id=$3,
+          default_unit=$4,
+          provenance_quality='IMPORTED',
+          calories_per_100=$5,
+          protein_per_100=$6,
+          carbs_per_100=$7,
+          fat_per_100=$8,
+          fiber_per_100=$9,
+          nutrition_confidence=$10,
+          photo_url=$11,
+          category=$12,
+          external_source=$13,
+          external_ref=$14,
+          external_synced_at=now(),
+          quantity_value=$15,
+          quantity_unit=$16,
+          quantity_label=$17,
+          serving_size=$18,
+          serving_quantity=$19,
+          serving_unit=$20,
+          images_json=$21::jsonb,
+          openfoodfacts_raw=$22::jsonb,
+          updated_at=now(),
+          version=version+1
+         WHERE id=$1 AND status='ACTIVE'`,
+        [
+          row.id,
+          input.match.canonicalName,
+          brandId,
+          input.match.defaultUnit,
+          input.match.calories ?? null,
+          input.match.protein ?? null,
+          input.match.carbs ?? null,
+          input.match.fat ?? null,
+          input.match.fiber ?? null,
+          nutritionConfidence,
+          input.match.photoUrl ?? null,
+          input.match.category ?? null,
+          input.match.source,
+          input.match.sourceRef ?? input.normalizedValue,
+          input.match.quantityValue ?? null,
+          input.match.quantityUnit ?? null,
+          input.match.quantityLabel ?? null,
+          input.match.servingSize ?? null,
+          input.match.servingQuantity ?? null,
+          input.match.servingUnit ?? null,
+          JSON.stringify(input.match.images ?? null),
+          JSON.stringify(input.match.openFoodFacts ?? null),
+        ],
+      );
+
+      await transaction.query(
+        `INSERT INTO data_provenance
+          (entity_type, entity_id, source_id, observed_at, source_version, confidence, raw_ref)
+         VALUES ('product', $1, $2, now(), $3, $4, $5)`,
+        [row.id, sourceId, input.match.sourceVersion, input.match.confidence, input.traceId],
+      );
+
+      await insertOutbox(transaction, {
+        eventId: crypto.randomUUID(),
+        eventType: "ProductEnriched",
+        eventVersion: 1,
+        aggregateType: "product",
+        aggregateId: row.id,
+        actorId: null,
+        traceId: input.traceId,
+        changedFields: [
+          "canonicalName", "brand", "defaultUnit", "category", "nutrition",
+          "quantity", "serving", "images", "openFoodFacts",
+        ],
+        payload: {
+          productId: row.id,
+          source: input.match.source,
+          sourceRef: input.match.sourceRef ?? input.normalizedValue,
+          sourceVersion: input.match.sourceVersion,
+        },
+      });
+
+      const fresh = await transaction.query<ProductRow>(
+        `SELECT p.id,p.canonical_name,b.name AS brand,p.default_unit,p.status,p.provenance_quality,
+          p.version,p.category,p.photo_url,p.calories_per_100,p.protein_per_100,p.carbs_per_100,p.fat_per_100,
+          p.fiber_per_100,p.quantity_value,p.quantity_unit,p.quantity_label,p.serving_size,p.serving_quantity,
+          p.serving_unit,p.images_json,p.openfoodfacts_raw,p.created_at,p.updated_at,
+          COALESCE((SELECT json_agg(i2.normalized_value ORDER BY i2.created_at)::text FROM product_identifiers i2
+            WHERE i2.product_id=p.id),'[]') AS barcodes_json,
+          p.external_source,p.external_ref
+         FROM products p
+         LEFT JOIN brands b ON b.id=p.brand_id
+         WHERE p.id=$1`,
+        [row.id],
+      );
+
+      await transaction.commit();
+      return fresh.rows[0] ? mapProduct(fresh.rows[0]) : current;
+    } catch (error) {
+      try { await transaction.rollback(); } catch { /* transaction may already be closed */ }
       throw error;
     }
   }
