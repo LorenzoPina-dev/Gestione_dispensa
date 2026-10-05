@@ -541,7 +541,7 @@ function buildFeatureText(product: Record<string, unknown>): string {
     ...stringArray(product.food_groups_tags),
     ...stringArray(product.additives_tags),
     product.nutriScore && record(product.nutriScore)?.grade,
-    product.nova?.group,
+    record(product.nova)?.group,
     record(product.ingredients)?.text,
     record(product.packaging)?.text,
     ...stringArray(product.labels),
