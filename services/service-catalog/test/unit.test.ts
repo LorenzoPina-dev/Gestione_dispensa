@@ -338,7 +338,7 @@ describe("service-catalog / barcode workflow", () => {
     let externalCalls = 0;
     const lookup: CatalogLookupRepository = {
       findByIdentifier: async () => product(),
-      persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
+      persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
     };
     const external: ExternalBarcodeLookupClient = {
       lookup: async () => {
@@ -421,7 +421,7 @@ describe("service-catalog / barcode workflow", () => {
     const result = await workflow.resolveBarcode("BARCODE", "8003440120156", "trace-1234567890");
     assert.equal(result.status, "MATCHED");
     assert.equal(result.resolution, "cache");
-    assert.equal(result.product?.canonicalName, "Latte intero");
+    assert.equal(result.product?.canonicalName, "Golia");
     assert.equal(result.product?.category, "confectionery-candy");
     assert.equal(result.product?.calories, 240);
     assert.equal(result.product?.images?.front, "https://images.openfoodfacts.org/images/products/800/344/012/0156/front_fr.3.400.jpg");
@@ -620,7 +620,7 @@ describe("service-catalog / barcode persistence error handling", () => {
     const workflow = new CatalogWorkflowService(
       {
         findByIdentifier: async () => undefined,
-        persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
+        persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
       },
       { applyImportedCandidate: async (input) => input.candidate },
       {
