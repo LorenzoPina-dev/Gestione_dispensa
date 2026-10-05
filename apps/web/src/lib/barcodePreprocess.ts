@@ -58,6 +58,56 @@ type DetectorCtor = new (opts: { formats: string[] }) => {
 
 let cachedDetector: InstanceType<DetectorCtor> | null = null;
 
+type FallbackReader = import("@zxing/browser").BrowserMultiFormatOneDReader;
+
+let cachedFallbackReader: Promise<FallbackReader | null> | null = null;
+
+async function getFallbackReader(): Promise<FallbackReader | null> {
+  if (!cachedFallbackReader) {
+    cachedFallbackReader = import("@zxing/browser")
+      .then(({ BrowserMultiFormatOneDReader }) => new BrowserMultiFormatOneDReader())
+      .catch(() => null);
+  }
+  return cachedFallbackReader;
+}
+
+async function detectWithFallback(
+  source: CanvasImageSource,
+  srcW: number,
+  srcH: number,
+  opts: DetectOptions = {},
+): Promise<BarcodeHit[]> {
+  const reader = await getFallbackReader();
+  if (!reader) return [];
+
+  const maxDimension = opts.maxDimension ?? 1200;
+  const variants = opts.variants ?? PREPROCESS_VARIANTS;
+  const hits: BarcodeHit[] = [];
+
+  for (const variant of variants) {
+    try {
+      const canvas = preprocessToCanvas(source, srcW, srcH, variant, { maxDimension });
+      const result = reader.decodeFromCanvas(canvas);
+      const rawValue = result.getText().trim();
+      if (!rawValue) continue;
+
+      const hit: BarcodeHit = {
+        rawValue,
+        variant,
+        validated: isValidGs1Checksum(rawValue),
+        center: { x: srcW / 2, y: srcH / 2 },
+      };
+      hits.push(hit);
+      if (hit.validated) return [hit];
+    } catch {
+      // No barcode in this variant; continue with the next preprocessing pass.
+    }
+  }
+
+  const validated = hits.filter((hit) => hit.validated);
+  return validated.length > 0 ? validated : hits;
+}
+
 export function isBarcodeDetectorAvailable(): boolean {
   return typeof window !== "undefined" && "BarcodeDetector" in window;
 }
@@ -348,27 +398,28 @@ export async function detectBarcodes(
   opts: DetectOptions = {},
 ): Promise<BarcodeHit[]> {
   const detector = getDetector();
-  if (!detector) return [];
-
-  const maxDimension = opts.maxDimension ?? 800;
+  const maxDimension = opts.maxDimension ?? 1200;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
   const crop = opts.crop;
+  const nativeHits: BarcodeHit[] = [];
 
-  const runs = await Promise.all(
-    variants.map(async (variant): Promise<BarcodeHit[]> => {
+  if (detector) {
+    for (const variant of variants) {
       try {
         const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
           maxDimension,
           ...(crop ? { crop } : {}),
         });
         const codes = await detector.detect(canvas);
-        return codes.map((c) => {
+
+        for (const c of codes) {
           const hit: BarcodeHit = {
             rawValue: c.rawValue,
             variant,
             validated: isValidGs1Checksum(c.rawValue),
           };
           if (c.format) hit.format = c.format;
+
           if (c.boundingBox && crop) {
             hit.center = {
               x: crop.x + c.boundingBox.x + c.boundingBox.width / 2,
@@ -380,17 +431,26 @@ export async function detectBarcodes(
               y: c.boundingBox.y + c.boundingBox.height / 2,
             };
           }
-          return hit;
-        });
-      } catch {
-        return [];
-      }
-    }),
-  );
 
-  const all = runs.flat();
-  const validated = all.filter((h) => h.validated);
-  return validated.length > 0 ? validated : all;
+          nativeHits.push(hit);
+          if (hit.validated) return [hit];
+        }
+      } catch {
+        // Continue with the next variant.
+      }
+    }
+  }
+
+  // Browser/OS-independent fallback. This is also used when the native detector
+  // exists but cannot decode a difficult frame reliably.
+  const fallback = await detectWithFallback(source, srcW, srcH, {
+    maxDimension,
+    variants,
+  });
+  if (fallback.length > 0) return fallback;
+
+  const validatedNative = nativeHits.filter((hit) => hit.validated);
+  return validatedNative.length > 0 ? validatedNative : nativeHits;
 }
 
 /**
@@ -426,8 +486,10 @@ export async function detectBestBarcode(
  * alto il 35% — questa funzione approssima quella stessa area sul frame video.
  */
 export function computeViewfinderCrop(srcW: number, srcH: number): CropRect {
-  const cw = srcW * 0.6;
-  const ch = srcH * 0.35;
+  // Broad ROI: users do not have to position the barcode with pixel precision,
+  // while the region remains substantially smaller than the full sensor frame.
+  const cw = srcW * 0.82;
+  const ch = srcH * 0.38;
   return {
     x: Math.max(0, Math.round((srcW - cw) / 2)),
     y: Math.max(0, Math.round((srcH - ch) / 2)),
