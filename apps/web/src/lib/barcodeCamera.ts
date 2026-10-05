@@ -94,7 +94,7 @@ async function applyPatchSafely(
     try {
       await track.applyConstraints({
         ...baseWithoutAdvanced,
-        advanced: [...applied, patch] as MediaTrackConstraintSet[],
+        advanced: [...applied, patch] as unknown as MediaTrackConstraintSet[],
       });
       applied.push(patch);
     } catch {
@@ -174,12 +174,12 @@ export function readCameraDiagnostics(track: MediaStreamTrack): CameraDiagnostic
     aspectRatio: settings.aspectRatio ?? null,
     facingMode: settings.facingMode ?? null,
     deviceId: settings.deviceId ?? null,
-    focusMode: typeof settings.focusMode === "string" ? settings.focusMode : null,
-    continuousFocus: focusModes.includes("continuous") || settings.focusMode === "continuous",
-    zoom: typeof settings.zoom === "number" ? settings.zoom : null,
+    focusMode: typeof settingsBag.focusMode === "string" ? settingsBag.focusMode : null,
+    continuousFocus: focusModes.includes("continuous") || settingsBag.focusMode === "continuous",
+    zoom: typeof settingsBag.zoom === "number" ? settingsBag.zoom : null,
     zoomSupported: zoomRange !== null,
     torchSupported: capabilities.torch === true,
-    torchEnabled: settings.torch === true,
+    torchEnabled: settingsBag.torch === true,
   };
 }
 
@@ -201,7 +201,7 @@ export async function setBarcodeTorch(
   try {
     await track.applyConstraints({
       ...baseWithoutAdvanced,
-      advanced: [{ torch: enabled }],
+      advanced: [{ torch: enabled }] as unknown as MediaTrackConstraintSet[],
     } as MediaTrackConstraints);
   } catch {
     // Torch is optional; never break scanning when it is unavailable.
