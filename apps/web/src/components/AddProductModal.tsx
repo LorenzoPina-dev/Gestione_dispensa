@@ -3,6 +3,7 @@ import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
 import { detectBestBarcode, computeViewfinderCrop, type BarcodeHit } from "../lib/barcodePreprocess";
+import { normalizeProductBarcode } from "../domain/barcode.js";
 import { openBarcodeCamera, readCameraDiagnostics, setBarcodeTorch, type CameraDiagnostics } from "../lib/barcodeCamera";
 import { isBackendUnreachable } from "../api/client.js";
 
@@ -151,7 +152,13 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   useEffect(() => stopCamera, [stopCamera]);
 
   async function resolve(codeValue: string) {
-    const normalized = codeValue.trim().replaceAll("-", "");
+    const normalized = normalizeProductBarcode(codeValue);
+    if (!normalized) {
+      setCode(codeValue.trim());
+      setError("Inserisci un codice prodotto EAN/UPC/GTIN valido.");
+      setState("MANUAL_REQUIRED");
+      return;
+    }
     setCode(normalized);
     setError(null);
     setState("LOOKING");
@@ -180,9 +187,12 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     try {
       const hit: BarcodeHit | null = await detectBestBarcode(source, width, height, { maxDimension: 1600 });
       if (!hit) { setError("Nessun barcode leggibile nell'immagine."); setState("MANUAL_REQUIRED"); return; }
-      const normalized = hit.rawValue.trim().replaceAll("-", "");
-      if (!/^(?:[0-9]{8}|[0-9]{12}|[0-9]{13}|[0-9]{14})$/.test(normalized)) {
-        setCode(hit.rawValue); setError("Il barcode rilevato non ha un formato supportato. Correggilo o inseriscilo manualmente."); setState("MANUAL_REQUIRED"); return;
+      const normalized = normalizeProductBarcode(hit.rawValue);
+      if (!normalized) {
+        setCode(hit.rawValue);
+        setError("Il barcode rilevato non è un codice prodotto EAN/UPC/GTIN.");
+        setState("MANUAL_REQUIRED");
+        return;
       }
       await resolve(normalized);
     } catch (err) {
@@ -296,14 +306,22 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       if (stoppedRef.current) return;
 
       if (hit) {
-        lastRef.current =
-          lastRef.current.value === hit.rawValue
-            ? { value: hit.rawValue, count: lastRef.current.count + 1 }
-            : { value: hit.rawValue, count: 1 };
+        const normalized = normalizeProductBarcode(hit.rawValue);
+        if (!normalized) {
+          lastRef.current = { value: "", count: 0 };
+          return;
+        }
 
-        // Require two identical frames to reject transient false positives.
-        if (lastRef.current.count >= 2) {
-          const found = hit.rawValue;
+        lastRef.current =
+          lastRef.current.value === normalized
+            ? { value: normalized, count: lastRef.current.count + 1 }
+            : { value: normalized, count: 1 };
+
+        // A checksum-valid hit still needs two identical frames. An unvalidated
+        // numeric hit needs three frames to reduce false positives further.
+        const required = hit.validated ? 2 : 3;
+        if (lastRef.current.count >= required) {
+          const found = normalized;
           stopCamera();
           await resolve(found);
           return;
