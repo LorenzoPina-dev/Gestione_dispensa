@@ -1,4 +1,5 @@
-import { normalizeProductBarcode, isValidGs1Checksum } from "../domain/barcode.js";
+import { isValidGs1Checksum } from "../domain/barcode.js";
+import type { BarcodeBounds } from "../domain/barcode-scanner.js";
 // services/web/src/lib/barcodePreprocess.ts
 //
 // Preprocessing adattivo per la scansione barcode: grayscale, equalizzazione
@@ -44,6 +45,8 @@ export interface BarcodeHit {
   variant: PreprocessVariant;
   /** Centro del bounding box in coordinate sorgente (pre-crop). */
   center?: { x: number; y: number };
+  /** Bounding box in coordinate sorgente (pre-crop), when exposed by the decoder. */
+  bounds?: BarcodeBounds;
   /** True se il valore supera il check digit GS1 (EAN/UPC/GTIN). */
   validated: boolean;
 }
@@ -86,21 +89,28 @@ async function detectWithFallback(
 
   for (const variant of variants) {
     try {
-      const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
+      const geometry = getPreprocessGeometry(srcW, srcH, variant, {
         maxDimension,
         ...(opts.crop ? { crop: opts.crop } : {}),
+      });
+      const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
+        maxDimension,
+        crop: geometry.crop,
       });
       const result = reader.decodeFromCanvas(canvas);
       const rawValue = result.getText().trim();
       if (!rawValue) continue;
 
+      const location = mapFallbackPointsToSource(
+        typeof result.getResultPoints === "function" ? result.getResultPoints() : [],
+        geometry,
+      );
       const hit: BarcodeHit = {
         rawValue,
         variant,
         validated: isValidGs1Checksum(rawValue),
-        center: opts.crop
-          ? { x: opts.crop.x + opts.crop.width / 2, y: opts.crop.y + opts.crop.height / 2 }
-          : { x: srcW / 2, y: srcH / 2 },
+        ...(location.center ? { center: location.center } : {}),
+        ...(location.bounds ? { bounds: location.bounds } : {}),
       };
       hits.push(hit);
       if (hit.validated) return [hit];
@@ -155,6 +165,88 @@ export interface PreprocessOptions {
   crop?: CropRect;
 }
 
+export interface PreprocessGeometry {
+  crop: CropRect;
+  outputWidth: number;
+  outputHeight: number;
+}
+
+export function getPreprocessGeometry(
+  srcW: number,
+  srcH: number,
+  variant: PreprocessVariant,
+  opts: PreprocessOptions = {},
+): PreprocessGeometry {
+  const requestedCrop = opts.crop ?? { x: 0, y: 0, width: srcW, height: srcH };
+  const cx = Math.max(0, Math.min(requestedCrop.x, Math.max(0, srcW - 1)));
+  const cy = Math.max(0, Math.min(requestedCrop.y, Math.max(0, srcH - 1)));
+  const cw = Math.max(1, Math.min(requestedCrop.width, Math.max(1, srcW - cx)));
+  const ch = Math.max(1, Math.min(requestedCrop.height, Math.max(1, srcH - cy)));
+  const maxDimension = opts.maxDimension ?? 800;
+  const scale = Math.min(1, maxDimension / Math.max(cw, ch));
+  const baseW = Math.max(1, Math.round(cw * scale));
+  const baseH = Math.max(1, Math.round(ch * scale));
+
+  return {
+    crop: { x: cx, y: cy, width: cw, height: ch },
+    outputWidth: variant === "upscaled" ? baseW * 2 : baseW,
+    outputHeight: variant === "upscaled" ? baseH * 2 : baseH,
+  };
+}
+
+function mapOutputRectToSource(
+  rect: { x: number; y: number; width: number; height: number },
+  geometry: PreprocessGeometry,
+): BarcodeBounds {
+  return {
+    x: geometry.crop.x + (rect.x / geometry.outputWidth) * geometry.crop.width,
+    y: geometry.crop.y + (rect.y / geometry.outputHeight) * geometry.crop.height,
+    width: (rect.width / geometry.outputWidth) * geometry.crop.width,
+    height: (rect.height / geometry.outputHeight) * geometry.crop.height,
+  };
+}
+
+function mapFallbackPointsToSource(
+  points: unknown,
+  geometry: PreprocessGeometry,
+): { center?: { x: number; y: number }; bounds?: BarcodeBounds } {
+  if (!Array.isArray(points) || points.length === 0) return {};
+
+  const mapped = points
+    .map((point) => {
+      const candidate = point as { getX?: () => number; getY?: () => number };
+      const x = candidate.getX?.();
+      const y = candidate.getY?.();
+      if (typeof x !== "number" || typeof y !== "number") return null;
+      return {
+        x: geometry.crop.x + (x / geometry.outputWidth) * geometry.crop.width,
+        y: geometry.crop.y + (y / geometry.outputHeight) * geometry.crop.height,
+      };
+    })
+    .filter((point): point is { x: number; y: number } => point !== null);
+
+  if (mapped.length === 0) return {};
+  const xs = mapped.map((point) => point.x);
+  const ys = mapped.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  return {
+    center: {
+      x: mapped.reduce((sum, point) => sum + point.x, 0) / mapped.length,
+      y: mapped.reduce((sum, point) => sum + point.y, 0) / mapped.length,
+    },
+    bounds: {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    },
+  };
+}
+
 /**
  * Applica la pipeline di preprocessing e restituisce il canvas pronto per il detector.
  * Il canvas è preso da un pool interno per variante: non va conservato dal chiamante.
@@ -166,22 +258,16 @@ export function preprocessToCanvas(
   variant: PreprocessVariant,
   opts: PreprocessOptions = {},
 ): HTMLCanvasElement {
-  const crop: CropRect = opts.crop ?? { x: 0, y: 0, width: srcW, height: srcH };
-  const maxDimension = opts.maxDimension ?? 800;
-
+  const geometry = getPreprocessGeometry(srcW, srcH, variant, opts);
+  const crop = geometry.crop;
   // Clamp del crop ai bordi: drawImage con rect fuori bounds è undefined-behaviour.
   const cx = Math.max(0, Math.min(crop.x, srcW - 1));
   const cy = Math.max(0, Math.min(crop.y, srcH - 1));
   const cw = Math.max(1, Math.min(crop.width, srcW - cx));
   const ch = Math.max(1, Math.min(crop.height, srcH - cy));
 
-  const scale = Math.min(1, maxDimension / Math.max(cw, ch));
-  const baseW = Math.max(1, Math.round(cw * scale));
-  const baseH = Math.max(1, Math.round(ch * scale));
-  // La variante "upscaled" raddoppia il lato: utile quando il barcode occupa pochi
-  // pixel (foto da lontano, mirino piccolo). Unsharp mask poi recupera i bordi.
-  const outW = variant === "upscaled" ? baseW * 2 : baseW;
-  const outH = variant === "upscaled" ? baseH * 2 : baseH;
+  // Geometry is computed once so decoder coordinates map back to source pixels exactly.
+  const { outputWidth: outW, outputHeight: outH } = geometry;
 
   const canvas = acquireCanvas(variant, outW, outH);
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -397,9 +483,13 @@ export async function detectBarcodes(
   if (detector) {
     for (const variant of variants) {
       try {
-        const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
+        const geometry = getPreprocessGeometry(srcW, srcH, variant, {
           maxDimension,
           ...(crop ? { crop } : {}),
+        });
+        const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
+          maxDimension,
+          crop: geometry.crop,
         });
         const codes = await detector.detect(canvas);
 
@@ -411,15 +501,11 @@ export async function detectBarcodes(
           };
           if (c.format) hit.format = c.format;
 
-          if (c.boundingBox && crop) {
+          if (c.boundingBox) {
+            hit.bounds = mapOutputRectToSource(c.boundingBox, geometry);
             hit.center = {
-              x: crop.x + c.boundingBox.x + c.boundingBox.width / 2,
-              y: crop.y + c.boundingBox.y + c.boundingBox.height / 2,
-            };
-          } else if (c.boundingBox) {
-            hit.center = {
-              x: c.boundingBox.x + c.boundingBox.width / 2,
-              y: c.boundingBox.y + c.boundingBox.height / 2,
+              x: hit.bounds.x + hit.bounds.width / 2,
+              y: hit.bounds.y + hit.bounds.height / 2,
             };
           }
 
@@ -437,6 +523,7 @@ export async function detectBarcodes(
   const fallback = await detectWithFallback(source, srcW, srcH, {
     maxDimension,
     variants,
+    ...(crop ? { crop } : {}),
   });
   if (fallback.length > 0) return fallback;
 
@@ -476,11 +563,20 @@ export async function detectBestBarcode(
  * Il mirino nell'UI usa le stesse proporzioni, così la regione mostrata all'utente
  * coincide con la regione passata al decoder.
  */
-export function computeViewfinderCrop(srcW: number, srcH: number): CropRect {
-  // Broad ROI: users do not have to position the barcode with pixel precision,
-  // while the region remains substantially smaller than the full sensor frame.
-  const cw = srcW * 0.82;
-  const ch = srcH * 0.38;
+export type ViewfinderMode = "standard" | "expanded";
+
+export function computeViewfinderCrop(
+  srcW: number,
+  srcH: number,
+  mode: ViewfinderMode = "standard",
+): CropRect {
+  // Standard ROI mirrors the on-screen guide. Expanded mode is enabled after
+  // repeated good-quality/no-decode frames so a slightly misplaced barcode can
+  // still be recovered without always decoding the entire sensor frame.
+  const widthFraction = mode === "expanded" ? 0.94 : 0.82;
+  const heightFraction = mode === "expanded" ? 0.56 : 0.38;
+  const cw = srcW * widthFraction;
+  const ch = srcH * heightFraction;
   return {
     x: Math.max(0, Math.round((srcW - cw) / 2)),
     y: Math.max(0, Math.round((srcH - ch) / 2)),
