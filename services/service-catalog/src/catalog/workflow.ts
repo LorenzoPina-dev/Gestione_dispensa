@@ -293,14 +293,12 @@ function needsExternalReconciliation(product: Product): boolean {
     : false;
   const hasCoreNutrition = [product.calories, product.protein, product.carbs, product.fat]
     .some((value) => value !== undefined);
-  const hasPackage = product.quantityValue !== undefined || product.quantityLabel !== undefined;
-  const hasServing =
-    product.servingSize !== undefined ||
-    product.servingQuantity !== undefined ||
-    product.servingUnit !== undefined;
-
+  // The stale rows produced by the previous mapper had the raw OFF document but neither
+  // materialized images nor core nutrition. Do not treat an optional package/serving field as
+  // evidence of staleness: those fields can legitimately be absent in OFF.
+  const hasRawSnapshot = product.openFoodFacts !== undefined;
   // This checks only the Catalog projection. Raw OFF interpretation stays inside off-lookup.
-  return !hasImage || !hasCoreNutrition || !hasPackage || !hasServing;
+  return hasRawSnapshot && !hasImage && !hasCoreNutrition;
 }
 
 function externalResolution(match: ExternalProductMatch): "cache" | "provider" {
