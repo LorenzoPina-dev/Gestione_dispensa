@@ -175,6 +175,18 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
   useEffect(() => stopCamera, [stopCamera]);
 
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && !stoppedRef.current) {
+        stopCamera();
+        setState("IDLE");
+        setError("Scansione sospesa perché la pagina è passata in background.");
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [stopCamera]);
+
   async function resolve(codeValue: string) {
     const normalized = normalizeProductBarcode(codeValue);
     if (!normalized) {
@@ -451,6 +463,13 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
       streamRef.current = stream;
       setCameraDiagnostics(diagnostics);
+
+      track.addEventListener("ended", () => {
+        if (stoppedRef.current) return;
+        stopCamera();
+        setError("La fotocamera si è disconnessa. Riavvia la scansione.");
+        setState("IDLE");
+      });
 
       const video = videoRef.current;
       if (!video) {
