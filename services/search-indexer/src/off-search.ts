@@ -65,7 +65,11 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
   if (!name) return undefined;
 
   const brand = firstString(product.brand, product.brands);
-  const categoriesTags = stringArray(product.categories, product.categories_tags);
+  const categoriesTags = stringArray(
+    Array.isArray(product.categories) && product.categories.length > 0
+      ? product.categories
+      : product.categories_tags,
+  );
   const category = firstString(product.category);
   const quantity = record(product.quantity);
   const quantityLabel = firstString(quantity?.label, product.quantity_label, product.quantity);
@@ -536,8 +540,14 @@ function buildFeatureText(product: Record<string, unknown>): string {
     ...stringArray(product.manufacturing_places_tags),
     ...stringArray(product.food_groups_tags),
     ...stringArray(product.additives_tags),
-    product.nutriscore_grade,
-    product.nova_group,
+    product.nutriScore && record(product.nutriScore)?.grade,
+    product.nova?.group,
+    record(product.ingredients)?.text,
+    record(product.packaging)?.text,
+    ...stringArray(product.labels),
+    ...stringArray(product.categories),
+    ...stringArray(product.countries),
+    ...stringArray(product.traces),
   ].flatMap((value) => {
     if (typeof value === "number" && Number.isFinite(value)) return [String(value)];
     if (typeof value === "string" && value.trim().length > 0) return [value.trim()];
@@ -583,11 +593,3 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function quantityLabelOf(product: Record<string, unknown>): string | null {
-  const quantity = firstString(product.quantity);
-  if (quantity) return quantity;
-  const value = numberFrom(product.product_quantity);
-  const unit = firstString(product.product_quantity_unit);
-  if (value === null) return null;
-  return `${value}${unit ? ` ${unit}` : ""}`;
-}
