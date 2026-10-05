@@ -32,6 +32,8 @@ export const BARCODE_FORMATS = [
   "code_128",
   "code_39",
   "itf",
+  "data_matrix",
+  "qr_code",
 ] as const;
 
 export interface CropRect {
