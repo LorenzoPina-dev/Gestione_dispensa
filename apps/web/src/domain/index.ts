@@ -10,3 +10,4 @@ export * from "./shopping-suggestions.js";
 export * from "./shopping-checkout.js";
 export * from "./receipt-scan.js";
 export * from "./runtime.js";
+export * from "./barcode.js";
