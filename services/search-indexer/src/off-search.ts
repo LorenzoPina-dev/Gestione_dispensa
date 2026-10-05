@@ -3,10 +3,9 @@ import { request as httpsRequest } from "node:https";
 
 export const OFF_SEARCH_INDEX = "off-products-v1";
 export const OFF_BOOTSTRAP_META_ID = "__off_bootstrap_meta__";
-// v8: the stored preview image is now the 200px "front small" rendition (was the smallest
-// front thumbnail) and is also computed from `images.<key>.rev` when OFF has no direct URL.
-// Bumping the version makes OffSourceSync reset and rebuild the index from off-lookup.
-export const OFF_SEARCH_PROJECTION_VERSION = 8;
+// v9: the index consumes off-lookup's canonical product and stores only the minimal search
+// projection. imageUrl is exactly canonical images.front.url (one preview URL, no alternatives).
+export const OFF_SEARCH_PROJECTION_VERSION = 9;
 export const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_SEARCH_MIN_COMPLETENESS", 0.7);
 
 export interface OffSearchDocument {
@@ -19,14 +18,8 @@ export interface OffSearchDocument {
   categoriesTags: string[];
   quantityLabel: string | null;
   featureText: string;
+  /** Exactly one preview URL: canonical off-lookup images.front.url. */
   imageUrl: string | null;
-  productQuantity: number | null;
-  productQuantityUnit: string | null;
-  calories: number | null;
-  protein: number | null;
-  carbs: number | null;
-  fat: number | null;
-  fiber: number | null;
   popularityKey: number | null;
   completeness: number | null;
 }
@@ -68,27 +61,22 @@ export function normalizeSearchText(value: string): string {
 
 export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument | undefined {
   const product = input.product;
-  const name = firstString(product.product_name_it, product.product_name);
+  const name = firstString(product.name, product.product_name_it, product.product_name);
   if (!name) return undefined;
 
-  const brand = firstString(product.brands);
-  const categoriesTags = stringArray(product.categories_tags);
+  const brand = firstString(product.brand, product.brands);
+  const categoriesTags = stringArray(product.categories, product.categories_tags);
   const category = firstString(product.category);
-  const quantityLabel = quantityLabelOf(product);
-  const imageUrl = firstImageUrl(product, input.code);
+  const quantity = record(product.quantity);
+  const quantityLabel = firstString(quantity?.label, product.quantity_label, product.quantity);
   const featureText = buildFeatureText(product);
-  const nutriments = record(product.nutriments);
-
-  const calories = numberFrom(nutriments?.["energy-kcal_100g"]);
-  const protein = numberFrom(nutriments?.["proteins_100g"]);
-  const carbs = numberFrom(nutriments?.["carbohydrates_100g"]);
-  const fat = numberFrom(nutriments?.["fat_100g"]);
-  const fiber = numberFrom(nutriments?.["fiber_100g"]);
-  const productQuantity = numberFrom(product.product_quantity);
-  const productQuantityUnit = firstString(product.product_quantity_unit);
+  const images = record(product.images);
+  const front = record(images?.front);
+  // off-lookup has already resolved the authoritative preview image. Never select a different
+  // rendition, packaging image, ingredients image, or arbitrary raw image here.
+  const imageUrl = firstHttpUrl(front?.url, product.image_front_url, product.image_url);
   const popularityKey = numberFrom(product.popularity_key);
   const completeness = numberFrom(product.completeness);
-
 
   return {
     code: input.code,
@@ -101,13 +89,6 @@ export function toOffSearchDocument(input: OffSourceProduct): OffSearchDocument 
     quantityLabel,
     featureText,
     imageUrl,
-    productQuantity,
-    productQuantityUnit,
-    calories,
-    protein,
-    carbs,
-    fat,
-    fiber,
     popularityKey,
     completeness,
   };
@@ -120,16 +101,7 @@ export function toProviderProduct(document: OffSearchDocument): Record<string, u
     ...(document.category ? { category: document.category } : {}),
     categories_tags: document.categoriesTags,
     ...(document.quantityLabel ? { quantity: document.quantityLabel } : {}),
-    ...(document.productQuantity === null ? {} : { product_quantity: document.productQuantity }),
-    ...(document.productQuantityUnit ? { product_quantity_unit: document.productQuantityUnit } : {}),
     ...(document.imageUrl ? { image_front_url: document.imageUrl } : {}),
-    nutriments: {
-      ...(document.calories === null ? {} : { "energy-kcal_100g": document.calories }),
-      ...(document.protein === null ? {} : { proteins_100g: document.protein }),
-      ...(document.carbs === null ? {} : { "carbohydrates_100g": document.carbs }),
-      ...(document.fat === null ? {} : { "fat_100g": document.fat }),
-      ...(document.fiber === null ? {} : { "fiber_100g": document.fiber }),
-    },
     ...(document.popularityKey === null ? {} : { popularity_key: document.popularityKey }),
     ...(document.completeness === null ? {} : { completeness: document.completeness }),
   };
@@ -222,14 +194,8 @@ export class OpenSearchOffIndex {
               category: { type: "text", analyzer: "off_text" },
               categoriesTags: { type: "keyword" },
               quantityLabel: { type: "text", analyzer: "off_text" },
+              // One canonical preview URL; not searched.
               imageUrl: { type: "keyword", index: false },
-              productQuantity: { type: "double" },
-              productQuantityUnit: { type: "keyword" },
-              calories: { type: "double" },
-              protein: { type: "double" },
-              carbs: { type: "double" },
-              fat: { type: "double" },
-              fiber: { type: "double" },
               popularityKey: { type: "double" },
               completeness: { type: "double" },
             },
@@ -415,9 +381,8 @@ export class OpenSearchOffIndex {
         size,
         track_total_hits: false,
         _source: [
-          "code", "name", "brand", "category", "categoriesTags", "quantityLabel", "featureText", "imageUrl",
-          "productQuantity", "productQuantityUnit", "calories", "protein", "carbs", "fat", "fiber",
-          "popularityKey", "completeness",
+          "code", "name", "brand", "category", "categoriesTags", "quantityLabel", "featureText",
+          "imageUrl", "popularityKey", "completeness",
         ],
         query: {
           bool: {
@@ -501,39 +466,25 @@ function toProviderProductFromSource(source: Record<string, unknown>): Record<st
   const categories = Array.isArray(source.categoriesTags)
     ? source.categoriesTags.filter((value): value is string => typeof value === "string")
     : [];
-  const nutriments: Record<string, unknown> = {};
-  for (const [field, key] of [
-    ["calories", "energy-kcal_100g"],
-    ["protein", "proteins_100g"],
-    ["carbs", "carbohydrates_100g"],
-    ["fat", "fat_100g"],
-    ["fiber", "fiber_100g"],
-  ] as const) {
-    const value = source[field];
-    if (typeof value === "number" && Number.isFinite(value)) nutriments[key] = value;
-  }
 
+  // Rehydrate only the minimal provider-shaped fields expected by off-lookup normalization.
+  // The preview is deliberately a single URL, sourced from the canonical front image.
   const product: Record<string, unknown> = {
     product_name: typeof source.name === "string" ? source.name : "",
     brands: typeof source.brand === "string" ? source.brand : "",
     categories_tags: categories,
-    nutriments,
   };
 
   for (const [sourceKey, targetKey] of [
     ["category", "category"],
     ["quantityLabel", "quantity"],
-    ["productQuantity", "product_quantity"],
-    ["productQuantityUnit", "product_quantity_unit"],
-    ["imageUrl", "image_front_small_url"],
+    ["imageUrl", "image_front_url"],
     ["popularityKey", "popularity_key"],
     ["completeness", "completeness"],
   ] as const) {
     const value = source[sourceKey];
     if (sourceKey === "imageUrl") {
-      if (typeof value === "string" && isHttpUrl(value)) {
-        product[targetKey] = value;
-      }
+      if (typeof value === "string" && isHttpUrl(value)) product[targetKey] = value;
       continue;
     }
     if (value !== null && value !== undefined && value !== "") product[targetKey] = value;
@@ -609,242 +560,6 @@ function firstHttpUrl(...values: unknown[]): string | null {
     if (typeof value === "string" && isHttpUrl(value)) return value.trim();
   }
   return null;
-}
-
-interface ImageCandidate {
-  readonly url: string;
-  readonly kind: "front" | "other";
-  readonly size: number;
-  readonly order: number;
-}
-
-function firstImageUrl(product: Record<string, unknown>, code: string): string | null {
-  const candidates: ImageCandidate[] = [];
-  let order = 0;
-
-  const directFields: Array<{ key: string; kind: ImageCandidate["kind"]; size: number }> = [
-    { key: "image_front_thumb_url", kind: "front", size: 100 },
-    { key: "image_front_small_url", kind: "front", size: 200 },
-    { key: "image_front_url", kind: "front", size: 400 },
-    { key: "image_thumb_url", kind: "other", size: 100 },
-    { key: "image_small_url", kind: "other", size: 200 },
-    { key: "image_url", kind: "other", size: 400 },
-    { key: "image_packaging_thumb_url", kind: "other", size: 100 },
-    { key: "image_packaging_small_url", kind: "other", size: 200 },
-    { key: "image_packaging_url", kind: "other", size: 400 },
-    { key: "image_ingredients_thumb_url", kind: "other", size: 100 },
-    { key: "image_ingredients_small_url", kind: "other", size: 200 },
-    { key: "image_ingredients_url", kind: "other", size: 400 },
-    { key: "image_nutrition_thumb_url", kind: "other", size: 100 },
-    { key: "image_nutrition_small_url", kind: "other", size: 200 },
-    { key: "image_nutrition_url", kind: "other", size: 400 },
-  ];
-
-  for (const field of directFields) {
-    const url = firstHttpUrl(product[field.key]);
-    if (url) candidates.push({ url, kind: field.kind, size: field.size, order: order++ });
-  }
-
-  const images = record(product.images);
-  const selected = record(images?.selected);
-  const selectedImages = record(product.selected_images);
-
-  const nestedFrontValues = [
-    selected?.front,
-    selectedImages?.front,
-    images?.front,
-  ];
-  for (const value of nestedFrontValues) {
-    collectImageCandidates(value, "front", candidates, () => order++);
-  }
-
-  const nestedOtherValues = [
-    selected?.packaging,
-    selectedImages?.packaging,
-    images?.packaging,
-    selected?.ingredients,
-    selectedImages?.ingredients,
-    images?.ingredients,
-    selected?.nutrition,
-    selectedImages?.nutrition,
-    images?.nutrition,
-  ];
-  for (const value of nestedOtherValues) {
-    collectImageCandidates(value, "other", candidates, () => order++);
-  }
-
-  // The Mongo dump usually stores only `images.<key>.rev` (no URL), so the URL is derived from
-  // the barcode + key + rev. These compete with the direct/nested URLs on equal terms: what
-  // decides the winner is the size preference, not where the URL came from.
-  for (const source of [images, selectedImages]) {
-    for (const computed of computedImageCandidates(code, source)) {
-      candidates.push({ ...computed, order: order++ });
-    }
-  }
-
-  const valid = candidates.filter((candidate) => candidate.url.length > 0);
-  const fronts = valid.filter((candidate) => candidate.kind === "front");
-  return pickPreferredImage(fronts) ?? pickPreferredImage(valid);
-}
-
-// The search preview is rendered in a small square slot: the 200px OFF "small" rendition is the
-// right trade-off. 100px is the fallback, then bigger renditions.
-const PREVIEW_SIZE_PREFERENCE = [200, 100, 400, 800, 1024];
-
-function sizeRank(size: number): number {
-  const index = PREVIEW_SIZE_PREFERENCE.indexOf(size);
-  return index === -1 ? PREVIEW_SIZE_PREFERENCE.length : index;
-}
-
-function pickPreferredImage(candidates: readonly ImageCandidate[]): string | null {
-  if (candidates.length === 0) return null;
-  return [...candidates]
-    .sort((a, b) => sizeRank(a.size) - sizeRank(b.size) || a.order - b.order)[0]?.url ?? null;
-}
-
-function collectImageCandidates(
-  value: unknown,
-  kind: ImageCandidate["kind"],
-  output: ImageCandidate[],
-  nextOrder: () => number,
-  inheritedSize = Number.POSITIVE_INFINITY,
-): void {
-  if (typeof value === "string") {
-    if (isHttpUrl(value)) {
-      output.push({
-        url: value.trim(),
-        kind,
-        size: sizeFromUrl(value) ?? inheritedSize,
-        order: nextOrder(),
-      });
-    }
-    return;
-  }
-
-  const object = record(value);
-  if (!object) return;
-
-  const sizeKeys: Array<[string, number]> = [
-    ["100", 100],
-    ["200", 200],
-    ["400", 400],
-    ["small", 200],
-    ["thumb", 100],
-    ["medium", 400],
-  ];
-
-  for (const [key, size] of sizeKeys) {
-    const candidate = object[key];
-    if (typeof candidate === "string" && isHttpUrl(candidate)) {
-      output.push({ url: candidate.trim(), kind, size, order: nextOrder() });
-    } else if (record(candidate)) {
-      collectImageCandidates(candidate, kind, output, nextOrder, size);
-    }
-  }
-
-  const directUrl = firstHttpUrl(object.url, object.display);
-  if (directUrl) {
-    output.push({
-      url: directUrl,
-      kind,
-      size: sizeFromUrl(directUrl) ?? inheritedSize,
-      order: nextOrder(),
-    });
-  }
-
-  for (const [key, child] of Object.entries(object)) {
-    if (["100", "200", "400", "small", "thumb", "medium", "url", "display"].includes(key)) continue;
-    if (record(child) || typeof child === "string") {
-      collectImageCandidates(child, kind, output, nextOrder, inheritedSize);
-    }
-  }
-}
-
-function sizeFromUrl(value: string): number | null {
-  const match = /\.(100|200|400|800|1024)\.(?:jpe?g|png|webp|avif)(?:[?#].*)?$/i.exec(value);
-  if (!match) return null;
-  return Number(match[1]);
-}
-function computedImageCandidates(
-  code: string,
-  images: Record<string, unknown> | undefined,
-): Array<Omit<ImageCandidate, "order">> {
-  if (!images) return [];
-
-  const folder = openFoodFactsImageFolder(code);
-  if (!folder) return [];
-
-  // Language preference among front images: Italian, English, language-less, then any other.
-  const languageRank = (key: string): number => {
-    if (/^front_it$/i.test(key)) return 0;
-    if (/^front_en$/i.test(key)) return 1;
-    if (/^front$/i.test(key)) return 2;
-    return 3;
-  };
-
-  const entries = Object.entries(images)
-    .filter(([key, value]) => {
-      const object = record(value);
-      return object !== undefined && /^(?:front|front_\w\w|packaging|ingredients|nutrition)(?:_\w\w)?$/i.test(key);
-    })
-    .sort(([a], [b]) => {
-      const frontA = /^front/i.test(a) ? 0 : 1;
-      const frontB = /^front/i.test(b) ? 0 : 1;
-      return frontA - frontB || languageRank(a) - languageRank(b) || a.localeCompare(b);
-    });
-
-  const output: Array<Omit<ImageCandidate, "order">> = [];
-  for (const [key, value] of entries) {
-    const object = record(value);
-    if (!object) continue;
-
-    const rev = typeof object.rev === "number"
-      ? String(object.rev)
-      : typeof object.rev === "string" && /^\d+$/.test(object.rev)
-        ? object.rev
-        : undefined;
-    if (!rev) continue;
-
-    const sizes = record(object.sizes);
-    const availableSizes = sizes
-      ? Object.keys(sizes)
-          .map((size) => Number(size))
-          .filter((size) => Number.isFinite(size) && size > 0)
-      : [];
-
-    // OFF generates 100, 200 and 400 renditions. Use 200 when it is listed (or when the dump
-    // does not list sizes at all), otherwise the closest listed one.
-    const size = availableSizes.length === 0
-      ? 200
-      : [200, 100, 400].find((candidate) => availableSizes.includes(candidate))
-        ?? [...availableSizes].sort((a, b) => a - b)[0]!;
-
-    output.push({
-      url: `${folder}/${encodeURIComponent(key)}.${rev}.${size}.jpg`,
-      kind: /^front/i.test(key) ? "front" : "other",
-      size,
-    });
-  }
-
-  return output;
-}
-
-/**
- * Folder of a product on images.openfoodfacts.org (Product Opener `split_code`): barcodes with 9 or
- * more digits are split as 3/3/3/rest, shorter ones (EAN-8) use the code itself. No padding.
- * Same rule as off-lookup's derivation layer, which is the primary source of image URLs; this one
- * is only the last-resort fallback for documents that reach the indexer without a direct URL.
- */
-function openFoodFactsImageFolder(code: string): string | null {
-  const digits = code.replace(/\D/g, "");
-  if (digits.length < 8 || digits.length > 14) return null;
-
-  const base = "https://images.openfoodfacts.org/images/products";
-  const match = /^(\d{3})(\d{3})(\d{3})(\d*)$/.exec(digits);
-  if (!match) return `${base}/${digits}`;
-  return match[4]
-    ? `${base}/${match[1]}/${match[2]}/${match[3]}/${match[4]}`
-    : `${base}/${match[1]}/${match[2]}/${match[3]}`;
 }
 
 function stringArray(value: unknown): string[] {
