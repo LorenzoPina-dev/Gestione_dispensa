@@ -20,6 +20,20 @@ test("classifies a sharp stable barcode frame as good", () => {
   assert.ok(result.score > 0.68);
 });
 
+
+test("does not mistake a clean white-heavy barcode for glare", () => {
+  const result = classifyFrameQuality({
+    sharpness: 220,
+    contrast: 45,
+    motion: 0.01,
+    clippedFraction: 0.58,
+    meanLuma: 180,
+  });
+
+  assert.equal(result.quality, "good");
+  assert.equal(result.advice, "NONE");
+});
+
 test("detects motion as the primary guidance signal", () => {
   const result = classifyFrameQuality({
     sharpness: 220,
