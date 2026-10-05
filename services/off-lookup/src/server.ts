@@ -6,15 +6,6 @@ import { OpenFoodFactsApiClient } from "./off-api-client.js";
 import { ProductLookupService, isValidBarcode } from "./product-lookup-service.js";
 import { HttpSearchIndexerClient } from "./search-indexer-client.js";
 
-/**
- * OFF-Lookup: standalone Open Food Facts boundary.
- *
- * It owns the local OFF Mongo dump for authoritative barcode/cache lookups and exposes the
- * internal source endpoint consumed by search-indexer during the automatic full-data projection.
- * Text search is delegated to OpenSearch; the public OFF search API is only the fallback when the
- * local OpenSearch index has no hit.
- */
-
 const repository = createProductRepository();
 const apiClient = new OpenFoodFactsApiClient();
 const searchIndexer = new HttpSearchIndexerClient({
@@ -28,15 +19,10 @@ const lookupService = new ProductLookupService(repository, apiClient, searchInde
 const app = express();
 app.disable("x-powered-by");
 
-app.get("/health/live", (_req, res) => {
-  res.status(200).json({ status: "ok" });
-});
+app.get("/health/live", (_req, res) => res.status(200).json({ status: "ok" }));
 
 app.get("/health/ready", (_req: Request, res: Response) => {
   void (async () => {
-    // Dependency availability is reported for observability only. Neither the local database nor
-    // the remote API being down ever flips this to a non-200: OFF-Lookup keeps accepting
-    // requests and degrades per-request instead (see ProductLookupService).
     const mongoAvailable = await repository.isAvailable();
     res.status(200).json({
       status: "ok",
@@ -46,139 +32,106 @@ app.get("/health/ready", (_req: Request, res: Response) => {
   })();
 });
 
-app.get(
-  "/api/v1/search",
-  (req: Request, res: Response, next: NextFunction) => {
-    void (async () => {
-      const query = req.query.q?.toString().trim() ?? "";
-      const parsedLimit = Number(req.query.limit ?? 10);
-      const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 20) : 10;
+app.get("/api/v1/search", (req: Request, res: Response, next: NextFunction) => {
+  void (async () => {
+    const query = req.query.q?.toString().trim() ?? "";
+    const parsedLimit = Number(req.query.limit ?? 10);
+    const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 20) : 10;
+    if (query.length < 3) {
+      res.status(400).json({ error: "invalid_query", message: "q must contain at least 3 characters." });
+      return;
+    }
+    const result = await lookupService.search(query, limit, req.header("X-Trace-Id") ?? undefined);
+    if (result.status === "error") {
+      res.status(503).set("Retry-After", "5").json({
+        error: "search_unavailable",
+        message: "Open Food Facts search is temporarily unavailable.",
+        reason: result.reason,
+      });
+      return;
+    }
+    res.status(200).json({
+      query,
+      source: result.source ?? "external",
+      items: result.hits.map((hit) => ({ code: hit.code, product: hit.product })),
+    });
+  })().catch(next);
+});
 
-      if (query.length < 3) {
-        res.status(400).json({ error: "invalid_query", message: "q must contain at least 3 characters." });
-        return;
-      }
+app.get("/api/v1/internal/search-source/products", (req: Request, res: Response, next: NextFunction) => {
+  void (async () => {
+    if (!isValidInternalToken(req)) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    if (repository.listSearchSourcePage === undefined) {
+      res.status(503).json({ error: "search_source_unavailable" });
+      return;
+    }
+    const rawLimit = Number(req.query.limit ?? 500);
+    const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
+    const cursor = req.query.cursor?.toString().trim() || undefined;
+    const page = await repository.listSearchSourcePage(cursor, limit);
+    if (page === undefined) {
+      res.status(503).json({ error: "search_source_unavailable" });
+      return;
+    }
+    res.status(200).json(page);
+  })().catch(next);
+});
 
-      const result = await lookupService.search(query, limit, req.header("X-Trace-Id") ?? undefined);
-      if (result.status === "error") {
-        res.status(503).set("Retry-After", "5").json({
-          error: "search_unavailable",
-          message: "Open Food Facts search is temporarily unavailable.",
-          reason: result.reason,
+app.get("/api/v1/products/:barcode", (req: Request, res: Response, next: NextFunction) => {
+  void (async () => {
+    const barcode = req.params.barcode?.trim() ?? "";
+    if (!isValidBarcode(barcode)) {
+      res.status(400).json({ error: "invalid_barcode", message: "Expected 6 to 14 numeric digits." });
+      return;
+    }
+
+    // source=local is deliberately a verification mode: it proves the dump alone can produce
+    // the same API-shaped contract without contacting Open Food Facts.
+    const localOnly = req.query.source?.toString() === "local";
+    const result = await lookupService.lookup(barcode, { allowRemote: !localOnly });
+    switch (result.outcome) {
+      case "hit": {
+        const { _cache_meta, ...product } = result.product;
+        void _cache_meta;
+        res.status(200).json({
+          code: barcode,
+          source: result.source,
+          provenance: result.provenance,
+          ...(result.derivedFields ? { derived: result.derivedFields } : {}),
+          product,
         });
         return;
       }
-
-      res.status(200).json({
-        query,
-        source: result.source ?? "external",
-        items: result.hits.map((hit) => ({
-          code: hit.code,
-          product: hit.product,
-        })),
-      });
-    })().catch(next);
-  },
-);
-
-app.get(
-  "/api/v1/internal/search-source/products",
-  (req: Request, res: Response, next: NextFunction) => {
-    void (async () => {
-      if (!isValidInternalToken(req)) {
-        res.status(401).json({ error: "unauthorized" });
+      case "not_found":
+        res.status(404).json({ error: "product_not_found", code: barcode });
         return;
-      }
-      if (repository.listSearchSourcePage === undefined) {
-        res.status(503).json({ error: "search_source_unavailable" });
+      case "unavailable":
+        res.status(503).set("Retry-After", "5").json({
+          error: "lookup_unavailable",
+          code: barcode,
+          reason: result.reason,
+        });
         return;
-      }
-
-      const rawLimit = Number(req.query.limit ?? 500);
-      const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
-      const cursor = req.query.cursor?.toString().trim() || undefined;
-      const page = await repository.listSearchSourcePage(cursor, limit);
-      if (page === undefined) {
-        res.status(503).json({ error: "search_source_unavailable" });
-        return;
-      }
-      res.status(200).json(page);
-    })().catch(next);
-  },
-);
-
-app.get(
-  "/api/v1/products/:barcode",
-  (req: Request, res: Response, next: NextFunction) => {
-    void (async () => {
-      const barcode = req.params.barcode?.trim() ?? "";
-      if (!isValidBarcode(barcode)) {
-        res.status(400).json({ error: "invalid_barcode", message: "Expected 6 to 14 numeric digits." });
-        return;
-      }
-
-      // `?source=local` answers from the local dump only and never calls the OFF API. It exists
-      // for verification (compare local derivation with the live API) and for callers that must
-      // not incur remote latency.
-      const localOnly = req.query.source?.toString() === "local";
-      const result = await lookupService.lookup(barcode, { allowRemote: !localOnly });
-      switch (result.outcome) {
-        case "hit": {
-          // _cache_meta is private implementation metadata and is not part of the OFF contract.
-          const { _cache_meta, ...product } = result.product;
-          void _cache_meta;
-          res.status(200).json({
-            code: barcode,
-            source: result.source,
-            // Which fields were computed locally rather than read from the stored document.
-            ...(result.derivedFields ? { derived: result.derivedFields } : {}),
-            product,
-          });
-          return;
-        }
-        case "not_found": {
-          res.status(404).json({ error: "product_not_found", code: barcode });
-          return;
-        }
-        case "unavailable": {
-          // Neither the local dump nor the live API could confirm or deny this barcode right
-          // now. 503 (with Retry-After) is more honest than a false 404 and lets callers with
-          // their own circuit breaker (worker-integrations) treat it as "try again later"
-          // rather than "definitely does not exist".
-          res.status(503).set("Retry-After", "5").json({ error: "lookup_unavailable", code: barcode, reason: result.reason });
-          return;
-        }
-      }
-    })().catch(next);
-  },
-);
-
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ error: "not_found" });
+    }
+  })().catch(next);
 });
 
-// Express error-handling middleware (4 args) must be registered last; it catches anything
-// forwarded via next(err) so a bug never surfaces as a crashed process.
+app.use((_req: Request, res: Response) => res.status(404).json({ error: "not_found" }));
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   log("error", "unhandled_request_error", { error: error instanceof Error ? error.message : "unknown" });
   res.status(500).json({ error: "internal_error" });
 });
 
-const server = app.listen(config.port, "0.0.0.0", () => {
-  log("info", "off_lookup_started", { port: config.port });
-});
-
-// Last-resort safety nets, consistent with every other service in this stack: on a truly
-// unexpected error we log and exit, and Docker's `restart: unless-stopped` policy brings the
-// container back up. We never try to "limp along" after an uncaught exception.
+const server = app.listen(config.port, "0.0.0.0", () => log("info", "off_lookup_started", { port: config.port }));
 process.on("uncaughtException", (error) => {
   log("error", "uncaught_exception", { error: error.message, stack: error.stack });
   server.close(() => process.exit(1));
   setTimeout(() => process.exit(1), 5000).unref();
 });
-process.on("unhandledRejection", (reason) => {
-  log("error", "unhandled_rejection", { reason: reason instanceof Error ? reason.message : String(reason) });
-});
+process.on("unhandledRejection", (reason) => log("error", "unhandled_rejection", { reason: reason instanceof Error ? reason.message : String(reason) }));
 
 function isValidInternalToken(req: Request): boolean {
   return req.header("authorization") === `Bearer ${config.internalToken}`;
@@ -186,9 +139,7 @@ function isValidInternalToken(req: Request): boolean {
 
 function shutdown(signal: string): void {
   log("info", "off_lookup_shutdown", { signal });
-  server.close(() => {
-    void repository.close().finally(() => process.exit(0));
-  });
+  server.close(() => void repository.close().finally(() => process.exit(0)));
 }
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
