@@ -73,6 +73,13 @@ class MemoryCatalogRepository implements CatalogRepository {
     this.existing = updated;
     return updated;
   }
+
+  public async refreshExternalMatch(
+    _input: Parameters<CatalogLookupRepository["refreshExternalMatch"]>[0],
+  ): Promise<Product> {
+    if (!this.existing) throw new Error("no existing product");
+    return this.existing;
+  }
 }
 
 describe("service-catalog / OIDC bootstrap", () => {
@@ -193,7 +200,7 @@ describe("service-catalog / rich barcode public contract", () => {
     });
     const lookup = {
       findByIdentifier: async () => richProduct,
-      persistExternalMatch: async () => richProduct,
+      persistExternalMatch: async () => richProduct, refreshExternalMatch: async () => richProduct,
     };
     const workflow = new CatalogWorkflowService(
       lookup,
@@ -327,11 +334,12 @@ describe("service-catalog / ranked product search", () => {
 });
 
 describe("service-catalog / barcode workflow", () => {
-  it("uses the local catalog first and does not call the external boundary on a cache hit", async () => {
+  it("uses the local catalog first and does not call the external boundary for a complete manual product", async () => {
     let externalCalls = 0;
     const lookup: CatalogLookupRepository = {
       findByIdentifier: async () => product(),
-      persistExternalMatch: async () => product(),
+      persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
+      refreshExternalMatch: async () => product(),
     };
     const external: ExternalBarcodeLookupClient = {
       lookup: async () => {
@@ -347,6 +355,79 @@ describe("service-catalog / barcode workflow", () => {
     assert.equal(result.status, "MATCHED");
     assert.equal(result.resolution, "cache");
     assert.equal(externalCalls, 0);
+  });
+
+  it("reconciles a stale OpenFoodFacts catalog projection through off-lookup", async () => {
+    const stale = product({
+      provenanceQuality: "IMPORTED",
+      externalSource: "openfoodfacts",
+      externalRef: "8003440120156",
+      calories: undefined,
+      protein: undefined,
+      carbs: undefined,
+      fat: undefined,
+      fiber: undefined,
+      images: undefined,
+      openFoodFacts: { code: "8003440120156", product_name: "Golia", nutriments: {} },
+    });
+    const refreshed = product({
+      ...stale,
+      category: "confectionery-candy",
+      calories: 240,
+      protein: 0,
+      carbs: 45.2,
+      fat: 0.2,
+      images: { front: "https://images.openfoodfacts.org/images/products/800/344/012/0156/front_fr.3.400.jpg" },
+      version: 2,
+    });
+    let externalCalls = 0;
+    let refreshCalls = 0;
+
+    const lookup: CatalogLookupRepository = {
+      findByIdentifier: async () => stale,
+      persistExternalMatch: async () => refreshed,
+      refreshExternalMatch: async () => {
+        refreshCalls += 1;
+        return refreshed;
+      },
+    };
+    const external: ExternalBarcodeLookupClient = {
+      lookup: async () => {
+        externalCalls += 1;
+        return {
+          canonicalName: "Golia",
+          brand: "Golia",
+          defaultUnit: "g",
+          category: "confectionery-candy",
+          calories: 240,
+          protein: 0,
+          carbs: 45.2,
+          fat: 0.2,
+          images: { front: "https://images.openfoodfacts.org/images/products/800/344/012/0156/front_fr.3.400.jpg" },
+          openFoodFacts: { code: "8003440120156" },
+          source: "openfoodfacts",
+          sourceVersion: "off-canonical-v1-cache",
+          sourceRef: "8003440120156",
+          confidence: 0.85,
+        };
+      },
+    };
+
+    const workflow = new CatalogWorkflowService(
+      lookup,
+      { applyImportedCandidate: async (input) => input.candidate },
+      external,
+    );
+
+    const result = await workflow.resolveBarcode("BARCODE", "8003440120156", "trace-1234567890");
+    assert.equal(result.status, "MATCHED");
+    assert.equal(result.resolution, "cache");
+    assert.equal(result.product?.canonicalName, "Latte intero");
+    assert.equal(result.product?.category, "confectionery-candy");
+    assert.equal(result.product?.calories, 240);
+    assert.equal(result.product?.images?.front, "https://images.openfoodfacts.org/images/products/800/344/012/0156/front_fr.3.400.jpg");
+    assert.equal(externalCalls, 1);
+    assert.equal(refreshCalls, 1);
   });
 
   it("persists a provider match on a real cache miss path", async () => {
@@ -365,6 +446,7 @@ describe("service-catalog / barcode workflow", () => {
           persisted += 1;
           return product({ canonicalName: externalProduct.canonicalName, defaultUnit: externalProduct.defaultUnit, provenanceQuality: "IMPORTED" });
         },
+        refreshExternalMatch: async () => product(),
       },
       { applyImportedCandidate: async (input) => input.candidate },
       { lookup: async () => externalProduct },
@@ -511,6 +593,7 @@ describe("service-catalog / barcode persistence error handling", () => {
         persistExternalMatch: async () => {
           throw persistenceError;
         },
+        refreshExternalMatch: async () => product(),
       },
       { applyImportedCandidate: async (input) => input.candidate },
       {
@@ -538,7 +621,7 @@ describe("service-catalog / barcode persistence error handling", () => {
     const workflow = new CatalogWorkflowService(
       {
         findByIdentifier: async () => undefined,
-        persistExternalMatch: async () => product(),
+        persistExternalMatch: async () => product(), refreshExternalMatch: async () => product(),
       },
       { applyImportedCandidate: async (input) => input.candidate },
       {
