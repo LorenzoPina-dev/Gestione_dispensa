@@ -228,7 +228,7 @@ describe("service-catalog / rich barcode public contract", () => {
 describe("service-catalog / ranked product search", () => {
   it("returns ranked external search hits through the workflow", async () => {
     const workflow = new CatalogWorkflowService(
-      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
       { applyImportedCandidate: async (input) => input.candidate },
       undefined,
       {
@@ -256,7 +256,7 @@ describe("service-catalog / ranked product search", () => {
 
   it("preserves provider unavailability instead of converting it to an empty result", async () => {
     const workflow = new CatalogWorkflowService(
-      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
       { applyImportedCandidate: async (input) => input.candidate },
       undefined,
       { search: async () => undefined },
@@ -267,7 +267,7 @@ describe("service-catalog / ranked product search", () => {
 
   it("maps ranked search hits to the public controller DTO", async () => {
     const workflow = new CatalogWorkflowService(
-      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
       { applyImportedCandidate: async (input) => input.candidate },
       undefined,
       {
@@ -316,7 +316,7 @@ describe("service-catalog / ranked product search", () => {
 
   it("returns a typed 503 error when the external search is unavailable", async () => {
     const workflow = new CatalogWorkflowService(
-      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
       { applyImportedCandidate: async (input) => input.candidate },
       undefined,
       { search: async () => undefined },
@@ -460,7 +460,7 @@ describe("service-catalog / barcode workflow", () => {
 
   it("degrades rather than throwing when the external boundary fails", async () => {
     const workflow = new CatalogWorkflowService(
-      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
       { applyImportedCandidate: async (input) => input.candidate },
       { lookup: async () => { throw new Error("network"); } },
     );
@@ -473,7 +473,7 @@ describe("service-catalog / barcode workflow", () => {
   it("requires review below the documented confidence threshold", async () => {
     const candidates: ProductCandidate[] = [];
     const workflow = new CatalogWorkflowService(
-      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
       { applyImportedCandidate: async (input) => {
         candidates.push(input.candidate);
         return input.candidate;
@@ -551,7 +551,7 @@ describe("service-catalog / HTTP mapping and validators", () => {
     const repo = new MemoryCatalogRepository();
     const service = new CatalogService(repo, { next: () => "p-1" }, { now: () => new Date("2026-10-02T00:00:00Z") });
     const workflow = new CatalogWorkflowService(
-      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+      { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
       { applyImportedCandidate: async (input) => input.candidate },
     );
     const controller = new CatalogController(service, workflow);
@@ -570,7 +570,7 @@ describe("service-catalog / HTTP mapping and validators", () => {
     const controller = new CatalogController(
       new CatalogService(new MemoryCatalogRepository(), { next: () => "p-1" }, { now: () => new Date() }),
       new CatalogWorkflowService(
-        { findByIdentifier: async () => undefined, persistExternalMatch: async () => product() },
+        { findByIdentifier: async () => undefined, persistExternalMatch: async () => product(), refreshExternalMatch: async () => product() },
         { applyImportedCandidate: async (input) => input.candidate },
       ),
     );
