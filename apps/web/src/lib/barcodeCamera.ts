@@ -123,11 +123,14 @@ export async function configureBarcodeCamera(
     supported.focusMode &&
     stringList(capabilities.focusMode).includes("continuous")
   ) {
+    patches.push({ focusMode: "continuous" });
+  }
+
+  // Point-of-interest is optional. Keep it separate from focusMode so a browser
+  // that rejects POI does not accidentally disable continuous autofocus.
+  if (supported.pointsOfInterest) {
     patches.push({
-      focusMode: "continuous",
-      ...(supported.pointsOfInterest
-        ? { pointsOfInterest: [{ x: 0.5, y: 0.5 } as PointOfInterest] }
-        : {}),
+      pointsOfInterest: [{ x: 0.5, y: 0.5 } as PointOfInterest],
     });
   }
 
