@@ -111,10 +111,19 @@ export interface CatalogLookupRepository {
   }): Promise<Product | undefined>;
   /**
    * Stores an external match as a real catalog product AND links the barcode to it via
-   * product_identifiers, so every subsequent lookup of the same barcode is served from
-   * `findByIdentifier` above and never needs to call the external provider again.
+   * product_identifiers.
+   *
+   * Existing OpenFoodFacts rows must be reconciled with the latest canonical provider match rather
+   * than returned unchanged, otherwise old catalog projections can survive newer off-lookup logic.
    */
   persistExternalMatch(input: {
+    identifierType: IdentifierType;
+    normalizedValue: string;
+    match: ExternalProductMatch;
+    traceId: string;
+  }): Promise<Product>;
+  /** Reconciles an existing OpenFoodFacts product with the latest canonical provider match. */
+  refreshExternalMatch(input: {
     identifierType: IdentifierType;
     normalizedValue: string;
     match: ExternalProductMatch;
@@ -185,7 +194,44 @@ export class CatalogWorkflowService {
 
     const local = refresh ? undefined : await this.lookup.findByIdentifier({ identifierType, normalizedValue });
     if (local !== undefined) {
-      return { status: "MATCHED", resolution: "cache", identifierType, normalizedValue, product: local };
+      // Manual products are authoritative and remain fully local/offline.
+      // External products are a projection of off-lookup's canonical OFF contract. Reconcile only
+      // clearly incomplete snapshots so legacy rows cannot keep serving stale derived fields.
+      if (
+        this.externalLookup === undefined ||
+        local.externalSource?.trim().toLowerCase() !== "openfoodfacts" ||
+        !needsExternalReconciliation(local)
+      ) {
+        return { status: "MATCHED", resolution: "cache", identifierType, normalizedValue, product: local };
+      }
+
+      try {
+        const match = await this.externalLookup.lookup({ identifierType, normalizedValue, traceId });
+        if (match === undefined) {
+          // Provider unavailable or product no longer exists: preserve the last known Catalog copy.
+          return { status: "MATCHED", resolution: "cache", identifierType, normalizedValue, product: local };
+        }
+        const product = await this.lookup.refreshExternalMatch({
+          identifierType,
+          normalizedValue,
+          match,
+          traceId,
+        });
+        return {
+          status: "MATCHED",
+          resolution: externalResolution(match),
+          identifierType,
+          normalizedValue,
+          product,
+        };
+      } catch (error) {
+        logBarcodeFailure("barcode_cache_reconciliation_failed", error, {
+          identifierType,
+          normalizedValue,
+          traceId,
+        });
+        throw error;
+      }
     }
 
     if (this.externalLookup === undefined) {
@@ -238,6 +284,28 @@ export class CatalogWorkflowService {
   }
 }
 
+
+function needsExternalReconciliation(product: Product): boolean {
+  if (product.externalSource?.trim().toLowerCase() !== "openfoodfacts") return false;
+
+  const hasImage = product.images
+    ? Object.values(product.images).some((value) => typeof value === "string" && value.trim().length > 0)
+    : false;
+  const hasCoreNutrition = [product.calories, product.protein, product.carbs, product.fat]
+    .some((value) => value !== undefined);
+  const hasPackage = product.quantityValue !== undefined || product.quantityLabel !== undefined;
+  const hasServing =
+    product.servingSize !== undefined ||
+    product.servingQuantity !== undefined ||
+    product.servingUnit !== undefined;
+
+  // This checks only the Catalog projection. Raw OFF interpretation stays inside off-lookup.
+  return !hasImage || !hasCoreNutrition || !hasPackage || !hasServing;
+}
+
+function externalResolution(match: ExternalProductMatch): "cache" | "provider" {
+  return match.sourceVersion.includes("-cache") ? "cache" : "provider";
+}
 
 function logBarcodeFailure(
   event: "barcode_provider_failed" | "barcode_persistence_failed",
