@@ -116,7 +116,9 @@ export async function configureBarcodeCamera(
     capabilities = {};
   }
 
-  const supported = navigator.mediaDevices.getSupportedConstraints?.() ?? {};
+  // Image Capture constraints (focusMode, zoom, torch, POI, resizeMode) are
+  // not present in older TypeScript DOM declarations even when the browser supports them.
+  const supported = (navigator.mediaDevices.getSupportedConstraints?.() ?? {}) as Record<string, boolean>;
   const patches: Record<string, unknown>[] = [];
 
   if (
