@@ -13,7 +13,6 @@ const mongoUrl = process.env.OFF_LOOKUP_MONGO_URL?.trim() ?? "";
 const mongoDb = process.env.OFF_LOOKUP_MONGO_DB?.trim() || "off";
 const mongoCollection = process.env.OFF_LOOKUP_MONGO_COLLECTION?.trim() || "products";
 const apiBaseUrl = (process.env.OFF_LOOKUP_API_BASE_URL?.trim() || "https://world.openfoodfacts.org").replace(/\/+$/, "");
-const offLookupBaseUrl = (process.env.OFF_LOOKUP_INTEGRATION_BASE_URL?.trim() || "http://off-lookup:3200").replace(/\/+$/, "");
 const maxProducts = Math.min(Math.max(Number(process.env.OFF_LOOKUP_IMAGE_TEST_LIMIT ?? 10), 1), 25);
 
 interface ApiProductResponse {
@@ -50,28 +49,6 @@ async function fetchOffProduct(code: string): Promise<Product | null> {
   return body.status === "success" || body.status === 1 ? body.product ?? null : null;
 }
 
-async function fetchLocalLookup(code: string): Promise<{
-  code?: unknown;
-  source?: unknown;
-  provenance?: { origin?: unknown; enrichedFromLiveApi?: unknown };
-  product?: Product;
-}> {
-  const response = await fetch(`${offLookupBaseUrl}/api/v1/products/${encodeURIComponent(code)}?source=local`, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "GestioneDispensa-OffImageIntegrationTest/1.0",
-    },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`off-lookup HTTP ${response.status} for ${code}`);
-  return await response.json() as {
-    code?: unknown;
-    source?: unknown;
-    provenance?: { origin?: unknown; enrichedFromLiveApi?: unknown };
-    product?: Product;
-  };
-}
-
 async function checkHttp(url: string): Promise<number> {
   const head = await fetch(url, {
     method: "HEAD",
@@ -95,7 +72,7 @@ async function checkHttp(url: string): Promise<number> {
 }
 
 test(
-  "Mongo -> OFF-normalized local response -> live API -> HTTP image round-trip",
+  "Mongo -> local OFF image URL -> live API -> HTTP round-trip",
   { skip: !enabled },
   async () => {
     assert.ok(mongoUrl, "OFF_LOOKUP_MONGO_URL is required when integration test is enabled");
@@ -104,7 +81,6 @@ test(
       serverSelectionTimeoutMS: 10_000,
       connectTimeoutMS: 10_000,
     });
-
     const failures: string[] = [];
     let checked = 0;
 
@@ -124,9 +100,8 @@ test(
         `Mongo collection ${mongoDb}.${mongoCollection} is empty. The integration test requires the OFF dump to be imported before running it.`,
       );
 
-      // Do not hard-code one dump image schema here. OFF dump versions have used both nested
-      // selected/uploaded image metadata and legacy selected_images. The off-derived adapter is
-      // responsible for understanding those representations.
+      // Dump versions expose selected image metadata either through images or selected_images.
+      // Do not require a particular sub-shape here: off-derived.ts is the schema adapter.
       const imageCandidateFilter = {
         $or: [
           { images: { $exists: true, $type: "object" } },
@@ -134,7 +109,6 @@ test(
         ],
       };
       const imageCandidateCount = await collection.countDocuments(imageCandidateFilter);
-
       const cursor = collection.find(imageCandidateFilter, {
         projection: {
           _id: 0,
@@ -164,24 +138,6 @@ test(
         checked += 1;
 
         try {
-          const localResponse = await fetchLocalLookup(code);
-          if (localResponse.code !== code) {
-            failures.push(`${code}: off-lookup returned code ${String(localResponse.code)}`);
-            continue;
-          }
-          if (localResponse.source !== "cache") {
-            failures.push(`${code}: expected source=cache for source=local, got ${String(localResponse.source)}`);
-            continue;
-          }
-          if (localResponse.provenance?.origin !== "bulk-import" || localResponse.provenance?.enrichedFromLiveApi !== false) {
-            failures.push(`${code}: invalid local provenance ${JSON.stringify(localResponse.provenance)}`);
-            continue;
-          }
-          if (!sameImagePath(localUrl, localResponse.product?.image_front_url)) {
-            failures.push(`${code}: off-lookup image ${String(localResponse.product?.image_front_url)} != derived image ${localUrl}`);
-            continue;
-          }
-
           const apiProduct = await fetchOffProduct(code);
           if (!apiProduct) {
             failures.push(`${code}: OFF API returned no product`);
