@@ -24,10 +24,10 @@ before(async () => {
         items: [{
           code: "8001234567890",
           product: {
-            product_name_it: "Latte",
-            brands: "Marca",
-            quantity: "90 g",
-            categories_tags: ["en:dairies"],
+            name: "Latte",
+            brand: "Marca",
+            quantity: { value: 90, unit: "g", label: "90 g" },
+            category: "eggs-dairy",
           },
         }],
       }));
@@ -57,7 +57,7 @@ before(async () => {
         res.end(JSON.stringify({
           code: "8001234567890",
           source: "cache",
-          product: { product_name_it: "Latte", quantity: "1 L", brands: "Marca", categories_tags: ["en:dairies"] },
+          product: { name: "Latte", quantity: { value: 1, unit: "l", label: "1 L" }, brand: "Marca", category: "eggs-dairy" },
         }));
       }, 100);
       return;
@@ -69,12 +69,10 @@ before(async () => {
         code: "8003440108888",
         source: "cache",
         product: {
-          product_name_it: "Golia Activ Plus Senza Zucchero",
-          brands: "Perfetti",
-          quantity: "90 g",
-          product_quantity: 90,
-          product_quantity_unit: "g",
-          categories_tags: ["it:caramelle"],
+          name: "Golia Activ Plus Senza Zucchero",
+          brand: "Perfetti",
+          quantity: { value: 90, unit: "g", label: "90 g" },
+          category: "confectionery-candy",
         },
       }));
       return;
@@ -85,29 +83,28 @@ before(async () => {
       code: "8001234567890",
       source: "cache",
       product: {
-        product_name_it: "Latte intero",
-        brands: "Marca, altra",
-        quantity: "90 g",
-        image_front_url: "https://example.test/latte.jpg",
-        image_ingredients_url: "https://example.test/ingredients.jpg",
-        categories_tags: ["en:dairies"],
-        ingredients_text: "Milk, cream",
-        allergens_tags: ["en:milk"],
-        labels_tags: ["en:organic"],
-        nutriscore_grade: "a",
-        nova_group: 2,
-        serving_size: "3 g",
-        serving_quantity: 3,
-        serving_quantity_unit: "g",
-        product_quantity: 90,
-        product_quantity_unit: "g",
-        nutriments: {
+        name: "Latte intero",
+        brand: "Marca",
+        category: "eggs-dairy",
+        quantity: { value: 90, unit: "g", label: "90 g" },
+        serving: { quantity: 3, unit: "g", label: "3 g" },
+        images: {
+          front: { url: "https://example.test/latte.jpg", small: "https://example.test/latte-small.jpg", thumb: "https://example.test/latte-thumb.jpg" },
+          ingredients: { url: "https://example.test/ingredients.jpg", small: null, thumb: null },
+        },
+        ingredients: { text: "Milk, cream" },
+        traces: ["en:milk"],
+        labels: ["en:organic"],
+        nutriScore: { grade: "a", score: null },
+        nova: { group: 2 },
+        nutrition: {
           "energy-kcal_100g": 62,
           "proteins_100g": 3.2,
           "carbohydrates_100g": 4.8,
           "fat_100g": 3.5,
           "fiber_100g": 0,
         },
+        openFoodFacts: { ingredients_text: "Milk, cream", allergens_tags: ["en:milk"], labels_tags: ["en:organic"], nutriscore_grade: "a" },
       },
     }));
   });
@@ -140,7 +137,7 @@ describe("service-catalog / HTTP Open Food Facts boundary", () => {
     assert.equal(result.brand, "Marca");
     assert.equal(result.defaultUnit, "g");
     assert.equal(result.category, "eggs-dairy");
-    assert.equal(result.sourceVersion, "off-dump-v1");
+    assert.equal(result.sourceVersion, "off-canonical-v1-cache");
     assert.equal(result.sourceRef, "8001234567890");
     assert.equal(result.quantityValue, 90);
     assert.equal(result.quantityUnit, "g");
