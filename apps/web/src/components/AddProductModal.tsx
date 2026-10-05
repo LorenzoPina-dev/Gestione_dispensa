@@ -348,7 +348,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
             !zoomBoostedRef.current
           ) {
             const diagnostics = await increaseBarcodeZoom(track);
-            zoomBoostedRef.current = diagnostics.zoom != null && diagnostics.zoom > (cameraDiagnostics?.zoom ?? 0);
+            // Mark the recovery as attempted even when the device is already at max zoom,
+            // otherwise the same constraint call would be repeated on every frame.
+            zoomBoostedRef.current = true;
             setCameraDiagnostics(diagnostics);
           }
         } else {
