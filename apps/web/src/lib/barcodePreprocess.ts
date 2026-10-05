@@ -86,7 +86,10 @@ async function detectWithFallback(
 
   for (const variant of variants) {
     try {
-      const canvas = preprocessToCanvas(source, srcW, srcH, variant, { maxDimension });
+      const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
+        maxDimension,
+        ...(opts.crop ? { crop: opts.crop } : {}),
+      });
       const result = reader.decodeFromCanvas(canvas);
       const rawValue = result.getText().trim();
       if (!rawValue) continue;
@@ -95,7 +98,9 @@ async function detectWithFallback(
         rawValue,
         variant,
         validated: isValidGs1Checksum(rawValue),
-        center: { x: srcW / 2, y: srcH / 2 },
+        center: opts.crop
+          ? { x: opts.crop.x + opts.crop.width / 2, y: opts.crop.y + opts.crop.height / 2 }
+          : { x: srcW / 2, y: srcH / 2 },
       };
       hits.push(hit);
       if (hit.validated) return [hit];
