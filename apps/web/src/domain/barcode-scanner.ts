@@ -69,7 +69,7 @@ export function classifyFrameQuality(input: FrameQualityInput): FrameQualityResu
     sharpnessScore(sharpness) * 0.38 +
     rangeScore(contrast, 8, 45) * 0.22 +
     inverseScore(motion, 0.03, 0.22) * 0.18 +
-    inverseScore(clippedFraction, 0.04, 0.5) * 0.12 +
+    inverseScore(clippedFraction, 0.04, 0.82) * 0.12 +
     (1 - Math.min(1, Math.abs(meanLuma - 135) / 135)) * 0.1;
 
   let quality: FrameQuality = "usable";
@@ -78,7 +78,7 @@ export function classifyFrameQuality(input: FrameQualityInput): FrameQualityResu
     sharpness < 35 ||
     contrast < 8 ||
     motion > 0.28 ||
-    clippedFraction > 0.55
+    clippedFraction > 0.82
   ) {
     quality = "poor";
   } else if (
@@ -86,7 +86,7 @@ export function classifyFrameQuality(input: FrameQualityInput): FrameQualityResu
     sharpness >= 110 &&
     contrast >= 22 &&
     motion <= 0.1 &&
-    clippedFraction <= 0.3
+    clippedFraction <= 0.62
   ) {
     quality = "good";
   }
@@ -94,7 +94,7 @@ export function classifyFrameQuality(input: FrameQualityInput): FrameQualityResu
   let advice: FrameQualityResult["advice"] = "NONE";
   if (motion > 0.16) advice = "STEADY";
   else if (sharpness < 55) advice = "FOCUS";
-  else if (clippedFraction > 0.35) advice = "GLARE";
+  else if (clippedFraction > 0.68) advice = "GLARE";
   else if (meanLuma < 45) advice = "LIGHT";
 
   return {
