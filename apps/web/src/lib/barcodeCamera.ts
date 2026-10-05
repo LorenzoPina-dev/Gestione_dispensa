@@ -31,7 +31,7 @@ const TARGET_WIDTH = 2560;
 const TARGET_HEIGHT = 1440;
 const MIN_WIDTH = 1280;
 const MIN_HEIGHT = 720;
-const TARGET_FPS = 30;
+const TARGET_FPS = 60;
 const AUTO_ZOOM = 1.25;
 
 const ZOOM_RECOVERY_STEP = 0.5;
