@@ -169,6 +169,7 @@ export function readCameraDiagnostics(track: MediaStreamTrack): CameraDiagnostic
 
   const zoomRange = numericRange(capabilities.zoom);
   const focusModes = stringList(capabilities.focusMode);
+  const settingsBag = settings as Record<string, unknown>;
 
   return {
     width: settings.width ?? 0,
@@ -200,11 +201,15 @@ export async function setBarcodeTorch(
   if (capabilities.torch !== true) return readCameraDiagnostics(track);
 
   const base = track.getConstraints();
-  const { advanced: _ignored, ...baseWithoutAdvanced } = base;
+  const currentAdvanced = Array.isArray(base.advanced)
+    ? (base.advanced as unknown as Record<string, unknown>[])
+    : [];
+  const preservedAdvanced = currentAdvanced.filter((item) => !("torch" in item));
+
   try {
     await track.applyConstraints({
-      ...baseWithoutAdvanced,
-      advanced: [{ torch: enabled }] as unknown as MediaTrackConstraintSet[],
+      ...base,
+      advanced: [...preservedAdvanced, { torch: enabled }] as unknown as MediaTrackConstraintSet[],
     } as MediaTrackConstraints);
   } catch {
     // Torch is optional; never break scanning when it is unavailable.
