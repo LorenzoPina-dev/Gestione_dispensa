@@ -7,6 +7,7 @@ import {
 } from "./cache-policy.js";
 import { config } from "./config.js";
 import { deriveProductFields } from "./off-derived.js";
+import { normalizeOffProduct } from "./off-canonical.js";
 import { log } from "./logger.js";
 
 const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_LOOKUP_MIN_COMPLETENESS", 0);
@@ -264,7 +265,10 @@ export class MongoProductRepository implements ProductRepository {
       // (search-indexer) gets the same values without calling the OFF API.
       const items = docs.map((doc) => {
         const raw = Object.fromEntries(Object.entries(doc).filter(([key]) => key !== "_id"));
-        return { code: doc.code, product: deriveProductFields(doc.code, raw).product };
+        const derived = deriveProductFields(doc.code, raw).product;
+        // This endpoint is the authoritative source for the OpenSearch projection. It must emit
+        // the same canonical image URLs and normalized search fields as normal OFF lookup/resolve.
+        return { code: doc.code, product: normalizeOffProduct(doc.code, derived) };
       });
       return {
         items,
