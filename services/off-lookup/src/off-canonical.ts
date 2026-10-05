@@ -118,7 +118,7 @@ export function normalizeOffProduct(
     brand,
     quantity: { value: quantityValue, unit: quantityUnit, label: quantityLabel },
     serving: { quantity: servingQuantity, unit: servingUnit, label: servingLabel },
-    category: categories.at(-1) ?? null,
+    category: normalizeCategory(categories, name),
     images,
     nutrition,
     ingredients: { text: firstString(derived.ingredients_text, derived.ingredients_text_it) },
@@ -172,6 +172,38 @@ function buildImages(
     };
   }
   return result;
+}
+
+const CATEGORY_RULES: readonly { readonly match: RegExp; readonly category: string }[] = [
+  { match: /meats|fishes|seafood|poultry/, category: "fresh-meat-fish" },
+  { match: /fresh-pastas|fresh-doughs/, category: "fresh-milk-pasta" },
+  { match: /cheeses|cold-cuts|charcuterie|hams/, category: "cold-cuts-fresh-cheese" },
+  { match: /dairies|yogurts|butters|milks/, category: "eggs-dairy" },
+  { match: /fruits|vegetables|salads|produce/, category: "produce-fresh" },
+  { match: /breads|bakery|viennoiseries/, category: "bakery-fresh" },
+  { match: /cand(?:y|ies)|candies|confectioner(?:y|ies)|sugar-confectionery|bonbons|caramels|toffees|pastilles|mints|lozenges|caramell|dolciumi|mentine|confiserie/, category: "confectionery-candy" },
+  { match: /chewing-gum|chewing gum|bubble-gum|gomme-a-macher|gomme à mâcher/, category: "chewing-gum" },
+  { match: /chocolates|chocolate|cocoa-products|cacao/, category: "chocolate-confectionery" },
+  { match: /biscuits|cookies|crackers|wafers|sweet-biscuits|savory-biscuits/, category: "biscuits-crackers" },
+  { match: /breakfast-cereals|cereals|mueslis|granolas/, category: "breakfast-cereals" },
+  { match: /coffee|coffees|tea|teas|infusions/, category: "coffee-tea" },
+  { match: /nuts|peanuts|seeds|snacks|chips|crisps|popcorn/, category: "nuts-snacks" },
+  { match: /pastas|rices|legumes|pulses|flours|couscous|grains/, category: "dry-staples" },
+  { match: /canned|tomato-purees|preserves|pickles|jams|jellies|compotes/, category: "canned-preserved" },
+  { match: /sauces|condiments|mustards|mayonnaises|ketchups|dressings/, category: "sauces-condiments" },
+  { match: /oils|fats|olive-oils|sunflower-oils/, category: "oils-fats" },
+  { match: /water|waters|soft-drinks|sodas|juices|nectars|iced-teas|shelf-stable-beverages/, category: "shelf-stable-beverages" },
+  { match: /salts|sugars|honeys|sugar|salt/, category: "pantry-indefinite" },
+  { match: /frozen/, category: "frozen-general" },
+];
+
+function normalizeCategory(tags: readonly string[], productName: string | null): string | null {
+  const values = [...tags, productName ?? ""].map((v) => v.toLowerCase().trim()).filter(Boolean);
+  for (const value of values) {
+    const rule = CATEGORY_RULES.find((candidate) => candidate.match.test(value));
+    if (rule) return rule.category;
+  }
+  return tags.at(-1) ?? null;
 }
 
 function firstCsvValue(value: unknown): string | null {
