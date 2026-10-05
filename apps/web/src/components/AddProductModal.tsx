@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
-import { computeViewfinderCrop, detectBestBarcode, type BarcodeHit } from "../lib/barcodePreprocess";
+import { computeViewfinderCrop, detectBestBarcode, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
 import { analyzeBarcodeFrame } from "../lib/barcodeQuality";
 import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityResult } from "../domain/barcode-scanner.js";
 import { normalizeProductBarcode } from "../domain/barcode.js";
@@ -324,7 +324,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
       setScannerPhase("DECODING");
       const quality = metrics?.quality ?? "usable";
-      const variants =
+      const variants: readonly PreprocessVariant[] =
         quality === "good"
           ? ["raw", "equalized", "upscaled"]
           : quality === "usable"
