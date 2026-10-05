@@ -1,4 +1,4 @@
-import { isValidGs1Checksum } from "../domain/barcode.js";
+import { isValidGs1Checksum, productBarcodePriority } from "../domain/barcode.js";
 import type { BarcodeBounds } from "../domain/barcode-scanner.js";
 // services/web/src/lib/barcodePreprocess.ts
 //
@@ -117,14 +117,12 @@ async function detectWithFallback(
         ...(location.bounds ? { bounds: location.bounds } : {}),
       };
       hits.push(hit);
-      if (hit.validated) return [hit];
     } catch {
       // No barcode in this variant; continue with the next preprocessing pass.
     }
   }
 
-  const validated = hits.filter((hit) => hit.validated);
-  return validated.length > 0 ? validated : hits;
+  return rankBarcodeHits(hits, srcW, srcH, opts.crop);
 }
 
 export function isBarcodeDetectorAvailable(): boolean {
@@ -522,6 +520,33 @@ export interface DetectOptions {
  * Non lancia mai: se il detector non è disponibile, o tutte le varianti falliscono,
  * restituisce [].
  */
+/** Never trust the first valid numeric result: aggregate decoder variants before selection. */
+function rankBarcodeHits(
+  hits: readonly BarcodeHit[],
+  srcW: number,
+  srcH: number,
+  crop?: CropRect,
+): BarcodeHit[] {
+  const groups = new Map<string, { hit: BarcodeHit; count: number }>();
+  for (const hit of hits) {
+    const current = groups.get(hit.rawValue);
+    if (current) current.count += 1;
+    else groups.set(hit.rawValue, { hit, count: 1 });
+  }
+  const cx = crop ? crop.x + crop.width / 2 : srcW / 2;
+  const cy = crop ? crop.y + crop.height / 2 : srcH / 2;
+  const extent = Math.max(srcW, srcH);
+  return [...groups.values()].sort((a, b) => {
+    const score = (entry: {hit: BarcodeHit; count: number}) => {
+      const validity = entry.hit.validated ? 10000 : 0;
+      const symbology = productBarcodePriority(entry.hit.rawValue);
+      const distance = entry.hit.center ? Math.hypot(entry.hit.center.x-cx, entry.hit.center.y-cy)/extent : 1;
+      return validity + symbology + entry.count*50 - distance*100;
+    };
+    return score(b) - score(a);
+  }).map((entry) => entry.hit);
+}
+
 export async function detectBarcodes(
   source: CanvasImageSource,
   srcW: number,
@@ -564,7 +589,6 @@ export async function detectBarcodes(
           }
 
           nativeHits.push(hit);
-          if (hit.validated) return [hit];
         }
       } catch {
         // Continue with the next variant.
@@ -579,10 +603,7 @@ export async function detectBarcodes(
     variants,
     ...(crop ? { crop } : {}),
   });
-  if (fallback.length > 0) return fallback;
-
-  const validatedNative = nativeHits.filter((hit) => hit.validated);
-  return validatedNative.length > 0 ? validatedNative : nativeHits;
+  return rankBarcodeHits([...nativeHits, ...fallback], srcW, srcH, crop);
 }
 
 /**
