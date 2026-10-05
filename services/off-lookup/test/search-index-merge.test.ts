@@ -48,9 +48,9 @@ describe("external search hits are indexed from the stored Mongo document", () =
     await flush();
 
     assert.equal(indexed.length, 1);
-    assert.deepEqual(
-      (indexed[0]?.product.images as Record<string, unknown>).front_it,
-      { rev: "4", sizes: { "200": { w: 200, h: 200 } } },
+    assert.equal(
+      (indexed[0]?.product.images as Record<string, Record<string, unknown>>).front?.url,
+      "https://images.openfoodfacts.org/images/products/800/123/456/7890/front_it.4.200.jpg",
     );
   });
 
