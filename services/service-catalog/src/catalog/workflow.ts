@@ -306,7 +306,10 @@ function externalResolution(match: ExternalProductMatch): "cache" | "provider" {
 }
 
 function logBarcodeFailure(
-  event: "barcode_provider_failed" | "barcode_persistence_failed",
+  event:
+    | "barcode_provider_failed"
+    | "barcode_persistence_failed"
+    | "barcode_cache_reconciliation_failed",
   error: unknown,
   context: {
     identifierType: IdentifierType;
