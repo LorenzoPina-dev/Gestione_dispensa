@@ -1,3 +1,4 @@
+import { normalizeProductBarcode, isValidGs1Checksum } from "../domain/barcode.js";
 // services/web/src/lib/barcodePreprocess.ts
 //
 // Preprocessing adattivo per la scansione barcode: grayscale, equalizzazione
@@ -364,20 +365,6 @@ function unsharpMask(
  * con probabilità ~90% NON passa il check digit. Quindi scartando i non-validati
  * eliminiamo quasi tutti i falsi positivi.
  */
-export function isValidGs1Checksum(value: string): boolean {
-  if (!/^\d+$/.test(value)) return false;
-  if (value.length !== 8 && value.length !== 12 && value.length !== 13 && value.length !== 14) {
-    return false;
-  }
-  let sum = 0;
-  let weight = 3;
-  for (let i = value.length - 2; i >= 0; i--) {
-    sum += Number(value[i]) * weight;
-    weight = weight === 3 ? 1 : 3;
-  }
-  const expected = (10 - (sum % 10)) % 10;
-  return expected === Number(value[value.length - 1]);
-}
 
 // ── API di alto livello ───────────────────────────────────────────────────────
 
