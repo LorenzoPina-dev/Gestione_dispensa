@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
-import { isBarcodeDetectorAvailable, detectBestBarcode, computeViewfinderCrop, type BarcodeHit } from "../lib/barcodePreprocess";
+import { detectBestBarcode, computeViewfinderCrop, type BarcodeHit } from "../lib/barcodePreprocess";
+import { openBarcodeCamera, readCameraDiagnostics, setBarcodeTorch, type CameraDiagnostics } from "../lib/barcodeCamera";
 import { isBackendUnreachable } from "../api/client.js";
 
 type AddMode = "menu" | "barcode" | "manuale" | "lista";
@@ -116,6 +117,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const streamRef = useRef<MediaStream | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
+  const frameRequestRef = useRef<number | null>(null);
+  const scanBusyRef = useRef(false);
+  const lastScanAtRef = useRef(0);
   const stoppedRef = useRef(false);
   const lastRef = useRef({ value: "", count: 0 });
   const [state, setState] = useState<BarcodeState>("IDLE");
@@ -125,13 +129,22 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [qty, setQty] = useState("1");
   const [expiry, setExpiry] = useState("");
   const [location, setLocation] = useState<StorageLocation>("dispensa");
+  const [cameraDiagnostics, setCameraDiagnostics] = useState<CameraDiagnostics | null>(null);
+  const [cameraAspectRatio, setCameraAspectRatio] = useState("16/9");
 
   const stopCamera = useCallback(() => {
     stoppedRef.current = true;
     if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    setCameraDiagnostics(null);
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = null;
+    const video = videoRef.current as (HTMLVideoElement & { cancelVideoFrameCallback?: (handle: number) => void }) | null;
+    if (frameRequestRef.current !== null && video?.cancelVideoFrameCallback) {
+      video.cancelVideoFrameCallback(frameRequestRef.current);
+    }
+    frameRequestRef.current = null;
+    scanBusyRef.current = false;
     lastRef.current = { value: "", count: 0 };
   }, []);
 
@@ -163,11 +176,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   }
 
   async function scanSource(source: CanvasImageSource, width: number, height: number) {
-    if (!isBarcodeDetectorAvailable()) {
-      setError("Questo browser non supporta la lettura automatica del barcode. Inserisci il codice manualmente.");
-      setState("MANUAL_REQUIRED");
-      return;
-    }
     setState("LOOKING");
     try {
       const hit: BarcodeHit | null = await detectBestBarcode(source, width, height, { maxDimension: 1600 });
@@ -185,34 +193,137 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   }
 
   async function startCamera() {
-    if (!isBarcodeDetectorAvailable()) { setError("Questo browser non supporta la scansione automatica. Usa una foto con un browser compatibile o inserisci il codice manualmente."); return; }
-    setState("SCANNING"); setError(null); stoppedRef.current = false;
+    setState("SCANNING");
+    setError(null);
+    stoppedRef.current = false;
+    setCameraDiagnostics(null);
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
-      if (stoppedRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+      const { stream, track, diagnostics } = await openBarcodeCamera();
+      if (stoppedRef.current) {
+        stream.getTracks().forEach((item) => item.stop());
+        return;
+      }
+
       streamRef.current = stream;
+      setCameraDiagnostics(diagnostics);
+
       const video = videoRef.current;
-      if (!video) return;
+      if (!video) {
+        stream.getTracks().forEach((item) => item.stop());
+        streamRef.current = null;
+        setState("IDLE");
+        return;
+      }
+
       video.srcObject = stream;
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
       await video.play();
+
+      if (video.videoWidth && video.videoHeight) {
+        setCameraAspectRatio(`${video.videoWidth}/${video.videoHeight}`);
+      }
+
+      // Allow the camera ISP/autofocus to settle before decoding.
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      if (stoppedRef.current) return;
+
+      setCameraDiagnostics(readCameraDiagnostics(track));
       scheduleScan();
-    } catch { stopCamera(); setError("Impossibile accedere alla fotocamera. Controlla i permessi del browser."); setState("IDLE"); }
+    } catch (err) {
+      stopCamera();
+      setError(
+        err instanceof Error && err.message === "camera_not_supported"
+          ? "Questo browser non consente l'accesso alla fotocamera."
+          : "Impossibile accedere alla fotocamera. Controlla i permessi del browser.",
+      );
+      setState("IDLE");
+    }
   }
 
-  function scheduleScan() { if (!stoppedRef.current) timerRef.current = window.setTimeout(scanFrame, 450); }
-  async function scanFrame() {
+  function scheduleScan() {
     if (stoppedRef.current) return;
+    const video = videoRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: (now: number, metadata: unknown) => void) => number;
+    }) | null;
+    if (!video) return;
+
+    if (video.requestVideoFrameCallback) {
+      frameRequestRef.current = video.requestVideoFrameCallback(() => {
+        void scanFrame();
+      });
+      return;
+    }
+
+    timerRef.current = window.setTimeout(() => {
+      void scanFrame();
+    }, 280);
+  }
+
+  async function scanFrame() {
+    if (stoppedRef.current || scanBusyRef.current) return;
+
+    const now = performance.now();
+    if (now - lastScanAtRef.current < 280) {
+      scheduleScan();
+      return;
+    }
+
     const video = videoRef.current;
-    if (!video || video.readyState < 2 || !video.videoWidth) { scheduleScan(); return; }
+    if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      scheduleScan();
+      return;
+    }
+
+    scanBusyRef.current = true;
+    lastScanAtRef.current = now;
+
     try {
       const crop = computeViewfinderCrop(video.videoWidth, video.videoHeight);
-      const hit = await detectBestBarcode(video, video.videoWidth, video.videoHeight, { maxDimension: 900, crop });
+      const hit = await detectBestBarcode(
+        video,
+        video.videoWidth,
+        video.videoHeight,
+        {
+          maxDimension: Math.min(1440, Math.max(video.videoWidth, video.videoHeight)),
+          crop,
+          variants: ["raw", "equalized", "upscaled", "bradley"],
+        },
+      );
+
+      if (stoppedRef.current) return;
+
       if (hit) {
-        lastRef.current = lastRef.current.value === hit.rawValue ? { value: hit.rawValue, count: lastRef.current.count + 1 } : { value: hit.rawValue, count: 1 };
-        if (lastRef.current.count >= (hit.validated ? 1 : 2)) { const found = hit.rawValue; stopCamera(); await resolve(found); return; }
-      } else lastRef.current = { value: "", count: 0 };
-    } catch { /* keep scanning */ }
-    scheduleScan();
+        lastRef.current =
+          lastRef.current.value === hit.rawValue
+            ? { value: hit.rawValue, count: lastRef.current.count + 1 }
+            : { value: hit.rawValue, count: 1 };
+
+        // Require two identical frames to reject transient false positives.
+        if (lastRef.current.count >= 2) {
+          const found = hit.rawValue;
+          stopCamera();
+          await resolve(found);
+          return;
+        }
+      } else {
+        lastRef.current = { value: "", count: 0 };
+      }
+    } catch {
+      // Camera decoding is best-effort; acquisition remains alive.
+    } finally {
+      scanBusyRef.current = false;
+      if (!stoppedRef.current) scheduleScan();
+    }
+  }
+
+  async function toggleTorch() {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track || !cameraDiagnostics?.torchSupported) return;
+    const diagnostics = await setBarcodeTorch(track, !cameraDiagnostics.torchEnabled);
+    setCameraDiagnostics(diagnostics);
   }
 
   function confirmCandidate() {
@@ -238,7 +349,63 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         {error && <Message>{error}</Message>}
       </div>}
 
-      {state === "SCANNING" && <div className="space-y-4"><div className="relative rounded-2xl overflow-hidden bg-black" style={{ aspectRatio: "4/3" }}><video ref={videoRef} className="w-full h-full object-cover" playsInline muted /><div className="absolute inset-0 flex items-center justify-center"><div className="w-[60%] h-[35%] border-2 rounded-xl" style={{ borderColor: "#c4623a", boxShadow: "0 0 0 9999px rgba(0,0,0,.45)" }} /></div></div><button onClick={() => { stopCamera(); setState("IDLE"); }} className="w-full py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Annulla scansione</button></div>}
+      {state === "SCANNING" && (
+        <div className="space-y-3">
+          <div
+            className="relative rounded-2xl overflow-hidden bg-black"
+            style={{ aspectRatio: cameraAspectRatio, maxHeight: "62vh" }}
+          >
+            <video
+              ref={videoRef}
+              className="w-full h-full object-contain bg-black"
+              playsInline
+              muted
+              autoPlay
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div
+                className="w-[82%] h-[38%] border-2 rounded-xl"
+                style={{
+                  borderColor: "#c4623a",
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,.45)",
+                }}
+              />
+            </div>
+            {cameraDiagnostics?.torchSupported && (
+              <button
+                type="button"
+                onClick={() => void toggleTorch()}
+                className="absolute top-3 right-3 rounded-full px-3 py-2 text-xs font-semibold"
+                style={{
+                  backgroundColor: cameraDiagnostics.torchEnabled ? "#fff" : "rgba(26,21,16,.72)",
+                  color: cameraDiagnostics.torchEnabled ? "#1a1510" : "#fff",
+                }}
+              >
+                🔦 {cameraDiagnostics.torchEnabled ? "Luce ON" : "Luce"}
+              </button>
+            )}
+          </div>
+
+          {cameraDiagnostics && (
+            <div className="rounded-xl px-3 py-2 text-[11px]" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span>Camera {cameraDiagnostics.width}×{cameraDiagnostics.height}</span>
+                {cameraDiagnostics.frameRate != null && <span>{Math.round(cameraDiagnostics.frameRate)} fps</span>}
+                <span>{cameraDiagnostics.continuousFocus ? "AF continuo" : "AF continuo non disponibile"}</span>
+                {cameraDiagnostics.zoom != null && <span>Zoom {cameraDiagnostics.zoom.toFixed(1)}×</span>}
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={() => { stopCamera(); setState("IDLE"); }}
+            className="w-full py-2.5 rounded-xl"
+            style={{ backgroundColor: "#ede6d6" }}
+          >
+            Annulla scansione
+          </button>
+        </div>
+      )}
 
       {state === "LOOKING" && <div className="py-10 text-center space-y-4"><div className="w-10 h-10 mx-auto rounded-full animate-spin" style={{ border: "3px solid #ede6d6", borderTopColor: "#c4623a" }} /><p className="text-sm" style={{ color: "#6b5e4e" }}>Ricerca prodotto per barcode…</p>{code && <p className="font-mono text-sm">{code}</p>}</div>}
 
