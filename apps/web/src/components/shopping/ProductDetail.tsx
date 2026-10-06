@@ -53,6 +53,8 @@ export default function ProductDetail({ product, alreadyListed, onBack, onAdd }:
 
   const quantity = Number(qty.replace(",", "."));
   const valid = Number.isFinite(quantity) && quantity > 0;
+  const packageDescription = product.quantityLabel
+    ?? (product.quantityValue != null && product.quantityUnit ? String(product.quantityValue) + " " + product.quantityUnit : undefined);
 
   return (
     <div className="p-4 space-y-4 sm:p-6">
@@ -93,6 +95,11 @@ export default function ProductDetail({ product, alreadyListed, onBack, onAdd }:
       </div>
 
       <Input label="Quantità (confezioni)" type="number" inputMode="decimal" min="1" step="1" value={qty} onChange={(e) => setQty(e.target.value)} />
+      {packageDescription && (
+        <p className="text-[11px]" style={{ color: colors.inkMuted }}>
+          1 confezione = {packageDescription}. Alla conferma verrà caricata in dispensa la quantità fisica della confezione.
+        </p>
+      )}
       {alreadyListed && (
         <p className="text-xs" style={{ color: colors.amberDark }}>Questo prodotto è già nella lista.</p>
       )}
