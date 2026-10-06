@@ -131,7 +131,7 @@ test("rejects an implausibly large correction even when the edge cloud is strong
   const estimate = estimateBarcodeOrientationFromMoments({
     varianceX: 120,
     varianceY: 10,
-    covariance: 69,
+    covariance: 85,
     gxEnergy: 92,
     gyEnergy: 8,
     aspectRatio: 7,
