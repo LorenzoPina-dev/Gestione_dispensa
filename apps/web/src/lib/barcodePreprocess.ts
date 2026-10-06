@@ -89,17 +89,22 @@ async function detectWithFallback(
 
   const maxDimension = opts.maxDimension ?? 1200;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
+  const localized = localizeBarcode(source, srcW, srcH);
+  const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
+  const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
   const hits: BarcodeHit[] = [];
 
   for (const variant of variants) {
     try {
       const geometry = getPreprocessGeometry(srcW, srcH, variant, {
         maxDimension,
-        ...(opts.crop ? { crop: opts.crop } : {}),
+        ...(crop ? { crop } : {}),
+        rotation,
       });
       const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
         maxDimension,
         crop: geometry.crop,
+        rotation,
       });
       const result = reader.decodeFromCanvas(canvas);
       const rawValue = result.getText().trim();
@@ -165,12 +170,15 @@ export interface PreprocessOptions {
   maxDimension?: number;
   /** Ritaglio in coordinate sorgente. Default: intera immagine. */
   crop?: CropRect;
+  /** Rotation applied around the crop center before preprocessing. */
+  rotation?: number;
 }
 
 export interface PreprocessGeometry {
   crop: CropRect;
   outputWidth: number;
   outputHeight: number;
+  rotation: number;
 }
 
 export function getPreprocessGeometry(
@@ -193,6 +201,7 @@ export function getPreprocessGeometry(
     crop: { x: cx, y: cy, width: cw, height: ch },
     outputWidth: variant === "upscaled" ? baseW * 2 : baseW,
     outputHeight: variant === "upscaled" ? baseH * 2 : baseH,
+    rotation: opts.rotation ?? 0,
   };
 }
 
@@ -278,7 +287,15 @@ export function preprocessToCanvas(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, outW, outH);
-  ctx.drawImage(source, cx, cy, cw, ch, 0, 0, outW, outH);
+  if (Math.abs(geometry.rotation) > 0.001) {
+    ctx.save();
+    ctx.translate(outW / 2, outH / 2);
+    ctx.rotate(-geometry.rotation);
+    ctx.drawImage(source, cx, cy, cw, ch, -outW / 2, -outH / 2, outW, outH);
+    ctx.restore();
+  } else {
+    ctx.drawImage(source, cx, cy, cw, ch, 0, 0, outW, outH);
+  }
 
   const img = ctx.getImageData(0, 0, outW, outH);
   const rgba = img.data;
@@ -505,6 +522,102 @@ function unsharpMask(
 
 // ── API di alto livello ───────────────────────────────────────────────────────
 
+
+export interface BarcodeLocalization {
+  crop: CropRect;
+  rotation: number;
+  confidence: number;
+  textureScore: number;
+}
+
+export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: number, maxDimension = 1280): BarcodeLocalization {
+  const full = { crop: { x: 0, y: 0, width: srcW, height: srcH }, rotation: 0, confidence: 0, textureScore: 0 };
+  if (srcW < 96 || srcH < 96) return full;
+  const scale = Math.min(1, maxDimension / Math.max(srcW, srcH));
+  const w = Math.max(64, Math.round(srcW * scale));
+  const h = Math.max(64, Math.round(srcH * scale));
+  const canvas = acquireCanvas("localizer", w, h);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return full;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "medium";
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(source, 0, 0, srcW, srcH, 0, 0, w, h);
+  const rgba = ctx.getImageData(0, 0, w, h).data;
+  const gray = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < rgba.length; i += 4, p++) gray[p] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
+
+  const col = new Float64Array(w);
+  const row = new Float64Array(h);
+  let total = 0, strong = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  for (let y = 1; y < h - 1; y++) {
+    const b = y * w;
+    for (let x = 1; x < w - 1; x++) {
+      const gx = Math.abs(gray[b + x + 1] - gray[b + x - 1]);
+      const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
+      const e = Math.max(0, gx - 0.7 * gy);
+      col[x] += e;
+      row[y] += e;
+      total += e;
+      if (e > 55) {
+        strong += e;
+        sx += x * e; sy += y * e; sxx += x * x * e; syy += y * y * e; sxy += x * y * e;
+      }
+    }
+  }
+  if (total <= 1) return full;
+
+  function bestBand(values: Float64Array, threshold: number, minLength: number) {
+    let best: { start: number; end: number; score: number } | null = null;
+    let start = -1, sum = 0;
+    const flush = (end: number) => {
+      if (start < 0 || end - start + 1 < minLength) return;
+      const candidate = { start, end, score: sum / Math.max(1, end - start + 1) };
+      if (!best || candidate.score > best.score) best = candidate;
+    };
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] >= threshold) {
+        if (start < 0) { start = i; sum = 0; }
+        sum += values[i];
+      } else if (start >= 0) { flush(i - 1); start = -1; sum = 0; }
+    }
+    if (start >= 0) flush(values.length - 1);
+    return best;
+  }
+
+  const xBand = bestBand(col, (total / w) * 1.75, Math.max(24, Math.floor(w * 0.08)));
+  const yBand = bestBand(row, (total / h) * 1.25, Math.max(18, Math.floor(h * 0.06)));
+  if (!xBand || !yBand) return { ...full, textureScore: total / Math.max(1, w * h) };
+
+  const varianceX = strong > 0 ? Math.max(0, sxx / strong - (sx / strong) ** 2) : 0;
+  const varianceY = strong > 0 ? Math.max(0, syy / strong - (sy / strong) ** 2) : 0;
+  const covariance = strong > 0 ? sxy / strong - (sx / strong) * (sy / strong) : 0;
+  const rotation = Math.max(-0.35, Math.min(0.35, 0.5 * Math.atan2(2 * covariance, varianceX - varianceY)));
+
+  const padX = Math.max(18, Math.round((xBand.end - xBand.start + 1) * 0.22));
+  const padY = Math.max(16, Math.round((yBand.end - yBand.start + 1) * 0.65));
+  let x0 = Math.max(0, xBand.start - padX), x1 = Math.min(w - 1, xBand.end + padX);
+  let y0 = Math.max(0, yBand.start - padY), y1 = Math.min(h - 1, yBand.end + padY);
+  const areaFraction = ((x1 - x0 + 1) * (y1 - y0 + 1)) / (w * h);
+  const concentration = (xBand.score / Math.max(1, total / w)) * (yBand.score / Math.max(1, total / h));
+  const confidence = Math.max(0, Math.min(1,
+    0.45 * Math.min(1, concentration / 4) +
+    0.35 * Math.min(1, (strong / Math.max(1, total)) * 3) +
+    0.20 * (1 - Math.min(1, areaFraction)),
+  ));
+  if (confidence < 0.42 || areaFraction > 0.78) return { ...full, confidence, textureScore: concentration };
+
+  const inv = 1 / scale;
+  x0 = Math.floor(x0 * inv); x1 = Math.min(srcW - 1, Math.ceil((x1 + 1) * inv) - 1);
+  y0 = Math.floor(y0 * inv); y1 = Math.min(srcH - 1, Math.ceil((y1 + 1) * inv) - 1);
+  return {
+    crop: { x: Math.max(0, x0), y: Math.max(0, y0), width: Math.max(1, x1 - x0 + 1), height: Math.max(1, y1 - y0 + 1) },
+    rotation,
+    confidence,
+    textureScore: concentration,
+  };
+}
+
 export interface DetectOptions {
   maxDimension?: number;
   crop?: CropRect;
@@ -556,7 +669,9 @@ export async function detectBarcodes(
   const detector = getDetector();
   const maxDimension = opts.maxDimension ?? 1200;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
-  const crop = opts.crop;
+  const localized = localizeBarcode(source, srcW, srcH);
+  const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
+  const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
   const nativeHits: BarcodeHit[] = [];
 
   if (detector) {
@@ -565,10 +680,12 @@ export async function detectBarcodes(
         const geometry = getPreprocessGeometry(srcW, srcH, variant, {
           maxDimension,
           ...(crop ? { crop } : {}),
+          rotation,
         });
         const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
           maxDimension,
           crop: geometry.crop,
+          rotation,
         });
         const codes = await detector.detect(canvas);
 
@@ -611,6 +728,10 @@ export async function detectBarcodes(
  * (validato se esiste, altrimenti il raw più vicino al centro del crop). Utile nel
  * loop di scansione live.
  */
+export function getBarcodeLocalization(source: CanvasImageSource, srcW: number, srcH: number): BarcodeLocalization {
+  return localizeBarcode(source, srcW, srcH);
+}
+
 export async function detectBestBarcode(
   source: CanvasImageSource,
   srcW: number,
@@ -634,9 +755,8 @@ export async function detectBestBarcode(
 }
 
 /**
- * Calcola il ritaglio del mirino (regione centrale ~82% × 38%) in coordinate sorgente.
- * Il mirino nell'UI usa le stesse proporzioni, così la regione mostrata all'utente
- * coincide con la regione passata al decoder.
+ * Fallback crop used only when localization is not confident. The decoder now starts
+ * from the full frame and localizes the barcode before this ROI is considered.
  */
 export type ViewfinderMode = "standard" | "expanded";
 
