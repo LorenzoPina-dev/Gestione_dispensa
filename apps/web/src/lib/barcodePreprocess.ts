@@ -97,7 +97,7 @@ async function detectWithFallback(
 
   const maxDimension = opts.maxDimension ?? 1200;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
-  const localized = localizeBarcode(source, srcW, srcH);
+  const localized = opts.localization ?? localizeBarcode(source, srcW, srcH);
   const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
   const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
   const quadrilateral = localized.confidence >= 0.42 ? localized.quadrilateral : undefined;
@@ -966,6 +966,8 @@ export interface DetectOptions {
   maxDimension?: number;
   crop?: CropRect;
   variants?: readonly PreprocessVariant[];
+  /** Reuse a localization already computed for the same source frame. */
+  localization?: BarcodeLocalization;
 }
 
 /**
@@ -1072,7 +1074,7 @@ export async function detectBarcodes(
   const detector = getDetector();
   const maxDimension = opts.maxDimension ?? 1200;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
-  const localized = localizeBarcode(source, srcW, srcH);
+  const localized = opts.localization ?? localizeBarcode(source, srcW, srcH);
   const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
   const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
   const quadrilateral = localized.confidence >= 0.42 ? localized.quadrilateral : undefined;
