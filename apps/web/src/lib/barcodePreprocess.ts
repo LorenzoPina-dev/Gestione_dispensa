@@ -1160,7 +1160,7 @@ export function localizeBarcode(
     bottomCenter: bottomBand ? bottomCenter : undefined,
   });
 
-  const confidence = Math.max(
+  let confidence = Math.max(
     0,
     Math.min(
       1,
@@ -1373,9 +1373,11 @@ export async function detectBarcodes(
   const maxDimension = opts.maxDimension ?? 1200;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
   const localized = opts.localization ?? localizeBarcode(source, srcW, srcH);
-  const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
-  const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
-  const quadrilateral = localized.confidence >= 0.42 ? localized.quadrilateral : undefined;
+  const useLocalizedCrop = localized.confidence >= 0.42;
+  const useGeometryCorrection = canApplyBarcodeGeometry(localized);
+  const crop = useLocalizedCrop ? localized.crop : opts.crop;
+  const rotation = useGeometryCorrection ? localized.rotation : 0;
+  const quadrilateral = useGeometryCorrection ? localized.quadrilateral : undefined;
   const nativeHits: BarcodeHit[] = [];
 
   if (detector) {
@@ -1451,6 +1453,8 @@ export async function detectBarcodes(
       },
       rotation: 0,
       confidence: 0,
+      orientationConfidence: 0,
+      geometryConfidence: 0,
       textureScore: 0,
     };
     const fullFrameHits = await detectBarcodes(source, srcW, srcH, {
