@@ -778,7 +778,23 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
 
   const yBand = bestBand(row, (total / h) * 1.25, Math.max(18, Math.floor(h * 0.06)));
   if (!yBand) return { ...full, textureScore: total / Math.max(1, w * h) };
-  const xBand = bestBand(col, (total / w) * 1.35, Math.max(24, Math.floor(w * 0.06)));
+
+  const focusY0 = Math.max(1, yBand.start - Math.floor((yBand.end - yBand.start + 1) * 0.6));
+  const focusY1 = Math.min(h - 2, yBand.end + Math.floor((yBand.end - yBand.start + 1) * 0.6));
+  const focusCol = new Float64Array(w);
+  let focusTotal = 0;
+  for (let y = focusY0; y <= focusY1; y++) {
+    const rowBase = y * w;
+    for (let x = 1; x < w - 1; x++) {
+      const gx = Math.abs(gray[rowBase + x + 1] - gray[rowBase + x - 1]);
+      const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
+      const e = Math.max(0, gx - 0.7 * gy);
+      focusCol[x] += e;
+      focusTotal += e;
+    }
+  }
+  const xMean = focusTotal / Math.max(1, w);
+  const xBand = bestBand(focusCol, xMean * 1.28, Math.max(24, Math.floor(w * 0.06)));
   if (!xBand) return { ...full, textureScore: total / Math.max(1, w * h) };
 
   const varianceX = strong > 0 ? Math.max(0, sxx / strong - (sx / strong) ** 2) : 0;
