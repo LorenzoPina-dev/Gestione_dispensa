@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
-import { computeViewfinderCrop, detectBestBarcode, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
+import { computeViewfinderCrop, detectBestBarcode, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
 import { analyzeBarcodeFrame } from "../lib/barcodeQuality";
 import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityResult } from "../domain/barcode-scanner.js";
 import { normalizeProductBarcode } from "../domain/barcode.js";
@@ -133,6 +133,8 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const lastRecoveryAtRef = useRef(0);
   const zoomBoostedRef = useRef(false);
   const expandedViewfinderRef = useRef(false);
+  const preprocessPreviewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const previewTimerRef = useRef<number | null>(null);
 
   const [state, setState] = useState<BarcodeState>("IDLE");
   const [scannerPhase, setScannerPhase] = useState<ScannerPhase>("IDLE");
@@ -147,6 +149,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [location, setLocation] = useState<StorageLocation>("dispensa");
   const [cameraDiagnostics, setCameraDiagnostics] = useState<CameraDiagnostics | null>(null);
   const [cameraAspectRatio, setCameraAspectRatio] = useState("16/9");
+  const [showPreprocessPreview, setShowPreprocessPreview] = useState(true);
+  const [previewVariant, setPreviewVariant] = useState<PreprocessVariant>("clahe");
+  const [previewUpdatedAt, setPreviewUpdatedAt] = useState(0);
 
   const stopCamera = useCallback(() => {
     stoppedRef.current = true;
@@ -170,6 +175,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     expandedViewfinderRef.current = false;
     setExpandedViewfinder(false);
     setFrameQuality(null);
+    if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = null;
+    setPreviewUpdatedAt(0);
     setScannerPhase("IDLE");
   }, []);
 
@@ -259,6 +267,51 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       setScannerPhase("QUALITY_CHECK");
     }
   }
+
+  const updatePreprocessPreview = useCallback(() => {
+    if (stoppedRef.current || !showPreprocessPreview) return;
+    const video = videoRef.current;
+    const output = preprocessPreviewCanvasRef.current;
+    if (!video || !output || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 250);
+      return;
+    }
+
+    try {
+      const crop = computeViewfinderCrop(
+        video.videoWidth,
+        video.videoHeight,
+        expandedViewfinderRef.current ? "expanded" : "standard",
+      );
+      const processed = preprocessToCanvas(video, video.videoWidth, video.videoHeight, previewVariant, {
+        maxDimension: 1000,
+        crop,
+      });
+      output.width = processed.width;
+      output.height = processed.height;
+      const ctx = output.getContext("2d");
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(processed, 0, 0);
+        setPreviewUpdatedAt(performance.now());
+      }
+    } catch (err) {
+      console.debug("[barcode] preprocess preview failed", err);
+    } finally {
+      if (!stoppedRef.current && showPreprocessPreview) {
+        previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 250);
+      }
+    }
+  }, [showPreprocessPreview, previewVariant]);
+
+  useEffect(() => {
+    if (state !== "SCANNING" || !showPreprocessPreview) return;
+    previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 100);
+    return () => {
+      if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    };
+  }, [state, showPreprocessPreview, previewVariant, expandedViewfinder, updatePreprocessPreview]);
 
   async function scanFrame() {
     if (stoppedRef.current || scanBusyRef.current) return;
@@ -583,6 +636,39 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
               >
                 🔦 {cameraDiagnostics.torchEnabled ? "Luce ON" : "Luce"}
               </button>
+            )}
+          </div>
+
+          <div className="rounded-xl overflow-hidden" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
+            <div className="flex items-center justify-between gap-2 px-3 py-2">
+              <div>
+                <p className="text-xs font-semibold" style={{ color: "#1a1510" }}>Preview post-preprocessing</p>
+                <p className="text-[10px]" style={{ color: "#6b5e4e" }}>È lo stesso ROI inviato al decoder, dopo la trasformazione selezionata.</p>
+              </div>
+              <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "#6b5e4e" }}>
+                <input type="checkbox" checked={showPreprocessPreview} onChange={(e) => setShowPreprocessPreview(e.target.checked)} />
+                Live
+              </label>
+            </div>
+            {showPreprocessPreview && (
+              <>
+                <div className="px-3 pb-2 flex items-center gap-2">
+                  <select value={previewVariant} onChange={(e) => setPreviewVariant(e.target.value as PreprocessVariant)} className="flex-1 px-2 py-1.5 rounded-lg text-xs" style={{ backgroundColor: "#f5f0e8", border: "1px solid #d8cfc0" }}>
+                    <option value="raw">RAW / grayscale</option>
+                    <option value="equalized">Equalized + gamma</option>
+                    <option value="clahe">CLAHE</option>
+                    <option value="sauvola">Sauvola threshold</option>
+                    <option value="bradley">Bradley threshold</option>
+                    <option value="upscaled">Upscale + sharpen</option>
+                  </select>
+                  <span className="text-[9px] whitespace-nowrap" style={{ color: "#8a7c6b" }}>{previewUpdatedAt ? "live" : "attesa…"}</span>
+                </div>
+                <div className="px-3 pb-3">
+                  <div className="rounded-lg overflow-hidden bg-black border" style={{ minHeight: "120px" }}>
+                    <canvas ref={preprocessPreviewCanvasRef} className="block w-full h-auto" />
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
