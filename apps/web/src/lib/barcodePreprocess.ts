@@ -837,11 +837,34 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   const bottomX0 = bottomBand ? Math.floor(Math.max(0, bottomBand.start - padX) * inv) : x0;
   const bottomX1 = bottomBand ? Math.ceil(Math.min(w - 1, bottomBand.end + padX + 1) * inv) : x1 + 1;
 
-  const quad: BarcodeQuadrilateral = {
+  const baseQuad: BarcodeQuadrilateral = {
     topLeft: { x: Math.max(0, topX0), y: y0 },
     topRight: { x: Math.min(srcW, topX1), y: y0 },
     bottomRight: { x: Math.min(srcW, bottomX1), y: y1 + 1 },
     bottomLeft: { x: Math.max(0, bottomX0), y: y1 + 1 },
+  };
+
+  const center = {
+    x: (baseQuad.topLeft.x + baseQuad.topRight.x + baseQuad.bottomRight.x + baseQuad.bottomLeft.x) / 4,
+    y: (baseQuad.topLeft.y + baseQuad.topRight.y + baseQuad.bottomRight.y + baseQuad.bottomLeft.y) / 4,
+  };
+  const observedRotation = -rotation;
+  const rotatePoint = (point: BarcodePoint): BarcodePoint => {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    const cosA = Math.cos(observedRotation);
+    const sinA = Math.sin(observedRotation);
+    return {
+      x: Math.max(0, Math.min(srcW, center.x + dx * cosA - dy * sinA)),
+      y: Math.max(0, Math.min(srcH, center.y + dx * sinA + dy * cosA)),
+    };
+  };
+
+  const quad: BarcodeQuadrilateral = {
+    topLeft: rotatePoint(baseQuad.topLeft),
+    topRight: rotatePoint(baseQuad.topRight),
+    bottomRight: rotatePoint(baseQuad.bottomRight),
+    bottomLeft: rotatePoint(baseQuad.bottomLeft),
   };
 
   const polygonArea = Math.abs(
