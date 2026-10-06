@@ -42,6 +42,10 @@ export interface ShoppingSuggestion {
   readonly unit: CanonicalUnit;
   readonly sourceRef?: string;
   readonly reason: string;
+  /** Catalog metadata used to render the same product preview as the search tab. */
+  readonly imageUrl?: string;
+  readonly brand?: string;
+  readonly packageLabel?: string;
   /** Recipe title or store name, used to group rows in the picker. */
   readonly group?: string;
 }
