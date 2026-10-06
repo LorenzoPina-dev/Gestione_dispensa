@@ -25,7 +25,7 @@ export function isConsumeReason(value: unknown): value is ConsumeReason {
 }
 
 export function isPatchFieldSet(body: Record<string, unknown>): boolean {
-  const allowed = ["quantity", "location", "expiresAt", "lotCode", "openedAt"];
+  const allowed = ["quantity", "unit", "location", "expiresAt", "lotCode", "openedAt", "reorderPoint", "reorderQuantity"];
   const keys = Object.keys(body);
   return keys.length > 0 && keys.every((key) => allowed.includes(key));
 }

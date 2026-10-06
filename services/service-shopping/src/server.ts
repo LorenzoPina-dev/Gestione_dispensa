@@ -162,6 +162,19 @@ function toList(row: Record<string, unknown>, itemCount?: number): Record<string
   };
 }
 
+function toSuggestion(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    suggestionId: String(row.id),
+    productId: String(row.product_id),
+    quantity: Number(row.quantity),
+    unit: String(row.unit),
+    reorderPoint: Number(row.reorder_point),
+    status: String(row.status),
+    version: Number(row.version),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 function toItem(row: Record<string, unknown>): Record<string, unknown> {
   return {
     itemId: String(row.id),
@@ -190,6 +203,20 @@ app.get("/health/ready", async (_req, res) => {
   }
 });
 
+app.get("/api/v1/shopping/suggestions", async (req, res) => {
+  const ctx = requestContext(req);
+  if (ctx === null) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");
+  const access = await authorizeFamily(ctx, false);
+  if (!access.ok) return fail(res, access.status, access.code, access.message);
+  const status = String(req.query.status ?? "active");
+  if (status !== "active" && status !== "resolved") return fail(res, 400, "VALIDATION_ERROR", "status must be active or resolved.");
+  try {
+    const result = await pool.query("select * from shopping_domain.reorder_suggestions where family_id=$1 and status=$2 order by updated_at desc limit 100", [ctx.familyId, status]);
+    return json(res, 200, { items: result.rows.map(toSuggestion), nextCursor: null });
+  } catch {
+    return fail(res, 500, "INTERNAL_ERROR", "Unable to list reorder suggestions.");
+  }
+});
 app.get("/api/v1/shopping/lists", async (req, res) => {
   const ctx = requestContext(req);
   if (ctx === null) return fail(res, 400, "VALIDATION_ERROR", "familyId is required.");

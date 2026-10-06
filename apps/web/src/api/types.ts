@@ -95,10 +95,21 @@ export type BarcodeResolutionStatus = "MATCHED" | "UNKNOWN" | "DEGRADED";
 export interface BarcodeResolutionDto { status: BarcodeResolutionStatus; identifierType: string; normalizedValue: string; product?: ProductDto; }
 export type InventoryUnit = ProductUnit;
 export type MovementKind = "RECEIPT" | "CONSUMPTION" | "WASTE" | "ADJUSTMENT" | "TRANSFER";
-export interface StockItemDto { id: string; itemId?: string; familyId: string; productId: string; name?: string; quantity: number; unit: InventoryUnit; reorderPoint?: number; version: number; status?: "ACTIVE"; productName?: string; brand?: string; category?: string; provenance?: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN"; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number; location?: string; batches?: Array<{ quantity: number; expiryDate?: string }>; lotId?: string | null; expiresAt?: string | null; expirationSource?: "declared" | "estimated" | null; lotCode?: string | null; addedAt?: string; openedAt?: string | null; updatedAt?: string; }
+export interface StockItemDto { id: string; itemId?: string; familyId: string; productId: string; name?: string; quantity: number; unit: InventoryUnit; reorderPoint?: number; reorderQuantity?: number; version: number; status?: "ACTIVE"; productName?: string; brand?: string; category?: string; provenance?: "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN"; calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number; location?: string; batches?: Array<{ quantity: number; expiryDate?: string }>; lotId?: string | null; expiresAt?: string | null; expirationSource?: "declared" | "estimated" | null; lotCode?: string | null; addedAt?: string; openedAt?: string | null; updatedAt?: string; }
 export interface RecordMovementResultDto { stockItem?: StockItemDto; itemId: string; movementId?: string; consumedQuantity?: number; wastedQuantity?: number; remainingQuantity: number; removed: boolean; duplicate?: boolean; }
 export type ShoppingItemState = "SUGGESTED" | "ACCEPTED" | "SNOOZED" | "IGNORED" | "COMPLETED";
 export type ShoppingSourceType = "MANUAL" | "REORDER" | "OFFER" | "RECIPE";
+export interface ReorderSuggestionDto {
+  suggestionId: string;
+  productId: string;
+  quantity: number;
+  unit: InventoryUnit;
+  reorderPoint: number;
+  status: "active" | "resolved";
+  version: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
 export interface ShoppingListDto { listId: string; name: string; status: "open" | "closed" | "archived"; itemCount?: number; version: number; familyId?: string; ownerUserId?: string; }
 export interface ShoppingItemDto { itemId: string; listId?: string; productId?: string | null; source?: string | null; label: string; displayName?: string; quantity: number; unit: InventoryUnit; checked: boolean; state?: ShoppingItemState; sourceType?: ShoppingSourceType; sourceRef?: string; version: number; }
 export interface ActiveShoppingListDto { list: ShoppingListDto; items: ShoppingItemDto[]; }

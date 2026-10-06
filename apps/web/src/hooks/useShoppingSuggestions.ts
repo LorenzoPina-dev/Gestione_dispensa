@@ -7,6 +7,7 @@ import {
   deriveOfferSuggestions,
   deriveRecipeSuggestions,
   deriveReorderSuggestions,
+  isAlreadyListed,
   normalizeLabel,
   type OfferSuggestionSource,
   type RecipeSuggestionSource,
@@ -14,7 +15,7 @@ import {
 } from "../domain/shopping-suggestions";
 
 export type PickerTab = "REORDER" | "RECIPE" | "OFFER" | "SEARCH";
-type Remote = "RECIPE" | "OFFER";
+type Remote = "REORDER" | "RECIPE" | "OFFER";
 
 interface Args {
   familyId: string | null | undefined;
@@ -84,24 +85,46 @@ async function fetchOffers(signal: AbortSignal): Promise<OfferSuggestionSource[]
  * offers are read lazily (only while their tab is open) from Recipes and Stores through the gateway.
  */
 export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Args): UseShoppingSuggestionsResult {
+  const [remoteReorder, setRemoteReorder] = useState<Array<{ suggestionId: string; productId: string; quantity: number; unit: string; reorderPoint: number; name?: string }>>([]);
   const [recipes, setRecipes] = useState<RecipeSuggestionSource[]>([]);
   const [offers, setOffers] = useState<OfferSuggestionSource[]>([]);
-  const [loading, setLoading] = useState<Record<Remote, boolean>>({ RECIPE: false, OFFER: false });
-  const [error, setError] = useState<Record<Remote, string | null>>({ RECIPE: null, OFFER: null });
+  const [loading, setLoading] = useState<Record<Remote, boolean>>({ REORDER: false, RECIPE: false, OFFER: false });
+  const [error, setError] = useState<Record<Remote, string | null>>({ REORDER: null, RECIPE: null, OFFER: null });
 
   const patch = <T,>(setter: React.Dispatch<React.SetStateAction<Record<Remote, T>>>, key: Remote, value: T) =>
     setter((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
-    if (!open || !familyId || (tab !== "RECIPE" && tab !== "OFFER")) return;
+    if (!open || !familyId || (tab !== "REORDER" && tab !== "RECIPE" && tab !== "OFFER")) return;
     const key: Remote = tab;
     const controller = new AbortController();
     patch<boolean>(setLoading, key, true);
     patch<string | null>(setError, key, null);
 
-    const run = key === "RECIPE"
-      ? api.listRecipeSuggestions(familyId).then(({ suggestions }) => setRecipes(suggestions.map(toRecipeSource)))
-      : fetchOffers(controller.signal).then(setOffers);
+    const run = key === "REORDER"
+      ? api.listReorderSuggestions(familyId).then(async ({ suggestions }) => {
+          const ids = [...new Set(suggestions.map((item) => item.productId))];
+          const names = new Map<string, string>();
+          await Promise.allSettled(
+            ids.map(async (id) => {
+              const product = await api.getCatalogProduct(id, controller.signal);
+              if (product.name?.trim()) names.set(id, product.name.trim());
+            }),
+          );
+          setRemoteReorder(
+            suggestions.map((item) => ({
+              suggestionId: item.suggestionId,
+              productId: item.productId,
+              quantity: item.quantity,
+              unit: item.unit,
+              reorderPoint: item.reorderPoint,
+              ...(names.get(item.productId) ? { name: names.get(item.productId) } : {}),
+            })),
+          );
+        })
+      : key === "RECIPE"
+        ? api.listRecipeSuggestions(familyId).then(({ suggestions }) => setRecipes(suggestions.map(toRecipeSource)))
+        : fetchOffers(controller.signal).then(setOffers);
 
     run
       .catch((err) => {
@@ -115,7 +138,25 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
     return () => controller.abort();
   }, [open, tab, familyId]);
 
-  const reorder = useMemo(() => deriveReorderSuggestions(stock, list.items), [stock, list.items]);
+  const reorder = useMemo(
+    () =>
+      remoteReorder
+        .map((suggestion) => ({
+          key: `p:${suggestion.productId}`,
+          source: "REORDER" as const,
+          label: suggestion.name ?? `Prodotto ${suggestion.productId.slice(0, 8)}`,
+          productId: suggestion.productId,
+          quantity: suggestion.quantity,
+          unit: suggestion.unit as ShoppingSuggestion["unit"],
+          sourceRef: suggestion.suggestionId,
+          reason:
+            suggestion.reorderPoint === 0
+              ? "Scorta esaurita"
+              : `Scorta sotto la soglia di ${suggestion.reorderPoint}`,
+        }))
+        .filter((suggestion) => !isAlreadyListed(list.items, suggestion)),
+    [remoteReorder, list.items],
+  );
   const recipe = useMemo(() => deriveRecipeSuggestions(recipes, list.items), [recipes, list.items]);
   const offer = useMemo(() => deriveOfferSuggestions(offers, list.items), [offers, list.items]);
 

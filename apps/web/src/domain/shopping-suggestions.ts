@@ -1,8 +1,8 @@
 /**
- * Shopping suggestions (WEB-SHP): what the "+" picker proposes, derived from data the owning
- * services already expose. Suggestions are NOT persisted: Shopping only stores real list items
- * (docs/DATA.md §8). A suggestion becomes an item when the person adds it, tagged with its source
- * (`low_stock` / `recipe` / `offer`).
+ * Shopping suggestions (WEB-SHP): REORDER suggestions are persisted by Shopping and are read
+ * from the owning service. Recipe and offer suggestions remain derived from their remote sources.
+ * A reorder suggestion becomes a shopping-list item only when the person adds it; the source remains
+ * `low_stock` / REORDER.
  *
  *  - REORDER: current pantry rows whose total quantity is at or below their reorder threshold.
  *  - RECIPE:  ingredients missing for the Recipes suggestions.

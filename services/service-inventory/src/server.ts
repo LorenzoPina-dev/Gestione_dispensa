@@ -180,6 +180,7 @@ function dto(row: Record<string, unknown>) {
     updatedAt: row.updated_at,
     version: Number(row.version),
     ...(row.reorder_point == null ? {} : { reorderPoint: Number(row.reorder_point) }),
+    ...(row.reorder_quantity == null ? {} : { reorderQuantity: Number(row.reorder_quantity) }),
   };
 }
 function reorderPolicyDto(row: Record<string, unknown>) {
@@ -235,7 +236,12 @@ async function emitReorderTransition(client: PoolClient, ctx: Ctx, before: Reord
   if (!after) return;
   const beforeLow = before ? before.availableQuantity <= before.reorderPoint : false;
   const afterLow = after.availableQuantity <= after.reorderPoint;
-  if (afterLow && !beforeLow) {
+  const policyChanged = before !== null && (
+    before.reorderPoint !== after.reorderPoint ||
+    before.reorderQuantity !== after.reorderQuantity ||
+    before.unit !== after.unit
+  );
+  if (afterLow && (!beforeLow || policyChanged)) {
     await event(client, "PantryLowStock", after.productId, ctx, {
       productId: after.productId,
       availableQuantity: after.availableQuantity,
@@ -255,6 +261,7 @@ async function emitReorderTransition(client: PoolClient, ctx: Ctx, before: Reord
       reason: "ABOVE_THRESHOLD",
     });
   }
+}
 }
 
 async function upsertReorderPolicy(client: PoolClient, ctx: Ctx, productId: string, reorderPoint: number, reorderQuantity: number, unit: string): Promise<void> {
@@ -356,6 +363,7 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://inventory");
     const path = url.pathname;
     const itemMatch = path.match(/^\/api\/v1\/inventory\/([0-9a-f-]+)(?:\/(consume|waste|movements|expiration\/confirm))?$/i);
+    const reorderPolicyMatch = path.match(/^\/api\/v1\/inventory\/reorder-policies\/([0-9a-f-]+)$/i);
 
     if (req.method === "GET" && path === "/api/v1/inventory") {
       const auth = await authorizeFamily(ctx, false);
@@ -370,6 +378,53 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { items: rows.map(dto), nextCursor: hasNext ? String(offset + limit) : null }, ctx.requestId);
     }
 
+    if (req.method === "GET" && path === "/api/v1/inventory/reorder-policies") {
+      const auth = await authorizeFamily(ctx, false);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const result = await pool.query("SELECT * FROM reorder_policies WHERE family_id=$1 AND enabled=true ORDER BY updated_at DESC", [ctx.familyId]);
+      return send(res, 200, { items: result.rows.map((row) => reorderPolicyDto(row)), nextCursor: null }, ctx.requestId);
+    }
+
+    if (req.method === "PUT" && reorderPolicyMatch) {
+      const auth = await authorizeFamily(ctx, true);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const body = await readBody(req);
+      if (!Object.hasOwn(body, "reorderPoint")) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint is required.", ctx.requestId);
+      if (body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
+      if (body.reorderQuantity !== undefined && (typeof body.reorderQuantity !== "number" || !Number.isFinite(body.reorderQuantity) || body.reorderQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderQuantity must be a positive number.", ctx.requestId);
+      if (body.unit !== undefined && (typeof body.unit !== "string" || !body.unit.trim())) return fail(res, 400, "VALIDATION_ERROR", "unit must be a non-empty string.", ctx.requestId);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      if (!requiredIdempotencyKey(key)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const old = await idempotency(client, key, ctx, body);
+        if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
+        if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
+        const productId = reorderPolicyMatch[1];
+        const before = await readReorderState(client, ctx.familyId, productId);
+        const existing = await client.query("SELECT * FROM reorder_policies WHERE family_id=$1 AND product_id=$2 FOR UPDATE", [ctx.familyId, productId]);
+        if (body.reorderPoint === null) {
+          await client.query("DELETE FROM reorder_policies WHERE family_id=$1 AND product_id=$2", [ctx.familyId, productId]);
+          await emitReorderTransition(client, ctx, before, null);
+          const response = { data: null, version: Number(existing.rows[0]?.version ?? 0) };
+          await finish(client, key, 200, response);
+          await client.query("COMMIT");
+          return send(res, 200, response, ctx.requestId);
+        }
+        const point = Number(body.reorderPoint);
+        const quantity = body.reorderQuantity == null ? Number(existing.rows[0]?.reorder_quantity ?? 1) : Number(body.reorderQuantity);
+        const unit = body.unit == null ? String(existing.rows[0]?.unit ?? "piece") : String(body.unit);
+        await upsertReorderPolicy(client, ctx, productId, point, quantity, unit);
+        const after = await readReorderState(client, ctx.familyId, productId);
+        await emitReorderTransition(client, ctx, before, after);
+        const saved = await client.query("SELECT * FROM reorder_policies WHERE family_id=$1 AND product_id=$2", [ctx.familyId, productId]);
+        const response = { data: reorderPolicyDto(saved.rows[0]), version: Number(saved.rows[0].version) };
+        await finish(client, key, 200, response);
+        await client.query("COMMIT");
+        return send(res, 200, response, ctx.requestId);
+      } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+    }
     if (req.method === "GET" && itemMatch && !itemMatch[2]) {
       const auth = await authorizeFamily(ctx, false);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
@@ -400,8 +455,10 @@ const server = createServer(async (req, res) => {
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
       if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
-      const key = String(req.headers["x-idempotency-key"] ?? "");
-      if (!key) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
+      if (body.reorderQuantity !== undefined && (typeof body.reorderQuantity !== "number" || !Number.isFinite(body.reorderQuantity) || body.reorderQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderQuantity must be a positive number.", ctx.requestId);
+      if (body.reorderQuantity !== undefined && (body.reorderPoint === undefined || body.reorderPoint === null)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint is required when reorderQuantity is provided.", ctx.requestId);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      if (!requiredIdempotencyKey(key)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -410,46 +467,37 @@ const server = createServer(async (req, res) => {
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
         const beforeReorder = await readReorderState(client, ctx.familyId, String(body.productId));
         const id = randomUUID();
-        const result = await client.query("INSERT INTO pantry_items(id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now()) RETURNING *", [id, ctx.familyId, String(body.productId), quantity, String(body.unit), body.location ?? null, body.openedAt == null ? null : new Date(String(body.openedAt)), body.expiresAt ? new Date(String(body.expiresAt)) : null, body.expiresAt ? "declared" : null, body.lotCode ?? null]);
+        await client.query("INSERT INTO pantry_items(id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now())", [id, ctx.familyId, String(body.productId), quantity, String(body.unit), body.location ?? null, body.openedAt == null ? null : new Date(String(body.openedAt)), body.expiresAt ? new Date(String(body.expiresAt)) : null, body.expiresAt ? "declared" : null, body.lotCode ?? null]);
+        if (body.reorderPoint !== undefined && body.reorderPoint !== null) await upsertReorderPolicy(client, ctx, String(body.productId), Number(body.reorderPoint), body.reorderQuantity == null ? 1 : Number(body.reorderQuantity), String(body.unit));
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'add',$5,$6,'added',$7,now(),now())", [randomUUID(), ctx.familyId, id, body.productId, quantity, body.unit, ctx.userId]);
-        await event(client, "PantryItemAdjusted", id, ctx, { action: "add", item: dto(result.rows[0]) });
-        const output = { data: dto(result.rows[0]), version: Number(result.rows[0].version) };
+        const afterReorder = await readReorderState(client, ctx.familyId, String(body.productId));
+        await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
+        const joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [id, ctx.familyId]);
+        await event(client, "PantryItemAdjusted", id, ctx, { action: "add", item: dto(joined.rows[0] as Record<string, unknown>) });
+        const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
         await finish(client, key, 201, output);
         await client.query("COMMIT");
-        void queueShelfLifePrediction(
-          ctx,
-          {
-            id,
-            productId: String(body.productId),
-            location: body.location == null ? null : String(body.location),
-            expiresAt: result.rows[0].expires_at,
-            addedAt: result.rows[0].added_at,
-            openedAt: result.rows[0].opened_at,
-          },
-          req.headers.authorization ? String(req.headers.authorization) : undefined,
-        );
+        void queueShelfLifePrediction(ctx, { id, productId: String(body.productId), location: body.location == null ? null : String(body.location), expiresAt: joined.rows[0].expires_at, addedAt: joined.rows[0].added_at, openedAt: joined.rows[0].opened_at }, req.headers.authorization ? String(req.headers.authorization) : undefined);
         return send(res, 201, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
-
     if (req.method === "PATCH" && itemMatch && !itemMatch[2]) {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const key = String(req.headers["x-idempotency-key"] ?? "").trim();
       const ifMatch = String(req.headers["if-match"] ?? "").trim();
-      if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) {
-        return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
-      }
+      if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
       const allowedFields = ["quantity", "unit", "expiresAt", "location", "lotCode", "openedAt", "reorderPoint", "reorderQuantity"];
       if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
       if (!Object.keys(body).length) return fail(res, 400, "VALIDATION_ERROR", "At least one field is required.", ctx.requestId);
       if (body.quantity !== undefined && positiveQuantity(body.quantity) === undefined) return fail(res, 400, "VALIDATION_ERROR", "quantity must be positive.", ctx.requestId);
+      if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
+      if (body.reorderQuantity !== undefined && (typeof body.reorderQuantity !== "number" || !Number.isFinite(body.reorderQuantity) || body.reorderQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderQuantity must be a positive number.", ctx.requestId);
       if (body.expiresAt !== undefined && body.expiresAt !== null && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
       if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
-      if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -458,44 +506,51 @@ const server = createServer(async (req, res) => {
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
         const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
         if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
-        const row = current.rows[0];
+        const row = current.rows[0] as Record<string, unknown>;
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
-        const fields: string[] = [];
-        const values: unknown[] = [];
+        if (body.reorderQuantity !== undefined && body.reorderPoint === undefined) {
+          const policy = await client.query("SELECT 1 FROM reorder_policies WHERE family_id=$1 AND product_id=$2 AND enabled=true", [ctx.familyId, String(row.product_id)]);
+          if (!policy.rowCount) { await client.query("ROLLBACK"); return fail(res, 400, "VALIDATION_ERROR", "reorderPoint is required when setting reorderQuantity.", ctx.requestId); }
+        }
+        const beforeReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
+        const fields: string[] = []; const values: unknown[] = [];
         const add = (sql: string, value: unknown) => { fields.push(sql); values.push(value); };
         if (body.quantity !== undefined) add(`quantity=$${values.length + 1}`, positiveQuantity(body.quantity));
         if (body.unit !== undefined) add(`unit=$${values.length + 1}`, String(body.unit));
         if (body.expiresAt !== undefined) add(`expires_at=$${values.length + 1}`, body.expiresAt === null ? null : new Date(String(body.expiresAt)));
         if (body.location !== undefined) add(`location=$${values.length + 1}`, body.location ?? null);
         if (body.lotCode !== undefined) add(`lot_code=$${values.length + 1}`, body.lotCode ?? null);
-        if (body.openedAt !== undefined) add(`opened_at=${values.length + 1}`, body.openedAt === null ? null : new Date(String(body.openedAt)));
-        if (body.reorderPoint !== undefined) add(`reorder_point=${values.length + 1}`, body.reorderPoint === null ? null : Number(body.reorderPoint));
-        fields.push(`version=version+1`, "updated_at=now()");
-        values.push(itemMatch[1], ctx.familyId);
-        const updated = await client.query(`UPDATE pantry_items SET ${fields.join(",")} WHERE id=$${values.length - 1} AND family_id=$${values.length} RETURNING *`, values);
-        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
+        if (body.openedAt !== undefined) add(`opened_at=$${values.length + 1}`, body.openedAt === null ? null : new Date(String(body.openedAt)));
+        let updated = row;
+        if (fields.length) {
+          fields.push("version=version+1", "updated_at=now()"); values.push(itemMatch[1], ctx.familyId);
+          const result = await client.query(`UPDATE pantry_items SET ${fields.join(",")} WHERE id=$${values.length - 1} AND family_id=$${values.length} RETURNING *`, values);
+          updated = result.rows[0] as Record<string, unknown>;
+        }
+        if (body.reorderPoint !== undefined) {
+          if (body.reorderPoint === null) await client.query("DELETE FROM reorder_policies WHERE family_id=$1 AND product_id=$2", [ctx.familyId, String(row.product_id)]);
+          else {
+            const existing = await client.query("SELECT reorder_quantity,unit FROM reorder_policies WHERE family_id=$1 AND product_id=$2 AND enabled=true FOR UPDATE", [ctx.familyId, String(row.product_id)]);
+            await upsertReorderPolicy(client, ctx, String(row.product_id), Number(body.reorderPoint), body.reorderQuantity == null ? Number(existing.rows[0]?.reorder_quantity ?? 1) : Number(body.reorderQuantity), body.unit == null ? String(existing.rows[0]?.unit ?? row.unit) : String(body.unit));
+          }
+        } else if (body.reorderQuantity !== undefined) {
+          const existing = await client.query("SELECT reorder_point,unit FROM reorder_policies WHERE family_id=$1 AND product_id=$2 AND enabled=true FOR UPDATE", [ctx.familyId, String(row.product_id)]);
+          if (!existing.rowCount) { await client.query("ROLLBACK"); return fail(res, 400, "VALIDATION_ERROR", "reorderPoint is required when setting reorderQuantity.", ctx.requestId); }
+          await upsertReorderPolicy(client, ctx, String(row.product_id), Number(existing.rows[0].reorder_point), Number(body.reorderQuantity), body.unit == null ? String(existing.rows[0].unit) : String(body.unit));
+        }
+        const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
+        await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
+        const joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [itemMatch[1], ctx.familyId]);
+        const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
         await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "update", item: output.data });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         if (body.expiresAt !== undefined || body.openedAt !== undefined) {
-          void queueShelfLifePrediction(
-            ctx,
-            {
-              id: String(updated.rows[0].id),
-              productId: String(updated.rows[0].product_id),
-              location: updated.rows[0].location == null ? null : String(updated.rows[0].location),
-              expiresAt: updated.rows[0].expires_at,
-              addedAt: updated.rows[0].added_at,
-              openedAt: updated.rows[0].opened_at,
-            },
-            req.headers.authorization ? String(req.headers.authorization) : undefined,
-            true,
-          );
+          void queueShelfLifePrediction(ctx, { id: String(updated.id), productId: String(updated.product_id), location: updated.location == null ? null : String(updated.location), expiresAt: updated.expires_at, addedAt: updated.added_at, openedAt: updated.opened_at }, req.headers.authorization ? String(req.headers.authorization) : undefined, true);
         }
         return send(res, 200, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
-
     if (req.method === "POST" && itemMatch?.[2] === "consume") {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
@@ -513,19 +568,21 @@ const server = createServer(async (req, res) => {
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
         const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
         if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
-        const row = current.rows[0];
+        const row = current.rows[0] as Record<string, unknown>;
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
-        if (Number(row.quantity) < quantity) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
-        const updated = await applyOutflow(client, row, quantity, ctx);
+        if (Number(row.quantity) < quantity!) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
+        const beforeReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
+        const updated = await applyOutflow(client, row, quantity!, ctx);
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'consume',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "consume", quantity, item: dto(updated.rows[0]) });
-        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
+        const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
+        await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
+        const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
+        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "consume", quantity, item: output.data });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         return send(res, 200, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
-
     if (req.method === "POST" && itemMatch?.[2] === "waste") {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
@@ -543,19 +600,21 @@ const server = createServer(async (req, res) => {
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
         const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
         if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
-        const row = current.rows[0];
+        const row = current.rows[0] as Record<string, unknown>;
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
-        if (Number(row.quantity) < quantity) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
-        const updated = await applyOutflow(client, row, quantity, ctx);
+        if (Number(row.quantity) < quantity!) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
+        const beforeReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
+        const updated = await applyOutflow(client, row, quantity!, ctx);
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'waste',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "waste", quantity, item: dto(updated.rows[0]) });
-        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
+        const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
+        await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
+        const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
+        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "waste", quantity, item: output.data });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         return send(res, 200, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
-
     if (req.method === "POST" && itemMatch?.[2] === "expiration/confirm") {
       const auth = await authorizeFamily(ctx, true);
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);

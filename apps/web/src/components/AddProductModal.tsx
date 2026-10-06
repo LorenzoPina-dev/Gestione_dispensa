@@ -153,6 +153,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [qty, setQty] = useState("1");
   const [expiry, setExpiry] = useState("");
   const [reorderPoint, setReorderPoint] = useState("");
+  const [reorderQuantity, setReorderQuantity] = useState("1");
   const [location, setLocation] = useState<StorageLocation>("dispensa");
   const [cameraDiagnostics, setCameraDiagnostics] = useState<CameraDiagnostics | null>(null);
   const [cameraAspectRatio, setCameraAspectRatio] = useState("16/9");
@@ -699,7 +700,12 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
       return;
     }
-    onAdd({ productId: candidate.productId, barcode: code, name: candidate.name, brand: candidate.brand, unit: candidate.unit, category: candidate.category ?? "Altro", calories: candidate.calories, protein: candidate.protein, carbs: candidate.carbs, fat: candidate.fat, fiber: candidate.fiber, reorderPoint: parsedReorderPoint, location, batches: [{ quantity, expiryDate: expiry || undefined }] });
+    const parsedReorderQuantity = parsedReorderPoint === undefined ? undefined : (reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity));
+    if (parsedReorderQuantity !== undefined && (!Number.isFinite(parsedReorderQuantity) || parsedReorderQuantity <= 0)) {
+      setError("La quantità da riacquistare deve essere maggiore di zero.");
+      return;
+    }
+    onAdd({ productId: candidate.productId, barcode: code, name: candidate.name, brand: candidate.brand, unit: candidate.unit, category: candidate.category ?? "Altro", calories: candidate.calories, protein: candidate.protein, carbs: candidate.carbs, fat: candidate.fat, fiber: candidate.fiber, reorderPoint: parsedReorderPoint, reorderQuantity: parsedReorderQuantity, location, batches: [{ quantity, expiryDate: expiry || undefined }] });
   }
 
   const phaseLabel: Record<ScannerPhase, string> = {
@@ -853,7 +859,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
       {state === "CANDIDATE" && candidate && <CandidateView candidate={candidate} code={code} onCorrect={() => setState("MANUAL_REQUIRED")} onConfirm={confirmCandidate} />}
 
-      {(state === "CONFIRMED") && candidate && <ConfirmStock candidate={candidate} qty={qty} setQty={setQty} expiry={expiry} setExpiry={setExpiry} reorderPoint={reorderPoint} setReorderPoint={setReorderPoint} location={location} setLocation={setLocation} onBack={() => setState("CANDIDATE")} onSave={save} />}
+      {(state === "CONFIRMED") && candidate && <ConfirmStock candidate={candidate} qty={qty} setQty={setQty} expiry={expiry} setExpiry={setExpiry} reorderPoint={reorderPoint} setReorderPoint={setReorderPoint} reorderQuantity={reorderQuantity} setReorderQuantity={setReorderQuantity} location={location} setLocation={setLocation} onBack={() => setState("CANDIDATE")} onSave={save} />}
 
       {(state === "MANUAL_REQUIRED" || state === "NOT_FOUND" || state === "DEGRADED") && <div className="space-y-4"><Message>{error ?? (state === "NOT_FOUND" ? `Nessun prodotto trovato per ${code}.` : "Verifica non riuscita.")}</Message>{state === "NOT_FOUND" && <ManualProduct onAdd={onAdd} code={code} onBack={() => setState("IDLE")} />}{state !== "NOT_FOUND" && <><button onClick={() => resolve(code)} disabled={!code} className="w-full py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Riprova ricerca</button><button onClick={() => setState("NOT_FOUND")} className="w-full py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Inserisci manualmente</button></>}</div>}
     </div>
@@ -1036,24 +1042,22 @@ function cleanTag(value: string): string {
   return value.replace(/^\w+:/, "").replaceAll("-", " ");
 }
 
-function OptionalReorderField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function OptionalReorderFields({ reorderPoint, onReorderPointChange, reorderQuantity, onReorderQuantityChange }: { reorderPoint: string; onReorderPointChange: (value: string) => void; reorderQuantity: string; onReorderQuantityChange: (value: string) => void }) {
   return (
-    <div>
-      <Field label="Scorta minima / soglia riordino (opzionale)" type="number" value={value} onChange={onChange} />
-      <p className="text-[11px] mt-1" style={{ color: "#6b5e4e" }}>
-        Vuoto = nessun riordino automatico. Se imposti 1, quando la scorta scende a 1 o meno il prodotto potrà essere suggerito per la spesa.
-      </p>
+    <div className="space-y-2 rounded-xl p-3" style={{ backgroundColor: "#fffaf4", border: "1px solid #e2d6c6" }}>
+      <Field label="Scorta minima / soglia riordino (opzionale)" type="number" value={reorderPoint} onChange={onReorderPointChange} />
+      <Field label="Quantità da riacquistare (opzionale)" type="number" value={reorderQuantity} onChange={onReorderQuantityChange} />
+      <p className="text-[11px]" style={{ color: "#6b5e4e" }}>Lascia la soglia vuota per disattivare il riordino. Con soglia 0 e quantità 1, quando finisci il prodotto verrà suggerita 1 unità nella spesa.</p>
     </div>
   );
 }
 
-function ConfirmStock({ candidate, qty, setQty, expiry, setExpiry, reorderPoint, setReorderPoint, location, setLocation, onBack, onSave }: { candidate: Candidate; qty: string; setQty: (v: string) => void; expiry: string; setExpiry: (v: string) => void; reorderPoint: string; setReorderPoint: (v: string) => void; location: StorageLocation; setLocation: (v: string) => void; onBack: () => void; onSave: () => void }) {
-  return <div className="space-y-4"><div className="rounded-2xl p-4" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}><p className="font-semibold">{candidate.name}</p>{candidate.brand && <p className="text-xs" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}</div><Field label="Quantità" type="number" value={qty} onChange={setQty} /><Field label="Scadenza" type="date" value={expiry} onChange={setExpiry} /><OptionalReorderField value={reorderPoint} onChange={setReorderPoint} /><div><label className="text-xs font-medium block mb-1">Luogo</label><select value={location} onChange={(e) => setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}>{LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select></div><p className="text-xs" style={{ color: "#6b5e4e" }}>Lascia la scadenza vuota per usare automaticamente la stima Shelf-Life. Il prodotto verrà scritto nella scorta solo premendo l'ultimo pulsante.</p><div className="flex gap-3"><button onClick={onBack} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Indietro</button><button onClick={onSave} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Inserisci nella scorta</button></div></div>;
+function ConfirmStock({ candidate, qty, setQty, expiry, setExpiry, reorderPoint, setReorderPoint, reorderQuantity, setReorderQuantity, location, setLocation, onBack, onSave }: { candidate: Candidate; qty: string; setQty: (v: string) => void; expiry: string; setExpiry: (v: string) => void; reorderPoint: string; setReorderPoint: (v: string) => void; reorderQuantity: string; setReorderQuantity: (v: string) => void; location: StorageLocation; setLocation: (v: StorageLocation) => void; onBack: () => void; onSave: () => void }) {
+  return <div className="space-y-4"><div className="rounded-2xl p-4" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}><p className="font-semibold">{candidate.name}</p>{candidate.brand && <p className="text-xs" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}</div><Field label="Quantità" type="number" value={qty} onChange={setQty} /><Field label="Scadenza" type="date" value={expiry} onChange={setExpiry} /><OptionalReorderFields reorderPoint={reorderPoint} onReorderPointChange={setReorderPoint} reorderQuantity={reorderQuantity} onReorderQuantityChange={setReorderQuantity} /><div><label className="text-xs font-medium block mb-1">Luogo</label><select value={location} onChange={(e) => setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}>{LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select></div><p className="text-xs" style={{ color: "#6b5e4e" }}>Lascia la scadenza vuota per usare automaticamente la stima Shelf-Life. Il prodotto verrà scritto nella scorta solo premendo l'ultimo pulsante.</p><div className="flex gap-3"><button onClick={onBack} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Indietro</button><button onClick={onSave} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Inserisci nella scorta</button></div></div>;
 }
-
 function ManualProduct({ onAdd, code, onBack }: { onAdd: Props["onAdd"]; code: string; onBack: () => void }) {
-  const [name, setName] = useState(""); const [qty, setQty] = useState("1"); const [expiry, setExpiry] = useState(""); const [reorderPoint, setReorderPoint] = useState(""); const [location, setLocation] = useState<StorageLocation>("dispensa");
-  return <div className="space-y-3"><Field label="Nome prodotto" value={name} onChange={setName} /><Field label="Quantità" type="number" value={qty} onChange={setQty} /><Field label="Scadenza" type="date" value={expiry} onChange={setExpiry} /><OptionalReorderField value={reorderPoint} onChange={setReorderPoint} /><div><label className="text-xs font-medium block mb-1">Luogo</label><select value={location} onChange={(e) => setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}>{LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select></div><div className="flex gap-3"><button onClick={onBack} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Indietro</button><button disabled={!name.trim()} onClick={() => { const parsed = reorderPoint.trim() === "" ? undefined : Number(reorderPoint); if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0)) return; onAdd({ name: name.trim(), barcode: code || undefined, unit: "piece", category: "Altro", reorderPoint: parsed, location, batches: [{ quantity: Number(qty), expiryDate: expiry || undefined }] }); }} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: name.trim() ? "#c4623a" : "#d8cfc0", color: "#fff" }}>Inserisci nella scorta</button></div></div>;
+  const [name, setName] = useState(""); const [qty, setQty] = useState("1"); const [expiry, setExpiry] = useState(""); const [reorderPoint, setReorderPoint] = useState(""); const [reorderQuantity, setReorderQuantity] = useState("1"); const [location, setLocation] = useState<StorageLocation>("dispensa");
+  return <div className="space-y-3"><Field label="Nome prodotto" value={name} onChange={setName} /><Field label="Quantità" type="number" value={qty} onChange={setQty} /><Field label="Scadenza" type="date" value={expiry} onChange={setExpiry} /><OptionalReorderFields reorderPoint={reorderPoint} onReorderPointChange={setReorderPoint} reorderQuantity={reorderQuantity} onReorderQuantityChange={setReorderQuantity} /><div><label className="text-xs font-medium block mb-1">Luogo</label><select value={location} onChange={(e) => setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}>{LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select></div><div className="flex gap-3"><button onClick={onBack} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Indietro</button><button disabled={!name.trim()} onClick={() => { const parsed = reorderPoint.trim() === "" ? undefined : Number(reorderPoint); const parsedQuantity = parsed === undefined ? undefined : (reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity)); if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0)) return; if (parsedQuantity !== undefined && (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0)) return; onAdd({ name: name.trim(), barcode: code || undefined, unit: "piece", category: "Altro", reorderPoint: parsed, reorderQuantity: parsedQuantity, location, batches: [{ quantity: Number(qty), expiryDate: expiry || undefined }] }); }} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: name.trim() ? "#c4623a" : "#d8cfc0", color: "#fff" }}>Inserisci nella scorta</button></div></div>;
 }
 
 function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) {
@@ -1067,6 +1071,7 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
   const [qty, setQty] = useState("1");
   const [expiry, setExpiry] = useState("");
   const [reorderPoint, setReorderPoint] = useState("");
+  const [reorderQuantity, setReorderQuantity] = useState("1");
   const [location, setLocation] = useState<StorageLocation>("dispensa");
 
   useEffect(() => {
@@ -1137,6 +1142,11 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
       return;
     }
+    const parsedReorderQuantity = parsedReorderPoint === undefined ? undefined : (reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity));
+    if (parsedReorderQuantity !== undefined && (!Number.isFinite(parsedReorderQuantity) || parsedReorderQuantity <= 0)) {
+      setError("La quantità da riacquistare deve essere maggiore di zero.");
+      return;
+    }
     onAdd({
       productId: candidate.productId,
       barcode: candidateCode,
@@ -1150,6 +1160,7 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       fat: candidate.fat,
       fiber: candidate.fiber,
       reorderPoint: parsedReorderPoint,
+      reorderQuantity: parsedReorderQuantity,
       location,
       batches: [{ quantity, expiryDate: expiry || undefined }],
     });

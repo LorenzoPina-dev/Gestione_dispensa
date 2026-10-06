@@ -615,6 +615,19 @@ services:
     restart: unless-stopped
     networks: [data, messaging]
 
+  worker-shopping:
+    build: { context: ., dockerfile: services/worker-shopping/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db"
+      REDIS_URL: "redis://redis:6379"
+      EVENT_STREAM: "events:domain"
+      CONSUMER_GROUP: "shopping-reorder"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      service-shopping: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [data, messaging]
   service-ocr:
     build: { context: ., dockerfile: services/service-ocr/Dockerfile }
     environment:

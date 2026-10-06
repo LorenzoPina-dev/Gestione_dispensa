@@ -47,6 +47,7 @@ export interface StockItem {
   batches: StockBatch[];
   unit: string;
   reorderPoint?: number;
+  reorderQuantity?: number;
   location: StorageLocation;
   category: string;
   provenance: ProvenanceQuality;

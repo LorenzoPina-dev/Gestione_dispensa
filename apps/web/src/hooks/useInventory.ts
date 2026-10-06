@@ -279,6 +279,7 @@ async function syncCreate(familyId: string, item: StockItem): Promise<void> {
     quantity: totalQuantity(item),
     unit: normalizeUnit(item.unit),
     reorderPoint: item.reorderPoint,
+    reorderQuantity: item.reorderQuantity,
     location: item.location,
     expiresAt: item.batches.find(b => b.expiryDate)?.expiryDate,
   });

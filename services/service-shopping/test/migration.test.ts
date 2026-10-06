@@ -28,17 +28,16 @@ describe("service-shopping / real migration schema", () => {
     await pool.end();
   });
 
-  it("records 001_initial exactly once", async () => {
-    const result = await pool.query("SELECT version,count(*) OVER(PARTITION BY version) AS occurrences FROM schema_migrations");
-    assert.equal(result.rowCount, 1);
-    assert.equal(result.rows[0].version, "001_initial");
-    assert.equal(Number(result.rows[0].occurrences), 1);
+  it("records all migrations exactly once", async () => {
+    const result = await pool.query("SELECT version,count(*) OVER(PARTITION BY version) AS occurrences FROM schema_migrations ORDER BY version");
+    assert.deepEqual(result.rows.map((row) => row.version), ["001_initial", "002_reorder_suggestions"]);
+    assert.ok(result.rows.every((row) => Number(row.occurrences) === 1));
   });
 
   it("contains the complete shopping owner schema", async () => {
     const result = await pool.query(
       "SELECT table_schema,table_name,column_name FROM information_schema.columns " +
-      "WHERE table_schema='shopping_domain' AND table_name IN ('lists','items','outbox_events','idempotency_keys')",
+      "WHERE table_schema='shopping_domain' AND table_name IN ('lists','items','outbox_events','idempotency_keys','reorder_suggestions','processed_events')",
     );
     const actual = new Set(result.rows.map((r) => r.table_schema + "." + r.table_name + "." + r.column_name));
     for (const required of [
@@ -60,6 +59,16 @@ describe("service-shopping / real migration schema", () => {
       "shopping_domain.idempotency_keys.key",
       "shopping_domain.idempotency_keys.request_hash",
       "shopping_domain.idempotency_keys.response_body",
+      "shopping_domain.reorder_suggestions.id",
+      "shopping_domain.reorder_suggestions.family_id",
+      "shopping_domain.reorder_suggestions.product_id",
+      "shopping_domain.reorder_suggestions.quantity",
+      "shopping_domain.reorder_suggestions.unit",
+      "shopping_domain.reorder_suggestions.reorder_point",
+      "shopping_domain.reorder_suggestions.status",
+      "shopping_domain.reorder_suggestions.source_event_id",
+      "shopping_domain.processed_events.event_id",
+      "shopping_domain.processed_events.event_type",
     ]) assert.equal(actual.has(required), true, "missing schema element: " + required);
   });
 });
