@@ -9,6 +9,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL ?? "postgres:
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 const catalogServiceBaseUrl = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
 const shelfLifeServiceBaseUrl = (process.env.SHELF_LIFE_SERVICE_BASE_URL ?? "http://service-shelf-life:3404/api/v1").replace(/\/$/, "");
+const nutritionServiceBaseUrl = (process.env.NUTRITION_SERVICE_BASE_URL ?? "http://service-nutrition:3402/api/v1").replace(/\/$/, "");
 
 type Ctx = { userId: string; familyId: string; requestId: string; correlationId: string };
 type AuthResult = { ok: true } | { ok: false; status: number; code: string; message: string };
@@ -576,13 +577,58 @@ const server = createServer(async (req, res) => {
         if (Number(row.quantity) < quantity!) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
         const beforeReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         const updated = await applyOutflow(client, row, quantity!, ctx);
-        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'consume',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
+        const movementId = randomUUID();
+        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'consume',$5,$6,$7,$8,now(),now())", [movementId, ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
         const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "consume", quantity, item: output.data });
+        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "consume", quantity, movementId, item: output.data });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
+
+        // Nutrition is a separate bounded context/database. The inventory transaction is
+        // already committed before this call, so a nutrition outage can never roll back a
+        // successful stock consumption. The movement UUID is used as the idempotency key,
+        // making retries safe.
+        try {
+          const authorization = req.headers.authorization ? String(req.headers.authorization) : undefined;
+          const nutritionResponse = await fetch(nutritionServiceBaseUrl + "/nutrition/diary", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-user-id": ctx.userId,
+              "x-family-id": ctx.familyId,
+              "x-idempotency-key": "inventory-consumption:" + movementId,
+              ...(authorization ? { authorization } : {}),
+            },
+            body: JSON.stringify({
+              date: new Date().toISOString().slice(0, 10),
+              meal: "other",
+              productId: String(row.product_id),
+              quantity: Number(quantity),
+              unit: String(row.unit),
+            }),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!nutritionResponse.ok) {
+            console.warn(JSON.stringify({
+              service,
+              event: "nutrition_record_failed",
+              movementId,
+              productId: String(row.product_id),
+              status: nutritionResponse.status,
+            }));
+          }
+        } catch (error) {
+          console.warn(JSON.stringify({
+            service,
+            event: "nutrition_record_unavailable",
+            movementId,
+            productId: String(row.product_id),
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        }
+
         return send(res, 200, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
