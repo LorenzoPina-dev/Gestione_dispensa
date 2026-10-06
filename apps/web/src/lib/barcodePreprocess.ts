@@ -1,4 +1,5 @@
 import { isValidGs1Checksum, productBarcodePriority } from "../domain/barcode.js";
+import { estimateBarcodeOrientationFromMoments } from "../domain/barcode-scanner.js";
 import type { BarcodeBounds } from "../domain/barcode-scanner.js";
 // services/web/src/lib/barcodePreprocess.ts
 //
@@ -744,91 +745,6 @@ export interface BarcodeLocalization {
   /** Confidence that the candidate geometry is safe for perspective rectification. */
   geometryConfidence: number;
   textureScore: number;
-}
-
-export type BarcodeOrientationEstimate = {
-  rotation: number;
-  suggestedRotation: number;
-  confidence: number;
-  directionalScore: number;
-  anisotropy: number;
-};
-
-function normalizeHalfTurn(angle: number): number {
-  let normalized = angle;
-  while (normalized > Math.PI / 2) normalized -= Math.PI;
-  while (normalized < -Math.PI / 2) normalized += Math.PI;
-  return normalized;
-}
-
-/**
- * Turns local edge-cloud moments into a conservative rotation decision.
- *
- * The important distinction from the old implementation is that the moments must
- * come from the candidate barcode region, not from the complete camera frame.
- * Directional energy is also used as a guard: a generic text/package edge must not
- * be sufficient evidence to rotate a barcode.
- */
-export function estimateBarcodeOrientationFromMoments(input: {
-  varianceX: number;
-  varianceY: number;
-  covariance: number;
-  gxEnergy: number;
-  gyEnergy: number;
-  aspectRatio: number;
-}): BarcodeOrientationEstimate {
-  const varianceX = Math.max(0, input.varianceX);
-  const varianceY = Math.max(0, input.varianceY);
-  const covariance = Number.isFinite(input.covariance) ? input.covariance : 0;
-  const principalAngle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
-  const rotation = normalizeHalfTurn(-principalAngle);
-
-  const anisotropyDenominator = Math.max(1e-6, varianceX + varianceY);
-  const anisotropy = Math.max(
-    0,
-    Math.min(
-      1,
-      Math.hypot(varianceX - varianceY, 2 * covariance) / anisotropyDenominator,
-    ),
-  );
-
-  const totalGradient = Math.max(1e-6, input.gxEnergy + input.gyEnergy);
-  const directionalScore = Math.max(0, Math.min(1, input.gxEnergy / totalGradient));
-  const aspectScore = Math.max(
-    0,
-    Math.min(1, (Math.max(1, input.aspectRatio) - 2) / 5),
-  );
-
-  // A 1D barcode has strong horizontal span and predominantly vertical-bar edges.
-  // The confidence therefore falls when the candidate behaves like arbitrary text.
-  let confidence = Math.max(
-    0,
-    Math.min(
-      1,
-      0.48 * anisotropy +
-        0.34 * Math.max(0, Math.min(1, (directionalScore - 0.5) / 0.38)) +
-        0.18 * aspectScore,
-    ),
-  );
-
-  const angleDegrees = Math.abs(rotation) * 180 / Math.PI;
-  if (angleDegrees > 35) confidence *= 0.25;
-  else if (angleDegrees > 27) confidence *= 0.55;
-
-  // Never rotate on weak evidence. Larger corrections require substantially more
-  // evidence because a false 15–25° correction is more destructive than leaving
-  // a mildly skewed barcode untouched.
-  const shouldRotate =
-    confidence >= 0.72 &&
-    (angleDegrees <= 18 || confidence >= 0.86);
-
-  return {
-    rotation: shouldRotate ? rotation : 0,
-    suggestedRotation: rotation,
-    confidence,
-    directionalScore,
-    anisotropy,
-  };
 }
 
 function barcodeGeometryConfidence(input: {
