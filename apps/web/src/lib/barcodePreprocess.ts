@@ -292,12 +292,24 @@ function mapFallbackPointsToSource(
 ): { center?: { x: number; y: number }; bounds?: BarcodeBounds } {
   if (!Array.isArray(points) || points.length === 0) return {};
 
+  const homography = geometry.quadrilateral ? solveHomographyFromUnitSquare(geometry.quadrilateral) : null;
   const mapped = points
     .map((point) => {
       const candidate = point as { getX?: () => number; getY?: () => number };
       const x = candidate.getX?.();
       const y = candidate.getY?.();
       if (typeof x !== "number" || typeof y !== "number") return null;
+      if (homography) {
+        const u = geometry.outputWidth <= 1 ? 0 : x / (geometry.outputWidth - 1);
+        const v = geometry.outputHeight <= 1 ? 0 : y / (geometry.outputHeight - 1);
+        const denominator = homography[6] * u + homography[7] * v + 1;
+        if (Math.abs(denominator) > 1e-9) {
+          return {
+            x: (homography[0] * u + homography[1] * v + homography[2]) / denominator,
+            y: (homography[3] * u + homography[4] * v + homography[5]) / denominator,
+          };
+        }
+      }
       return {
         x: geometry.crop.x + (x / geometry.outputWidth) * geometry.crop.width,
         y: geometry.crop.y + (y / geometry.outputHeight) * geometry.crop.height,
