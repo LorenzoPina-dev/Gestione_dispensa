@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ShoppingList, StockItem } from "../types";
-import type { RecipeMatchDto } from "../api/types";
+import type { CatalogProductRefDto, RecipeMatchDto } from "../api/types";
 import * as api from "../api/endpoints";
 import { isBackendUnreachable } from "../api/client";
 import {
@@ -84,7 +84,18 @@ async function fetchOffers(signal: AbortSignal): Promise<OfferSuggestionSource[]
  * offers are read lazily (only while their tab is open) from Recipes and Stores through the gateway.
  */
 export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Args): UseShoppingSuggestionsResult {
-  const [remoteReorder, setRemoteReorder] = useState<Array<{ suggestionId: string; productId: string; quantity: number; unit: string; reorderPoint: number; name?: string }>>([]);
+  const [remoteReorder, setRemoteReorder] = useState<Array<{
+    suggestionId: string;
+    productId: string;
+    quantity: number;
+    unit: string;
+    reorderPoint: number;
+    name?: string;
+    brand?: string;
+    imageUrl?: string;
+    packageLabel?: string;
+  }>>([]);
+  const catalogCache = useRef(new Map<string, CatalogProductRefDto>());
   const [recipes, setRecipes] = useState<RecipeSuggestionSource[]>([]);
   const [offers, setOffers] = useState<OfferSuggestionSource[]>([]);
   const [loading, setLoading] = useState<Record<Remote, boolean>>({ REORDER: false, RECIPE: false, OFFER: false });
@@ -101,16 +112,56 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
     patch<string | null>(setError, key, null);
 
     const run = key === "REORDER"
-      ? api.listReorderSuggestions(familyId).then(({ suggestions }) => {
-          setRemoteReorder(
-            suggestions.map((item) => ({
-              suggestionId: item.suggestionId,
-              productId: item.productId,
-              quantity: item.quantity,
-              unit: item.unit,
-              reorderPoint: item.reorderPoint,
-            })),
+      ? api.listReorderSuggestions(familyId).then(async ({ suggestions }) => {
+          const enriched = await Promise.all(
+            suggestions.map(async (item) => {
+              const fallback = {
+                suggestionId: item.suggestionId,
+                productId: item.productId,
+                quantity: item.quantity,
+                unit: item.unit,
+                reorderPoint: item.reorderPoint,
+              };
+
+              const cached = catalogCache.current.get(item.productId);
+              if (cached) {
+                return {
+                  ...fallback,
+                  name: cached.name.trim() || undefined,
+                  brand: cached.brand?.trim() || undefined,
+                  imageUrl: cached.imageObjectKey
+                    ?? cached.images?.front
+                    ?? cached.images?.frontSmall
+                    ?? cached.images?.frontThumb
+                    ?? undefined,
+                  packageLabel: cached.package?.label?.trim() || undefined,
+                };
+              }
+
+              try {
+                const product = await api.getCatalogProduct(item.productId, controller.signal);
+                catalogCache.current.set(item.productId, product);
+                return {
+                  ...fallback,
+                  name: product.name.trim() || undefined,
+                  brand: product.brand?.trim() || undefined,
+                  imageUrl: product.imageObjectKey
+                    ?? product.images?.front
+                    ?? product.images?.frontSmall
+                    ?? product.images?.frontThumb
+                    ?? undefined,
+                  packageLabel: product.package?.label?.trim() || undefined,
+                };
+              } catch (error) {
+                if (controller.signal.aborted) throw error;
+                // The reorder record is still valid when Catalog is temporarily unavailable.
+                // Keep the suggestion visible with its deterministic product-id fallback.
+                return fallback;
+              }
+            }),
           );
+
+          if (!controller.signal.aborted) setRemoteReorder(enriched);
         })
       : key === "RECIPE"
         ? api.listRecipeSuggestions(familyId).then(({ suggestions }) => setRecipes(suggestions.map(toRecipeSource)))
@@ -135,6 +186,9 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
           key: `p:${suggestion.productId}`,
           source: "REORDER" as const,
           label: suggestion.name ?? `Prodotto ${suggestion.productId.slice(0, 8)}`,
+          ...(suggestion.brand ? { brand: suggestion.brand } : {}),
+          ...(suggestion.imageUrl ? { imageUrl: suggestion.imageUrl } : {}),
+          ...(suggestion.packageLabel ? { packageLabel: suggestion.packageLabel } : {}),
           productId: suggestion.productId,
           quantity: suggestion.quantity,
           unit: suggestion.unit as ShoppingSuggestion["unit"],
