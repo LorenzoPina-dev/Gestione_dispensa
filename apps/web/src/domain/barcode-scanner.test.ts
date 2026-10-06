@@ -5,8 +5,8 @@ import {
   chooseStableBarcodeCandidate,
   classifyFrameQuality,
   consensusRequiredFrames,
+  estimateBarcodeOrientationFromMoments,
 } from "./barcode-scanner.js";
-import { estimateBarcodeOrientationFromMoments } from "../lib/barcodePreprocess.js";
 
 test("classifies a sharp stable barcode frame as good", () => {
   const result = classifyFrameQuality({
