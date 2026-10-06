@@ -5,7 +5,7 @@ import * as api from "../api/endpoints";
 import { computeViewfinderCrop, detectBestBarcode, getBarcodeLocalization, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
 import { analyzeBarcodeFrame } from "../lib/barcodeQuality";
 import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityResult } from "../domain/barcode-scanner.js";
-import { normalizeProductBarcode } from "../domain/barcode.js";
+import { normalizeProductBarcode, productBarcodePriority } from "../domain/barcode.js";
 import { increaseBarcodeZoom, openBarcodeCamera, readCameraDiagnostics, recoverBarcodeFocus, setBarcodeTorch, type CameraDiagnostics } from "../lib/barcodeCamera";
 import { isBackendUnreachable } from "../api/client.js";
 
@@ -127,7 +127,12 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const lastScanAtRef = useRef(0);
   const stoppedRef = useRef(false);
   const previousFingerprintRef = useRef<Uint8Array | undefined>(undefined);
-  const consensusRef = useRef<{ value: string; count: number; hit: BarcodeHit } | null>(null);
+  type TemporalBarcodeVote = {
+    value: string;
+    hit: BarcodeHit;
+    at: number;
+  };
+  const consensusRef = useRef<TemporalBarcodeVote[]>([]);
   const poorFrameCountRef = useRef(0);
   const goodNoHitFramesRef = useRef(0);
   const lastRecoveryAtRef = useRef(0);
@@ -168,7 +173,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     frameRequestRef.current = null;
     scanBusyRef.current = false;
     previousFingerprintRef.current = undefined;
-    consensusRef.current = null;
+    consensusRef.current = [];
     poorFrameCountRef.current = 0;
     goodNoHitFramesRef.current = 0;
     lastRecoveryAtRef.current = 0;
@@ -430,7 +435,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       goodNoHitFramesRef.current = 0;
       const normalized = normalizeProductBarcode(hit.rawValue);
       if (!normalized) {
-        consensusRef.current = null;
+        consensusRef.current = [];
         setScannerPhase("QUALITY_CHECK");
         return;
       }
@@ -445,33 +450,81 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       };
 
       setScannerPhase("VERIFYING");
-      const previous = consensusRef.current;
-      if (
-        previous &&
-        previous.value === normalized &&
+      const nowVote = performance.now();
+      const windowMs = 2400;
+      const activeVotes = consensusRef.current.filter((vote) => nowVote - vote.at <= windowMs);
+      const samePhysicalBarcode = (vote: TemporalBarcodeVote): boolean =>
         barcodeObservationsAgree(
           observation,
           {
-            value: previous.value,
-            ...(previous.hit.center ? { center: previous.hit.center } : {}),
-            ...(previous.hit.bounds ? { bounds: previous.hit.bounds } : {}),
+            value: vote.value,
+            ...(vote.hit.center ? { center: vote.hit.center } : {}),
+            ...(vote.hit.bounds ? { bounds: vote.hit.bounds } : {}),
           },
           video.videoWidth,
           video.videoHeight,
-        )
-      ) {
-        consensusRef.current = { value: normalized, count: previous.count + 1, hit };
-      } else {
-        consensusRef.current = { value: normalized, count: 1, hit };
+        );
+
+      const compatibleVotes = activeVotes.filter(samePhysicalBarcode);
+      const nextVotes = [...compatibleVotes, { value: normalized, hit, at: nowVote }].slice(-8);
+      consensusRef.current = nextVotes;
+
+      const groups = new Map<string, { count: number; best: BarcodeHit; decoders: Set<string>; variants: Set<string> }>();
+      for (const vote of nextVotes) {
+        const group = groups.get(vote.value);
+        if (!group) {
+          groups.set(vote.value, {
+            count: 1,
+            best: vote.hit,
+            decoders: new Set([vote.hit.decoder]),
+            variants: new Set([vote.hit.variant]),
+          });
+          continue;
+        }
+        group.count += 1;
+        group.decoders.add(vote.hit.decoder);
+        group.variants.add(vote.hit.variant);
+        if (
+          (vote.hit.validated && !group.best.validated) ||
+          (vote.hit.supportCount ?? 0) > (group.best.supportCount ?? 0)
+        ) {
+          group.best = vote.hit;
+        }
       }
 
-      const required = consensusRequiredFrames(validated, quality);
-      if ((consensusRef.current?.count ?? 0) >= required) {
-        const found = normalized;
-        setScannerMessage("Barcode verificato. Cerco il prodotto…");
-        stopCamera();
-        await resolve(found);
-        return;
+      const ranked = [...groups.entries()].sort((a, b) => {
+        const score = (entry: { count: number; best: BarcodeHit; decoders: Set<string>; variants: Set<string> }) =>
+          entry.count * 12 +
+          (entry.best.validated ? 100 : 0) +
+          Math.min(24, (entry.best.supportCount ?? 1) * 6) +
+          entry.decoders.size * 10 +
+          entry.variants.size * 3 +
+          (entry.best.localizationConfidence ?? 0) * 15 +
+          productBarcodePriority(entry.best.rawValue) / 5;
+        return score(b[1]) - score(a[1]);
+      });
+
+      const winner = ranked[0]?.[1];
+      if (winner) {
+        const required = consensusRequiredFrames(winner.best.validated, quality);
+        const corroborated =
+          winner.decoders.size >= 2 ||
+          winner.variants.size >= 2 ||
+          (winner.best.supportCount ?? 0) >= 2;
+
+        // Valid checksum is necessary, but the winner must also persist across
+        // multiple physical frames. This prevents a single clean false UPC from
+        // beating a weaker but repeatedly observed EAN-13.
+        if (
+          winner.count >= required &&
+          (corroborated || winner.count >= required + 1)
+        ) {
+          const found = winner.best.rawValue;
+          setScannerMessage("Barcode verificato. Cerco il prodotto…");
+          stopCamera();
+          await resolve(found);
+          return;
+        }
       }
     } catch {
       // Camera decoding is best-effort; acquisition remains alive.
