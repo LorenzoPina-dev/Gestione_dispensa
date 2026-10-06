@@ -553,6 +553,7 @@ async function decodeVariantWithScanlines(
   canvas: HTMLCanvasElement,
   geometry: PreprocessGeometry,
   variant: PreprocessVariant,
+  localization: BarcodeLocalization,
 ): Promise<BarcodeHit[]> {
   const lines = buildBarcodeScanlines(14);
   const strip = acquireCanvas(`scanline-${variant}`, canvas.width, 32);
@@ -564,7 +565,7 @@ async function decodeVariantWithScanlines(
     if (!decoded) continue;
 
     const value = decoded.rawValue;
-    if (!/^\\d{8,14}$/.test(value) || !isValidGs1Checksum(value)) continue;
+    if (!/^[0-9]{8,14}$/.test(value) || !isValidGs1Checksum(value)) continue;
 
     const location = mapScanlinePointsToSource(decoded.points, geometry, line, strip.width);
     hits.push({
@@ -572,51 +573,9 @@ async function decodeVariantWithScanlines(
       variant,
       validated: true,
       decoder: "zxing",
-      ...location,
-    });
-  }
-
-  return hits;
-}
-
-async function detectNativeOnCanvas(
-  detector: InstanceType<DetectorCtor>,
-  canvas: HTMLCanvasElement,
-  geometry: PreprocessGeometry,
-  variant: PreprocessVariant,
-  localization: BarcodeLocalization,
-): Promise<BarcodeHit[]> {
-  const result = await detector.detect(canvas);
-  const hits: BarcodeHit[] = [];
-
-  for (const item of result) {
-    const rawValue = item.rawValue.trim();
-    if (!/^\\d{8,14}$/.test(rawValue)) continue;
-    const validated = isValidGs1Checksum(rawValue);
-    if (!validated) continue;
-
-    let bounds: BarcodeBounds | undefined;
-    if (item.boundingBox) {
-      bounds = {
-        x: geometry.crop.x + (item.boundingBox.x / Math.max(1, canvas.width)) * geometry.crop.width,
-        y: geometry.crop.y + (item.boundingBox.y / Math.max(1, canvas.height)) * geometry.crop.height,
-        width: (item.boundingBox.width / Math.max(1, canvas.width)) * geometry.crop.width,
-        height: (item.boundingBox.height / Math.max(1, canvas.height)) * geometry.crop.height,
-      };
-    }
-
-    hits.push({
-      rawValue,
-      format: item.format,
-      variant,
-      validated: true,
-      decoder: "native",
       localizationConfidence: localization.confidence,
       localizationSource: localization.source,
-      ...(bounds ? {
-        bounds,
-        center: { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
-      } : {}),
+      ...location,
     });
   }
 
@@ -706,8 +665,7 @@ export async function detectBarcodes(
   opts: DetectOptions = {},
 ): Promise<BarcodeHit[]> {
   const reader = await getFallbackReader();
-  const detector = getDetector();
-  if (!reader && !detector) return [];
+  if (!reader) return [];
 
   const maxDimension = opts.maxDimension ?? 1440;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
@@ -721,19 +679,29 @@ export async function detectBarcodes(
     const geometry = getPreprocessGeometry(srcW, srcH, variant, { maxDimension, crop });
     const canvas = preprocessToCanvas(source, srcW, srcH, variant, { maxDimension, crop });
 
-    if (detector) {
-      try {
-        hits.push(...await detectNativeOnCanvas(detector, canvas, geometry, variant, localization));
-      } catch {
-        // Continue with scanline reader.
-      }
+    if (!["raw", "clahe", "sauvola", "upscaled", "equalized", "bradley"].includes(variant)) {
+      continue;
     }
 
-    if (reader && ["raw", "clahe", "sauvola", "upscaled"].includes(variant)) {
-      hits.push(...await decodeVariantWithScanlines(reader, canvas, geometry, variant));
-    }
+    hits.push(...await decodeVariantWithScanlines(
+      reader,
+      canvas,
+      geometry,
+      variant,
+      localization,
+    ));
 
-    if (hits.some((hit) => hit.validated && (hit.supportCount ?? 0) >= 3)) break;
+    const ranked = rankBarcodeHits(hits, srcW, srcH, crop);
+    if (
+      ranked.some(
+        (hit) =>
+          hit.validated &&
+          (hit.supportCount ?? 0) >= 3 &&
+          (hit.decoderSupport ?? 0) >= 1,
+      )
+    ) {
+      return ranked;
+    }
   }
 
   const ranked = rankBarcodeHits(hits, srcW, srcH, crop);
@@ -741,7 +709,7 @@ export async function detectBarcodes(
 
   // Last-resort viewfinder pass. It is deliberately axis-aligned and carries no
   // orientation/perspective transform, so a straight barcode can never be rotated
-  // by the localizer.
+  // by the ROI stage.
   if (!opts.fallbackFullFrame && localization.source !== "viewfinder") {
     return detectBarcodes(source, srcW, srcH, {
       ...opts,
