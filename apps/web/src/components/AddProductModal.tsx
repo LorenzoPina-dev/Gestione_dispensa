@@ -383,6 +383,12 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const localized = getBarcodeLocalization(video, video.videoWidth, video.videoHeight);
       const geometryReliable = canApplyBarcodeGeometry(localized);
       setLocalization(localized.confidence >= 0.42 ? { ...localized.crop, confidence: localized.confidence } : null);
+      setGeometryStatus({
+        reliable: geometryReliable,
+        rotation: localized.rotation,
+        orientationConfidence: localized.orientationConfidence,
+        geometryConfidence: localized.geometryConfidence,
+      });
       const crop = localized.confidence >= 0.42 ? localized.crop : computeViewfinderCrop(video.videoWidth, video.videoHeight, cropMode);
       const sample = analyzeBarcodeFrame(
         video,
