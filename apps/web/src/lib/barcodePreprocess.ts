@@ -567,22 +567,56 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   }
   if (total <= 1) return full;
 
-  function bestBand(values: Float64Array, threshold: number, minLength: number) {
-    let best: { start: number; end: number; score: number } | null = null;
-    let start = -1, sum = 0;
-    const flush = (end: number) => {
-      if (start < 0 || end - start + 1 < minLength) return;
-      const candidate = { start, end, score: sum / Math.max(1, end - start + 1) };
-      if (!best || candidate.score > best.score) best = candidate;
-    };
+  function bestBand(
+    values: Float64Array,
+    threshold: number,
+    minLength: number,
+  ): { start: number; end: number; score: number } | null {
+    let bestStart = -1;
+    let bestEnd = -1;
+    let bestScore = -Infinity;
+    let start = -1;
+    let sum = 0;
+
     for (let i = 0; i < values.length; i++) {
       if (values[i] >= threshold) {
-        if (start < 0) { start = i; sum = 0; }
+        if (start < 0) {
+          start = i;
+          sum = 0;
+        }
         sum += values[i];
-      } else if (start >= 0) { flush(i - 1); start = -1; sum = 0; }
+        continue;
+      }
+
+      if (start < 0) continue;
+      const end = i - 1;
+      if (end - start + 1 >= minLength) {
+        const score = sum / Math.max(1, end - start + 1);
+        if (score > bestScore) {
+          bestStart = start;
+          bestEnd = end;
+          bestScore = score;
+        }
+      }
+      start = -1;
+      sum = 0;
     }
-    if (start >= 0) flush(values.length - 1);
-    return best;
+
+    if (start >= 0) {
+      const end = values.length - 1;
+      if (end - start + 1 >= minLength) {
+        const score = sum / Math.max(1, end - start + 1);
+        if (score > bestScore) {
+          bestStart = start;
+          bestEnd = end;
+          bestScore = score;
+        }
+      }
+    }
+
+    return bestStart >= 0
+      ? { start: bestStart, end: bestEnd, score: bestScore }
+      : null;
   }
 
   const xBand = bestBand(col, (total / w) * 1.75, Math.max(24, Math.floor(w * 0.08)));
