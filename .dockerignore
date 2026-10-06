@@ -13,3 +13,11 @@ coverage
 *.zip
 *.tar
 *.tar.gz
+
+# Local Python virtual environments must never enter Docker build contexts.
+venv
+.venv
+env
+ENV
+__pycache__
+*.pyc
