@@ -4,8 +4,8 @@ export function isNonNegativeNumber(value: unknown): value is number {
 export function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
-export function isDiaryUnit(value: unknown): value is "g" | "kg" {
-  return value === "g" || value === "kg";
+export function isDiaryUnit(value: unknown): value is "g" | "kg" | "ml" | "l" | "piece" | "pack" {
+  return value === "g" || value === "kg" || value === "ml" || value === "l" || value === "piece" || value === "pack";
 }
 export function isDiarySource(value: unknown): value is "manual" | "inventory" {
   return value === "manual" || value === "inventory";
