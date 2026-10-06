@@ -262,7 +262,6 @@ async function emitReorderTransition(client: PoolClient, ctx: Ctx, before: Reord
     });
   }
 }
-}
 
 async function upsertReorderPolicy(client: PoolClient, ctx: Ctx, productId: string, reorderPoint: number, reorderQuantity: number, unit: string): Promise<void> {
   await client.query(
