@@ -19,6 +19,15 @@ interface Props {
   initialSummary?: Awaited<ReturnType<typeof api.getNutritionSummary>>;
 }
 
+interface WeeklyDay {
+  date: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+}
+
 export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
   const [summary, setSummary] = useState<Awaited<ReturnType<typeof api.getNutritionSummary>> | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
@@ -69,9 +78,9 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
 
   const macroTotal = totals.protein * 4 + totals.carbs * 4 + totals.fat * 9;
 
-  const weeklyDays = useMemo(() => {
+  const weeklyDays = useMemo<WeeklyDay[]>(() => {
     if (period !== "settimana") return [];
-    const byDay = new Map<string, { calories: number; protein: number; carbs: number; fat: number; fiber: number }>();
+    const byDay = new Map<string, Omit<WeeklyDay, "date">>();
     for (const item of summary?.items ?? []) {
       const date = item.occurredAt.slice(0, 10);
       const current = byDay.get(date) ?? { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
@@ -82,10 +91,16 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
       current.fiber += item.nutrients.fiber;
       byDay.set(date, current);
     }
-    return [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([date, values]) => ({
-      date,
-      ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Math.round(value * 100) / 100])),
-    }));
+    return [...byDay.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, values]) => ({
+        date,
+        calories: Math.round(values.calories * 100) / 100,
+        protein: Math.round(values.protein * 100) / 100,
+        carbs: Math.round(values.carbs * 100) / 100,
+        fat: Math.round(values.fat * 100) / 100,
+        fiber: Math.round(values.fiber * 100) / 100,
+      }));
   }, [period, summary]);
 
   return (
