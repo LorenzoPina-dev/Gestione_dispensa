@@ -313,7 +313,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
       previewTimerRef.current = null;
     };
-  }, [state, showPreprocessPreview, previewVariant, expandedViewfinder, updatePreprocessPreview]);
+  }, [state, showPreprocessPreview, expandedViewfinder, updatePreprocessPreview]);
 
   async function scanFrame() {
     if (stoppedRef.current || scanBusyRef.current) return;
