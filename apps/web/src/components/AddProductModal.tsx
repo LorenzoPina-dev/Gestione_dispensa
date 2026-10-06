@@ -268,7 +268,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     }
   }
 
-  function updatePreprocessPreview() {
+  const updatePreprocessPreview = useCallback(() => {
     if (stoppedRef.current || !showPreprocessPreview) return;
     const video = videoRef.current;
     const output = preprocessPreviewCanvasRef.current;
@@ -302,7 +302,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 250);
       }
     }
-  }
+  }, [showPreprocessPreview, previewVariant]);
 
   useEffect(() => {
     if (state !== "SCANNING" || !showPreprocessPreview) return;
@@ -311,7 +311,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
       previewTimerRef.current = null;
     };
-  }, [state, showPreprocessPreview, previewVariant, expandedViewfinder]);
+  }, [state, showPreprocessPreview, previewVariant, expandedViewfinder, updatePreprocessPreview]);
 
   async function scanFrame() {
     if (stoppedRef.current || scanBusyRef.current) return;
