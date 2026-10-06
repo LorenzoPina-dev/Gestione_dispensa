@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
-import { computeViewfinderCrop, detectBestBarcode, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
+import { computeViewfinderCrop, detectBestBarcode, getBarcodeLocalization, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
 import { analyzeBarcodeFrame } from "../lib/barcodeQuality";
 import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityResult } from "../domain/barcode-scanner.js";
 import { normalizeProductBarcode } from "../domain/barcode.js";
@@ -151,6 +151,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [cameraAspectRatio, setCameraAspectRatio] = useState("16/9");
   const [showPreprocessPreview, setShowPreprocessPreview] = useState(true);
   const [previewUpdatedAt, setPreviewUpdatedAt] = useState(0);
+  const [localization, setLocalization] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null);
   const previewVariants: readonly PreprocessVariant[] = ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"];
 
   const stopCamera = useCallback(() => {
@@ -276,11 +277,11 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       return;
     }
     try {
-      const crop = computeViewfinderCrop(
-        video.videoWidth,
-        video.videoHeight,
-        expandedViewfinderRef.current ? "expanded" : "standard",
-      );
+      const localized = getBarcodeLocalization(video, video.videoWidth, video.videoHeight);
+      setLocalization(localized.confidence >= 0.42 ? { ...localized.crop, confidence: localized.confidence } : null);
+      const crop = localized.confidence >= 0.42
+        ? localized.crop
+        : computeViewfinderCrop(video.videoWidth, video.videoHeight, expandedViewfinderRef.current ? "expanded" : "standard");
       for (const variant of previewVariants) {
         const output = preprocessPreviewCanvasRefs.current[variant];
         if (!output) continue;
@@ -335,7 +336,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
     try {
       const cropMode = expandedViewfinderRef.current ? "expanded" : "standard";
-      const crop = computeViewfinderCrop(video.videoWidth, video.videoHeight, cropMode);
+      const localized = getBarcodeLocalization(video, video.videoWidth, video.videoHeight);
+      setLocalization(localized.confidence >= 0.42 ? { ...localized.crop, confidence: localized.confidence } : null);
+      const crop = localized.confidence >= 0.42 ? localized.crop : computeViewfinderCrop(video.videoWidth, video.videoHeight, cropMode);
       const sample = analyzeBarcodeFrame(
         video,
         video.videoWidth,
@@ -384,11 +387,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           : quality === "usable"
             ? ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"]
             : ["raw", "upscaled", "clahe", "sauvola", "bradley", "equalized"];
-      const activeCrop = computeViewfinderCrop(
-        video.videoWidth,
-        video.videoHeight,
-        expandedViewfinderRef.current ? "expanded" : "standard",
-      );
+      const activeCrop = localized.confidence >= 0.42
+        ? localized.crop
+        : computeViewfinderCrop(video.videoWidth, video.videoHeight, expandedViewfinderRef.current ? "expanded" : "standard");
 
       const hit = await detectBestBarcode(
         video,
@@ -609,7 +610,18 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
             className="relative rounded-2xl overflow-hidden bg-black"
             style={{ aspectRatio: cameraAspectRatio, maxHeight: "62vh" }}
           >
-            <video
+            {localization && videoRef.current && (
+        <div
+          className="pointer-events-none absolute border-2 border-emerald-400 rounded-lg"
+          style={{
+            left: (localization.x / Math.max(1, videoRef.current.videoWidth)) * 100 + "%",
+            top: (localization.y / Math.max(1, videoRef.current.videoHeight)) * 100 + "%",
+            width: (localization.width / Math.max(1, videoRef.current.videoWidth)) * 100 + "%",
+            height: (localization.height / Math.max(1, videoRef.current.videoHeight)) * 100 + "%",
+          }}
+          aria-label={"Barcode localizzato, confidenza " + Math.round(localization.confidence * 100) + "%"}
+        />
+      )}<video
               ref={videoRef}
               className="w-full h-full object-contain bg-black"
               playsInline
