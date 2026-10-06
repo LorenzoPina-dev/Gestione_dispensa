@@ -53,6 +53,14 @@ export interface BarcodeHit {
   bounds?: BarcodeBounds;
   /** True se il valore supera il check digit GS1 (EAN/UPC/GTIN). */
   validated: boolean;
+  /** Decoder that produced this observation. */
+  decoder: "native" | "zxing";
+  /** Number of decoder/variant observations fused into the returned hit. */
+  supportCount?: number;
+  /** Distinct decoders supporting the same numeric candidate. */
+  decoderSupport?: number;
+  /** Localization confidence for the physical barcode region. */
+  localizationConfidence?: number;
 }
 
 // ── Disponibilità detector ────────────────────────────────────────────────────
@@ -121,6 +129,8 @@ async function detectWithFallback(
         rawValue,
         variant,
         validated: isValidGs1Checksum(rawValue),
+        decoder: "zxing",
+        localizationConfidence: localized.confidence,
         ...(location.center ? { center: location.center } : {}),
         ...(location.bounds ? { bounds: location.bounds } : {}),
       };
@@ -799,8 +809,10 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   ));
   if (confidence < 0.42 || areaFraction > 0.78) return { ...full, confidence, textureScore: concentration };
 
-  const topBand = bestBand(topCol, Math.max(1, yBand.score * 0.42), Math.max(18, Math.floor(w * 0.04)));
-  const bottomBand = bestBand(bottomCol, Math.max(1, yBand.score * 0.42), Math.max(18, Math.floor(w * 0.04)));
+  const topMean = topCol.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
+  const bottomMean = bottomCol.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
+  const topBand = bestBand(topCol, topMean * 1.35, Math.max(18, Math.floor(w * 0.04)));
+  const bottomBand = bestBand(bottomCol, bottomMean * 1.35, Math.max(18, Math.floor(w * 0.04)));
 
   const inv = 1 / scale;
   x0 = Math.floor(x0 * inv); x1 = Math.min(srcW - 1, Math.ceil((x1 + 1) * inv) - 1);
@@ -871,25 +883,84 @@ function rankBarcodeHits(
   srcH: number,
   crop?: CropRect,
 ): BarcodeHit[] {
-  const groups = new Map<string, { hit: BarcodeHit; count: number }>();
+  type Group = {
+    hit: BarcodeHit;
+    count: number;
+    variants: Set<PreprocessVariant>;
+    decoders: Set<BarcodeHit["decoder"]>;
+  };
+
+  const groups = new Map<string, Group>();
   for (const hit of hits) {
     const current = groups.get(hit.rawValue);
-    if (current) current.count += 1;
-    else groups.set(hit.rawValue, { hit, count: 1 });
+    if (!current) {
+      groups.set(hit.rawValue, {
+        hit,
+        count: 1,
+        variants: new Set([hit.variant]),
+        decoders: new Set([hit.decoder]),
+      });
+      continue;
+    }
+    current.count += 1;
+    current.variants.add(hit.variant);
+    current.decoders.add(hit.decoder);
+    if (hit.validated && !current.hit.validated) current.hit = hit;
+    if (!current.hit.bounds && hit.bounds) current.hit = hit;
+    if ((hit.localizationConfidence ?? 0) > (current.hit.localizationConfidence ?? 0)) {
+      current.hit = hit;
+    }
   }
+
   const cx = crop ? crop.x + crop.width / 2 : srcW / 2;
   const cy = crop ? crop.y + crop.height / 2 : srcH / 2;
   const extent = Math.max(srcW, srcH);
-  return [...groups.values()].sort((a, b) => {
-    const score = (entry: {hit: BarcodeHit; count: number}) => {
-      const validity = entry.hit.validated ? 10000 : 0;
-      const symbology = productBarcodePriority(entry.hit.rawValue);
-      const distance = entry.hit.center ? Math.hypot(entry.hit.center.x-cx, entry.hit.center.y-cy)/extent : 1;
-      return validity + symbology + entry.count*50 - distance*100;
-    };
-    return score(b) - score(a);
-  }).map((entry) => entry.hit);
+
+  return [...groups.values()]
+    .map((group) => {
+      const hit = group.hit;
+      const distance = hit.center
+        ? Math.hypot(hit.center.x - cx, hit.center.y - cy) / Math.max(1, extent)
+        : 1;
+      const geometry =
+        hit.bounds && hit.bounds.height > 0
+          ? Math.min(1, hit.bounds.width / hit.bounds.height / 7)
+          : 0.35;
+      const validationScore = hit.validated ? 100 : 0;
+      const symbologyScore = productBarcodePriority(hit.rawValue) / 4;
+      const decoderScore = Math.min(24, group.decoders.size * 12);
+      const variantScore = Math.min(24, group.variants.size * 6);
+      const temporalScore = Math.min(24, group.count * 4);
+      const localizationScore = Math.min(16, (hit.localizationConfidence ?? 0) * 16);
+      const centerScore = Math.max(0, 8 - distance * 8);
+      const geometryScore = geometry * 8;
+      const score =
+        validationScore +
+        symbologyScore +
+        decoderScore +
+        variantScore +
+        temporalScore +
+        localizationScore +
+        centerScore +
+        geometryScore;
+
+      return {
+        hit: {
+          ...hit,
+          supportCount: group.count,
+          decoderSupport: group.decoders.size,
+          localizationConfidence: Math.max(
+            ...[...groups.get(hit.rawValue)?.variants ?? []].map(() => hit.localizationConfidence ?? 0),
+          ),
+        },
+        score,
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.hit);
 }
+
+
 
 export async function detectBarcodes(
   source: CanvasImageSource,
@@ -928,6 +999,8 @@ export async function detectBarcodes(
             rawValue: c.rawValue,
             variant,
             validated: isValidGs1Checksum(c.rawValue),
+            decoder: "native",
+            localizationConfidence: localized.confidence,
           };
           if (c.format) hit.format = c.format;
 
@@ -975,18 +1048,28 @@ export async function detectBestBarcode(
   const hits = await detectBarcodes(source, srcW, srcH, opts);
   if (hits.length === 0) return null;
 
-  // Priorità: validati > raw; a parità, più vicino al centro del crop/immagine.
-  const cx = opts.crop ? opts.crop.x + opts.crop.width / 2 : srcW / 2;
-  const cy = opts.crop ? opts.crop.y + opts.crop.height / 2 : srcH / 2;
-
-  const sorted = [...hits].sort((a, b) => {
-    if (a.validated !== b.validated) return a.validated ? -1 : 1;
-    const da = a.center ? Math.hypot(a.center.x - cx, a.center.y - cy) : Infinity;
-    const db = b.center ? Math.hypot(b.center.x - cx, b.center.y - cy) : Infinity;
-    return da - db;
-  });
-  return sorted[0] ?? null;
+  // detectBarcodes already fuses decoder and preprocessing support. A valid EAN-13
+  // with multi-decoder agreement therefore beats a checksum-valid but weak UPC-A.
+  return hits
+    .slice()
+    .sort((a, b) => {
+      const aScore =
+        (a.validated ? 100 : 0) +
+        a.supportCount! * 5 +
+        (a.decoderSupport ?? 1) * 12 +
+        (a.localizationConfidence ?? 0) * 15 +
+        productBarcodePriority(a.rawValue) / 5;
+      const bScore =
+        (b.validated ? 100 : 0) +
+        b.supportCount! * 5 +
+        (b.decoderSupport ?? 1) * 12 +
+        (b.localizationConfidence ?? 0) * 15 +
+        productBarcodePriority(b.rawValue) / 5;
+      return bScore - aScore;
+    })[0] ?? null;
 }
+
+
 
 /**
  * Fallback crop used only when localization is not confident. The decoder now starts
