@@ -98,9 +98,11 @@ async function detectWithFallback(
   const maxDimension = opts.maxDimension ?? 1200;
   const variants = opts.variants ?? PREPROCESS_VARIANTS;
   const localized = opts.localization ?? localizeBarcode(source, srcW, srcH);
-  const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
-  const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
-  const quadrilateral = localized.confidence >= 0.42 ? localized.quadrilateral : undefined;
+  const useLocalizedCrop = localized.confidence >= 0.42;
+  const useGeometryCorrection = canApplyBarcodeGeometry(localized);
+  const crop = useLocalizedCrop ? localized.crop : opts.crop;
+  const rotation = useGeometryCorrection ? localized.rotation : 0;
+  const quadrilateral = useGeometryCorrection ? localized.quadrilateral : undefined;
   const hits: BarcodeHit[] = [];
 
   for (const variant of variants) {
@@ -731,13 +733,145 @@ export type BarcodeQuadrilateral = {
 export interface BarcodeLocalization {
   crop: CropRect;
   quadrilateral: BarcodeQuadrilateral;
+  /** Rotation actually applied to the rectification geometry, in radians. */
   rotation: number;
+  /** Overall confidence that the detected region is a barcode candidate. */
   confidence: number;
+  /** Confidence that the estimated bar orientation is reliable enough to rotate. */
+  orientationConfidence: number;
+  /** Confidence that the candidate geometry is safe for perspective rectification. */
+  geometryConfidence: number;
   textureScore: number;
 }
 
-export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: number, maxDimension = 640): BarcodeLocalization {
-  const full = {
+export type BarcodeOrientationEstimate = {
+  rotation: number;
+  confidence: number;
+  directionalScore: number;
+  anisotropy: number;
+};
+
+function normalizeHalfTurn(angle: number): number {
+  let normalized = angle;
+  while (normalized > Math.PI / 2) normalized -= Math.PI;
+  while (normalized < -Math.PI / 2) normalized += Math.PI;
+  return normalized;
+}
+
+/**
+ * Turns local edge-cloud moments into a conservative rotation decision.
+ *
+ * The important distinction from the old implementation is that the moments must
+ * come from the candidate barcode region, not from the complete camera frame.
+ * Directional energy is also used as a guard: a generic text/package edge must not
+ * be sufficient evidence to rotate a barcode.
+ */
+export function estimateBarcodeOrientationFromMoments(input: {
+  varianceX: number;
+  varianceY: number;
+  covariance: number;
+  gxEnergy: number;
+  gyEnergy: number;
+  aspectRatio: number;
+}): BarcodeOrientationEstimate {
+  const varianceX = Math.max(0, input.varianceX);
+  const varianceY = Math.max(0, input.varianceY);
+  const covariance = Number.isFinite(input.covariance) ? input.covariance : 0;
+  const principalAngle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
+  const rotation = normalizeHalfTurn(-principalAngle);
+
+  const anisotropyDenominator = Math.max(1e-6, varianceX + varianceY);
+  const anisotropy = Math.max(
+    0,
+    Math.min(
+      1,
+      Math.hypot(varianceX - varianceY, 2 * covariance) / anisotropyDenominator,
+    ),
+  );
+
+  const totalGradient = Math.max(1e-6, input.gxEnergy + input.gyEnergy);
+  const directionalScore = Math.max(0, Math.min(1, input.gxEnergy / totalGradient));
+  const aspectScore = Math.max(
+    0,
+    Math.min(1, (Math.max(1, input.aspectRatio) - 2) / 5),
+  );
+
+  // A 1D barcode has strong horizontal span and predominantly vertical-bar edges.
+  // The confidence therefore falls when the candidate behaves like arbitrary text.
+  let confidence =
+    0.48 * anisotropy +
+    0.34 * Math.max(0, Math.min(1, (directionalScore - 0.5) / 0.38)) +
+    0.18 * aspectScore;
+
+  const angleDegrees = Math.abs(rotation) * 180 / Math.PI;
+  if (angleDegrees > 35) confidence *= 0.25;
+  else if (angleDegrees > 27) confidence *= 0.55;
+
+  // Never rotate on weak evidence. Larger corrections require substantially more
+  // evidence because a false 15–25° correction is more destructive than leaving
+  // a mildly skewed barcode untouched.
+  const shouldRotate =
+    confidence >= 0.72 &&
+    (angleDegrees <= 18 || confidence >= 0.86);
+
+  return {
+    rotation: shouldRotate ? rotation : 0,
+    confidence,
+    directionalScore,
+    anisotropy,
+  };
+}
+
+function barcodeGeometryConfidence(input: {
+  width: number;
+  height: number;
+  topWidth?: number;
+  bottomWidth?: number;
+  topCenter?: number;
+  bottomCenter?: number;
+}): number {
+  const width = Math.max(1, input.width);
+  const height = Math.max(1, input.height);
+  const aspectRatio = width / height;
+  const aspectScore = Math.max(0, Math.min(1, (aspectRatio - 2) / 5));
+
+  if (
+    input.topWidth == null ||
+    input.bottomWidth == null ||
+    input.topCenter == null ||
+    input.bottomCenter == null
+  ) {
+    return 0.42 * aspectScore + 0.58 * 0.55;
+  }
+
+  const topWidth = Math.max(1, input.topWidth);
+  const bottomWidth = Math.max(1, input.bottomWidth);
+  const widthConsistency = Math.min(topWidth, bottomWidth) / Math.max(topWidth, bottomWidth);
+  const centerOffset = Math.abs(input.topCenter - input.bottomCenter) / width;
+  const centerConsistency = Math.max(0, Math.min(1, 1 - centerOffset / 0.28));
+
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      0.42 * aspectScore +
+        0.33 * widthConsistency +
+        0.25 * centerConsistency,
+    ),
+  );
+}
+
+export function canApplyBarcodeGeometry(localized: BarcodeLocalization): boolean {
+  return localized.confidence >= 0.42 && localized.geometryConfidence >= 0.68;
+}
+
+export function localizeBarcode(
+  source: CanvasImageSource,
+  srcW: number,
+  srcH: number,
+  maxDimension = 640,
+): BarcodeLocalization {
+  const full: BarcodeLocalization = {
     crop: { x: 0, y: 0, width: srcW, height: srcH },
     quadrilateral: {
       topLeft: { x: 0, y: 0 },
@@ -747,41 +881,45 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
     },
     rotation: 0,
     confidence: 0,
+    orientationConfidence: 0,
+    geometryConfidence: 0,
     textureScore: 0,
   };
+
   if (srcW < 96 || srcH < 96) return full;
+
   const scale = Math.min(1, maxDimension / Math.max(srcW, srcH));
   const w = Math.max(64, Math.round(srcW * scale));
   const h = Math.max(64, Math.round(srcH * scale));
   const canvas = acquireCanvas("localizer", w, h);
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return full;
+
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "medium";
   ctx.clearRect(0, 0, w, h);
   ctx.drawImage(source, 0, 0, srcW, srcH, 0, 0, w, h);
+
   const rgba = ctx.getImageData(0, 0, w, h).data;
   const gray = new Uint8Array(w * h);
-  for (let i = 0, p = 0; i < rgba.length; i += 4, p++) gray[p] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
+  for (let i = 0, p = 0; i < rgba.length; i += 4, p++) {
+    gray[p] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
+  }
 
-  const col = new Float64Array(w);
   const row = new Float64Array(h);
-  let total = 0, strong = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  let total = 0;
+
   for (let y = 1; y < h - 1; y++) {
     const b = y * w;
     for (let x = 1; x < w - 1; x++) {
       const gx = Math.abs(gray[b + x + 1] - gray[b + x - 1]);
       const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
       const e = Math.max(0, gx - 0.7 * gy);
-      col[x] += e;
       row[y] += e;
       total += e;
-      if (e > 55) {
-        strong += e;
-        sx += x * e; sy += y * e; sxx += x * x * e; syy += y * y * e; sxy += x * y * e;
-      }
     }
   }
+
   if (total <= 1) return full;
 
   function bestBand(
@@ -837,12 +975,16 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   }
 
   const yBand = bestBand(row, (total / h) * 1.25, Math.max(18, Math.floor(h * 0.06)));
-  if (!yBand) return { ...full, textureScore: total / Math.max(1, w * h) };
+  if (!yBand) {
+    return { ...full, textureScore: total / Math.max(1, w * h) };
+  }
 
-  const focusY0 = Math.max(1, yBand.start - Math.floor((yBand.end - yBand.start + 1) * 0.6));
-  const focusY1 = Math.min(h - 2, yBand.end + Math.floor((yBand.end - yBand.start + 1) * 0.6));
+  const bandHeight = yBand.end - yBand.start + 1;
+  const focusY0 = Math.max(1, yBand.start - Math.floor(bandHeight * 0.55));
+  const focusY1 = Math.min(h - 2, yBand.end + Math.floor(bandHeight * 0.55));
   const focusCol = new Float64Array(w);
   let focusTotal = 0;
+
   for (let y = focusY0; y <= focusY1; y++) {
     const rowBase = y * w;
     for (let x = 1; x < w - 1; x++) {
@@ -866,84 +1008,200 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
     return result;
   };
 
-  // Adjacent bars create repeated zero/high columns. Smoothing makes one physical
-  // barcode appear as one contiguous spatial band without blurring its outer edges.
   const smoothedX = smoothProjection(focusCol, Math.max(2, Math.round(w * 0.015)));
   const xMean = smoothedX.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
   const xBand = bestBand(smoothedX, xMean * 1.18, Math.max(24, Math.floor(w * 0.06)));
-  if (!xBand) return { ...full, textureScore: total / Math.max(1, w * h) };
+  if (!xBand) {
+    return { ...full, textureScore: total / Math.max(1, w * h) };
+  }
+
+  const xBandWidth = xBand.end - xBand.start + 1;
+  const candidatePadX = Math.max(8, Math.round(xBandWidth * 0.10));
+  const candidatePadY = Math.max(8, Math.round(bandHeight * 0.32));
+  const candidateX0 = Math.max(1, xBand.start - candidatePadX);
+  const candidateX1 = Math.min(w - 2, xBand.end + candidatePadX);
+  const candidateY0 = Math.max(1, yBand.start - candidatePadY);
+  const candidateY1 = Math.min(h - 2, yBand.end + candidatePadY);
+  const candidateWidth = Math.max(1, candidateX1 - candidateX0 + 1);
+  const candidateHeight = Math.max(1, candidateY1 - candidateY0 + 1);
+  const candidateArea = Math.max(1, candidateWidth * candidateHeight);
+
+  // Estimate orientation ONLY inside the candidate barcode region. The rest of the
+  // package (text, logos, box edges) can no longer tilt the whole image.
+  let candidateEnergy = 0;
+  let gxEnergy = 0;
+  let gyEnergy = 0;
+  for (let y = candidateY0; y <= candidateY1; y++) {
+    const rowBase = y * w;
+    for (let x = candidateX0; x <= candidateX1; x++) {
+      const gx = Math.abs(gray[rowBase + x + 1] - gray[rowBase + x - 1]);
+      const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
+      const e = Math.max(0, gx - 0.7 * gy);
+      candidateEnergy += e;
+      gxEnergy += gx;
+      gyEnergy += gy;
+    }
+  }
+
+  const candidateMeanEnergy = candidateEnergy / candidateArea;
+  const orientationThreshold = Math.max(38, candidateMeanEnergy * 1.7);
+  let strong = 0;
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+
+  for (let y = candidateY0; y <= candidateY1; y++) {
+    const rowBase = y * w;
+    for (let x = candidateX0; x <= candidateX1; x++) {
+      const gx = Math.abs(gray[rowBase + x + 1] - gray[rowBase + x - 1]);
+      const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
+      const e = Math.max(0, gx - 0.7 * gy);
+      if (e < orientationThreshold) continue;
+      strong += e;
+      sx += x * e;
+      sy += y * e;
+      sxx += x * x * e;
+      syy += y * y * e;
+      sxy += x * y * e;
+    }
+  }
 
   const varianceX = strong > 0 ? Math.max(0, sxx / strong - (sx / strong) ** 2) : 0;
   const varianceY = strong > 0 ? Math.max(0, syy / strong - (sy / strong) ** 2) : 0;
   const covariance = strong > 0 ? sxy / strong - (sx / strong) * (sy / strong) : 0;
-  // The long axis of the localized edge cloud is the horizontal bar span.
-  // The correction is the negative principal angle, with a conservative bound.
-  const principalAngle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
-  let rotation = -principalAngle;
-  while (rotation > Math.PI / 2) rotation -= Math.PI;
-  while (rotation < -Math.PI / 2) rotation += Math.PI;
-  rotation = Math.max(-0.45, Math.min(0.45, rotation));
+  const orientation = estimateBarcodeOrientationFromMoments({
+    varianceX,
+    varianceY,
+    covariance,
+    gxEnergy,
+    gyEnergy,
+    aspectRatio: candidateWidth / candidateHeight,
+  });
 
-  const padX = Math.max(18, Math.round((xBand.end - xBand.start + 1) * 0.22));
-  const padY = Math.max(16, Math.round((yBand.end - yBand.start + 1) * 0.65));
-  let x0 = Math.max(0, xBand.start - padX), x1 = Math.min(w - 1, xBand.end + padX);
-  let y0 = Math.max(0, yBand.start - padY), y1 = Math.min(h - 1, yBand.end + padY);
-  const areaFraction = ((x1 - x0 + 1) * (y1 - y0 + 1)) / (w * h);
-  const concentration = (xBand.score / Math.max(1, total / w)) * (yBand.score / Math.max(1, total / h));
-  const confidence = Math.max(0, Math.min(1,
-    0.45 * Math.min(1, concentration / 4) +
-    0.35 * Math.min(1, (strong / Math.max(1, total)) * 3) +
-    0.20 * (1 - Math.min(1, areaFraction)),
-  ));
-  if (confidence < 0.42 || areaFraction > 0.78) return { ...full, confidence, textureScore: concentration };
+  const concentration =
+    (xBand.score / Math.max(1, total / w)) *
+    (yBand.score / Math.max(1, total / h));
 
-  // Recompute upper/lower projections only inside the candidate height. This
-  // prevents package text elsewhere in the full frame from changing the trapezoid.
+  const candidateAreaFraction = candidateArea / Math.max(1, w * h);
+  const compactness = Math.max(0, Math.min(1, 1 - candidateAreaFraction / 0.72));
+  const edgeDensity = Math.max(
+    0,
+    Math.min(1, (focusTotal / Math.max(1, (focusY1 - focusY0 + 1) * w)) / Math.max(1, total / w) / 2),
+  );
+
+  // Initial geometry is built before rotation. It is intentionally tight; the old
+  // 22%/65% padding made the visual hitbox much larger than the actual bars.
+  const padX = Math.max(12, Math.round(xBandWidth * 0.12));
+  const padY = Math.max(12, Math.round(bandHeight * 0.36));
+  const x0 = Math.max(0, xBand.start - padX);
+  const x1 = Math.min(w - 1, xBand.end + padX);
+  const y0 = Math.max(0, yBand.start - padY);
+  const y1 = Math.min(h - 1, yBand.end + padY);
+
+  // Recompute upper/lower projections ONLY inside the candidate x-range. This
+  // prevents unrelated package content elsewhere in the frame from creating a fake
+  // trapezoid.
   const topFocused = new Float64Array(w);
   const bottomFocused = new Float64Array(w);
-  const yMid = Math.floor((focusY0 + focusY1) / 2);
-  for (let y = focusY0; y <= focusY1; y++) {
+  const yMid = Math.floor((candidateY0 + candidateY1) / 2);
+  for (let y = candidateY0; y <= candidateY1; y++) {
     const rowBase = y * w;
     const target = y <= yMid ? topFocused : bottomFocused;
-    for (let x = 1; x < w - 1; x++) {
+    for (let x = candidateX0; x <= candidateX1; x++) {
       const gx = Math.abs(gray[rowBase + x + 1] - gray[rowBase + x - 1]);
       const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
       target[x] += Math.max(0, gx - 0.7 * gy);
     }
   }
+
   const smoothedTop = smoothProjection(topFocused, Math.max(2, Math.round(w * 0.015)));
   const smoothedBottom = smoothProjection(bottomFocused, Math.max(2, Math.round(w * 0.015)));
   const topMean = smoothedTop.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
   const bottomMean = smoothedBottom.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
-  const topBand = bestBand(smoothedTop, topMean * 1.15, Math.max(18, Math.floor(w * 0.04)));
-  const bottomBand = bestBand(smoothedBottom, bottomMean * 1.15, Math.max(18, Math.floor(w * 0.04)));
+  const topBand = bestBand(smoothedTop, topMean * 1.15, Math.max(18, Math.floor(w * 0.035)));
+  const bottomBand = bestBand(smoothedBottom, bottomMean * 1.15, Math.max(18, Math.floor(w * 0.035)));
 
   const inv = 1 / scale;
-  x0 = Math.floor(x0 * inv); x1 = Math.min(srcW - 1, Math.ceil((x1 + 1) * inv) - 1);
-  y0 = Math.floor(y0 * inv); y1 = Math.min(srcH - 1, Math.ceil((y1 + 1) * inv) - 1);
+  const sourceX0 = Math.floor(x0 * inv);
+  const sourceX1 = Math.min(srcW - 1, Math.ceil((x1 + 1) * inv) - 1);
+  const sourceY0 = Math.floor(y0 * inv);
+  const sourceY1 = Math.min(srcH - 1, Math.ceil((y1 + 1) * inv) - 1);
 
-  const topX0 = topBand ? Math.floor(Math.max(0, topBand.start - padX) * inv) : x0;
-  const topX1 = topBand ? Math.ceil(Math.min(w - 1, topBand.end + padX + 1) * inv) : x1 + 1;
-  const bottomX0 = bottomBand ? Math.floor(Math.max(0, bottomBand.start - padX) * inv) : x0;
-  const bottomX1 = bottomBand ? Math.ceil(Math.min(w - 1, bottomBand.end + padX + 1) * inv) : x1 + 1;
+  const topX0 = topBand
+    ? Math.floor(Math.max(0, topBand.start - padX) * inv)
+    : sourceX0;
+  const topX1 = topBand
+    ? Math.ceil(Math.min(w - 1, topBand.end + padX + 1) * inv)
+    : sourceX1 + 1;
+  const bottomX0 = bottomBand
+    ? Math.floor(Math.max(0, bottomBand.start - padX) * inv)
+    : sourceX0;
+  const bottomX1 = bottomBand
+    ? Math.ceil(Math.min(w - 1, bottomBand.end + padX + 1) * inv)
+    : sourceX1 + 1;
 
   const baseQuad: BarcodeQuadrilateral = {
-    topLeft: { x: Math.max(0, topX0), y: y0 },
-    topRight: { x: Math.min(srcW, topX1), y: y0 },
-    bottomRight: { x: Math.min(srcW, bottomX1), y: y1 + 1 },
-    bottomLeft: { x: Math.max(0, bottomX0), y: y1 + 1 },
+    topLeft: { x: Math.max(0, topX0), y: Math.max(0, sourceY0) },
+    topRight: { x: Math.min(srcW, topX1), y: Math.max(0, sourceY0) },
+    bottomRight: { x: Math.min(srcW, bottomX1), y: Math.min(srcH, sourceY1 + 1) },
+    bottomLeft: { x: Math.max(0, bottomX0), y: Math.min(srcH, sourceY1 + 1) },
   };
 
+  const topWidth = Math.abs(baseQuad.topRight.x - baseQuad.topLeft.x);
+  const bottomWidth = Math.abs(baseQuad.bottomRight.x - baseQuad.bottomLeft.x);
+  const topCenter = (baseQuad.topLeft.x + baseQuad.topRight.x) / 2;
+  const bottomCenter = (baseQuad.bottomLeft.x + baseQuad.bottomRight.x) / 2;
+  const geometryConfidence = barcodeGeometryConfidence({
+    width: Math.max(topWidth, bottomWidth),
+    height: Math.max(1, baseQuad.bottomLeft.y - baseQuad.topLeft.y),
+    topWidth: topBand ? topWidth : undefined,
+    bottomWidth: bottomBand ? bottomWidth : undefined,
+    topCenter: topBand ? topCenter : undefined,
+    bottomCenter: bottomBand ? bottomCenter : undefined,
+  });
+
+  let confidence = Math.max(
+    0,
+    Math.min(
+      1,
+      0.38 * Math.min(1, concentration / 4) +
+        0.25 * Math.min(1, (strong / Math.max(1, candidateEnergy)) * 2.4) +
+        0.18 * compactness +
+        0.19 * geometryConfidence,
+    ),
+  );
+
+  // A huge, badly shaped candidate is much more likely to be a package border/text
+  // region than the barcode itself. Do not feed such a region into homography.
+  const areaFraction = ((sourceX1 - sourceX0 + 1) * (sourceY1 - sourceY0 + 1)) / Math.max(1, srcW * srcH);
+  if (areaFraction > 0.72 && geometryConfidence < 0.68) {
+    confidence *= 0.55;
+  }
+
+  if (confidence < 0.42) {
+    return {
+      ...full,
+      confidence,
+      orientationConfidence: orientation.confidence,
+      geometryConfidence,
+      textureScore: concentration,
+    };
+  }
+
+  const appliedRotation = orientation.rotation;
   const center = {
     x: (baseQuad.topLeft.x + baseQuad.topRight.x + baseQuad.bottomRight.x + baseQuad.bottomLeft.x) / 4,
     y: (baseQuad.topLeft.y + baseQuad.topRight.y + baseQuad.bottomRight.y + baseQuad.bottomLeft.y) / 4,
   };
-  const observedRotation = -rotation;
+
   const rotatePoint = (point: BarcodePoint): BarcodePoint => {
+    if (appliedRotation === 0) return point;
     const dx = point.x - center.x;
     const dy = point.y - center.y;
-    const cosA = Math.cos(observedRotation);
-    const sinA = Math.sin(observedRotation);
+    const cosA = Math.cos(appliedRotation);
+    const sinA = Math.sin(appliedRotation);
     return {
       x: Math.max(0, Math.min(srcW, center.x + dx * cosA - dy * sinA)),
       y: Math.max(0, Math.min(srcH, center.y + dx * sinA + dy * cosA)),
@@ -964,26 +1222,42 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
       quad.bottomRight.y * quad.bottomLeft.x + quad.bottomLeft.y * quad.topLeft.x),
   ) / 2;
 
-  const quadIsUsable = Number.isFinite(polygonArea) && polygonArea > srcW * srcH * 0.005;
+  const quadIsUsable =
+    Number.isFinite(polygonArea) &&
+    polygonArea > srcW * srcH * 0.005 &&
+    geometryConfidence >= 0.68;
+
   const cropLeft = Math.max(0, Math.floor(Math.min(quad.topLeft.x, quad.bottomLeft.x)));
   const cropTop = Math.max(0, Math.floor(Math.min(quad.topLeft.y, quad.topRight.y)));
   const cropRight = Math.min(srcW, Math.ceil(Math.max(quad.topRight.x, quad.bottomRight.x)));
   const cropBottom = Math.min(srcH, Math.ceil(Math.max(quad.bottomLeft.y, quad.bottomRight.y)));
 
+  const safeAxisQuad: BarcodeQuadrilateral = {
+    topLeft: { x: sourceX0, y: sourceY0 },
+    topRight: { x: sourceX1 + 1, y: sourceY0 },
+    bottomRight: { x: sourceX1 + 1, y: sourceY1 + 1 },
+    bottomLeft: { x: sourceX0, y: sourceY1 + 1 },
+  };
+
   return {
     crop: quadIsUsable
-      ? { x: cropLeft, y: cropTop, width: Math.max(1, cropRight - cropLeft), height: Math.max(1, cropBottom - cropTop) }
-      : { x: Math.max(0, x0), y: Math.max(0, y0), width: Math.max(1, x1 - x0 + 1), height: Math.max(1, y1 - y0 + 1) },
-    quadrilateral: quadIsUsable
-      ? quad
+      ? {
+          x: cropLeft,
+          y: cropTop,
+          width: Math.max(1, cropRight - cropLeft),
+          height: Math.max(1, cropBottom - cropTop),
+        }
       : {
-          topLeft: { x: x0, y: y0 },
-          topRight: { x: x1 + 1, y: y0 },
-          bottomRight: { x: x1 + 1, y: y1 + 1 },
-          bottomLeft: { x: x0, y: y1 + 1 },
+          x: sourceX0,
+          y: sourceY0,
+          width: Math.max(1, sourceX1 - sourceX0 + 1),
+          height: Math.max(1, sourceY1 - sourceY0 + 1),
         },
-    rotation,
+    quadrilateral: quadIsUsable ? quad : safeAxisQuad,
+    rotation: appliedRotation,
     confidence,
+    orientationConfidence: orientation.confidence,
+    geometryConfidence,
     textureScore: concentration,
   };
 }
@@ -1080,9 +1354,7 @@ function rankBarcodeHits(
           ...hit,
           supportCount: group.count,
           decoderSupport: group.decoders.size,
-          localizationConfidence: Math.max(
-            ...[...groups.get(hit.rawValue)?.variants ?? []].map(() => hit.localizationConfidence ?? 0),
-          ),
+          localizationConfidence: hit.localizationConfidence,
         },
         score,
       };
