@@ -113,6 +113,20 @@ test("does not rotate when the local orientation evidence is ambiguous", () => {
   assert.ok(estimate.confidence < 0.72 || Math.abs(estimate.rotation) < 0.001);
 });
 
+test("keeps the raw angle as a recovery suggestion without applying it on the first pass", () => {
+  const estimate = estimateBarcodeOrientationFromMoments({
+    varianceX: 100,
+    varianceY: 20,
+    covariance: 44,
+    gxEnergy: 90,
+    gyEnergy: 10,
+    aspectRatio: 7,
+  });
+
+  assert.ok(Math.abs(estimate.rotation) < 0.001);
+  assert.ok(Math.abs(estimate.suggestedRotation * 180 / Math.PI) > 15);
+});
+
 test("keeps a well-supported small rotation for a real barcode", () => {
   const estimate = estimateBarcodeOrientationFromMoments({
     varianceX: 120,
