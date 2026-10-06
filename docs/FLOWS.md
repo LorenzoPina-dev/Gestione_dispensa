@@ -68,7 +68,7 @@ Each profile contains a conservative minimum, a recommended target and a maximum
 
 These values are heuristics for conservability/quality, not manufacturer-certified expiration dates. Storage conditions materially affect shelf-life, so damaged packaging, abnormal temperature, moisture, heat, light or prolonged exposure can make the estimate inappropriate.
 ## 11. Low stock and shopping
-Inventory evaluates the configured threshold after relevant mutations. PantryLowStock is emitted. Shopping creates or updates a suggestion idempotently. Notifications may notify the user. Purchasing a shopping item never directly writes Inventory; actual pantry addition always goes through Inventory.
+Every tracked product has a durable reorder policy. The default is `reorderPoint=0` and `reorderQuantity=1`: when the product is completely exhausted, Inventory emits `PantryLowStock`. Shopping creates or updates one persistent suggestion idempotently. The suggestion is shown in `+ -> Scorte`; it becomes a shopping-list item only when the user adds it. Existing exhausted products are recovered by the Inventory backfill migration. Notifications may notify the user. Purchasing a shopping item never directly writes Inventory; actual pantry addition always goes through Inventory.
 
 ## 12. Shopping
 Shopping owns list/item creation, editing, checking, deletion and closing. Product IDs are remote Catalog IDs. A closed list cannot be mutated except by a future explicitly documented reopen contract.
