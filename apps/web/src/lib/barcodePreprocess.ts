@@ -592,7 +592,15 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   const varianceX = strong > 0 ? Math.max(0, sxx / strong - (sx / strong) ** 2) : 0;
   const varianceY = strong > 0 ? Math.max(0, syy / strong - (sy / strong) ** 2) : 0;
   const covariance = strong > 0 ? sxy / strong - (sx / strong) * (sy / strong) : 0;
-  const rotation = Math.max(-0.35, Math.min(0.35, 0.5 * Math.atan2(2 * covariance, varianceX - varianceY)));
+  // The dominant axis of the edge cloud is the bar direction. For a normal
+  // EAN the bars are vertical, so the desired rotation is principalAngle - PI/2.
+  // This keeps an already-horizontal-in-the-image barcode at 0° instead of
+  // accidentally rotating every normal barcode by 90°.
+  const principalAngle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
+  let rotation = principalAngle - Math.PI / 2;
+  while (rotation > Math.PI / 2) rotation -= Math.PI;
+  while (rotation < -Math.PI / 2) rotation += Math.PI;
+  rotation = Math.max(-0.35, Math.min(0.35, rotation));
 
   const padX = Math.max(18, Math.round((xBand.end - xBand.start + 1) * 0.22));
   const padY = Math.max(16, Math.round((yBand.end - yBand.start + 1) * 0.65));
