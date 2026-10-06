@@ -297,7 +297,8 @@ services:
       SERVICE_NAME: service-inventory
       DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
-    depends_on: { postgres: { condition: service_healthy } }
+      NUTRITION_SERVICE_BASE_URL: "http://service-nutrition:3402/api/v1"
+    depends_on: { postgres: { condition: service_healthy }, service-nutrition: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
