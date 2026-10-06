@@ -1186,6 +1186,10 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
         setQty={setQty}
         expiry={expiry}
         setExpiry={setExpiry}
+        reorderPoint={reorderPoint}
+        setReorderPoint={setReorderPoint}
+        reorderQuantity={reorderQuantity}
+        setReorderQuantity={setReorderQuantity}
         location={location}
         setLocation={setLocation}
         onBack={() => setState("CANDIDATE")}
