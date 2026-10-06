@@ -766,8 +766,6 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
 
   const col = new Float64Array(w);
   const row = new Float64Array(h);
-  const topCol = new Float64Array(w);
-  const bottomCol = new Float64Array(w);
   let total = 0, strong = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
   for (let y = 1; y < h - 1; y++) {
     const b = y * w;
@@ -777,8 +775,6 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
       const e = Math.max(0, gx - 0.7 * gy);
       col[x] += e;
       row[y] += e;
-      if (y < h * 0.55) topCol[x] += e;
-      if (y >= h * 0.45) bottomCol[x] += e;
       total += e;
       if (e > 55) {
         strong += e;
@@ -880,10 +876,8 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   const varianceX = strong > 0 ? Math.max(0, sxx / strong - (sx / strong) ** 2) : 0;
   const varianceY = strong > 0 ? Math.max(0, syy / strong - (sy / strong) ** 2) : 0;
   const covariance = strong > 0 ? sxy / strong - (sx / strong) * (sy / strong) : 0;
-  // The dominant axis of the edge cloud is the bar direction. For a normal
-  // EAN the bars are vertical, so the desired rotation is principalAngle - PI/2.
-  // This keeps an already-horizontal-in-the-image barcode at 0° instead of
-  // accidentally rotating every normal barcode by 90°.
+  // The long axis of the localized edge cloud is the horizontal bar span.
+  // The correction is the negative principal angle, with a conservative bound.
   const principalAngle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
   let rotation = -principalAngle;
   while (rotation > Math.PI / 2) rotation -= Math.PI;
