@@ -348,7 +348,7 @@ const server = createServer(async (req, res) => {
       if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) {
         return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
       }
-      const allowedFields = ["quantity", "unit", "expiresAt", "location", "lotCode", "openedAt"];
+      const allowedFields = ["quantity", "unit", "expiresAt", "location", "lotCode", "openedAt", "reorderPoint"];
       if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
       if (!Object.keys(body).length) return fail(res, 400, "VALIDATION_ERROR", "At least one field is required.", ctx.requestId);
       if (body.quantity !== undefined && positiveQuantity(body.quantity) === undefined) return fail(res, 400, "VALIDATION_ERROR", "quantity must be positive.", ctx.requestId);
@@ -356,6 +356,7 @@ const server = createServer(async (req, res) => {
       if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
+      if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -374,7 +375,8 @@ const server = createServer(async (req, res) => {
         if (body.expiresAt !== undefined) add(`expires_at=$${values.length + 1}`, body.expiresAt === null ? null : new Date(String(body.expiresAt)));
         if (body.location !== undefined) add(`location=$${values.length + 1}`, body.location ?? null);
         if (body.lotCode !== undefined) add(`lot_code=$${values.length + 1}`, body.lotCode ?? null);
-        if (body.openedAt !== undefined) add(`opened_at=$${values.length + 1}`, body.openedAt === null ? null : new Date(String(body.openedAt)));
+        if (body.openedAt !== undefined) add(`opened_at=${values.length + 1}`, body.openedAt === null ? null : new Date(String(body.openedAt)));
+        if (body.reorderPoint !== undefined) add(`reorder_point=${values.length + 1}`, body.reorderPoint === null ? null : Number(body.reorderPoint));
         fields.push(`version=version+1`, "updated_at=now()");
         values.push(itemMatch[1], ctx.familyId);
         const updated = await client.query(`UPDATE pantry_items SET ${fields.join(",")} WHERE id=$${values.length - 1} AND family_id=$${values.length} RETURNING *`, values);
