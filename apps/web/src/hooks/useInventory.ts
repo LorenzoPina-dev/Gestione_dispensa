@@ -5,6 +5,7 @@ import { ApiError, isBackendUnreachable } from "../api/client";
 import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
 import { mapStockItemDtoToUi } from "../api/mappers";
 import { reportSyncIssue } from "../lib/syncBus";
+import { invalidateCached } from "../api/screenCache";
 import {
   beginInventoryAction,
   resolveInventoryResult,
@@ -303,6 +304,9 @@ async function syncMovement(
       unit: normalizeUnit(unit),
       occurredAt: new Date().toISOString(),
     });
+    if (kind === "CONSUMPTION") {
+      invalidateCached(`screen:nutrienti:${familyId}`);
+    }
     journey = resolveInventoryResult(journey, "SUCCESS");
   } catch (err) {
     journey = resolveInventoryResult(
