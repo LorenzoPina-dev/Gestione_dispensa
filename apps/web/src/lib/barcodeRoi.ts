@@ -1,4 +1,4 @@
-import type { BarcodeLocalization, CropRect } from "./barcodePreprocess.js";
+import type { CropRect } from "./barcodePreprocess.js";
 
 export type BarcodeRoi = {
   crop: CropRect;
@@ -13,6 +13,7 @@ export type BarcodeRoiDetector = (
 ) => Promise<BarcodeRoi | null>;
 
 let customDetector: BarcodeRoiDetector | null = null;
+const roiCache = new WeakMap<object, { at: number; roi: BarcodeRoi }>();
 
 /**
  * Injection point for the production detector.
@@ -48,25 +49,6 @@ function viewfinderCrop(srcW: number, srcH: number): CropRect {
     height,
   };
 }
-
-function acquireProbeCanvas(srcW: number, srcH: number): HTMLCanvasElement {
-  const maxDimension = 960;
-  const scale = Math.min(1, maxDimension / Math.max(srcW, srcH));
-  const width = Math.max(1, Math.round(srcW * scale));
-  const height = Math.max(1, Math.round(srcH * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return canvas;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(sourcePlaceholder, 0, 0);
-  return canvas;
-}
-
-// Kept as a tiny indirection so the browser-specific code below stays type-safe.
-const sourcePlaceholder = {} as CanvasImageSource;
 
 function nativeFormatsDetector(): {
   detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string; boundingBox?: DOMRectReadOnly }>>;
@@ -148,15 +130,22 @@ export async function detectBarcodeRoi(
   srcH: number,
   options: { fallbackCrop?: CropRect } = {},
 ): Promise<BarcodeRoi> {
+  const cacheKey = source as object;
+  const cached = roiCache.get(cacheKey);
+  const now = performance.now();
+  if (cached && now - cached.at < 250) return cached.roi;
+
   if (customDetector) {
     try {
       const detected = await customDetector(source, srcW, srcH);
       if (detected && detected.confidence >= 0.5) {
-        return {
+        const roi = {
           ...detected,
           crop: clampCrop(detected.crop, srcW, srcH),
-          source: "roi-detector",
+          source: "roi-detector" as const,
         };
+        roiCache.set(cacheKey, { at: performance.now(), roi });
+        return roi;
       }
     } catch {
       // Fall through to the browser/native detector.
@@ -164,19 +153,16 @@ export async function detectBarcodeRoi(
   }
 
   const native = await detectNativeRoi(source, srcW, srcH);
-  if (native) return native;
+  if (native) {
+    roiCache.set(cacheKey, { at: performance.now(), roi: native });
+    return native;
+  }
 
-  return {
+  const fallback: BarcodeRoi = {
     crop: clampCrop(options.fallbackCrop ?? viewfinderCrop(srcW, srcH), srcW, srcH),
     confidence: 0.5,
     source: "viewfinder",
   };
-}
-
-export function localizationFromRoi(roi: BarcodeRoi): BarcodeLocalization {
-  return {
-    crop: roi.crop,
-    confidence: roi.confidence,
-    source: roi.source,
-  };
+  roiCache.set(cacheKey, { at: performance.now(), roi: fallback });
+  return fallback;
 }
