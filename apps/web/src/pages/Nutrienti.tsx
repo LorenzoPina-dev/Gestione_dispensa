@@ -69,6 +69,25 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
 
   const macroTotal = totals.protein * 4 + totals.carbs * 4 + totals.fat * 9;
 
+  const weeklyDays = useMemo(() => {
+    if (period !== "settimana") return [];
+    const byDay = new Map<string, { calories: number; protein: number; carbs: number; fat: number; fiber: number }>();
+    for (const item of summary?.items ?? []) {
+      const date = item.occurredAt.slice(0, 10);
+      const current = byDay.get(date) ?? { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+      current.calories += item.nutrients.calories;
+      current.protein += item.nutrients.protein;
+      current.carbs += item.nutrients.carbs;
+      current.fat += item.nutrients.fat;
+      current.fiber += item.nutrients.fiber;
+      byDay.set(date, current);
+    }
+    return [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([date, values]) => ({
+      date,
+      ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Math.round(value * 100) / 100])),
+    }));
+  }, [period, summary]);
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -95,6 +114,7 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
           { label: "Proteine", value: Math.round(totals.protein), unit: "g", color: colors.sage, bg: colors.sageLight },
           { label: "Carboidrati", value: Math.round(totals.carbs), unit: "g", color: colors.expiring, bg: colors.amberLight },
           { label: "Grassi", value: Math.round(totals.fat), unit: "g", color: colors.inkMuted, bg: colors.creamDark },
+          { label: "Fibre", value: Math.round(totals.fiber), unit: "g", color: colors.sageDark, bg: colors.sageLight },
         ].map((s) => (
           <div key={s.label} className="rounded-2xl p-5" style={{ backgroundColor: s.bg }}>
             <p className="text-xs font-medium" style={{ color: s.color }}>{s.label}</p>
@@ -103,6 +123,34 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
           </div>
         ))}
       </div>
+
+      {period === "settimana" && (
+        <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+          <SectionHeading>Andamento giornaliero</SectionHeading>
+          {weeklyDays.length === 0 ? (
+            <p className="text-sm text-center py-3" style={{ color: colors.inkMuted }}>Nessun consumo registrato negli ultimi 7 giorni.</p>
+          ) : (
+            <div className="space-y-2">
+              {weeklyDays.map((day) => (
+                <div key={day.date} className="rounded-xl px-3 py-3" style={{ backgroundColor: colors.cream }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold" style={{ color: colors.ink }}>
+                      {new Intl.DateTimeFormat("it-IT", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${day.date}T12:00:00`))}
+                    </span>
+                    <span className="text-xs font-semibold" style={{ color: colors.terracotta }}>{Math.round(day.calories)} kcal</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-[10px]" style={{ color: colors.inkMuted }}>
+                    <span>Prot. <b style={{ color: colors.ink }}>{Math.round(day.protein)}g</b></span>
+                    <span>Carb. <b style={{ color: colors.ink }}>{Math.round(day.carbs)}g</b></span>
+                    <span>Grassi <b style={{ color: colors.ink }}>{Math.round(day.fat)}g</b></span>
+                    <span>Fibre <b style={{ color: colors.ink }}>{Math.round(day.fiber)}g</b></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Macro distribution */}
       <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
