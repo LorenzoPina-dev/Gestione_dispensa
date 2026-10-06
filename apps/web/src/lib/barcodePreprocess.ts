@@ -551,8 +551,8 @@ async function decodeVariantWithScanlines(
   geometry: PreprocessGeometry,
   variant: PreprocessVariant,
   localization: BarcodeLocalization,
+  lines: readonly ScanlineSpec[],
 ): Promise<BarcodeHit[]> {
-  const lines = buildBarcodeScanlines(14);
   const strip = acquireCanvas(`scanline-${variant}`, canvas.width, 32);
   const sourceCtx = canvas.getContext("2d", { willReadFrequently: true });
   if (!sourceCtx) return [];
@@ -668,48 +668,72 @@ export async function detectBarcodes(
   if (!reader) return [];
 
   const maxDimension = opts.maxDimension ?? 1440;
-  const variants = opts.variants ?? PREPROCESS_VARIANTS;
   const localization = opts.localization ?? await detectBarcodeRoi(source, srcW, srcH, {
     fallbackCrop: opts.crop ?? computeViewfinderCrop(srcW, srcH),
   });
   const crop = addPadding(localization.crop, srcW, srcH, 0.08);
+  const lines = buildBarcodeScanlines(14);
   const hits: BarcodeHit[] = [];
 
-  for (const variant of variants) {
-    const geometry = getPreprocessGeometry(srcW, srcH, variant, { maxDimension, crop });
-    const canvas = preprocessToCanvas(source, srcW, srcH, variant, { maxDimension, crop });
+  // Keep the total number of ZXing calls bounded. The first pass uses 14 scanlines
+  // distributed over four useful image variants; expensive fallback variants are only
+  // evaluated when the first pass produced no valid candidate.
+  const primaryPlan: ReadonlyArray<{ variant: PreprocessVariant; lines: readonly ScanlineSpec[] }> = [
+    { variant: "raw", lines: lines.slice(0, 6) },
+    { variant: "clahe", lines: lines.slice(6, 10) },
+    { variant: "upscaled", lines: lines.slice(10, 12) },
+    { variant: "sauvola", lines: lines.slice(12, 14) },
+  ];
 
-    if (!["raw", "clahe", "sauvola", "upscaled", "equalized", "bradley"].includes(variant)) {
-      continue;
-    }
-
-    hits.push(...await decodeVariantWithScanlines(
-      reader,
-      canvas,
-      geometry,
-      variant,
-      localization,
-    ));
+  for (const stage of primaryPlan) {
+    const geometry = getPreprocessGeometry(srcW, srcH, stage.variant, { maxDimension, crop });
+    const canvas = preprocessToCanvas(source, srcW, srcH, stage.variant, { maxDimension, crop });
+    hits.push(
+      ...await decodeVariantWithScanlines(
+        reader,
+        canvas,
+        geometry,
+        stage.variant,
+        localization,
+        stage.lines,
+      ),
+    );
 
     const ranked = rankBarcodeHits(hits, srcW, srcH, crop);
     if (
       ranked.some(
         (hit) =>
           hit.validated &&
-          (hit.supportCount ?? 0) >= 3 &&
-          (hit.decoderSupport ?? 0) >= 1,
+          (hit.supportCount ?? 0) >= 3,
       )
     ) {
       return ranked;
     }
   }
 
-  const ranked = rankBarcodeHits(hits, srcW, srcH, crop);
-  if (ranked.length > 0) return ranked;
+  const fallbackPlan: ReadonlyArray<{ variant: PreprocessVariant; lines: readonly ScanlineSpec[] }> = [
+    { variant: "equalized", lines: lines.slice(0, 3) },
+    { variant: "bradley", lines: lines.slice(5, 8) },
+  ];
 
-  // Last-resort viewfinder pass. It is deliberately axis-aligned and carries no
-  // orientation/perspective transform, so a straight barcode can never be rotated
-  // by the ROI stage.
+  for (const stage of fallbackPlan) {
+    const geometry = getPreprocessGeometry(srcW, srcH, stage.variant, { maxDimension, crop });
+    const canvas = preprocessToCanvas(source, srcW, srcH, stage.variant, { maxDimension, crop });
+    hits.push(
+      ...await decodeVariantWithScanlines(
+        reader,
+        canvas,
+        geometry,
+        stage.variant,
+        localization,
+        stage.lines,
+      ),
+    );
+
+    const ranked = rankBarcodeHits(hits, srcW, srcH, crop);
+    if (ranked.length > 0) return ranked;
+  }
+
   if (!opts.fallbackFullFrame && localization.source !== "viewfinder") {
     return detectBarcodes(source, srcW, srcH, {
       ...opts,
@@ -722,7 +746,7 @@ export async function detectBarcodes(
     });
   }
 
-  return [];
+  return rankBarcodeHits(hits, srcW, srcH, crop);
 }
 
 export async function detectBestBarcode(
