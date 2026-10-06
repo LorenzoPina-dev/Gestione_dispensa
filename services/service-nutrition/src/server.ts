@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
-import { loadNutritionSnapshot, nutrientMultiplier } from "./catalog-client.js";
+import { consumedGramsForQuantity, loadNutritionSnapshot, nutrientMultiplier } from "./catalog-client.js";
 import { isDiarySource, isDiaryUnit, isNonNegativeNumber, isPositiveNumber, isSummaryPeriod, validIfMatch } from "./validation.js";
 
 const app = express();
@@ -149,6 +149,7 @@ app.get("/api/v1/nutrition/diary", async(req,res)=>{
 });
 
 app.post("/api/v1/nutrition/diary", async(req,res)=>{
+
   const userId=actor(req),idempotencyKey=key(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
   const body=req.body as Body;const quantity=body.quantity;
   if(Object.keys(body).some((field)=>!["date","meal","productId","quantity","unit"].includes(field)))return fail(res,400,"VALIDATION_ERROR","Only date, meal, productId, quantity and unit are accepted.");
@@ -172,20 +173,66 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
   const period=String(req.query.period??"today");
   if(!isSummaryPeriod(period))return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
   const days=period==="today"?0:6;
-  const q=await pool.query("select quantity,unit,nutrition_snapshot from nutrition_domain.diary_entries where user_id=$1 and date between current_date-$2::integer and current_date",[userId,days]);
+  const q=await pool.query(
+    `select id,date,meal,product_id,quantity,unit,occurred_at,created_at,nutrition_snapshot
+       from nutrition_domain.diary_entries
+      where user_id=$1 and date between current_date-$2::integer and current_date
+      order by date desc,occurred_at desc,created_at desc`,
+    [userId,days],
+  );
   let caloriesKcal=0,proteinG=0,carbsG=0,fatG=0,fiberG=0;
+  const items:Array<Record<string,unknown>>=[];
   for(const row of q.rows){
-    const snapshot=typeof row.nutrition_snapshot==="object"&&row.nutrition_snapshot!==null?row.nutrition_snapshot as Record<string,unknown>:null;
+    const snapshot=typeof row.nutrition_snapshot==="object"&&row.nutrition_snapshot!==null
+      ? row.nutrition_snapshot as Record<string,unknown>
+      : null;
     if(!snapshot)continue;
-    const multiplier=nutrientMultiplier(Number(row.quantity),String(row.unit));
-    caloriesKcal+=Number(snapshot.caloriesKcalPer100g??0)*multiplier;
-    proteinG+=Number(snapshot.proteinGPer100g??0)*multiplier;
-    carbsG+=Number(snapshot.carbsGPer100g??0)*multiplier;
-    fatG+=Number(snapshot.fatGPer100g??0)*multiplier;
-    fiberG+=Number(snapshot.fiberGPer100g??0)*multiplier;
+    const quantity=Number(row.quantity);
+    const unit=String(row.unit);
+    const grams=consumedGramsForQuantity(quantity,unit,snapshot as never);
+    const multiplier=grams == null ? nutrientMultiplier(quantity,unit) : grams/100;
+    const values={
+      calories:Number(snapshot.caloriesKcalPer100g??0)*multiplier,
+      protein:Number(snapshot.proteinGPer100g??0)*multiplier,
+      carbs:Number(snapshot.carbsGPer100g??0)*multiplier,
+      fat:Number(snapshot.fatGPer100g??0)*multiplier,
+      fiber:Number(snapshot.fiberGPer100g??0)*multiplier,
+    };
+    caloriesKcal+=values.calories; proteinG+=values.protein; carbsG+=values.carbs; fatG+=values.fat; fiberG+=values.fiber;
+    items.push({
+      movementId:String(row.id),
+      productId:String(row.product_id),
+      productName:String(snapshot.productName??row.product_id),
+      brand:snapshot.brand??null,
+      quantity,
+      unit,
+      meal:String(row.meal),
+      date:String(row.date),
+      occurredAt:new Date(row.occurred_at??row.created_at).toISOString(),
+      nutrients:{
+        calories:Number(values.calories.toFixed(2)),
+        protein:Number(values.protein.toFixed(2)),
+        carbs:Number(values.carbs.toFixed(2)),
+        fat:Number(values.fat.toFixed(2)),
+        fiber:Number(values.fiber.toFixed(2)),
+      },
+      confidence:String(snapshot.confidence??"UNKNOWN"),
+    });
   }
   const round=(value:number)=>Number(value.toFixed(2));
-  return res.json({data:{caloriesKcal:round(caloriesKcal),proteinG:round(proteinG),carbsG:round(carbsG),fatG:round(fatG),period,totals:{calories:round(caloriesKcal),protein:round(proteinG),carbs:round(carbsG),fat:round(fatG),fiber:round(fiberG)}}});
+  const totals={calories:round(caloriesKcal),protein:round(proteinG),carbs:round(carbsG),fat:round(fatG),fiber:round(fiberG)};
+  return res.json({
+    data:{
+      caloriesKcal:totals.calories,
+      proteinG:totals.protein,
+      carbsG:totals.carbs,
+      fatG:totals.fat,
+      period,
+      since:period==="today" ? new Date().toISOString().slice(0,10) : new Date(Date.now()-6*86400000).toISOString().slice(0,10),
+      totals,
+      items,
+    },
+  });
 });
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
