@@ -754,11 +754,14 @@ function barcodeGeometryConfidence(input: {
   bottomWidth?: number;
   topCenter?: number;
   bottomCenter?: number;
+  referenceCenter?: number;
 }): number {
   const width = Math.max(1, input.width);
   const height = Math.max(1, input.height);
   const aspectRatio = width / height;
-  const aspectScore = Math.max(0, Math.min(1, (aspectRatio - 2) / 5));
+  // EAN/UPC bars are typically wider than tall, but we do not impose an aggressive
+  // minimum because perspective and camera framing can legitimately reduce the ratio.
+  const aspectScore = Math.max(0, Math.min(1, (aspectRatio - 1.4) / 4.5));
 
   if (
     input.topWidth == null ||
@@ -766,22 +769,31 @@ function barcodeGeometryConfidence(input: {
     input.topCenter == null ||
     input.bottomCenter == null
   ) {
-    return 0.42 * aspectScore + 0.58 * 0.55;
+    return 0.55 * aspectScore + 0.45 * 0.55;
   }
 
   const topWidth = Math.max(1, input.topWidth);
   const bottomWidth = Math.max(1, input.bottomWidth);
   const widthConsistency = Math.min(topWidth, bottomWidth) / Math.max(topWidth, bottomWidth);
   const centerOffset = Math.abs(input.topCenter - input.bottomCenter) / width;
-  const centerConsistency = Math.max(0, Math.min(1, 1 - centerOffset / 0.28));
+  const centerConsistency = Math.max(0, Math.min(1, 1 - centerOffset / 0.22));
+
+  const candidateCenter = (input.topCenter + input.bottomCenter) / 2;
+  const referenceCenter = input.referenceCenter ?? candidateCenter;
+  const referenceOffset = Math.abs(candidateCenter - referenceCenter) / width;
+  const referenceConsistency = Math.max(
+    0,
+    Math.min(1, 1 - referenceOffset / 0.18),
+  );
 
   return Math.max(
     0,
     Math.min(
       1,
-      0.42 * aspectScore +
-        0.33 * widthConsistency +
-        0.25 * centerConsistency,
+      0.36 * aspectScore +
+        0.27 * widthConsistency +
+        0.19 * centerConsistency +
+        0.18 * referenceConsistency,
     ),
   );
 }
@@ -1019,8 +1031,8 @@ export function localizeBarcode(
   const compactness = Math.max(0, Math.min(1, 1 - candidateAreaFraction / 0.72));
   // Initial geometry is built before rotation. It is intentionally tight; the old
   // 22%/65% padding made the visual hitbox much larger than the actual bars.
-  const padX = Math.max(12, Math.round(xBandWidth * 0.12));
-  const padY = Math.max(12, Math.round(bandHeight * 0.36));
+  const padX = Math.max(12, Math.round(xBandWidth * 0.10));
+  const padY = Math.max(10, Math.round(bandHeight * 0.24));
   const x0 = Math.max(0, xBand.start - padX);
   const x1 = Math.min(w - 1, xBand.end + padX);
   const y0 = Math.max(0, yBand.start - padY);
@@ -1068,17 +1080,43 @@ export function localizeBarcode(
     ? Math.ceil(Math.min(w - 1, bottomBand.end + padX + 1) * inv)
     : sourceX1 + 1;
 
+  const referenceCenterSource = xBandCenterSource;
+  const maxCenterShift = Math.max(8, Math.max(topX1 - topX0, bottomX1 - bottomX0) * 0.12);
+  const clampHorizontalBand = (left: number, right: number): { left: number; right: number } => {
+    const width = Math.max(1, right - left);
+    const center = (left + right) / 2;
+    const delta = center - referenceCenterSource;
+    const shift = Math.max(-maxCenterShift, Math.min(maxCenterShift, delta));
+    let nextLeft = left - shift;
+    let nextRight = right - shift;
+    if (nextLeft < 0) {
+      nextRight -= nextLeft;
+      nextLeft = 0;
+    }
+    if (nextRight > srcW) {
+      nextLeft -= nextRight - srcW;
+      nextRight = srcW;
+    }
+    return {
+      left: Math.max(0, nextLeft),
+      right: Math.min(srcW, Math.max(nextLeft + width, nextRight)),
+    };
+  };
+  const topClamped = clampHorizontalBand(Math.max(0, topX0), Math.min(srcW, topX1));
+  const bottomClamped = clampHorizontalBand(Math.max(0, bottomX0), Math.min(srcW, bottomX1));
+
   const baseQuad: BarcodeQuadrilateral = {
-    topLeft: { x: Math.max(0, topX0), y: Math.max(0, sourceY0) },
-    topRight: { x: Math.min(srcW, topX1), y: Math.max(0, sourceY0) },
-    bottomRight: { x: Math.min(srcW, bottomX1), y: Math.min(srcH, sourceY1 + 1) },
-    bottomLeft: { x: Math.max(0, bottomX0), y: Math.min(srcH, sourceY1 + 1) },
+    topLeft: { x: topClamped.left, y: Math.max(0, sourceY0) },
+    topRight: { x: topClamped.right, y: Math.max(0, sourceY0) },
+    bottomRight: { x: bottomClamped.right, y: Math.min(srcH, sourceY1 + 1) },
+    bottomLeft: { x: bottomClamped.left, y: Math.min(srcH, sourceY1 + 1) },
   };
 
   const topWidth = Math.abs(baseQuad.topRight.x - baseQuad.topLeft.x);
   const bottomWidth = Math.abs(baseQuad.bottomRight.x - baseQuad.bottomLeft.x);
   const topCenter = (baseQuad.topLeft.x + baseQuad.topRight.x) / 2;
   const bottomCenter = (baseQuad.bottomLeft.x + baseQuad.bottomRight.x) / 2;
+  const xBandCenterSource = ((xBand.start + xBand.end + 1) / 2) * inv;
   const geometryConfidence = barcodeGeometryConfidence({
     width: Math.max(topWidth, bottomWidth),
     height: Math.max(1, baseQuad.bottomLeft.y - baseQuad.topLeft.y),
@@ -1086,6 +1124,7 @@ export function localizeBarcode(
     bottomWidth: bottomBand ? bottomWidth : undefined,
     topCenter: topBand ? topCenter : undefined,
     bottomCenter: bottomBand ? bottomCenter : undefined,
+    referenceCenter: xBandCenterSource,
   });
 
   let confidence = Math.max(
