@@ -735,6 +735,8 @@ export interface BarcodeLocalization {
   quadrilateral: BarcodeQuadrilateral;
   /** Rotation actually applied to the rectification geometry, in radians. */
   rotation: number;
+  /** Raw orientation estimate retained for a recovery pass; never applied blindly. */
+  suggestedRotation: number;
   /** Overall confidence that the detected region is a barcode candidate. */
   confidence: number;
   /** Confidence that the estimated bar orientation is reliable enough to rotate. */
