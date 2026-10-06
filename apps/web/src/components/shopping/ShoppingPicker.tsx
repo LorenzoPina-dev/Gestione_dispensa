@@ -169,8 +169,26 @@ function SuggestionList({
             <RowList>
               {rows.map((s, i) => (
                 <Row key={s.key} index={i} last={i === rows.length - 1}>
+                  {s.imageUrl ? (
+                    <img
+                      src={s.imageUrl}
+                      alt=""
+                      loading="lazy"
+                      className="w-12 h-12 rounded-lg object-contain bg-white border shrink-0"
+                    />
+                  ) : (
+                    <div
+                      className="w-12 h-12 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: colors.cream }}
+                    >
+                      🍽️
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate" style={{ color: colors.ink }}>{s.label}</p>
+                    <p className="text-[11px] truncate" style={{ color: colors.inkMuted }}>
+                      {[s.brand, s.packageLabel].filter(Boolean).join(" · ") || "Dettagli"}
+                    </p>
                     <p className="text-[11px] truncate" style={{ color: colors.inkMuted }}>
                       {formatQuantity(s.quantity)} {formatUnit(s.unit)} · {s.reason}
                     </p>
