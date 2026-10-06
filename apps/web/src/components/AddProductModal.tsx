@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
-import { computeViewfinderCrop, detectBarcodeRoi, detectBestBarcode, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
+import { canApplyBarcodeGeometry, computeViewfinderCrop, detectBestBarcode, getBarcodeLocalization, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
 import { analyzeBarcodeFrame } from "../lib/barcodeQuality";
 import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityResult } from "../domain/barcode-scanner.js";
 import { normalizeProductBarcode, productBarcodePriority } from "../domain/barcode.js";
@@ -139,6 +139,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const zoomBoostedRef = useRef(false);
   const expandedViewfinderRef = useRef(false);
   const preprocessPreviewCanvasRefs = useRef<Partial<Record<PreprocessVariant, HTMLCanvasElement | null>>>({});
+  const rectifiedPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewTimerRef = useRef<number | null>(null);
 
   const [state, setState] = useState<BarcodeState>("IDLE");
@@ -157,6 +158,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [showPreprocessPreview, setShowPreprocessPreview] = useState(true);
   const [previewUpdatedAt, setPreviewUpdatedAt] = useState(0);
   const [localization, setLocalization] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null);
+  const [geometryStatus, setGeometryStatus] = useState<{ reliable: boolean; rotation: number; orientationConfidence: number; geometryConfidence: number } | null>(null);
   const previewVariants: readonly PreprocessVariant[] = ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"];
 
   const stopCamera = useCallback(() => {
@@ -184,6 +186,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
     previewTimerRef.current = null;
     setPreviewUpdatedAt(0);
+    setGeometryStatus(null);
     setScannerPhase("IDLE");
   }, []);
 
@@ -377,18 +380,21 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
     try {
       const cropMode = expandedViewfinderRef.current ? "expanded" : "standard";
-      const activeCrop = computeViewfinderCrop(
-        video.videoWidth,
-        video.videoHeight,
-        cropMode,
-      );
-      setLocalization({ ...activeCrop, confidence: 0.5 });
-
+      const localized = getBarcodeLocalization(video, video.videoWidth, video.videoHeight);
+      const geometryReliable = canApplyBarcodeGeometry(localized);
+      setLocalization(localized.confidence >= 0.42 ? { ...localized.crop, confidence: localized.confidence } : null);
+      setGeometryStatus({
+        reliable: geometryReliable,
+        rotation: localized.rotation,
+        orientationConfidence: localized.orientationConfidence,
+        geometryConfidence: localized.geometryConfidence,
+      });
+      const crop = localized.confidence >= 0.42 ? localized.crop : computeViewfinderCrop(video.videoWidth, video.videoHeight, cropMode);
       const sample = analyzeBarcodeFrame(
         video,
         video.videoWidth,
         video.videoHeight,
-        activeCrop,
+        crop,
         previousFingerprintRef.current,
       );
 
@@ -398,7 +404,241 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         setScannerPhase("QUALITY_CHECK");
       }
 
-             if (stoppedRef.current) return;
+      const metrics = sample?.metrics;
+      if (metrics) {
+        if (metrics.quality === "poor") poorFrameCountRef.current++;
+        else poorFrameCountRef.current = 0;
+
+        setScannerMessage(qualityMessage(metrics, goodNoHitFramesRef.current));
+
+        if (
+          metrics.quality === "poor" &&
+          poorFrameCountRef.current >= 4 &&
+          performance.now() - lastRecoveryAtRef.current >= 1800
+        ) {
+          await recoverCamera(track);
+          return;
+        }
+
+        // Motion-heavy frames are not useful for a decoder. For other poor frames
+        // we still sample every third frame because thresholding can recover glare.
+        if (
+          metrics.quality === "poor" &&
+          (metrics.motion > 0.28 || poorFrameCountRef.current % 3 !== 0)
+        ) {
+          return;
+        }
+      }
+
+      setScannerPhase("DECODING");
+      const quality = metrics?.quality ?? "usable";
+      const variants: readonly PreprocessVariant[] =
+        quality === "good"
+          ? ["raw", "equalized", "clahe", "upscaled"]
+          : quality === "usable"
+            ? ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"]
+            : ["raw", "upscaled", "clahe", "sauvola", "bradley", "equalized"];
+      const activeCrop = localized.confidence >= 0.42
+        ? localized.crop
+        : computeViewfinderCrop(video.videoWidth, video.videoHeight, expandedViewfinderRef.current ? "expanded" : "standard");
+
+      const hit = await detectBestBarcode(
+        video,
+        video.videoWidth,
+        video.videoHeight,
+        {
+          maxDimension: Math.min(1440, Math.max(video.videoWidth, video.videoHeight)),
+          crop: activeCrop,
+          variants,
+          localization: localized,
+        },
+      );
+
+      if (stoppedRef.current) return;
+
+      if (!hit) {
+        if (metrics?.quality === "good") {
+          goodNoHitFramesRef.current++;
+          if (goodNoHitFramesRef.current === 5) {
+            expandedViewfinderRef.current = true;
+            setExpandedViewfinder(true);
+          } else if (
+            goodNoHitFramesRef.current >= 9 &&
+            !zoomBoostedRef.current
+          ) {
+            const diagnostics = await increaseBarcodeZoom(track);
+            // Mark the recovery as attempted even when the device is already at max zoom,
+            // otherwise the same constraint call would be repeated on every frame.
+            zoomBoostedRef.current = true;
+            setCameraDiagnostics(diagnostics);
+          }
+        } else {
+          goodNoHitFramesRef.current = 0;
+        }
+        setScannerPhase("QUALITY_CHECK");
+        return;
+      }
+
+      goodNoHitFramesRef.current = 0;
+      const normalized = normalizeProductBarcode(hit.rawValue);
+      if (!normalized) {
+        consensusRef.current = [];
+        setScannerPhase("QUALITY_CHECK");
+        return;
+      }
+
+      const validated = /^[0-9]+$/.test(normalized) && normalized.length >= 8
+        ? hit.validated
+        : false;
+      const observation = {
+        value: normalized,
+        ...(hit.center ? { center: hit.center } : {}),
+        ...(hit.bounds ? { bounds: hit.bounds } : {}),
+      };
+
+      setScannerPhase("VERIFYING");
+      const nowVote = performance.now();
+      const windowMs = 2400;
+      const activeVotes = consensusRef.current.filter((vote) => nowVote - vote.at <= windowMs);
+      const nextVotes = [...activeVotes, { value: normalized, hit, at: nowVote }].slice(-12);
+      consensusRef.current = nextVotes;
+
+      const groups = new Map<string, {
+        votes: TemporalBarcodeVote[];
+        count: number;
+        best: BarcodeHit;
+        decoders: Set<string>;
+        variants: Set<string>;
+      }>();
+      for (const vote of nextVotes) {
+        const group = groups.get(vote.value);
+        if (!group) {
+          groups.set(vote.value, {
+            votes: [vote],
+            count: 1,
+            best: vote.hit,
+            decoders: new Set([vote.hit.decoder]),
+            variants: new Set([vote.hit.variant]),
+          });
+          continue;
+        }
+        group.votes.push(vote);
+        group.count += 1;
+        group.decoders.add(vote.hit.decoder);
+        group.variants.add(vote.hit.variant);
+        if (
+          (vote.hit.validated && !group.best.validated) ||
+          (vote.hit.supportCount ?? 0) > (group.best.supportCount ?? 0)
+        ) {
+          group.best = vote.hit;
+        }
+      }
+
+      const ranked = [...groups.entries()].sort((a, b) => {
+        const score = (entry: {
+          count: number;
+          best: BarcodeHit;
+          decoders: Set<string>;
+          variants: Set<string>;
+        }) =>
+          entry.count * 12 +
+          (entry.best.validated ? 100 : 0) +
+          Math.min(24, (entry.best.supportCount ?? 1) * 6) +
+          entry.decoders.size * 10 +
+          entry.variants.size * 3 +
+          (entry.best.localizationConfidence ?? 0) * 15 +
+          productBarcodePriority(entry.best.rawValue) / 5;
+        return score(b[1]) - score(a[1]);
+      });
+
+      const winner = ranked[0]?.[1];
+      if (winner) {
+        const first = winner.votes[0];
+        const spatialCount = first
+          ? winner.votes.filter((vote) =>
+              barcodeObservationsAgree(
+                {
+                  value: vote.value,
+                  ...(vote.hit.center ? { center: vote.hit.center } : {}),
+                  ...(vote.hit.bounds ? { bounds: vote.hit.bounds } : {}),
+                },
+                {
+                  value: first.value,
+                  ...(first.hit.center ? { center: first.hit.center } : {}),
+                  ...(first.hit.bounds ? { bounds: first.hit.bounds } : {}),
+                },
+                video.videoWidth,
+                video.videoHeight,
+              ),
+            ).length
+          : 0;
+        const required = consensusRequiredFrames(winner.best.validated, quality);
+        const corroborated =
+          winner.decoders.size >= 2 ||
+          winner.variants.size >= 2 ||
+          (winner.best.supportCount ?? 0) >= 2;
+
+        if (
+          winner.best.validated &&
+          winner.count >= required &&
+          spatialCount >= Math.max(2, required - 1) &&
+          (corroborated || winner.count >= required + 1)
+        ) {
+          const found = winner.best.rawValue;
+          setScannerMessage("Barcode verificato. Cerco il prodotto…");
+          stopCamera();
+          await resolve(found);
+          return;
+        }
+      }
+    } catch {
+      // Camera decoding is best-effort; acquisition remains alive.
+    } finally {
+      scanBusyRef.current = false;
+      if (!stoppedRef.current) scheduleScan();
+    }
+  }
+
+  function scheduleScan() {
+    if (stoppedRef.current) return;
+    const video = videoRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: (now: number, metadata: unknown) => number | void) => number;
+    }) | null;
+    if (!video) return;
+
+    if (video.requestVideoFrameCallback) {
+      frameRequestRef.current = video.requestVideoFrameCallback(() => {
+        void scanFrame();
+      });
+      return;
+    }
+
+    timerRef.current = window.setTimeout(() => {
+      void scanFrame();
+    }, 90);
+  }
+
+  async function startCamera() {
+    setState("SCANNING");
+    setScannerPhase("INITIALIZING");
+    setScannerMessage("Apro la fotocamera…");
+    setError(null);
+    stoppedRef.current = false;
+    setCameraDiagnostics(null);
+    setFrameQuality(null);
+
+    try {
+      const { stream, track, diagnostics } = await openBarcodeCamera();
+      if (stoppedRef.current) {
+        stream.getTracks().forEach((item) => item.stop());
+        return;
+      }
+
+      streamRef.current = stream;
+      setCameraDiagnostics(diagnostics);
+
+      track.addEventListener("ended", () => {
+        if (stoppedRef.current) return;
         stopCamera();
         setError("La fotocamera si è disconnessa. Riavvia la scansione.");
         setState("IDLE");
