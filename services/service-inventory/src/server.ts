@@ -607,6 +607,8 @@ const server = createServer(async (req, res) => {
               productId: String(row.product_id),
               quantity: Number(quantity),
               unit: String(row.unit),
+              source: "inventory",
+              sourceMovementId: movementId,
             }),
             signal: AbortSignal.timeout(5000),
           });
