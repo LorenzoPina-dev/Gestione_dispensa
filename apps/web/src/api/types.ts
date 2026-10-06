@@ -125,43 +125,43 @@ export interface StoreOfferDto { offerId: string; productId: string; storeId: st
 export interface CatalogProductRefDto {
   productId: string;
   name: string;
-  brand?: string | null;
-  category?: string | null;
-  imageObjectKey?: string | null;
-  nutrition?: {
+  brand: string | null;
+  category: string | null;
+  imageObjectKey: string | null;
+  nutrition: {
     kcalPer100g: number | null;
     proteinGPer100g: number | null;
     carbsGPer100g: number | null;
     fatGPer100g: number | null;
     fiberGPer100g: number | null;
   };
-  package?: {
+  package: {
     value: number | null;
     unit: string | null;
     label: string | null;
   };
-  serving?: {
+  serving: {
     size: string | null;
     quantity: number | null;
     unit: string | null;
   };
-  images?: ProductImagesDto & {
-    front?: string | null;
-    frontSmall?: string | null;
-    frontThumb?: string | null;
-    ingredients?: string | null;
-    ingredientsSmall?: string | null;
-    ingredientsThumb?: string | null;
-    nutrition?: string | null;
-    nutritionSmall?: string | null;
-    nutritionThumb?: string | null;
-    packaging?: string | null;
-    packagingSmall?: string | null;
-    packagingThumb?: string | null;
+  images: {
+    front: string | null;
+    frontSmall: string | null;
+    frontThumb: string | null;
+    ingredients: string | null;
+    ingredientsSmall: string | null;
+    ingredientsThumb: string | null;
+    nutrition: string | null;
+    nutritionSmall: string | null;
+    nutritionThumb: string | null;
+    packaging: string | null;
+    packagingSmall: string | null;
+    packagingThumb: string | null;
   };
-  openFoodFacts?: Record<string, unknown> | null;
-  source?: { type: string; id: string };
-  version?: number;
+  openFoodFacts: Record<string, unknown> | null;
+  source: { type: string; id: string };
+  version: number;
 }
 export type OcrJobStatus = "queued" | "processing" | "completed" | "needs_review" | "failed" | "cancelled";
 export interface OcrJobDto { jobId: string; status: OcrJobStatus; type: "receipt" | "pantry_image"; progress: number; draftId: string | null; error: string | null; }
