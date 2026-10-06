@@ -122,7 +122,47 @@ export interface RecipeMatchDto { recipe: RecipeDto; score: number; matchedIngre
 export interface NutritionSummaryDto { caloriesKcal?: number; proteinG?: number; carbsG?: number; fatG?: number; period?: "today" | "week"; since?: string; totals?: { calories: number; protein: number; carbs: number; fat: number; fiber: number }; items?: Array<{ movementId: string; productId: string; productName: string; quantity: number; unit: string; occurredAt: string; nutrients: { calories: number; protein: number; carbs: number; fat: number; fiber: number }; confidence: "CONFIRMED" | "ESTIMATED" | "UNKNOWN" }>; }
 export interface StoreDto { storeId: string; name: string; chain: string | null; address: string | null; }
 export interface StoreOfferDto { offerId: string; productId: string; storeId: string; type: "percentage" | "fixed"; value: number; validFrom: string; validTo: string; }
-export interface CatalogProductRefDto { productId: string; name: string; brand?: string | null; category?: string | null; }
+export interface CatalogProductRefDto {
+  productId: string;
+  name: string;
+  brand?: string | null;
+  category?: string | null;
+  imageObjectKey?: string | null;
+  nutrition?: {
+    kcalPer100g: number | null;
+    proteinGPer100g: number | null;
+    carbsGPer100g: number | null;
+    fatGPer100g: number | null;
+    fiberGPer100g: number | null;
+  };
+  package?: {
+    value: number | null;
+    unit: string | null;
+    label: string | null;
+  };
+  serving?: {
+    size: string | null;
+    quantity: number | null;
+    unit: string | null;
+  };
+  images?: ProductImagesDto & {
+    front?: string | null;
+    frontSmall?: string | null;
+    frontThumb?: string | null;
+    ingredients?: string | null;
+    ingredientsSmall?: string | null;
+    ingredientsThumb?: string | null;
+    nutrition?: string | null;
+    nutritionSmall?: string | null;
+    nutritionThumb?: string | null;
+    packaging?: string | null;
+    packagingSmall?: string | null;
+    packagingThumb?: string | null;
+  };
+  openFoodFacts?: Record<string, unknown> | null;
+  source?: { type: string; id: string };
+  version?: number;
+}
 export type OcrJobStatus = "queued" | "processing" | "completed" | "needs_review" | "failed" | "cancelled";
 export interface OcrJobDto { jobId: string; status: OcrJobStatus; type: "receipt" | "pantry_image"; progress: number; draftId: string | null; error: string | null; }
 export interface OcrDraftItemDto { name: string; barcode: string | null; quantity: number | null; unit: string | null; priceMinor: number | null; currency: string | null; confidence: number; productId?: string; }
