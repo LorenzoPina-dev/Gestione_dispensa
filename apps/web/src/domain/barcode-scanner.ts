@@ -148,7 +148,17 @@ export type BarcodeConsensusCandidate = BarcodeObservation & {
   validated: boolean;
   priority: number;
   format?: string;
+  localizationConfidence?: number;
+  decoderAgreement?: number;
 };
+
+export function scoreBarcodeCandidate(candidate: BarcodeConsensusCandidate): number {
+  const validation = candidate.validated ? 100 : 0;
+  const priority = Math.min(40, candidate.priority / 10);
+  const localization = Math.max(0, Math.min(20, (candidate.localizationConfidence ?? 0) * 20));
+  const decoderAgreement = Math.max(0, Math.min(20, (candidate.decoderAgreement ?? 0) * 20));
+  return validation + priority + localization + decoderAgreement;
+}
 
 /**
  * Require repeated agreement for difficult frames. A checksum-valid EAN/UPC still
@@ -181,9 +191,9 @@ export function chooseStableBarcodeCandidate(
   }
 
   return [...grouped.values()]
-    .sort((a, b) =>
-      Number(b.candidate.validated) - Number(a.candidate.validated) ||
-      b.count - a.count ||
-      b.priority - a.priority,
-    )[0]?.candidate ?? null;
+    .sort((a, b) => {
+      const scoreA = scoreBarcodeCandidate(a.candidate) + Math.min(20, a.count * 5);
+      const scoreB = scoreBarcodeCandidate(b.candidate) + Math.min(20, b.count * 5);
+      return scoreB - scoreA;
+    })[0]?.candidate ?? null;
 }
