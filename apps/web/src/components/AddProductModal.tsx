@@ -133,7 +133,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const lastRecoveryAtRef = useRef(0);
   const zoomBoostedRef = useRef(false);
   const expandedViewfinderRef = useRef(false);
-  const preprocessPreviewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const preprocessPreviewCanvasRefs = useRef<Partial<Record<PreprocessVariant, HTMLCanvasElement | null>>>({});
   const previewTimerRef = useRef<number | null>(null);
 
   const [state, setState] = useState<BarcodeState>("IDLE");
@@ -150,8 +150,8 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [cameraDiagnostics, setCameraDiagnostics] = useState<CameraDiagnostics | null>(null);
   const [cameraAspectRatio, setCameraAspectRatio] = useState("16/9");
   const [showPreprocessPreview, setShowPreprocessPreview] = useState(true);
-  const [previewVariant, setPreviewVariant] = useState<PreprocessVariant>("clahe");
   const [previewUpdatedAt, setPreviewUpdatedAt] = useState(0);
+  const previewVariants: readonly PreprocessVariant[] = ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"];
 
   const stopCamera = useCallback(() => {
     stoppedRef.current = true;
@@ -271,28 +271,39 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const updatePreprocessPreview = useCallback(() => {
     if (stoppedRef.current || !showPreprocessPreview) return;
     const video = videoRef.current;
-    const output = preprocessPreviewCanvasRef.current;
-    if (!video || !output || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-      previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 250);
+    if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 300);
       return;
     }
     try {
-      const crop = computeViewfinderCrop(video.videoWidth, video.videoHeight, expandedViewfinderRef.current ? "expanded" : "standard");
-      const processed = preprocessToCanvas(video, video.videoWidth, video.videoHeight, previewVariant, { maxDimension: 1000, crop });
-      output.width = processed.width;
-      output.height = processed.height;
-      const ctx = output.getContext("2d");
-      if (ctx) {
+      const crop = computeViewfinderCrop(
+        video.videoWidth,
+        video.videoHeight,
+        expandedViewfinderRef.current ? "expanded" : "standard",
+      );
+      for (const variant of previewVariants) {
+        const output = preprocessPreviewCanvasRefs.current[variant];
+        if (!output) continue;
+        const processed = preprocessToCanvas(video, video.videoWidth, video.videoHeight, variant, {
+          maxDimension: 720,
+          crop,
+        });
+        output.width = processed.width;
+        output.height = processed.height;
+        const ctx = output.getContext("2d");
+        if (!ctx) continue;
         ctx.imageSmoothingEnabled = true;
         ctx.drawImage(processed, 0, 0);
-        setPreviewUpdatedAt(performance.now());
       }
+      setPreviewUpdatedAt(performance.now());
     } catch (err) {
-      console.debug("[barcode] preprocess preview failed", err);
+      console.debug("[barcode] preprocess comparison preview failed", err);
     } finally {
-      if (!stoppedRef.current && showPreprocessPreview) previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 250);
+      if (!stoppedRef.current && showPreprocessPreview) {
+        previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 300);
+      }
     }
-  }, [showPreprocessPreview, previewVariant]);
+  }, [showPreprocessPreview]);
 
   useEffect(() => {
     if (state !== "SCANNING" || !showPreprocessPreview) return;
@@ -631,10 +642,54 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
           <div className="rounded-xl overflow-hidden" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
             <div className="flex items-center justify-between gap-2 px-3 py-2">
-              <div><p className="text-xs font-semibold" style={{ color: "#1a1510" }}>Preview post-preprocessing</p><p className="text-[10px]" style={{ color: "#6b5e4e" }}>ROI reale inviato al decoder dopo la trasformazione.</p></div>
-              <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "#6b5e4e" }}><input type="checkbox" checked={showPreprocessPreview} onChange={(e) => setShowPreprocessPreview(e.target.checked)} />Live</label>
+              <div>
+                <p className="text-xs font-semibold" style={{ color: "#1a1510" }}>Confronto post-preprocessing</p>
+                <p className="text-[10px]" style={{ color: "#6b5e4e" }}>
+                  La stessa ROI viene elaborata in parallelo con tutti i filtri usati dal decoder.
+                </p>
+              </div>
+              <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "#6b5e4e" }}>
+                <input type="checkbox" checked={showPreprocessPreview} onChange={(e) => setShowPreprocessPreview(e.target.checked)} />
+                Live
+              </label>
             </div>
-            {showPreprocessPreview && <><div className="px-3 pb-2 flex items-center gap-2"><select value={previewVariant} onChange={(e) => setPreviewVariant(e.target.value as PreprocessVariant)} className="flex-1 px-2 py-1.5 rounded-lg text-xs" style={{ backgroundColor: "#f5f0e8", border: "1px solid #d8cfc0" }}><option value="raw">RAW / grayscale</option><option value="equalized">Equalized + gamma</option><option value="clahe">CLAHE</option><option value="sauvola">Sauvola threshold</option><option value="bradley">Bradley threshold</option><option value="upscaled">Upscale + sharpen</option></select><span className="text-[9px] whitespace-nowrap" style={{ color: "#8a7c6b" }}>{previewUpdatedAt ? "live" : "attesa…"}</span></div><div className="px-3 pb-3"><div className="rounded-lg overflow-hidden bg-black border" style={{ minHeight: "120px" }}><canvas ref={preprocessPreviewCanvasRef} className="block w-full h-auto" /></div></div></>}
+            {showPreprocessPreview && (
+              <>
+                <div className="px-3 pb-2 flex items-center justify-between gap-2">
+                  <span className="text-[9px]" style={{ color: "#8a7c6b" }}>
+                    {previewUpdatedAt ? "Aggiornamento live ogni ~300 ms" : "In attesa del primo frame…"}
+                  </span>
+                  <span className="text-[9px]" style={{ color: "#8a7c6b" }}>
+                    ROI {expandedViewfinder ? "estesa" : "standard"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 px-3 pb-3">
+                  {previewVariants.map((variant) => {
+                    const labels: Record<PreprocessVariant, string> = {
+                      raw: "1 · RAW / grayscale",
+                      equalized: "2 · Equalized + gamma",
+                      clahe: "3 · CLAHE",
+                      sauvola: "4 · Sauvola",
+                      bradley: "5 · Bradley",
+                      upscaled: "6 · Upscale + sharpen",
+                    };
+                    return (
+                      <div key={variant} className="rounded-lg overflow-hidden" style={{ backgroundColor: "#0b0b0b", border: "1px solid #d8cfc0" }}>
+                        <div className="px-2 py-1.5 text-[10px] font-semibold" style={{ backgroundColor: "#f5f0e8", color: "#1a1510" }}>
+                          {labels[variant]}
+                        </div>
+                        <canvas
+                          ref={(node) => {
+                            preprocessPreviewCanvasRefs.current[variant] = node;
+                          }}
+                          className="block w-full h-auto"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="rounded-xl px-3 py-2 text-[11px]" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
