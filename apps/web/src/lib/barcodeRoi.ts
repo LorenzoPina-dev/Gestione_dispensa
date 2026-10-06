@@ -50,79 +50,16 @@ function viewfinderCrop(srcW: number, srcH: number): CropRect {
   };
 }
 
-function nativeFormatsDetector(): {
-  detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string; boundingBox?: DOMRectReadOnly }>>;
-} | null {
-  if (typeof window === "undefined" || !("BarcodeDetector" in window)) return null;
-  try {
-    const Ctor = (window as unknown as {
-      BarcodeDetector: new (opts: { formats: string[] }) => {
-        detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string; boundingBox?: DOMRectReadOnly }>>;
-      };
-    }).BarcodeDetector;
-    return new Ctor({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
-  } catch {
-    return null;
-  }
-}
-
-async function detectNativeRoi(
-  source: CanvasImageSource,
-  srcW: number,
-  srcH: number,
-): Promise<BarcodeRoi | null> {
-  const detector = nativeFormatsDetector();
-  if (!detector) return null;
-
-  const maxDimension = 960;
-  const scale = Math.min(1, maxDimension / Math.max(srcW, srcH));
-  const width = Math.max(1, Math.round(srcW * scale));
-  const height = Math.max(1, Math.round(srcH * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-
-  ctx.drawImage(source, 0, 0, srcW, srcH, 0, 0, width, height);
-
-  try {
-    const detections = await detector.detect(canvas);
-    const candidate = detections
-      .filter((item) => item.rawValue && item.boundingBox)
-      .map((item) => ({ item, area: (item.boundingBox?.width ?? 0) * (item.boundingBox?.height ?? 0) }))
-      .sort((a, b) => b.area - a.area)[0]?.item;
-
-    if (!candidate?.boundingBox) return null;
-
-    const box = candidate.boundingBox;
-    const detectedCrop = {
-      x: box.x / scale,
-      y: box.y / scale,
-      width: box.width / scale,
-      height: box.height / scale,
-    };
-
-    return {
-      crop: clampCrop(detectedCrop, srcW, srcH),
-      confidence: 0.94,
-      source: "roi-detector",
-    };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * ROI selection for the current web app.
  *
  * Order:
  *   1. injected YOLO/native detector;
- *   2. browser BarcodeDetector bounding box;
- *   3. fixed viewfinder ROI.
+ *   2. fixed viewfinder ROI.
  *
- * Every result is axis-aligned. No image rotation or projective transform is
- * ever inferred from the ROI.
+ * The browser fallback deliberately does NOT call BarcodeDetector for localization:
+ * that would make the same barcode decoder both propose the ROI and decode it.
+ * The two responsibilities stay independent.
  */
 export async function detectBarcodeRoi(
   source: CanvasImageSource,
@@ -148,14 +85,8 @@ export async function detectBarcodeRoi(
         return roi;
       }
     } catch {
-      // Fall through to the browser/native detector.
+      // Fall through to the fixed viewfinder ROI.
     }
-  }
-
-  const native = await detectNativeRoi(source, srcW, srcH);
-  if (native) {
-    roiCache.set(cacheKey, { at: performance.now(), roi: native });
-    return native;
   }
 
   const fallback: BarcodeRoi = {
