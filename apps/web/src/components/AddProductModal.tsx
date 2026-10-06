@@ -86,6 +86,19 @@ function candidateFromProduct(p: ProductDto): Candidate {
   };
 }
 
+function defaultStockQuantity(candidate: Candidate): string {
+  if (
+    candidate.quantityValue != null &&
+    Number.isFinite(candidate.quantityValue) &&
+    candidate.quantityValue > 0 &&
+    typeof candidate.quantityUnit === "string" &&
+    candidate.quantityUnit.trim()
+  ) {
+    return String(candidate.quantityValue);
+  }
+  return "1";
+}
+
 export default function AddProductModal({ onClose, onAdd }: Props) {
   const [mode, setMode] = useState<AddMode>("menu");
   return (
@@ -219,7 +232,9 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const result = await api.resolveProductBarcode("BARCODE", normalized);
       if (result.status === "MATCHED" && result.product) {
         const p = result.product;
-        setCandidate(candidateFromProduct(p));
+        const resolvedCandidate = candidateFromProduct(p);
+        setCandidate(resolvedCandidate);
+        setQty(defaultStockQuantity(resolvedCandidate));
         setState("CANDIDATE");
         return;
       }
@@ -1120,7 +1135,9 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
         setError("Il prodotto selezionato non è più disponibile su Open Food Facts.");
         return;
       }
-      setCandidate(candidateFromProduct(result.product));
+      const resolvedCandidate = candidateFromProduct(result.product);
+      setCandidate(resolvedCandidate);
+      setQty(defaultStockQuantity(resolvedCandidate));
       setCandidateCode(item.code);
       setState("CANDIDATE");
     } catch (err) {
