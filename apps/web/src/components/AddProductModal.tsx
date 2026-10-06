@@ -1132,6 +1132,11 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       setError("La quantità deve essere maggiore di zero.");
       return;
     }
+    const parsedReorderPoint = reorderPoint.trim() === "" ? undefined : Number(reorderPoint);
+    if (parsedReorderPoint !== undefined && (!Number.isFinite(parsedReorderPoint) || parsedReorderPoint < 0)) {
+      setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
+      return;
+    }
     onAdd({
       productId: candidate.productId,
       barcode: candidateCode,
@@ -1144,6 +1149,7 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       carbs: candidate.carbs,
       fat: candidate.fat,
       fiber: candidate.fiber,
+      reorderPoint: parsedReorderPoint,
       location,
       batches: [{ quantity, expiryDate: expiry || undefined }],
     });
