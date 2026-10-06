@@ -347,12 +347,11 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
     try {
       const cropMode = expandedViewfinderRef.current ? "expanded" : "standard";
-      const activeCrop = computeViewfinderCrop(
-        video.videoWidth,
-        video.videoHeight,
-        cropMode,
-      );
-      setLocalization({ ...activeCrop, confidence: 0.5 });
+      const roi = await detectBarcodeRoi(video, video.videoWidth, video.videoHeight, {
+        fallbackCrop: computeViewfinderCrop(video.videoWidth, video.videoHeight, cropMode),
+      });
+      const activeCrop = roi.crop;
+      setLocalization({ ...activeCrop, confidence: roi.confidence });
 
       const sample = analyzeBarcodeFrame(
         video,
@@ -464,7 +463,12 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const nowVote = performance.now();
       const windowMs = 2400;
       const activeVotes = consensusRef.current.filter((vote) => nowVote - vote.at <= windowMs);
-      const nextVotes = [...activeVotes, { value: normalized, hit, at: nowVote }].slice(-12);
+      const previousVote = activeVotes[activeVotes.length - 1];
+      const consecutiveVotes =
+        previousVote && previousVote.value !== normalized
+          ? []
+          : activeVotes;
+      const nextVotes = [...consecutiveVotes, { value: normalized, hit, at: nowVote }].slice(-12);
       consensusRef.current = nextVotes;
 
       const groups = new Map<string, {
@@ -566,8 +570,11 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           winner.best.validated &&
           lastTwo.length === 2 &&
           lastTwo[1].at - lastTwo[0].at <= 420 &&
-          lastTwo.every((vote) => vote.hit.validated) &&
-          winner.variants.size >= 2 &&
+          lastTwo.every(
+            (vote) =>
+              vote.hit.validated &&
+              (vote.hit.supportCount ?? 0) >= 2,
+          ) &&
           fastSpatialCount === 2;
 
         if (winner.best.validated && (threeFrameConfirmation || fastTwoFrameConfirmation)) {
