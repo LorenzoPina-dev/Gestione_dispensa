@@ -116,8 +116,37 @@ export default function Spesa({ list, setList, stock, setStock, currentUserName,
     addItem({ displayName: s.label, quantity: s.quantity, unit: s.unit, sourceType: s.source, productId: s.productId, sourceRef: s.sourceRef });
   }
 
-  function addProduct(product: ProductDto, quantity: number) {
-    addItem({ displayName: product.canonicalName, quantity, unit: "piece", sourceType: "MANUAL", productId: product.id });
+  function addProduct(product: ProductDto, packageCount: number) {
+    const packageValue = product.quantityValue;
+    const rawPackageUnit = product.quantityUnit?.trim();
+    const hasPackageMeasure =
+      packageValue != null &&
+      Number.isFinite(packageValue) &&
+      packageValue > 0 &&
+      rawPackageUnit !== undefined &&
+      rawPackageUnit.length > 0;
+
+    if (hasPackageMeasure) {
+      const unit = normalizeUnit(rawPackageUnit);
+      addItem({
+        displayName: product.canonicalName,
+        quantity: Math.round(packageValue * packageCount * 1000) / 1000,
+        unit,
+        sourceType: "MANUAL",
+        productId: product.id,
+      });
+      return;
+    }
+
+    // Without a reliable package measure, keep the purchase explicitly as packages rather than
+    // inventing "1 g" or another physical quantity that the catalog does not provide.
+    addItem({
+      displayName: product.canonicalName,
+      quantity: packageCount,
+      unit: "pack",
+      sourceType: "MANUAL",
+      productId: product.id,
+    });
   }
 
   async function addRecipeAll(recipeId: string, title: string) {
