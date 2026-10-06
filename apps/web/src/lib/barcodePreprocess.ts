@@ -1062,6 +1062,7 @@ export function localizeBarcode(
   const bottomBand = bestBand(smoothedBottom, bottomMean * 1.15, Math.max(18, Math.floor(w * 0.035)));
 
   const inv = 1 / scale;
+  const xBandCenterSource = ((xBand.start + xBand.end + 1) / 2) * inv;
   const sourceX0 = Math.floor(x0 * inv);
   const sourceX1 = Math.min(srcW - 1, Math.ceil((x1 + 1) * inv) - 1);
   const sourceY0 = Math.floor(y0 * inv);
@@ -1116,7 +1117,6 @@ export function localizeBarcode(
   const bottomWidth = Math.abs(baseQuad.bottomRight.x - baseQuad.bottomLeft.x);
   const topCenter = (baseQuad.topLeft.x + baseQuad.topRight.x) / 2;
   const bottomCenter = (baseQuad.bottomLeft.x + baseQuad.bottomRight.x) / 2;
-  const xBandCenterSource = ((xBand.start + xBand.end + 1) / 2) * inv;
   const geometryConfidence = barcodeGeometryConfidence({
     width: Math.max(topWidth, bottomWidth),
     height: Math.max(1, baseQuad.bottomLeft.y - baseQuad.topLeft.y),
