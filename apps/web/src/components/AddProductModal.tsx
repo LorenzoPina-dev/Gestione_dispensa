@@ -477,27 +477,21 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const nowVote = performance.now();
       const windowMs = 2400;
       const activeVotes = consensusRef.current.filter((vote) => nowVote - vote.at <= windowMs);
-      const samePhysicalBarcode = (vote: TemporalBarcodeVote): boolean =>
-        barcodeObservationsAgree(
-          observation,
-          {
-            value: vote.value,
-            ...(vote.hit.center ? { center: vote.hit.center } : {}),
-            ...(vote.hit.bounds ? { bounds: vote.hit.bounds } : {}),
-          },
-          video.videoWidth,
-          video.videoHeight,
-        );
-
-      const compatibleVotes = activeVotes.filter(samePhysicalBarcode);
-      const nextVotes = [...compatibleVotes, { value: normalized, hit, at: nowVote }].slice(-8);
+      const nextVotes = [...activeVotes, { value: normalized, hit, at: nowVote }].slice(-12);
       consensusRef.current = nextVotes;
 
-      const groups = new Map<string, { count: number; best: BarcodeHit; decoders: Set<string>; variants: Set<string> }>();
+      const groups = new Map<string, {
+        votes: TemporalBarcodeVote[];
+        count: number;
+        best: BarcodeHit;
+        decoders: Set<string>;
+        variants: Set<string>;
+      }>();
       for (const vote of nextVotes) {
         const group = groups.get(vote.value);
         if (!group) {
           groups.set(vote.value, {
+            votes: [vote],
             count: 1,
             best: vote.hit,
             decoders: new Set([vote.hit.decoder]),
@@ -505,6 +499,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           });
           continue;
         }
+        group.votes.push(vote);
         group.count += 1;
         group.decoders.add(vote.hit.decoder);
         group.variants.add(vote.hit.variant);
@@ -517,7 +512,12 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       }
 
       const ranked = [...groups.entries()].sort((a, b) => {
-        const score = (entry: { count: number; best: BarcodeHit; decoders: Set<string>; variants: Set<string> }) =>
+        const score = (entry: {
+          count: number;
+          best: BarcodeHit;
+          decoders: Set<string>;
+          variants: Set<string>;
+        }) =>
           entry.count * 12 +
           (entry.best.validated ? 100 : 0) +
           Math.min(24, (entry.best.supportCount ?? 1) * 6) +
@@ -530,17 +530,35 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
       const winner = ranked[0]?.[1];
       if (winner) {
+        const first = winner.votes[0];
+        const spatialCount = first
+          ? winner.votes.filter((vote) =>
+              barcodeObservationsAgree(
+                {
+                  value: vote.value,
+                  ...(vote.hit.center ? { center: vote.hit.center } : {}),
+                  ...(vote.hit.bounds ? { bounds: vote.hit.bounds } : {}),
+                },
+                {
+                  value: first.value,
+                  ...(first.hit.center ? { center: first.hit.center } : {}),
+                  ...(first.hit.bounds ? { bounds: first.hit.bounds } : {}),
+                },
+                video.videoWidth,
+                video.videoHeight,
+              ),
+            ).length
+          : 0;
         const required = consensusRequiredFrames(winner.best.validated, quality);
         const corroborated =
           winner.decoders.size >= 2 ||
           winner.variants.size >= 2 ||
           (winner.best.supportCount ?? 0) >= 2;
 
-        // Valid checksum is necessary, but the winner must also persist across
-        // multiple physical frames. This prevents a single clean false UPC from
-        // beating a weaker but repeatedly observed EAN-13.
         if (
+          winner.best.validated &&
           winner.count >= required &&
+          spatialCount >= Math.max(2, required - 1) &&
           (corroborated || winner.count >= required + 1)
         ) {
           const found = winner.best.rawValue;
