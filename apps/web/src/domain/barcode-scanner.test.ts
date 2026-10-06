@@ -69,7 +69,7 @@ test("requires spatial agreement for repeated detections", () => {
 });
 
 test("uses stricter consensus for uncertain detections", () => {
-  assert.equal(consensusRequiredFrames(true, "good"), 2);
-  assert.equal(consensusRequiredFrames(true, "usable"), 3);
-  assert.equal(consensusRequiredFrames(false, "good"), 3);
+  assert.equal(consensusRequiredFrames(true, "good"), 3);
+  assert.equal(consensusRequiredFrames(true, "usable"), 4);
+  assert.equal(consensusRequiredFrames(false, "good"), 4);
 });
