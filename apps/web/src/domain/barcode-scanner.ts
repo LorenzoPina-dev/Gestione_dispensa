@@ -161,6 +161,63 @@ export function scoreBarcodeCandidate(candidate: BarcodeConsensusCandidate): num
 }
 
 /**
+ * Select the strongest candidate after all decoder/validation stages have run.
+ * The function is intentionally deterministic so the same frame batch cannot
+ * produce different product ids because of array iteration order.
+ */
+export function chooseStableBarcodeCandidate(
+  candidates: BarcodeConsensusCandidate[],
+): BarcodeConsensusCandidate | null {
+  if (candidates.length === 0) return null;
+
+  const formatRank = (format?: string): number => {
+    switch (format?.toUpperCase()) {
+      case "EAN-13":
+      case "EAN13":
+        return 3;
+      case "UPC-A":
+      case "UPCA":
+        return 2;
+      default:
+        return 1;
+    }
+  };
+
+  return candidates.reduce((best, current) => {
+    const bestScore = scoreBarcodeCandidate(best);
+    const currentScore = scoreBarcodeCandidate(current);
+
+    if (currentScore !== bestScore) {
+      return currentScore > bestScore ? current : best;
+    }
+
+    if (current.validated !== best.validated) {
+      return current.validated ? current : best;
+    }
+
+    const currentAgreement = current.decoderAgreement ?? 0;
+    const bestAgreement = best.decoderAgreement ?? 0;
+    if (currentAgreement !== bestAgreement) {
+      return currentAgreement > bestAgreement ? current : best;
+    }
+
+    const currentLocalization = current.localizationConfidence ?? 0;
+    const bestLocalization = best.localizationConfidence ?? 0;
+    if (currentLocalization !== bestLocalization) {
+      return currentLocalization > bestLocalization ? current : best;
+    }
+
+    const currentFormatRank = formatRank(current.format);
+    const bestFormatRank = formatRank(best.format);
+    if (currentFormatRank !== bestFormatRank) {
+      return currentFormatRank > bestFormatRank ? current : best;
+    }
+
+    return current.value < best.value ? current : best;
+  });
+}
+
+/**
  * Require repeated agreement for difficult frames. A checksum-valid EAN/UPC still
  * needs temporal confirmation because a decoder can consistently hallucinate a
  * different valid GTIN from a dense 1D pattern.
