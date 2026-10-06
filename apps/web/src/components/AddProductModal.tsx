@@ -139,6 +139,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const zoomBoostedRef = useRef(false);
   const expandedViewfinderRef = useRef(false);
   const preprocessPreviewCanvasRefs = useRef<Partial<Record<PreprocessVariant, HTMLCanvasElement | null>>>({});
+  const rectifiedPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewTimerRef = useRef<number | null>(null);
 
   const [state, setState] = useState<BarcodeState>("IDLE");
