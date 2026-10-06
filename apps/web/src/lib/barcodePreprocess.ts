@@ -787,7 +787,14 @@ function barcodeGeometryConfidence(input: {
 }
 
 export function canApplyBarcodeGeometry(localized: BarcodeLocalization): boolean {
-  return localized.confidence >= 0.42 && localized.geometryConfidence >= 0.68;
+  // Perspective correction is more destructive than leaving a barcode untouched.
+  // Require an independently credible orientation estimate before feeding the quad
+  // into the homography stage.
+  return (
+    localized.confidence >= 0.42 &&
+    localized.geometryConfidence >= 0.68 &&
+    localized.orientationConfidence >= 0.68
+  );
 }
 
 export function localizeBarcode(
