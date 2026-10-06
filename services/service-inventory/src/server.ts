@@ -179,6 +179,7 @@ function dto(row: Record<string, unknown>) {
     openedAt: row.opened_at ?? null,
     updatedAt: row.updated_at,
     version: Number(row.version),
+    ...(row.reorder_point == null ? {} : { reorderPoint: Number(row.reorder_point) }),
   };
 }
 
@@ -308,6 +309,7 @@ const server = createServer(async (req, res) => {
       if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
+      if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
       const key = String(req.headers["x-idempotency-key"] ?? "");
       if (!key) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
       const client = await pool.connect();
