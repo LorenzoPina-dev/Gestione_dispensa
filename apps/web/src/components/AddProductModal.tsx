@@ -235,6 +235,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         const resolvedCandidate = candidateFromProduct(p);
         setCandidate(resolvedCandidate);
         setQty(defaultStockQuantity(resolvedCandidate));
+        setReorderQuantity(defaultStockQuantity(resolvedCandidate));
         setState("CANDIDATE");
         return;
       }
@@ -1138,6 +1139,7 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       const resolvedCandidate = candidateFromProduct(result.product);
       setCandidate(resolvedCandidate);
       setQty(defaultStockQuantity(resolvedCandidate));
+      setReorderQuantity(defaultStockQuantity(resolvedCandidate));
       setCandidateCode(item.code);
       setState("CANDIDATE");
     } catch (err) {
