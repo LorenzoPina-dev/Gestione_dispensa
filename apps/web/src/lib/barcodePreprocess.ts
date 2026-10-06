@@ -13,6 +13,47 @@ export const PREPROCESS_VARIANTS: readonly PreprocessVariant[] = [
   "bradley",
 ];
 
+export const BARCODE_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e"] as const;
+
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BarcodeHit {
+  rawValue: string;
+  format?: string;
+  variant: PreprocessVariant;
+  center?: { x: number; y: number };
+  bounds?: BarcodeBounds;
+  validated: boolean;
+  decoder: "native" | "zxing";
+  supportCount?: number;
+  decoderSupport?: number;
+  localizationConfidence?: number;
+  localizationSource?: BarcodeRoi["source"];
+}
+
+export interface BarcodeLocalization {
+  crop: CropRect;
+  confidence: number;
+  source: BarcodeRoi["source"];
+}
+
+type FallbackReader = import("@zxing/browser").BrowserMultiFormatOneDReader;
+let cachedFallbackReader: Promise<FallbackReader | null> | null = null;
+
+async function getFallbackReader(): Promise<FallbackReader | null> {
+  if (!cachedFallbackReader) {
+    cachedFallbackReader = import("@zxing/browser")
+      .then(({ BrowserMultiFormatOneDReader }) => new BrowserMultiFormatOneDReader())
+      .catch(() => null);
+  }
+  return cachedFallbackReader;
+}
+
 const canvasPool = new Map<string, HTMLCanvasElement>();
 
 function acquireCanvas(key: string, width: number, height: number): HTMLCanvasElement {
