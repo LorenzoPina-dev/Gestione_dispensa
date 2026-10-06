@@ -185,6 +185,8 @@ export interface PreprocessOptions {
   crop?: CropRect;
   /** Rotation applied around the crop center before preprocessing. */
   rotation?: number;
+  /** Four source points used to perform projective rectification before preprocessing. */
+  quadrilateral?: BarcodeQuadrilateral;
 }
 
 export interface PreprocessGeometry {
@@ -668,10 +670,6 @@ export interface BarcodeLocalization {
   rotation: number;
   confidence: number;
   textureScore: number;
-}
-
-export interface RectifyOptions {
-  quadrilateral?: BarcodeQuadrilateral;
 }
 
 export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: number, maxDimension = 640): BarcodeLocalization {
