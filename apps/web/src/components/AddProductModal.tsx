@@ -537,17 +537,40 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
             ).length
           : 0;
         const required = consensusRequiredFrames(winner.best.validated, quality);
-        const corroborated =
-          winner.decoders.size >= 2 ||
-          winner.variants.size >= 2 ||
-          (winner.best.supportCount ?? 0) >= 2;
-
-        if (
+        const threeFrameConfirmation =
           winner.best.validated &&
           winner.count >= required &&
-          spatialCount >= Math.max(2, required - 1) &&
-          (corroborated || winner.count >= required + 1)
-        ) {
+          spatialCount >= 2;
+
+        const lastTwo = winner.votes.slice(-2);
+        const fastSpatialCount = lastTwo.length === 2
+          ? lastTwo.filter((vote) =>
+              barcodeObservationsAgree(
+                {
+                  value: vote.value,
+                  ...(vote.hit.center ? { center: vote.hit.center } : {}),
+                  ...(vote.hit.bounds ? { bounds: vote.hit.bounds } : {}),
+                },
+                {
+                  value: lastTwo[0].value,
+                  ...(lastTwo[0].hit.center ? { center: lastTwo[0].hit.center } : {}),
+                  ...(lastTwo[0].hit.bounds ? { bounds: lastTwo[0].hit.bounds } : {}),
+                },
+                video.videoWidth,
+                video.videoHeight,
+              ),
+            ).length
+          : 0;
+
+        const fastTwoFrameConfirmation =
+          winner.best.validated &&
+          lastTwo.length === 2 &&
+          lastTwo[1].at - lastTwo[0].at <= 420 &&
+          lastTwo.every((vote) => vote.hit.validated) &&
+          winner.variants.size >= 2 &&
+          fastSpatialCount === 2;
+
+        if (winner.best.validated && (threeFrameConfirmation || fastTwoFrameConfirmation)) {
           const found = winner.best.rawValue;
           setScannerMessage("Barcode verificato. Cerco il prodotto…");
           stopCamera();
