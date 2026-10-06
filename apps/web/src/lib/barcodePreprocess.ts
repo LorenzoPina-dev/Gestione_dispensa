@@ -746,6 +746,7 @@ export interface BarcodeLocalization {
 
 export type BarcodeOrientationEstimate = {
   rotation: number;
+  suggestedRotation: number;
   confidence: number;
   directionalScore: number;
   anisotropy: number;
@@ -821,6 +822,7 @@ export function estimateBarcodeOrientationFromMoments(input: {
 
   return {
     rotation: shouldRotate ? rotation : 0,
+    suggestedRotation: rotation,
     confidence,
     directionalScore,
     anisotropy,
@@ -885,6 +887,7 @@ export function localizeBarcode(
       bottomLeft: { x: 0, y: srcH },
     },
     rotation: 0,
+    suggestedRotation: 0,
     confidence: 0,
     orientationConfidence: 0,
     geometryConfidence: 0,
@@ -1253,6 +1256,7 @@ export function localizeBarcode(
         },
     quadrilateral: quadIsUsable ? quad : safeAxisQuad,
     rotation: appliedRotation,
+    suggestedRotation: orientation.suggestedRotation,
     confidence,
     orientationConfidence: orientation.confidence,
     geometryConfidence,
@@ -1431,7 +1435,37 @@ export async function detectBarcodes(
     ...(crop ? { crop } : {}),
     localization: localized,
   });
-  const ranked = rankBarcodeHits([...nativeHits, ...fallback], srcW, srcH, crop);
+  let ranked = rankBarcodeHits([...nativeHits, ...fallback], srcW, srcH, crop);
+
+  // Primary decode deliberately uses only the safe, already-approved rotation. When
+  // that rotation was rejected, keep the original frame intact and optionally try the
+  // raw orientation estimate as a recovery pass. This preserves straight barcodes while
+  // still recovering genuinely tilted ones.
+  if (
+    !opts.fallbackFullFrame &&
+    canApplyBarcodeGeometry(localized) &&
+    localized.rotation === 0 &&
+    Math.abs(localized.suggestedRotation) >= (4 * Math.PI) / 180 &&
+    localized.orientationConfidence >= 0.55 &&
+    !ranked.some(
+      (hit) =>
+        hit.validated &&
+        hit.rawValue.length === 13 &&
+        (hit.supportCount ?? 1) >= 2,
+    )
+  ) {
+    const recoveredLocalization: BarcodeLocalization = {
+      ...localized,
+      rotation: localized.suggestedRotation,
+    };
+    const recovered = await detectBarcodes(source, srcW, srcH, {
+      maxDimension,
+      variants: ["raw", "clahe", "upscaled"],
+      localization: recoveredLocalization,
+      fallbackFullFrame: true,
+    });
+    ranked = rankBarcodeHits([...ranked, ...recovered], srcW, srcH, crop);
+  }
 
   if (
     !opts.fallbackFullFrame &&
@@ -1452,6 +1486,7 @@ export async function detectBarcodes(
         bottomLeft: { x: 0, y: srcH },
       },
       rotation: 0,
+      suggestedRotation: 0,
       confidence: 0,
       orientationConfidence: 0,
       geometryConfidence: 0,
