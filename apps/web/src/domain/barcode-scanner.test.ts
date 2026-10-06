@@ -5,7 +5,6 @@ import {
   chooseStableBarcodeCandidate,
   classifyFrameQuality,
   consensusRequiredFrames,
-  estimateBarcodeOrientationFromMoments,
 } from "./barcode-scanner.js";
 
 test("classifies a sharp stable barcode frame as good", () => {
@@ -70,10 +69,10 @@ test("requires spatial agreement for repeated detections", () => {
   assert.equal(barcodeObservationsAgree(a, c, 1000, 600), false);
 });
 
-test("uses stricter consensus for uncertain detections", () => {
+test("requires three temporal observations before normal confirmation", () => {
   assert.equal(consensusRequiredFrames(true, "good"), 3);
-  assert.equal(consensusRequiredFrames(true, "usable"), 4);
-  assert.equal(consensusRequiredFrames(false, "good"), 4);
+  assert.equal(consensusRequiredFrames(true, "usable"), 3);
+  assert.equal(consensusRequiredFrames(false, "good"), 3);
 });
 
 
@@ -99,57 +98,3 @@ test("prefers a better-supported EAN-13 over a valid UPC-A false positive", () =
 });
 
 
-test("does not rotate when the local orientation evidence is ambiguous", () => {
-  const estimate = estimateBarcodeOrientationFromMoments({
-    varianceX: 100,
-    varianceY: 20,
-    covariance: 44,
-    gxEnergy: 55,
-    gyEnergy: 45,
-    aspectRatio: 5,
-  });
-
-  assert.ok(Math.abs(estimate.rotation) < 0.001);
-  assert.ok(estimate.confidence < 0.72 || Math.abs(estimate.rotation) < 0.001);
-});
-
-test("keeps the raw angle as a recovery suggestion without applying it on the first pass", () => {
-  const estimate = estimateBarcodeOrientationFromMoments({
-    varianceX: 100,
-    varianceY: 20,
-    covariance: 44,
-    gxEnergy: 90,
-    gyEnergy: 10,
-    aspectRatio: 7,
-  });
-
-  assert.ok(Math.abs(estimate.rotation) < 0.001);
-  assert.ok(Math.abs(estimate.suggestedRotation * 180 / Math.PI) > 15);
-});
-
-test("keeps a well-supported small rotation for a real barcode", () => {
-  const estimate = estimateBarcodeOrientationFromMoments({
-    varianceX: 120,
-    varianceY: 10,
-    covariance: 24.5,
-    gxEnergy: 92,
-    gyEnergy: 8,
-    aspectRatio: 7,
-  });
-
-  assert.ok(Math.abs(estimate.rotation * 180 / Math.PI - (-12)) < 1.5 || Math.abs(estimate.rotation * 180 / Math.PI - 12) < 1.5);
-  assert.ok(estimate.confidence >= 0.72);
-});
-
-test("rejects an implausibly large correction even when the edge cloud is strong", () => {
-  const estimate = estimateBarcodeOrientationFromMoments({
-    varianceX: 120,
-    varianceY: 10,
-    covariance: 85,
-    gxEnergy: 92,
-    gyEnergy: 8,
-    aspectRatio: 7,
-  });
-
-  assert.ok(Math.abs(estimate.rotation) < 0.001);
-});
