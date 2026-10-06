@@ -428,6 +428,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           maxDimension: Math.min(1440, Math.max(video.videoWidth, video.videoHeight)),
           crop: activeCrop,
           variants,
+          localization: localized,
         },
       );
 
