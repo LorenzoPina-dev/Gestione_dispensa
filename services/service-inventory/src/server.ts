@@ -467,7 +467,11 @@ const server = createServer(async (req, res) => {
         const beforeReorder = await readReorderState(client, ctx.familyId, String(body.productId));
         const id = randomUUID();
         await client.query("INSERT INTO pantry_items(id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now())", [id, ctx.familyId, String(body.productId), quantity, String(body.unit), body.location ?? null, body.openedAt == null ? null : new Date(String(body.openedAt)), body.expiresAt ? new Date(String(body.expiresAt)) : null, body.expiresAt ? "declared" : null, body.lotCode ?? null]);
-        if (body.reorderPoint !== undefined && body.reorderPoint !== null) await upsertReorderPolicy(client, ctx, String(body.productId), Number(body.reorderPoint), body.reorderQuantity == null ? 1 : Number(body.reorderQuantity), String(body.unit));
+        // Every tracked product has an explicit reorder policy. The default is:
+        // reorder when completely exhausted, then buy one unit.
+        const reorderPoint = body.reorderPoint === undefined || body.reorderPoint === null ? 0 : Number(body.reorderPoint);
+        const reorderQuantity = body.reorderQuantity == null ? 1 : Number(body.reorderQuantity);
+        await upsertReorderPolicy(client, ctx, String(body.productId), reorderPoint, reorderQuantity, String(body.unit));
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'add',$5,$6,'added',$7,now(),now())", [randomUUID(), ctx.familyId, id, body.productId, quantity, body.unit, ctx.userId]);
         const afterReorder = await readReorderState(client, ctx.familyId, String(body.productId));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
