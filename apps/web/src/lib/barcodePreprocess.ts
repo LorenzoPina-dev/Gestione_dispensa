@@ -451,19 +451,16 @@ export function buildBarcodeScanlines(count = 14): ScanlineSpec[] {
 }
 
 function sampleScanlineToCanvas(
-  source: HTMLCanvasElement,
+  image: ImageData,
   line: ScanlineSpec,
   destination: HTMLCanvasElement,
 ): void {
-  const width = source.width;
-  const height = source.height;
+  const width = image.width;
+  const height = image.height;
   if (width <= 1 || height <= 1) return;
 
-  const sourceCtx = source.getContext("2d", { willReadFrequently: true });
   const destinationCtx = destination.getContext("2d", { willReadFrequently: true });
-  if (!sourceCtx || !destinationCtx) return;
-
-  const image = sourceCtx.getImageData(0, 0, width, height);
+  if (!destinationCtx) return;
   const stripHeight = destination.height;
   const data = destinationCtx.createImageData(destination.width, stripHeight);
   const xCenter = (width - 1) / 2;
@@ -557,10 +554,13 @@ async function decodeVariantWithScanlines(
 ): Promise<BarcodeHit[]> {
   const lines = buildBarcodeScanlines(14);
   const strip = acquireCanvas(`scanline-${variant}`, canvas.width, 32);
+  const sourceCtx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceCtx) return [];
+  const image = sourceCtx.getImageData(0, 0, canvas.width, canvas.height);
   const hits: BarcodeHit[] = [];
 
   for (const line of lines) {
-    sampleScanlineToCanvas(canvas, line, strip);
+    sampleScanlineToCanvas(image, line, strip);
     const decoded = await decodeCanvas(reader, strip);
     if (!decoded) continue;
 
