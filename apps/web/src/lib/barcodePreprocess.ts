@@ -968,6 +968,8 @@ export interface DetectOptions {
   variants?: readonly PreprocessVariant[];
   /** Reuse a localization already computed for the same source frame. */
   localization?: BarcodeLocalization;
+  /** Internal guard preventing recursive full-frame fallback. */
+  fallbackFullFrame?: boolean;
 }
 
 /**
@@ -1129,8 +1131,42 @@ export async function detectBarcodes(
     maxDimension,
     variants,
     ...(crop ? { crop } : {}),
+    localization: localized,
   });
-  return rankBarcodeHits([...nativeHits, ...fallback], srcW, srcH, crop);
+  const ranked = rankBarcodeHits([...nativeHits, ...fallback], srcW, srcH, crop);
+
+  if (
+    !opts.fallbackFullFrame &&
+    localized.confidence >= 0.42 &&
+    !ranked.some(
+      (hit) =>
+        hit.validated &&
+        hit.rawValue.length === 13 &&
+        (hit.supportCount ?? 1) >= 2,
+    )
+  ) {
+    const fullLocalization: BarcodeLocalization = {
+      crop: { x: 0, y: 0, width: srcW, height: srcH },
+      quadrilateral: {
+        topLeft: { x: 0, y: 0 },
+        topRight: { x: srcW, y: 0 },
+        bottomRight: { x: srcW, y: srcH },
+        bottomLeft: { x: 0, y: srcH },
+      },
+      rotation: 0,
+      confidence: 0,
+      textureScore: 0,
+    };
+    const fullFrameHits = await detectBarcodes(source, srcW, srcH, {
+      maxDimension,
+      variants: ["raw", "clahe", "upscaled"],
+      localization: fullLocalization,
+      fallbackFullFrame: true,
+    });
+    return rankBarcodeHits([...ranked, ...fullFrameHits], srcW, srcH);
+  }
+
+  return ranked;
 }
 
 /**
