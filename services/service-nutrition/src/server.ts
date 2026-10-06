@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
-import { consumedGramsForQuantity, loadNutritionSnapshot, nutrientMultiplier } from "./catalog-client.js";
+import { consumedGramsForQuantity, loadNutritionSnapshot, nutrientMultiplier, type NutritionSnapshot } from "./catalog-client.js";
 import { isDiarySource, isDiaryUnit, isNonNegativeNumber, isPositiveNumber, isSummaryPeriod, validIfMatch } from "./validation.js";
 
 const app = express();
@@ -186,12 +186,12 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
   const items:Array<Record<string,unknown>>=[];
   for(const row of q.rows){
     const snapshot=typeof row.nutrition_snapshot==="object"&&row.nutrition_snapshot!==null
-      ? row.nutrition_snapshot as Record<string,unknown>
+      ? row.nutrition_snapshot as NutritionSnapshot
       : null;
     if(!snapshot)continue;
     const quantity=Number(row.quantity);
     const unit=String(row.unit);
-    const grams=consumedGramsForQuantity(quantity,unit,snapshot as Parameters<typeof consumedGramsForQuantity>[2]);
+    const grams=consumedGramsForQuantity(quantity,unit,snapshot);
     if(grams == null && unit !== "g" && unit !== "kg") {
       items.push({
         movementId:String(row.id), productId:String(row.product_id),
