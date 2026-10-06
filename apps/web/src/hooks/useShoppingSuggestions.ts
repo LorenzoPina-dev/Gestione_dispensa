@@ -6,7 +6,6 @@ import { isBackendUnreachable } from "../api/client";
 import {
   deriveOfferSuggestions,
   deriveRecipeSuggestions,
-  deriveReorderSuggestions,
   isAlreadyListed,
   normalizeLabel,
   type OfferSuggestionSource,
@@ -81,7 +80,7 @@ async function fetchOffers(signal: AbortSignal): Promise<OfferSuggestionSource[]
 }
 
 /**
- * Suggestions for the "+" picker. Low stock is derived locally from the pantry; recipes and
+ * Suggestions for the "+" picker. Reorder suggestions are persisted by Shopping; recipes and
  * offers are read lazily (only while their tab is open) from Recipes and Stores through the gateway.
  */
 export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Args): UseShoppingSuggestionsResult {
@@ -102,15 +101,7 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
     patch<string | null>(setError, key, null);
 
     const run = key === "REORDER"
-      ? api.listReorderSuggestions(familyId).then(async ({ suggestions }) => {
-          const ids = [...new Set(suggestions.map((item) => item.productId))];
-          const names = new Map<string, string>();
-          await Promise.allSettled(
-            ids.map(async (id) => {
-              const product = await api.getCatalogProduct(id, controller.signal);
-              if (product.name?.trim()) names.set(id, product.name.trim());
-            }),
-          );
+      ? api.listReorderSuggestions(familyId).then(({ suggestions }) => {
           setRemoteReorder(
             suggestions.map((item) => ({
               suggestionId: item.suggestionId,
@@ -118,7 +109,6 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
               quantity: item.quantity,
               unit: item.unit,
               reorderPoint: item.reorderPoint,
-              ...(names.get(item.productId) ? { name: names.get(item.productId) } : {}),
             })),
           );
         })
