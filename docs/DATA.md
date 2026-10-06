@@ -18,8 +18,8 @@ Tutti i database PostgreSQL applicativi usano UTC e `timestamptz`. Le tabelle pr
 |---|---|---|---|
 | identity_db | Identity | PostgreSQL | users, outbox_events, idempotency_keys |
 | family_db | Family | PostgreSQL | families, members, invites, outbox_events, idempotency_keys |
-| inventory_db | Inventory | PostgreSQL | pantry_items, pantry_lots, movements, outbox_events, idempotency_keys |
-| shopping_db | Shopping | PostgreSQL | shopping_domain.lists, shopping_domain.items, shopping_domain.outbox_events, shopping_domain.idempotency_keys |
+| inventory_db | Inventory | PostgreSQL | pantry_items, pantry_lots, reorder_policies, movements, outbox_events, idempotency_keys |
+| shopping_db | Shopping | PostgreSQL | shopping_domain.lists, shopping_domain.items, shopping_domain.reorder_suggestions, shopping_domain.processed_events, shopping_domain.outbox_events, shopping_domain.idempotency_keys |
 | catalog_db | Catalog | PostgreSQL | products, product_identifiers, data_sources, data_provenance, outbox_events, idempotency_keys |
 | notifications_db | Notifications | PostgreSQL | notifications_domain.notifications, notifications_domain.preferences, notifications_domain.outbox_events, notifications_domain.idempotency_keys |
 | privacy_db | Privacy | PostgreSQL | privacy_consents, privacy_erasure_requests, privacy_export_jobs, export_artifacts, audit_events, outbox_events, idempotency_keys |
@@ -197,6 +197,22 @@ version integer NOT NULL
 
 **Invariant:** una riga `pantry_items` esiste solo se quantity > 0. Quantity zero non è uno stato persistente.
 
+### reorder_policies — configurazione durevole del riordino
+
+```text
+family_id UUID NOT NULL
+product_id UUID NOT NULL
+reorder_point numeric(14,3) NOT NULL CHECK(reorder_point >= 0)
+reorder_quantity numeric(14,3) NOT NULL CHECK(reorder_quantity > 0)
+unit varchar(16) NOT NULL
+enabled boolean NOT NULL
+created_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+version integer NOT NULL
+PRIMARY KEY(family_id,product_id)
+```
+
+`reorder_policies` è configurazione della famiglia, indipendente dalla giacenza. Sopravvive quando una riga `pantry_items` viene eliminata a quantità zero. `reorder_point=0` e `reorder_quantity=1` significano: quando il prodotto finisce, suggerisci una unità.
 ### pantry_lots
 
 ```text
@@ -338,6 +354,28 @@ version integer NOT NULL DEFAULT 1
 ```
 
 Only `list_id` is a local FK. `product_id` is a remote Catalog ID.
+### shopping_domain.reorder_suggestions
+
+```text
+id UUID PK
+family_id UUID NOT NULL
+product_id UUID NOT NULL
+quantity numeric(14,3) NOT NULL CHECK(quantity > 0)
+unit varchar(16) NOT NULL
+reorder_point numeric(14,3) NOT NULL CHECK(reorder_point >= 0)
+status varchar(16) NOT NULL -- active|resolved
+source_event_id UUID NOT NULL
+created_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+version integer NOT NULL
+UNIQUE(family_id,product_id)
+```
+
+È la proiezione persistente dei suggerimenti di riordino. Non rappresenta giacenza e non mantiene quantità zero in Inventory.
+
+### shopping_domain.processed_events
+
+Deduplica degli eventi di Inventory già processati dal worker Shopping.
 ## 9. notifications_db
 
 All authoritative Notifications tables use schema `notifications_domain`.
