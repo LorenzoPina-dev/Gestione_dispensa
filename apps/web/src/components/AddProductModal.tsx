@@ -288,12 +288,35 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       const crop = localized.confidence >= 0.42
         ? localized.crop
         : computeViewfinderCrop(video.videoWidth, video.videoHeight, expandedViewfinderRef.current ? "expanded" : "standard");
+
+      const rectifiedCanvas = rectifiedPreviewCanvasRef.current;
+      if (rectifiedCanvas) {
+        if (localized.confidence >= 0.42) {
+          const rectified = preprocessToCanvas(video, video.videoWidth, video.videoHeight, "raw", {
+            maxDimension: 720,
+            crop: localized.crop,
+            rotation: localized.rotation,
+            quadrilateral: localized.quadrilateral,
+          });
+          rectifiedCanvas.width = rectified.width;
+          rectifiedCanvas.height = rectified.height;
+          rectifiedCanvas.getContext("2d")?.drawImage(rectified, 0, 0);
+        } else {
+          rectifiedCanvas.width = 0;
+          rectifiedCanvas.height = 0;
+        }
+      }
+
       for (const variant of previewVariants) {
         const output = preprocessPreviewCanvasRefs.current[variant];
         if (!output) continue;
         const processed = preprocessToCanvas(video, video.videoWidth, video.videoHeight, variant, {
           maxDimension: 720,
           crop,
+          ...(localized.confidence >= 0.42 ? {
+            rotation: localized.rotation,
+            quadrilateral: localized.quadrilateral,
+          } : {}),
         });
         output.width = processed.width;
         output.height = processed.height;
@@ -711,7 +734,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
               <div>
                 <p className="text-xs font-semibold" style={{ color: "#1a1510" }}>Confronto post-preprocessing</p>
                 <p className="text-[10px]" style={{ color: "#6b5e4e" }}>
-                  La stessa ROI viene elaborata in parallelo con tutti i filtri usati dal decoder.
+                  FULL FRAME → localizzazione → rettifica → preprocessing → decoder.
                 </p>
               </div>
               <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "#6b5e4e" }}>
@@ -726,10 +749,16 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
                     {previewUpdatedAt ? "Aggiornamento live ogni ~300 ms" : "In attesa del primo frame…"}
                   </span>
                   <span className="text-[9px]" style={{ color: "#8a7c6b" }}>
-                    ROI {expandedViewfinder ? "estesa" : "standard"}
+                    {localization ? `Barcode localizzato · ${Math.round(localization.confidence * 100)}%` : "Ricerca barcode nel full frame"}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 px-3 pb-3">
+                  <div className="rounded-lg overflow-hidden" style={{ backgroundColor: "#0b0b0b", border: "1px solid #d8cfc0" }}>
+                    <div className="px-2 py-1.5 text-[10px] font-semibold" style={{ backgroundColor: "#f5f0e8", color: "#1a1510" }}>
+                      2 · Localized + perspective corrected
+                    </div>
+                    <canvas ref={rectifiedPreviewCanvasRef} className="block w-full h-auto" />
+                  </div>
                   {previewVariants.map((variant) => {
                     const labels: Record<PreprocessVariant, string> = {
                       raw: "1 · RAW / grayscale",
