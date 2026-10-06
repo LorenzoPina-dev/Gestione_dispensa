@@ -161,7 +161,7 @@ app.post("/api/v1/nutrition/diary", async(req,res)=>{
     const snapshot = await loadNutritionSnapshot(catalogBaseUrl, req.header("authorization") ?? undefined, String(body.productId));
     if (!snapshot) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Product nutrition data not found."); }
     const id=crypto.randomUUID();
-    const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) returning *`,[id,userId,body.date,body.meal,body.productId,quantity,body.unit,source,null,JSON.stringify(snapshot)]);
+    const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) returning *`,[id,userId,body.date,body.meal,body.productId,quantity,body.unit,source,sourceMovementId,JSON.stringify(snapshot)]);
     const x=q.rows[0];const response={data:{entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source},version:x.version};
     await emitOutbox(client,"NutritionEntryRecorded",id,userId,response);await finishIdempotency(client,req,201,response);await client.query("commit");return res.status(201).json(response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to record diary entry.");}finally{client.release();}
@@ -174,10 +174,10 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
   if(!isSummaryPeriod(period))return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
   const days=period==="today"?0:6;
   const q=await pool.query(
-    `select id,date,meal,product_id,quantity,unit,occurred_at,created_at,nutrition_snapshot
+    `select id,date,meal,product_id,quantity,unit,created_at,nutrition_snapshot
        from nutrition_domain.diary_entries
       where user_id=$1 and date between current_date-$2::integer and current_date
-      order by date desc,occurred_at desc,created_at desc`,
+      order by date desc,created_at desc`,
     [userId,days],
   );
   let caloriesKcal=0,proteinG=0,carbsG=0,fatG=0,fiberG=0;
@@ -189,7 +189,18 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
     if(!snapshot)continue;
     const quantity=Number(row.quantity);
     const unit=String(row.unit);
-    const grams=consumedGramsForQuantity(quantity,unit,snapshot as never);
+    const grams=consumedGramsForQuantity(quantity,unit,snapshot as Parameters<typeof consumedGramsForQuantity>[2]);
+    if(grams == null && unit !== "g" && unit !== "kg") {
+      items.push({
+        movementId:String(row.id), productId:String(row.product_id),
+        productName:String(snapshot.productName??row.product_id), brand:snapshot.brand??null,
+        quantity, unit, meal:String(row.meal), date:String(row.date),
+        occurredAt:new Date(row.created_at).toISOString(),
+        nutrients:{calories:0,protein:0,carbs:0,fat:0,fiber:0},
+        confidence:"UNKNOWN",
+      });
+      continue;
+    }
     const multiplier=grams == null ? nutrientMultiplier(quantity,unit) : grams/100;
     const values={
       calories:Number(snapshot.caloriesKcalPer100g??0)*multiplier,
@@ -208,7 +219,7 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
       unit,
       meal:String(row.meal),
       date:String(row.date),
-      occurredAt:new Date(row.occurred_at??row.created_at).toISOString(),
+      occurredAt:new Date(row.created_at).toISOString(),
       nutrients:{
         calories:Number(values.calories.toFixed(2)),
         protein:Number(values.protein.toFixed(2)),
