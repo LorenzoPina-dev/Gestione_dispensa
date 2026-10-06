@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
 import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
-import { canApplyBarcodeGeometry, computeViewfinderCrop, detectBestBarcode, getBarcodeLocalization, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
+import { computeViewfinderCrop, detectBarcodeRoi, detectBestBarcode, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
 import { analyzeBarcodeFrame } from "../lib/barcodeQuality";
 import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityResult } from "../domain/barcode-scanner.js";
 import { normalizeProductBarcode, productBarcodePriority } from "../domain/barcode.js";
@@ -139,7 +139,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const zoomBoostedRef = useRef(false);
   const expandedViewfinderRef = useRef(false);
   const preprocessPreviewCanvasRefs = useRef<Partial<Record<PreprocessVariant, HTMLCanvasElement | null>>>({});
-  const rectifiedPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewTimerRef = useRef<number | null>(null);
 
   const [state, setState] = useState<BarcodeState>("IDLE");
@@ -158,7 +157,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [showPreprocessPreview, setShowPreprocessPreview] = useState(true);
   const [previewUpdatedAt, setPreviewUpdatedAt] = useState(0);
   const [localization, setLocalization] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null);
-  const [geometryStatus, setGeometryStatus] = useState<{ reliable: boolean; rotation: number; orientationConfidence: number; geometryConfidence: number } | null>(null);
   const previewVariants: readonly PreprocessVariant[] = ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"];
 
   const stopCamera = useCallback(() => {
@@ -186,7 +184,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
     previewTimerRef.current = null;
     setPreviewUpdatedAt(0);
-    setGeometryStatus(null);
     setScannerPhase("IDLE");
   }, []);
 
@@ -277,79 +274,49 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     }
   }
 
-  const updatePreprocessPreview = useCallback(() => {
+  const updatePreprocessPreview = useCallback(async () => {
     if (stoppedRef.current || !showPreprocessPreview) return;
     const video = videoRef.current;
     if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-      previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 300);
+      previewTimerRef.current = window.setTimeout(() => void updatePreprocessPreview(), 300);
       return;
     }
-    try {
-      const localized = getBarcodeLocalization(video, video.videoWidth, video.videoHeight);
-      const geometryReliable = canApplyBarcodeGeometry(localized);
-      setLocalization(localized.confidence >= 0.42 ? { ...localized.crop, confidence: localized.confidence } : null);
-      setGeometryStatus({
-        reliable: geometryReliable,
-        rotation: localized.rotation,
-        orientationConfidence: localized.orientationConfidence,
-        geometryConfidence: localized.geometryConfidence,
-      });
-      setGeometryStatus({
-        reliable: geometryReliable,
-        rotation: localized.rotation,
-        orientationConfidence: localized.orientationConfidence,
-        geometryConfidence: localized.geometryConfidence,
-      });
-      const crop = localized.confidence >= 0.42
-        ? localized.crop
-        : computeViewfinderCrop(video.videoWidth, video.videoHeight, expandedViewfinderRef.current ? "expanded" : "standard");
 
-      const rectifiedCanvas = rectifiedPreviewCanvasRef.current;
-      if (rectifiedCanvas) {
-        if (geometryReliable) {
-          const rectified = preprocessToCanvas(video, video.videoWidth, video.videoHeight, "raw", {
-            maxDimension: 720,
-            crop: localized.crop,
-            rotation: localized.rotation,
-            quadrilateral: localized.quadrilateral,
-          });
-          rectifiedCanvas.width = rectified.width;
-          rectifiedCanvas.height = rectified.height;
-          rectifiedCanvas.getContext("2d")?.drawImage(rectified, 0, 0);
-        } else {
-          rectifiedCanvas.width = 0;
-          rectifiedCanvas.height = 0;
-        }
-      }
+    try {
+      const roi = await detectBarcodeRoi(video, video.videoWidth, video.videoHeight, {
+        fallbackCrop: computeViewfinderCrop(
+          video.videoWidth,
+          video.videoHeight,
+          expandedViewfinderRef.current ? "expanded" : "standard",
+        ),
+      });
+      setLocalization({ ...roi.crop, confidence: roi.confidence });
 
       for (const variant of previewVariants) {
         const output = preprocessPreviewCanvasRefs.current[variant];
         if (!output) continue;
         const processed = preprocessToCanvas(video, video.videoWidth, video.videoHeight, variant, {
           maxDimension: 720,
-          crop,
-          ...(geometryReliable ? {
-            rotation: localized.rotation,
-            quadrilateral: localized.quadrilateral,
-          } : {}),
+          crop: roi.crop,
         });
         output.width = processed.width;
         output.height = processed.height;
         const ctx = output.getContext("2d");
         if (!ctx) continue;
         ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "medium";
         ctx.drawImage(processed, 0, 0);
       }
+
       setPreviewUpdatedAt(performance.now());
     } catch (err) {
       console.debug("[barcode] preprocess comparison preview failed", err);
     } finally {
       if (!stoppedRef.current && showPreprocessPreview) {
-        previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 300);
+        previewTimerRef.current = window.setTimeout(() => void updatePreprocessPreview(), 300);
       }
     }
   }, [showPreprocessPreview]);
-
   useEffect(() => {
     if (state !== "SCANNING" || !showPreprocessPreview) return;
     previewTimerRef.current = window.setTimeout(updatePreprocessPreview, 100);
@@ -380,21 +347,18 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
     try {
       const cropMode = expandedViewfinderRef.current ? "expanded" : "standard";
-      const localized = getBarcodeLocalization(video, video.videoWidth, video.videoHeight);
-      const geometryReliable = canApplyBarcodeGeometry(localized);
-      setLocalization(localized.confidence >= 0.42 ? { ...localized.crop, confidence: localized.confidence } : null);
-      setGeometryStatus({
-        reliable: geometryReliable,
-        rotation: localized.rotation,
-        orientationConfidence: localized.orientationConfidence,
-        geometryConfidence: localized.geometryConfidence,
-      });
-      const crop = localized.confidence >= 0.42 ? localized.crop : computeViewfinderCrop(video.videoWidth, video.videoHeight, cropMode);
+      const activeCrop = computeViewfinderCrop(
+        video.videoWidth,
+        video.videoHeight,
+        cropMode,
+      );
+      setLocalization({ ...activeCrop, confidence: 0.5 });
+
       const sample = analyzeBarcodeFrame(
         video,
         video.videoWidth,
         video.videoHeight,
-        crop,
+        activeCrop,
         previousFingerprintRef.current,
       );
 
@@ -438,10 +402,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           : quality === "usable"
             ? ["raw", "equalized", "clahe", "sauvola", "bradley", "upscaled"]
             : ["raw", "upscaled", "clahe", "sauvola", "bradley", "equalized"];
-      const activeCrop = localized.confidence >= 0.42
-        ? localized.crop
-        : computeViewfinderCrop(video.videoWidth, video.videoHeight, expandedViewfinderRef.current ? "expanded" : "standard");
-
       const hit = await detectBestBarcode(
         video,
         video.videoWidth,
@@ -450,10 +410,8 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
           maxDimension: Math.min(1440, Math.max(video.videoWidth, video.videoHeight)),
           crop: activeCrop,
           variants,
-          localization: localized,
         },
       );
-
       if (stoppedRef.current) return;
 
       if (!hit) {
@@ -480,6 +438,12 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
       }
 
       goodNoHitFramesRef.current = 0;
+      if (hit.bounds) {
+        setLocalization({
+          ...hit.bounds,
+          confidence: hit.localizationConfidence ?? 0.5,
+        });
+      }
       const normalized = normalizeProductBarcode(hit.rawValue);
       if (!normalized) {
         consensusRef.current = [];
@@ -790,24 +754,18 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
                     {previewUpdatedAt ? "Aggiornamento live ogni ~300 ms" : "In attesa del primo frame…"}
                   </span>
                   <span className="text-[9px]" style={{ color: "#8a7c6b" }}>
-                    {localization ? `Barcode localizzato · ${Math.round(localization.confidence * 100)}%` : "Ricerca barcode nel full frame"}
+                    {localization ? `ROI ${Math.round(localization.confidence * 100)}% · no rotazione` : "Ricerca ROI"}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 px-3 pb-3">
-                  <div className="rounded-lg overflow-hidden" style={{ backgroundColor: "#0b0b0b", border: "1px solid #d8cfc0" }}>
-                    <div className="px-2 py-1.5 text-[10px] font-semibold" style={{ backgroundColor: "#f5f0e8", color: "#1a1510" }}>
-                      {geometryStatus?.reliable ? "2 · Localized + perspective corrected" : "2 · Localized · no geometry correction"}
-                    </div>
-                    <canvas ref={rectifiedPreviewCanvasRef} className="block w-full h-auto" />
-                  </div>
                   {previewVariants.map((variant) => {
                     const labels: Record<PreprocessVariant, string> = {
-                      raw: "3 · RAW / grayscale",
-                      equalized: "4 · Equalized + gamma",
-                      clahe: "5 · CLAHE",
-                      sauvola: "6 · Sauvola",
-                      bradley: "7 · Bradley",
-                      upscaled: "8 · Upscale + sharpen",
+                      raw: "1 · RAW / grayscale",
+                      equalized: "2 · Equalized + gamma",
+                      clahe: "3 · CLAHE",
+                      sauvola: "4 · Sauvola",
+                      bradley: "5 · Bradley",
+                      upscaled: "6 · Upscale + sharpen",
                     };
                     return (
                       <div key={variant} className="rounded-lg overflow-hidden" style={{ backgroundColor: "#0b0b0b", border: "1px solid #d8cfc0" }}>
@@ -836,7 +794,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
               {cameraDiagnostics?.zoom != null && <span>Zoom {cameraDiagnostics.zoom.toFixed(1)}×</span>}
               {phaseLabel[scannerPhase] && <span>Fase: {phaseLabel[scannerPhase]}</span>}
               {frameQuality && <span>Qualità {frameQuality.quality === "good" ? "buona" : frameQuality.quality === "usable" ? "discreta" : "bassa"} ({Math.round(frameQuality.score * 100)}%)</span>}
-              {localization && <span>Geometria {geometryStatus?.reliable ? "affidabile" : "non applicata"}</span>}
+              {localization && <span>ROI · {Math.round(localization.confidence * 100)}%</span>}
             </div>
           </div>
 
