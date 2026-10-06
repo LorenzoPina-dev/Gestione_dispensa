@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   barcodeObservationsAgree,
+  chooseStableBarcodeCandidate,
   classifyFrameQuality,
   consensusRequiredFrames,
 } from "./barcode-scanner.js";
@@ -72,4 +73,26 @@ test("uses stricter consensus for uncertain detections", () => {
   assert.equal(consensusRequiredFrames(true, "good"), 3);
   assert.equal(consensusRequiredFrames(true, "usable"), 4);
   assert.equal(consensusRequiredFrames(false, "good"), 4);
+});
+
+
+test("prefers a better-supported EAN-13 over a valid UPC-A false positive", () => {
+  const ean = {
+    value: "8003440108888",
+    validated: true,
+    priority: 400,
+    localizationConfidence: 0.92,
+    decoderAgreement: 1,
+    center: { x: 500, y: 300 },
+  };
+  const upc = {
+    value: "043000108888",
+    validated: true,
+    priority: 200,
+    localizationConfidence: 0.35,
+    decoderAgreement: 0.5,
+    center: { x: 500, y: 300 },
+  };
+
+  assert.equal(chooseStableBarcodeCandidate([upc, ean])?.value, "8003440108888");
 });
