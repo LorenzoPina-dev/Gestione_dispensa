@@ -106,7 +106,6 @@ SELECT
   now()
 FROM reorder_policies p
 WHERE p.enabled = true
-  AND p.reorder_point = 0
   AND NOT EXISTS (
     SELECT 1
     FROM pantry_items i
