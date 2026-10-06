@@ -15,6 +15,16 @@ describe("nutrition real integration",()=>{
   await pool.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,nutrition_snapshot) values(gen_random_uuid(),$1,current_date,'lunch',$2,250,'g','manual',$3::jsonb)`,[user,productId,JSON.stringify({caloriesKcalPer100g:100,proteinGPer100g:4,carbsGPer100g:10,fatGPer100g:2,fiberGPer100g:1})]);
   const list=await q("/api/v1/nutrition/diary?from=2000-01-01&to=2100-01-01",{headers:{"x-user-id":user}});assert.equal(list.r.status,200);assert.ok(list.b.items.some((x:any)=>x.productId===productId));
   const summary=await q("/api/v1/nutrition/summary?period=today",{headers:{"x-user-id":user}});assert.equal(summary.r.status,200);assert.equal(summary.b.data.caloriesKcal,250);assert.equal(summary.b.data.proteinG,10);
+  await pool.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values(gen_random_uuid(),$1,current_date,'snack',$2,1,'piece','inventory',$3,$4::jsonb)`,[
+    user,
+    productId,
+    "00000000-0000-4000-8000-000000000098",
+    JSON.stringify({productName:"Test snack",caloriesKcalPer100g:230,proteinGPer100g:5,carbsGPer100g:30,fatGPer100g:8,fiberGPer100g:2,packageQuantityValue:90,packageQuantityUnit:"g",confidence:"ESTIMATED"})
+  ]);
+  const pieceSummary=await q("/api/v1/nutrition/summary?period=today",{headers:{"x-user-id":user}});
+  assert.equal(pieceSummary.r.status,200);
+  assert.equal(pieceSummary.b.data.caloriesKcal,457);
+  assert.ok(pieceSummary.b.data.items.some((item:any)=>item.productName==="Test snack" && item.nutrients.calories===207));
  });
 
 });
