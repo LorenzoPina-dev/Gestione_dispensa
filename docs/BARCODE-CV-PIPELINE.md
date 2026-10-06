@@ -20,7 +20,7 @@ ROI detector
    |
    +--> produzione mobile: YOLOv8-Nano (NCNN / ONNX Runtime Mobile)
    |
-   +--> PWA attuale: provider sostituibile, con fallback viewfinder/BarcodeDetector
+   +--> PWA attuale: provider sostituibile, con fallback viewfinder
    |
    v
 Axis-aligned ROI
