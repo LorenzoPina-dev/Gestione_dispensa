@@ -152,12 +152,14 @@ app.post("/api/v1/nutrition/diary", async(req,res)=>{
 
   const userId=actor(req),idempotencyKey=key(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
   const body=req.body as Body;const quantity=body.quantity;
-  if(Object.keys(body).some((field)=>!["date","meal","productId","quantity","unit"].includes(field)))return fail(res,400,"VALIDATION_ERROR","Only date, meal, productId, quantity and unit are accepted.");
-  const source="manual";
+  if(Object.keys(body).some((field)=>!["date","meal","productId","quantity","unit","source","sourceMovementId"].includes(field)))return fail(res,400,"VALIDATION_ERROR","Only date, meal, productId, quantity, unit, source and sourceMovementId are accepted.");
+  const source=isDiarySource(body.source ?? "manual") ? String(body.source ?? "manual") : "";
+  const sourceMovementId=body.sourceMovementId == null ? null : String(body.sourceMovementId);
+  if(!source)return fail(res,400,"VALIDATION_ERROR","source must be manual or inventory.");
   if(typeof body.date!=="string"||typeof body.meal!=="string"||typeof body.productId!=="string"||!isPositiveNumber(quantity)||!isDiaryUnit(body.unit))return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity and unit are required.");
   const client=await pool.connect();
   try{await client.query("begin");const idem=await beginIdempotency(client,req,body);if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
-    if (!isDiaryUnit(body.unit)) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","Nutrition diary entries require unit g or kg."); }
+    if (!isDiaryUnit(body.unit)) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","Nutrition diary entries require a supported mass, package or volume unit."); }
     const snapshot = await loadNutritionSnapshot(catalogBaseUrl, req.header("authorization") ?? undefined, String(body.productId));
     if (!snapshot) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Product nutrition data not found."); }
     const id=crypto.randomUUID();
