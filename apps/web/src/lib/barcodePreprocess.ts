@@ -209,16 +209,29 @@ export function getPreprocessGeometry(
   const cw = Math.max(1, Math.min(requestedCrop.width, Math.max(1, srcW - cx)));
   const ch = Math.max(1, Math.min(requestedCrop.height, Math.max(1, srcH - cy)));
   const maxDimension = opts.maxDimension ?? 800;
-  const scale = Math.min(1, maxDimension / Math.max(cw, ch));
-  const baseW = Math.max(1, Math.round(cw * scale));
-  const baseH = Math.max(1, Math.round(ch * scale));
+  const quad = opts.quadrilateral;
+  const quadWidth = quad
+    ? Math.max(
+        Math.hypot(quad.topRight.x - quad.topLeft.x, quad.topRight.y - quad.topLeft.y),
+        Math.hypot(quad.bottomRight.x - quad.bottomLeft.x, quad.bottomRight.y - quad.bottomLeft.y),
+      )
+    : cw;
+  const quadHeight = quad
+    ? Math.max(
+        Math.hypot(quad.bottomLeft.x - quad.topLeft.x, quad.bottomLeft.y - quad.topLeft.y),
+        Math.hypot(quad.bottomRight.x - quad.topRight.x, quad.bottomRight.y - quad.topRight.y),
+      )
+    : ch;
+  const scale = Math.min(1, maxDimension / Math.max(1, quadWidth, quadHeight));
+  const baseW = Math.max(1, Math.round(quadWidth * scale));
+  const baseH = Math.max(1, Math.round(quadHeight * scale));
 
   return {
     crop: { x: cx, y: cy, width: cw, height: ch },
     outputWidth: variant === "upscaled" ? baseW * 2 : baseW,
     outputHeight: variant === "upscaled" ? baseH * 2 : baseH,
     rotation: opts.rotation ?? 0,
-    ...(opts.quadrilateral ? { quadrilateral: opts.quadrilateral } : {}),
+    ...(quad ? { quadrilateral: quad } : {}),
   };
 }
 
@@ -226,11 +239,50 @@ function mapOutputRectToSource(
   rect: { x: number; y: number; width: number; height: number },
   geometry: PreprocessGeometry,
 ): BarcodeBounds {
+  const q = geometry.quadrilateral;
+  if (!q) {
+    return {
+      x: geometry.crop.x + (rect.x / geometry.outputWidth) * geometry.crop.width,
+      y: geometry.crop.y + (rect.y / geometry.outputHeight) * geometry.crop.height,
+      width: (rect.width / geometry.outputWidth) * geometry.crop.width,
+      height: (rect.height / geometry.outputHeight) * geometry.crop.height,
+    };
+  }
+
+  const homography = solveHomographyFromUnitSquare(q);
+  if (!homography) {
+    return {
+      x: geometry.crop.x + (rect.x / geometry.outputWidth) * geometry.crop.width,
+      y: geometry.crop.y + (rect.y / geometry.outputHeight) * geometry.crop.height,
+      width: (rect.width / geometry.outputWidth) * geometry.crop.width,
+      height: (rect.height / geometry.outputHeight) * geometry.crop.height,
+    };
+  }
+
+  const mapPoint = (x: number, y: number): BarcodePoint => {
+    const u = geometry.outputWidth <= 1 ? 0 : x / (geometry.outputWidth - 1);
+    const v = geometry.outputHeight <= 1 ? 0 : y / (geometry.outputHeight - 1);
+    const denom = homography[6] * u + homography[7] * v + 1;
+    if (Math.abs(denom) < 1e-9) return { x: geometry.crop.x, y: geometry.crop.y };
+    return {
+      x: (homography[0] * u + homography[1] * v + homography[2]) / denom,
+      y: (homography[3] * u + homography[4] * v + homography[5]) / denom,
+    };
+  };
+
+  const points = [
+    mapPoint(rect.x, rect.y),
+    mapPoint(rect.x + rect.width, rect.y),
+    mapPoint(rect.x + rect.width, rect.y + rect.height),
+    mapPoint(rect.x, rect.y + rect.height),
+  ];
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
   return {
-    x: geometry.crop.x + (rect.x / geometry.outputWidth) * geometry.crop.width,
-    y: geometry.crop.y + (rect.y / geometry.outputHeight) * geometry.crop.height,
-    width: (rect.width / geometry.outputWidth) * geometry.crop.width,
-    height: (rect.height / geometry.outputHeight) * geometry.crop.height,
+    x: Math.min(...xs),
+    y: Math.min(...ys),
+    width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
+    height: Math.max(1, Math.max(...ys) - Math.min(...ys)),
   };
 }
 
