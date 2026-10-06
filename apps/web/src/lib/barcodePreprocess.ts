@@ -92,6 +92,7 @@ async function detectWithFallback(
   const localized = localizeBarcode(source, srcW, srcH);
   const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
   const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
+  const quadrilateral = localized.confidence >= 0.42 ? localized.quadrilateral : undefined;
   const hits: BarcodeHit[] = [];
 
   for (const variant of variants) {
@@ -100,11 +101,13 @@ async function detectWithFallback(
         maxDimension,
         ...(crop ? { crop } : {}),
         rotation,
+        ...(quadrilateral ? { quadrilateral } : {}),
       });
       const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
         maxDimension,
         crop: geometry.crop,
         rotation,
+        ...(quadrilateral ? { quadrilateral } : {}),
       });
       const result = reader.decodeFromCanvas(canvas);
       const rawValue = result.getText().trim();
@@ -179,6 +182,7 @@ export interface PreprocessGeometry {
   outputWidth: number;
   outputHeight: number;
   rotation: number;
+  quadrilateral?: BarcodeQuadrilateral;
 }
 
 export function getPreprocessGeometry(
@@ -202,6 +206,7 @@ export function getPreprocessGeometry(
     outputWidth: variant === "upscaled" ? baseW * 2 : baseW,
     outputHeight: variant === "upscaled" ? baseH * 2 : baseH,
     rotation: opts.rotation ?? 0,
+    ...(opts.quadrilateral ? { quadrilateral: opts.quadrilateral } : {}),
   };
 }
 
@@ -262,6 +267,119 @@ function mapFallbackPointsToSource(
  * Applica la pipeline di preprocessing e restituisce il canvas pronto per il detector.
  * Il canvas è preso da un pool interno per variante: non va conservato dal chiamante.
  */
+
+function solveHomographyFromUnitSquare(q: BarcodeQuadrilateral): Float64Array | null {
+  const src = [
+    { x: 0, y: 0, d: q.topLeft },
+    { x: 1, y: 0, d: q.topRight },
+    { x: 1, y: 1, d: q.bottomRight },
+    { x: 0, y: 1, d: q.bottomLeft },
+  ];
+
+  // Solve the 8 unknowns of:
+  // x = (h00*u + h01*v + h02) / (h20*u + h21*v + 1)
+  // y = (h10*u + h11*v + h12) / (h20*u + h21*v + 1)
+  const a = Array.from({ length: 8 }, () => new Float64Array(9));
+  for (let i = 0; i < 4; i++) {
+    const { x: u, y: v, d } = src[i];
+    const row = i * 2;
+    a[row][0] = u; a[row][1] = v; a[row][2] = 1;
+    a[row][6] = -d.x * u; a[row][7] = -d.x * v; a[row][8] = d.x;
+    a[row + 1][3] = u; a[row + 1][4] = v; a[row + 1][5] = 1;
+    a[row + 1][6] = -d.y * u; a[row + 1][7] = -d.y * v; a[row + 1][8] = d.y;
+  }
+
+  for (let col = 0; col < 8; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < 8; row++) {
+      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+    }
+    if (Math.abs(a[pivot][col]) < 1e-9) return null;
+    if (pivot !== col) [a[pivot], a[col]] = [a[col], a[pivot]];
+    const div = a[col][col];
+    for (let k = col; k <= 8; k++) a[col][k] /= div;
+    for (let row = 0; row < 8; row++) {
+      if (row === col) continue;
+      const factor = a[row][col];
+      if (Math.abs(factor) < 1e-12) continue;
+      for (let k = col; k <= 8; k++) a[row][k] -= factor * a[col][k];
+    }
+  }
+
+  return new Float64Array([a[0][8], a[1][8], a[2][8], a[3][8], a[4][8], a[5][8], a[6][8], a[7][8], 1]);
+}
+
+function drawRectifiedQuad(
+  source: CanvasImageSource,
+  q: BarcodeQuadrilateral,
+  outW: number,
+  outH: number,
+  destination: HTMLCanvasElement,
+): void {
+  const homography = solveHomographyFromUnitSquare(q);
+  if (!homography) {
+    const ctx = destination.getContext("2d");
+    if (ctx) ctx.drawImage(source, q.topLeft.x, q.topLeft.y, Math.max(1, q.topRight.x - q.topLeft.x), Math.max(1, q.bottomLeft.y - q.topLeft.y), 0, 0, outW, outH);
+    return;
+  }
+
+  const bounds = {
+    x: Math.min(q.topLeft.x, q.topRight.x, q.bottomLeft.x, q.bottomRight.x),
+    y: Math.min(q.topLeft.y, q.topRight.y, q.bottomLeft.y, q.bottomRight.y),
+    right: Math.max(q.topLeft.x, q.topRight.x, q.bottomLeft.x, q.bottomRight.x),
+    bottom: Math.max(q.topLeft.y, q.topRight.y, q.bottomLeft.y, q.bottomRight.y),
+  };
+  const bw = Math.max(1, Math.ceil(bounds.right - bounds.x));
+  const bh = Math.max(1, Math.ceil(bounds.bottom - bounds.y));
+  const sourceCanvas = acquireCanvas("rectify-source", bw, bh);
+  const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const dstCtx = destination.getContext("2d", { willReadFrequently: true });
+  if (!sourceCtx || !dstCtx) return;
+
+  sourceCtx.imageSmoothingEnabled = true;
+  sourceCtx.imageSmoothingQuality = "high";
+  sourceCtx.clearRect(0, 0, bw, bh);
+  sourceCtx.drawImage(source, bounds.x, bounds.y, bw, bh, 0, 0, bw, bh);
+  const sourceData = sourceCtx.getImageData(0, 0, bw, bh);
+  const out = dstCtx.createImageData(outW, outH);
+  const data = out.data;
+
+  for (let y = 0; y < outH; y++) {
+    const v = outH === 1 ? 0 : y / (outH - 1);
+    for (let x = 0; x < outW; x++) {
+      const u = outW === 1 ? 0 : x / (outW - 1);
+      const denom = homography[6] * u + homography[7] * v + 1;
+      if (Math.abs(denom) < 1e-9) continue;
+      const px = homography[0] * u + homography[1] * v + homography[2];
+      const py = homography[3] * u + homography[4] * v + homography[5];
+      const sx = px / denom - bounds.x;
+      const sy = py / denom - bounds.y;
+      const x0 = Math.floor(sx);
+      const y0 = Math.floor(sy);
+      if (x0 < 0 || y0 < 0 || x0 >= bw || y0 >= bh) continue;
+      const x1 = Math.min(bw - 1, x0 + 1);
+      const y1 = Math.min(bh - 1, y0 + 1);
+      const tx = sx - x0;
+      const ty = sy - y0;
+      const di = (y * outW + x) * 4;
+      for (let c = 0; c < 4; c++) {
+        const p00 = sourceData.data[(y0 * bw + x0) * 4 + c];
+        const p10 = sourceData.data[(y0 * bw + x1) * 4 + c];
+        const p01 = sourceData.data[(y1 * bw + x0) * 4 + c];
+        const p11 = sourceData.data[(y1 * bw + x1) * 4 + c];
+        data[di + c] = Math.round(
+          p00 * (1 - tx) * (1 - ty) +
+          p10 * tx * (1 - ty) +
+          p01 * (1 - tx) * ty +
+          p11 * tx * ty,
+        );
+      }
+      data[di + 3] = 255;
+    }
+  }
+  dstCtx.putImageData(out, 0, 0);
+}
+
 export function preprocessToCanvas(
   source: CanvasImageSource,
   srcW: number,
@@ -287,7 +405,10 @@ export function preprocessToCanvas(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, outW, outH);
-  if (Math.abs(geometry.rotation) > 0.001) {
+
+  if (geometry.quadrilateral) {
+    drawRectifiedQuad(source, geometry.quadrilateral, outW, outH, canvas);
+  } else if (Math.abs(geometry.rotation) > 0.001) {
     ctx.save();
     ctx.translate(outW / 2, outH / 2);
     ctx.rotate(-geometry.rotation);
@@ -523,15 +644,39 @@ function unsharpMask(
 // ── API di alto livello ───────────────────────────────────────────────────────
 
 
+export type BarcodePoint = { x: number; y: number };
+export type BarcodeQuadrilateral = {
+  topLeft: BarcodePoint;
+  topRight: BarcodePoint;
+  bottomRight: BarcodePoint;
+  bottomLeft: BarcodePoint;
+};
+
 export interface BarcodeLocalization {
   crop: CropRect;
+  quadrilateral: BarcodeQuadrilateral;
   rotation: number;
   confidence: number;
   textureScore: number;
 }
 
-export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: number, maxDimension = 1280): BarcodeLocalization {
-  const full = { crop: { x: 0, y: 0, width: srcW, height: srcH }, rotation: 0, confidence: 0, textureScore: 0 };
+export interface RectifyOptions {
+  quadrilateral?: BarcodeQuadrilateral;
+}
+
+export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: number, maxDimension = 640): BarcodeLocalization {
+  const full = {
+    crop: { x: 0, y: 0, width: srcW, height: srcH },
+    quadrilateral: {
+      topLeft: { x: 0, y: 0 },
+      topRight: { x: srcW, y: 0 },
+      bottomRight: { x: srcW, y: srcH },
+      bottomLeft: { x: 0, y: srcH },
+    },
+    rotation: 0,
+    confidence: 0,
+    textureScore: 0,
+  };
   if (srcW < 96 || srcH < 96) return full;
   const scale = Math.min(1, maxDimension / Math.max(srcW, srcH));
   const w = Math.max(64, Math.round(srcW * scale));
@@ -549,6 +694,8 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
 
   const col = new Float64Array(w);
   const row = new Float64Array(h);
+  const topCol = new Float64Array(w);
+  const bottomCol = new Float64Array(w);
   let total = 0, strong = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
   for (let y = 1; y < h - 1; y++) {
     const b = y * w;
@@ -558,6 +705,8 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
       const e = Math.max(0, gx - 0.7 * gy);
       col[x] += e;
       row[y] += e;
+      if (y < h * 0.55) topCol[x] += e;
+      if (y >= h * 0.45) bottomCol[x] += e;
       total += e;
       if (e > 55) {
         strong += e;
@@ -619,9 +768,10 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
       : null;
   }
 
-  const xBand = bestBand(col, (total / w) * 1.75, Math.max(24, Math.floor(w * 0.08)));
   const yBand = bestBand(row, (total / h) * 1.25, Math.max(18, Math.floor(h * 0.06)));
-  if (!xBand || !yBand) return { ...full, textureScore: total / Math.max(1, w * h) };
+  if (!yBand) return { ...full, textureScore: total / Math.max(1, w * h) };
+  const xBand = bestBand(col, (total / w) * 1.35, Math.max(24, Math.floor(w * 0.06)));
+  if (!xBand) return { ...full, textureScore: total / Math.max(1, w * h) };
 
   const varianceX = strong > 0 ? Math.max(0, sxx / strong - (sx / strong) ** 2) : 0;
   const varianceY = strong > 0 ? Math.max(0, syy / strong - (sy / strong) ** 2) : 0;
@@ -631,10 +781,10 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   // This keeps an already-horizontal-in-the-image barcode at 0° instead of
   // accidentally rotating every normal barcode by 90°.
   const principalAngle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
-  let rotation = principalAngle - Math.PI / 2;
+  let rotation = -principalAngle;
   while (rotation > Math.PI / 2) rotation -= Math.PI;
   while (rotation < -Math.PI / 2) rotation += Math.PI;
-  rotation = Math.max(-0.35, Math.min(0.35, rotation));
+  rotation = Math.max(-0.45, Math.min(0.45, rotation));
 
   const padX = Math.max(18, Math.round((xBand.end - xBand.start + 1) * 0.22));
   const padY = Math.max(16, Math.round((yBand.end - yBand.start + 1) * 0.65));
@@ -649,11 +799,50 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   ));
   if (confidence < 0.42 || areaFraction > 0.78) return { ...full, confidence, textureScore: concentration };
 
+  const topBand = bestBand(topCol, Math.max(1, yBand.score * 0.42), Math.max(18, Math.floor(w * 0.04)));
+  const bottomBand = bestBand(bottomCol, Math.max(1, yBand.score * 0.42), Math.max(18, Math.floor(w * 0.04)));
+
   const inv = 1 / scale;
   x0 = Math.floor(x0 * inv); x1 = Math.min(srcW - 1, Math.ceil((x1 + 1) * inv) - 1);
   y0 = Math.floor(y0 * inv); y1 = Math.min(srcH - 1, Math.ceil((y1 + 1) * inv) - 1);
+
+  const topX0 = topBand ? Math.floor(Math.max(0, topBand.start - padX) * inv) : x0;
+  const topX1 = topBand ? Math.ceil(Math.min(w - 1, topBand.end + padX + 1) * inv) : x1 + 1;
+  const bottomX0 = bottomBand ? Math.floor(Math.max(0, bottomBand.start - padX) * inv) : x0;
+  const bottomX1 = bottomBand ? Math.ceil(Math.min(w - 1, bottomBand.end + padX + 1) * inv) : x1 + 1;
+
+  const quad: BarcodeQuadrilateral = {
+    topLeft: { x: Math.max(0, topX0), y: y0 },
+    topRight: { x: Math.min(srcW, topX1), y: y0 },
+    bottomRight: { x: Math.min(srcW, bottomX1), y: y1 + 1 },
+    bottomLeft: { x: Math.max(0, bottomX0), y: y1 + 1 },
+  };
+
+  const polygonArea = Math.abs(
+    (quad.topLeft.x * quad.topRight.y + quad.topRight.x * quad.bottomRight.y +
+      quad.bottomRight.x * quad.bottomLeft.y + quad.bottomLeft.x * quad.topLeft.y) -
+    (quad.topLeft.y * quad.topRight.x + quad.topRight.y * quad.bottomRight.x +
+      quad.bottomRight.y * quad.bottomLeft.x + quad.bottomLeft.y * quad.topLeft.x),
+  ) / 2;
+
+  const quadIsUsable = Number.isFinite(polygonArea) && polygonArea > srcW * srcH * 0.005;
+  const cropLeft = Math.max(0, Math.floor(Math.min(quad.topLeft.x, quad.bottomLeft.x)));
+  const cropTop = Math.max(0, Math.floor(Math.min(quad.topLeft.y, quad.topRight.y)));
+  const cropRight = Math.min(srcW, Math.ceil(Math.max(quad.topRight.x, quad.bottomRight.x)));
+  const cropBottom = Math.min(srcH, Math.ceil(Math.max(quad.bottomLeft.y, quad.bottomRight.y)));
+
   return {
-    crop: { x: Math.max(0, x0), y: Math.max(0, y0), width: Math.max(1, x1 - x0 + 1), height: Math.max(1, y1 - y0 + 1) },
+    crop: quadIsUsable
+      ? { x: cropLeft, y: cropTop, width: Math.max(1, cropRight - cropLeft), height: Math.max(1, cropBottom - cropTop) }
+      : { x: Math.max(0, x0), y: Math.max(0, y0), width: Math.max(1, x1 - x0 + 1), height: Math.max(1, y1 - y0 + 1) },
+    quadrilateral: quadIsUsable
+      ? quad
+      : {
+          topLeft: { x: x0, y: y0 },
+          topRight: { x: x1 + 1, y: y0 },
+          bottomRight: { x: x1 + 1, y: y1 + 1 },
+          bottomLeft: { x: x0, y: y1 + 1 },
+        },
     rotation,
     confidence,
     textureScore: concentration,
@@ -714,6 +903,7 @@ export async function detectBarcodes(
   const localized = localizeBarcode(source, srcW, srcH);
   const crop = localized.confidence >= 0.42 ? localized.crop : opts.crop;
   const rotation = localized.confidence >= 0.42 ? localized.rotation : 0;
+  const quadrilateral = localized.confidence >= 0.42 ? localized.quadrilateral : undefined;
   const nativeHits: BarcodeHit[] = [];
 
   if (detector) {
@@ -723,11 +913,13 @@ export async function detectBarcodes(
           maxDimension,
           ...(crop ? { crop } : {}),
           rotation,
+          ...(quadrilateral ? { quadrilateral } : {}),
         });
         const canvas = preprocessToCanvas(source, srcW, srcH, variant, {
           maxDimension,
           crop: geometry.crop,
           rotation,
+          ...(quadrilateral ? { quadrilateral } : {}),
         });
         const codes = await detector.detect(canvas);
 
