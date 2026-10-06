@@ -798,10 +798,15 @@ export function estimateBarcodeOrientationFromMoments(input: {
 
   // A 1D barcode has strong horizontal span and predominantly vertical-bar edges.
   // The confidence therefore falls when the candidate behaves like arbitrary text.
-  let confidence =
-    0.48 * anisotropy +
-    0.34 * Math.max(0, Math.min(1, (directionalScore - 0.5) / 0.38)) +
-    0.18 * aspectScore;
+  let confidence = Math.max(
+    0,
+    Math.min(
+      1,
+      0.48 * anisotropy +
+        0.34 * Math.max(0, Math.min(1, (directionalScore - 0.5) / 0.38)) +
+        0.18 * aspectScore,
+    ),
+  );
 
   const angleDegrees = Math.abs(rotation) * 180 / Math.PI;
   if (angleDegrees > 35) confidence *= 0.25;
@@ -983,7 +988,6 @@ export function localizeBarcode(
   const focusY0 = Math.max(1, yBand.start - Math.floor(bandHeight * 0.55));
   const focusY1 = Math.min(h - 2, yBand.end + Math.floor(bandHeight * 0.55));
   const focusCol = new Float64Array(w);
-  let focusTotal = 0;
 
   for (let y = focusY0; y <= focusY1; y++) {
     const rowBase = y * w;
@@ -992,7 +996,6 @@ export function localizeBarcode(
       const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
       const e = Math.max(0, gx - 0.7 * gy);
       focusCol[x] += e;
-      focusTotal += e;
     }
   }
 
@@ -1086,11 +1089,6 @@ export function localizeBarcode(
 
   const candidateAreaFraction = candidateArea / Math.max(1, w * h);
   const compactness = Math.max(0, Math.min(1, 1 - candidateAreaFraction / 0.72));
-  const edgeDensity = Math.max(
-    0,
-    Math.min(1, (focusTotal / Math.max(1, (focusY1 - focusY0 + 1) * w)) / Math.max(1, total / w) / 2),
-  );
-
   // Initial geometry is built before rotation. It is intentionally tight; the old
   // 22%/65% padding made the visual hitbox much larger than the actual bars.
   const padX = Math.max(12, Math.round(xBandWidth * 0.12));
@@ -1162,7 +1160,7 @@ export function localizeBarcode(
     bottomCenter: bottomBand ? bottomCenter : undefined,
   });
 
-  let confidence = Math.max(
+  const confidence = Math.max(
     0,
     Math.min(
       1,
