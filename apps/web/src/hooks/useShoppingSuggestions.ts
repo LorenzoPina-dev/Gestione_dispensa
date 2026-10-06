@@ -3,6 +3,7 @@ import type { ShoppingList, StockItem } from "../types";
 import type { CatalogProductRefDto, RecipeMatchDto } from "../api/types";
 import * as api from "../api/endpoints";
 import { isBackendUnreachable } from "../api/client";
+import { convertQuantity, normalizeUnit, type CanonicalUnit } from "../domain/units";
 import {
   deriveOfferSuggestions,
   deriveRecipeSuggestions,
@@ -56,6 +57,39 @@ function toRecipeSource(match: RecipeMatchDto): RecipeSuggestionSource {
   };
 }
 
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function packageAwarePurchase(
+  quantity: number,
+  unit: string,
+  packageValue?: number,
+  packageUnit?: string,
+): { quantity: number; unit: CanonicalUnit } {
+  const normalizedUnit = normalizeUnit(unit);
+  if (
+    packageValue == null ||
+    !Number.isFinite(packageValue) ||
+    packageValue <= 0 ||
+    !packageUnit?.trim()
+  ) {
+    return { quantity, unit: normalizedUnit };
+  }
+
+  const normalizedPackageUnit = normalizeUnit(packageUnit);
+  const quantityInPackageUnit = convertQuantity(quantity, normalizedUnit, normalizedPackageUnit);
+  if (quantityInPackageUnit == null) {
+    return { quantity, unit: normalizedUnit };
+  }
+
+  const packageCount = Math.max(1, Math.ceil((quantityInPackageUnit / packageValue) - 1e-9));
+  return {
+    quantity: round3(packageCount * packageValue),
+    unit: normalizedPackageUnit,
+  };
+}
+
 async function fetchOffers(signal: AbortSignal): Promise<OfferSuggestionSource[]> {
   const { stores } = await api.listStores(undefined, 10, signal);
   const perStore = await Promise.all(
@@ -94,6 +128,8 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
     brand?: string;
     imageUrl?: string;
     packageLabel?: string;
+    packageValue?: number;
+    packageUnit?: string;
   }>>([]);
   const catalogCache = useRef(new Map<string, CatalogProductRefDto>());
   const [recipes, setRecipes] = useState<RecipeSuggestionSource[]>([]);
@@ -135,6 +171,8 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
                     ?? cached.images?.frontThumb
                     ?? undefined,
                   packageLabel: cached.package?.label?.trim() || undefined,
+                  packageValue: cached.package?.value ?? undefined,
+                  packageUnit: cached.package?.unit?.trim() || undefined,
                 };
               }
 
@@ -151,6 +189,8 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
                     ?? product.images?.frontThumb
                     ?? undefined,
                   packageLabel: product.package?.label?.trim() || undefined,
+                  packageValue: product.package?.value ?? undefined,
+                  packageUnit: product.package?.unit?.trim() || undefined,
                 };
               } catch (error) {
                 if (controller.signal.aborted) throw error;
@@ -190,8 +230,12 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
           ...(suggestion.imageUrl ? { imageUrl: suggestion.imageUrl } : {}),
           ...(suggestion.packageLabel ? { packageLabel: suggestion.packageLabel } : {}),
           productId: suggestion.productId,
-          quantity: suggestion.quantity,
-          unit: suggestion.unit as ShoppingSuggestion["unit"],
+          ...packageAwarePurchase(
+            suggestion.quantity,
+            suggestion.unit,
+            suggestion.packageValue,
+            suggestion.packageUnit,
+          ),
           sourceRef: suggestion.suggestionId,
           reason:
             suggestion.reorderPoint === 0
