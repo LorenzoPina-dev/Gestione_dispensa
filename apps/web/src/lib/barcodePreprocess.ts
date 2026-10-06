@@ -857,8 +857,24 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
       focusTotal += e;
     }
   }
-  const xMean = focusTotal / Math.max(1, w);
-  const xBand = bestBand(focusCol, xMean * 1.28, Math.max(24, Math.floor(w * 0.06)));
+
+  const smoothProjection = (values: Float64Array, radius: number): Float64Array => {
+    const result = new Float64Array(values.length);
+    const prefix = new Float64Array(values.length + 1);
+    for (let i = 0; i < values.length; i++) prefix[i + 1] = prefix[i] + values[i];
+    for (let i = 0; i < values.length; i++) {
+      const left = Math.max(0, i - radius);
+      const right = Math.min(values.length - 1, i + radius);
+      result[i] = (prefix[right + 1] - prefix[left]) / Math.max(1, right - left + 1);
+    }
+    return result;
+  };
+
+  // Adjacent bars create repeated zero/high columns. Smoothing makes one physical
+  // barcode appear as one contiguous spatial band without blurring its outer edges.
+  const smoothedX = smoothProjection(focusCol, Math.max(2, Math.round(w * 0.015)));
+  const xMean = smoothedX.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
+  const xBand = bestBand(smoothedX, xMean * 1.18, Math.max(24, Math.floor(w * 0.06)));
   if (!xBand) return { ...full, textureScore: total / Math.max(1, w * h) };
 
   const varianceX = strong > 0 ? Math.max(0, sxx / strong - (sx / strong) ** 2) : 0;
@@ -887,10 +903,26 @@ export function localizeBarcode(source: CanvasImageSource, srcW: number, srcH: n
   ));
   if (confidence < 0.42 || areaFraction > 0.78) return { ...full, confidence, textureScore: concentration };
 
-  const topMean = topCol.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
-  const bottomMean = bottomCol.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
-  const topBand = bestBand(topCol, topMean * 1.35, Math.max(18, Math.floor(w * 0.04)));
-  const bottomBand = bestBand(bottomCol, bottomMean * 1.35, Math.max(18, Math.floor(w * 0.04)));
+  // Recompute upper/lower projections only inside the candidate height. This
+  // prevents package text elsewhere in the full frame from changing the trapezoid.
+  const topFocused = new Float64Array(w);
+  const bottomFocused = new Float64Array(w);
+  const yMid = Math.floor((focusY0 + focusY1) / 2);
+  for (let y = focusY0; y <= focusY1; y++) {
+    const rowBase = y * w;
+    const target = y <= yMid ? topFocused : bottomFocused;
+    for (let x = 1; x < w - 1; x++) {
+      const gx = Math.abs(gray[rowBase + x + 1] - gray[rowBase + x - 1]);
+      const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
+      target[x] += Math.max(0, gx - 0.7 * gy);
+    }
+  }
+  const smoothedTop = smoothProjection(topFocused, Math.max(2, Math.round(w * 0.015)));
+  const smoothedBottom = smoothProjection(bottomFocused, Math.max(2, Math.round(w * 0.015)));
+  const topMean = smoothedTop.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
+  const bottomMean = smoothedBottom.reduce((sum, value) => sum + value, 0) / Math.max(1, w);
+  const topBand = bestBand(smoothedTop, topMean * 1.15, Math.max(18, Math.floor(w * 0.04)));
+  const bottomBand = bestBand(smoothedBottom, bottomMean * 1.15, Math.max(18, Math.floor(w * 0.04)));
 
   const inv = 1 / scale;
   x0 = Math.floor(x0 * inv); x1 = Math.min(srcW - 1, Math.ceil((x1 + 1) * inv) - 1);
