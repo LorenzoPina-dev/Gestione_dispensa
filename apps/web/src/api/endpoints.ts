@@ -336,3 +336,14 @@ export async function listStoreOffers(storeId: string, limit = 20, signal?: Abor
 export function getCatalogProduct(productId: string, signal?: AbortSignal): Promise<CatalogProductRefDto> {
   return apiRequest<CatalogProductRefDto>(`/catalog/products/${productId}`, { signal });
 }
+
+export async function getCatalogProductsBatch(productIds: string[], signal?: AbortSignal): Promise<CatalogProductRefDto[]> {
+  const ids = [...new Set(productIds.filter(Boolean))].slice(0, 100);
+  if (ids.length === 0) return [];
+  const result = await apiRequest<{ items: CatalogProductRefDto[] }>("/catalog/products/batch", {
+    method: "POST",
+    body: { ids },
+    signal,
+  });
+  return result.items ?? [];
+}
