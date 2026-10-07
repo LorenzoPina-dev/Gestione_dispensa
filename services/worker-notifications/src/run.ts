@@ -1,5 +1,5 @@
 import { createClient } from "redis";
-import { Pool } from "pg";
+import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 
 type DomainEvent = {
   eventId: string;
@@ -15,7 +15,7 @@ type DomainEvent = {
 };
 
 const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL! });
 const stream = process.env.EVENT_STREAM ?? "events:domain";
 const group = process.env.CONSUMER_GROUP ?? "notifications";
 const consumer = process.env.CONSUMER_NAME ?? process.env.HOSTNAME ?? "notifications-1";
