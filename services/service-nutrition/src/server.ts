@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import crypto from "node:crypto";
+import { createClient } from "redis";
 import { consumedGramsForQuantity, loadNutritionSnapshot, nutrientMultiplier, type NutritionSnapshot } from "./catalog-client.js";
 import { isDiarySource, isDiaryUnit, isNonNegativeNumber, isPositiveNumber, isSummaryPeriod, validIfMatch } from "./validation.js";
 
@@ -85,6 +86,120 @@ function toEventPayload(payload: unknown): unknown {
     return (payload as { data: unknown }).data;
   }
   return payload;
+}
+
+type DomainEvent = {
+  eventId: string;
+  eventType: string;
+  occurredAt?: string;
+  payload?: Record<string, unknown>;
+};
+
+const eventRedis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
+const eventStream = process.env.EVENT_STREAM ?? "events:domain";
+const eventGroup = process.env.EVENT_CONSUMER_GROUP ?? "nutrition";
+const eventConsumer = process.env.EVENT_CONSUMER_NAME ?? `nutrition-${process.pid}`;
+
+async function consumeInventoryEvents(): Promise<void> {
+  await eventRedis.connect();
+  await eventRedis.xGroupCreate(eventStream, eventGroup, "$", { MKSTREAM: true }).catch((error: unknown) => {
+    if (!String(error).includes("BUSYGROUP")) throw error;
+  });
+
+  while (true) {
+    const result = await eventRedis.xReadGroup(
+      eventGroup,
+      eventConsumer,
+      [{ key: eventStream, id: ">" }],
+      { COUNT: 10, BLOCK: 1000 },
+    );
+
+    for (const streamResult of result ?? []) {
+      for (const message of streamResult.messages) {
+        try {
+          const raw = message.message.event;
+          const event = JSON.parse(String(raw)) as DomainEvent;
+          if (event.eventType !== "PantryItemConsumed") {
+            await eventRedis.xAck(eventStream, eventGroup, message.id);
+            continue;
+          }
+
+          const payload = event.payload ?? {};
+          const userId = typeof payload.actorUserId === "string" ? payload.actorUserId : "";
+          const productId = typeof payload.productId === "string" ? payload.productId : "";
+          const quantity = typeof payload.quantity === "string" ? Number(payload.quantity) : Number(payload.quantity);
+          const unit = typeof payload.unit === "string" ? payload.unit : "";
+          const movementId = typeof payload.movementId === "string" ? payload.movementId : "";
+          if (!event.eventId || !userId || !productId || !Number.isFinite(quantity) || quantity <= 0 || !isDiaryUnit(unit) || !movementId) {
+            throw new Error("Invalid PantryItemConsumed event payload.");
+          }
+
+          const client = await pool.connect();
+          try {
+            await client.query("begin");
+            const consumed = await client.query(
+              `insert into nutrition_domain.event_consumers(event_id,event_type)
+               values($1,$2) on conflict(event_id) do nothing returning event_id`,
+              [event.eventId, event.eventType],
+            );
+            if (!consumed.rowCount) {
+              await client.query("commit");
+              await eventRedis.xAck(eventStream, eventGroup, message.id);
+              client.release();
+              continue;
+            }
+
+            const snapshot = await loadNutritionSnapshot(
+              catalogBaseUrl,
+              undefined,
+              productId,
+            );
+            if (!snapshot) throw new Error("Product nutrition data not found.");
+
+            const entryId = crypto.randomUUID();
+            const date = typeof event.occurredAt === "string" && !Number.isNaN(new Date(event.occurredAt).getTime())
+              ? new Date(event.occurredAt).toISOString().slice(0, 10)
+              : new Date().toISOString().slice(0, 10);
+            await client.query(
+              `insert into nutrition_domain.diary_entries
+               (id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot)
+               values($1,$2,$3,'other',$4,$5,$6,'inventory',$7,$8::jsonb)`,
+              [entryId, userId, date, productId, quantity, unit, movementId, JSON.stringify(snapshot)],
+            );
+            await emitOutbox(client, "NutritionEntryRecorded", entryId, userId, {
+              entryId,
+              userId,
+              date,
+              meal: "other",
+              productId,
+              quantity,
+              unit,
+              source: "inventory",
+            });
+            await client.query("commit");
+            await eventRedis.xAck(eventStream, eventGroup, message.id);
+          } catch (error) {
+            await client.query("rollback").catch(() => undefined);
+            console.error(JSON.stringify({
+              service: "service-nutrition",
+              event: "inventory_event_processing_failed",
+              eventId: event.eventId,
+              error: error instanceof Error ? error.message : String(error),
+            }));
+          } finally {
+            client.release();
+          }
+        } catch (error) {
+          console.error(JSON.stringify({
+            service: "service-nutrition",
+            event: "domain_event_processing_failed",
+            messageId: message.id,
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        }
+      }
+    }
+  }
 }
 
 async function init(): Promise<void> {
@@ -249,4 +364,4 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
 });
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
-init().then(()=>app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-nutrition",port})))).catch(e=>{console.error(e);process.exit(1)});
+init().then(async()=>{ app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-nutrition",port}))); void consumeInventoryEvents().catch(e=>{console.error(JSON.stringify({service:"service-nutrition",event:"event_consumer_failed",error:e instanceof Error?e.message:String(e)}));process.exitCode=1;}); }).catch(e=>{console.error(e);process.exit(1)});
