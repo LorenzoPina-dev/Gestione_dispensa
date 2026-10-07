@@ -73,7 +73,7 @@ async function consumeShelfLifeEvents(): Promise<void> {
           );
 
           if (updated.rowCount) {
-            await event(client, "ExpirationConfirmed", itemId, {
+            await event(client, "inventory.expiration-confirmed.v1", itemId, {
               userId: "system",
               familyId,
               requestId: event.eventId,
@@ -473,7 +473,7 @@ const server = createServer(async (req, res) => {
         const afterReorder = await readReorderState(client, ctx.familyId, String(body.productId));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [id, ctx.familyId]);
-        await event(client, "PantryItemAdded", id, ctx, {
+        await event(client, "inventory.stock.received.v1", id, ctx, {
           itemId: id,
           productId: String(body.productId),
           actorUserId: ctx.userId,
@@ -552,7 +552,7 @@ const server = createServer(async (req, res) => {
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [itemMatch[1], ctx.familyId]);
         const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
-        await event(client, "PantryItemUpdated", itemMatch[1], ctx, {
+        await event(client, "inventory.stock.updated.v1", itemMatch[1], ctx, {
           itemId: itemMatch[1],
           productId: String(row.product_id),
           actorUserId: ctx.userId,
@@ -592,7 +592,7 @@ const server = createServer(async (req, res) => {
         const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
-        await event(client, "PantryItemConsumed", itemMatch[1], ctx, {
+        await event(client, "inventory.stock.consumed.v1", itemMatch[1], ctx, {
           itemId: itemMatch[1],
           productId: String(row.product_id),
           actorUserId: ctx.userId,
@@ -637,7 +637,7 @@ const server = createServer(async (req, res) => {
         const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
-        await event(client, "PantryItemWasted", itemMatch[1], ctx, {
+        await event(client, "inventory.stock.wasted.v1", itemMatch[1], ctx, {
           itemId: itemMatch[1],
           productId: String(row.product_id),
           quantity: String(quantity),
@@ -672,7 +672,7 @@ const server = createServer(async (req, res) => {
         const row = current.rows[0];
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
         const updated = await client.query("UPDATE pantry_items SET expires_at=$1,expiration_source=$2,version=version+1,updated_at=now() WHERE id=$3 AND family_id=$4 RETURNING *", [body.expiresAt === null ? null : new Date(String(body.expiresAt)), body.source ?? "declared", itemMatch[1], ctx.familyId]);
-        await event(client, "ExpirationConfirmed", itemMatch[1], ctx, {
+        await event(client, "inventory.expiration-confirmed.v1", itemMatch[1], ctx, {
           itemId: itemMatch[1],
           productId: String(row.product_id),
           expiresAt: body.expiresAt === null ? null : new Date(String(body.expiresAt)).toISOString(),
