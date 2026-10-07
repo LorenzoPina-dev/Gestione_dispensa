@@ -1,3 +1,5 @@
+export * from "./service-runtime.js";
+
 export interface RequestContext {
   requestId: string;
   traceId: string;
