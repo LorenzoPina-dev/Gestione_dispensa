@@ -10,7 +10,7 @@ function terms(v:string){const n=norm(v),out=new Set([n]);for(const t of n.split
 function matches(a:string,b:string){const x=terms(a),y=terms(b);for(const t of x)if(y.has(t))return true;return false;}
 
 async function getInventory(base:string,userId:string,familyId:string,authorization?:string):Promise<PantryItem[]>{
- const u=new URL("/inventory",base.replace(/\/$/,"")+"/");u.searchParams.set("familyId",familyId);u.searchParams.set("status","current");u.searchParams.set("limit","100");
+ const u=new URL(base.replace(/\/$/,"")+"/inventory");u.searchParams.set("familyId",familyId);u.searchParams.set("status","current");u.searchParams.set("limit","100");
  const headers:Record<string,string>={"x-user-id":userId,"x-family-id":familyId,accept:"application/json"};if(authorization)headers.authorization=authorization;
  const r=await fetch(u,{headers,signal:AbortSignal.timeout(2500)});if(!r.ok)throw new Error("inventory HTTP "+r.status);const b=await r.json() as {items?:PantryItem[]};return b.items??[];
 }
