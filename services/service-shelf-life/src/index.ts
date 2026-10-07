@@ -263,7 +263,7 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
     const response = { data: { predictionId, status: "queued" }, version: 1 };
     await client.query(
       `insert into shelf_life_domain.predictions(id,user_id,family_id,item_id,product_id,storage,opened,category,stored_on,estimated_expires_at,confidence,basis,model_version,status)
-       values($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),0,'pending','pending','queued')`,
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,null,0,'pending','pending','queued')`,
       [predictionId,userId,familyId,itemId,productId,storage,opened,typeof body.category==="string"?body.category.trim().toLowerCase():null,storedOn ?? null],
     );
     await emitOutbox(client,"shelf-life.prediction-queued.v1",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null,storedOn:storedOn ?? null,userId});
@@ -286,7 +286,7 @@ app.get("/api/v1/internal/shelf-life/predictions/recoverable", async (req,res) =
     const q = await pool.query(
       `select id,item_id,product_id,storage,opened,category,stored_on,user_id,family_id,status
        from shelf_life_domain.predictions
-       where status in ('queued','completed')
+       where status = 'queued'
        order by created_at asc
        limit $1`,
       [limit],
