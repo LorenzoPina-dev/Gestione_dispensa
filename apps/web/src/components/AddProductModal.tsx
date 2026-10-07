@@ -86,17 +86,42 @@ function candidateFromProduct(p: ProductDto): Candidate {
   };
 }
 
-function defaultStockQuantity(candidate: Candidate): string {
+function defaultPackageCount(_candidate: Candidate): string {
+  return "1";
+}
+
+function normalizePackageUnit(value: string | undefined): StockItem["unit"] | null {
+  const unit = String(value ?? "").trim().toLowerCase();
+  if (unit === "g" || unit === "kg" || unit === "ml" || unit === "l" || unit === "piece" || unit === "pack") {
+    return unit;
+  }
+  return null;
+}
+
+function packageCountToStock(
+  candidate: Candidate,
+  packageCount: number,
+): { quantity: number; unit: StockItem["unit"] } {
+  const packageUnit = normalizePackageUnit(candidate.quantityUnit);
+
   if (
     candidate.quantityValue != null &&
     Number.isFinite(candidate.quantityValue) &&
     candidate.quantityValue > 0 &&
-    typeof candidate.quantityUnit === "string" &&
-    candidate.quantityUnit.trim()
+    packageUnit !== null
   ) {
-    return String(candidate.quantityValue);
+    return {
+      quantity: Math.round(candidate.quantityValue * packageCount * 1000) / 1000,
+      unit: packageUnit,
+    };
   }
-  return "1";
+
+  // Nessuna pezzatura affidabile: non inventiamo grammi/ml. Conserviamo esplicitamente
+  // il numero di confezioni e lasciamo al catalogo/nutrizione il valore come non convertibile.
+  return {
+    quantity: packageCount,
+    unit: "pack",
+  };
 }
 
 export default function AddProductModal({ onClose, onAdd }: Props) {
@@ -234,8 +259,8 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         const p = result.product;
         const resolvedCandidate = candidateFromProduct(p);
         setCandidate(resolvedCandidate);
-        setQty(defaultStockQuantity(resolvedCandidate));
-        setReorderQuantity(defaultStockQuantity(resolvedCandidate));
+        setQty(defaultPackageCount(resolvedCandidate));
+        setReorderQuantity(defaultPackageCount(resolvedCandidate));
         setState("CANDIDATE");
         return;
       }
@@ -709,19 +734,43 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
   function save() {
     if (!candidate) return;
-    const quantity = Number(qty);
-    if (!Number.isFinite(quantity) || quantity <= 0) { setError("La quantità deve essere maggiore di zero."); return; }
+
+    const packageCount = Number(qty);
+    if (!Number.isInteger(packageCount) || packageCount <= 0) {
+      setError("La quantità deve essere un numero intero di confezioni maggiore di zero.");
+      return;
+    }
+
+    const stockQuantity = packageCountToStock(candidate, packageCount);
     const parsedReorderPoint = reorderPoint.trim() === "" ? undefined : Number(reorderPoint);
     if (parsedReorderPoint !== undefined && (!Number.isFinite(parsedReorderPoint) || parsedReorderPoint < 0)) {
       setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
       return;
     }
-    const parsedReorderQuantity = parsedReorderPoint === undefined ? undefined : (reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity));
-    if (parsedReorderQuantity !== undefined && (!Number.isFinite(parsedReorderQuantity) || parsedReorderQuantity <= 0)) {
-      setError("La quantità da riacquistare deve essere maggiore di zero.");
+    const reorderPackageCount = reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity);
+    if (!Number.isInteger(reorderPackageCount) || reorderPackageCount <= 0) {
+      setError("La quantità da riacquistare deve essere un numero intero di confezioni maggiore di zero.");
       return;
     }
-    onAdd({ productId: candidate.productId, barcode: code, name: candidate.name, brand: candidate.brand, unit: candidate.unit, category: candidate.category ?? "Altro", calories: candidate.calories, protein: candidate.protein, carbs: candidate.carbs, fat: candidate.fat, fiber: candidate.fiber, reorderPoint: parsedReorderPoint, reorderQuantity: parsedReorderQuantity, location, batches: [{ quantity, expiryDate: expiry || undefined }] });
+    const reorderStockQuantity = packageCountToStock(candidate, reorderPackageCount);
+
+    onAdd({
+      productId: candidate.productId,
+      barcode: code,
+      name: candidate.name,
+      brand: candidate.brand,
+      unit: stockQuantity.unit,
+      category: candidate.category ?? "Altro",
+      calories: candidate.calories,
+      protein: candidate.protein,
+      carbs: candidate.carbs,
+      fat: candidate.fat,
+      fiber: candidate.fiber,
+      reorderPoint: parsedReorderPoint,
+      reorderQuantity: reorderStockQuantity.quantity,
+      location,
+      batches: [{ quantity: stockQuantity.quantity, expiryDate: expiry || undefined }],
+    });
   }
 
   const phaseLabel: Record<ScannerPhase, string> = {
@@ -1061,15 +1110,41 @@ function cleanTag(value: string): string {
 function OptionalReorderFields({ reorderPoint, onReorderPointChange, reorderQuantity, onReorderQuantityChange }: { reorderPoint: string; onReorderPointChange: (value: string) => void; reorderQuantity: string; onReorderQuantityChange: (value: string) => void }) {
   return (
     <div className="space-y-2 rounded-xl p-3" style={{ backgroundColor: "#fffaf4", border: "1px solid #e2d6c6" }}>
-      <Field label="Scorta minima / soglia riordino (opzionale)" type="number" value={reorderPoint} onChange={onReorderPointChange} />
-      <Field label="Quantità da riacquistare (opzionale)" type="number" value={reorderQuantity} onChange={onReorderQuantityChange} />
-      <p className="text-[11px]" style={{ color: "#6b5e4e" }}>Lascia la soglia vuota per disattivare il riordino. Con soglia 0 e quantità 1, quando finisci il prodotto verrà suggerita 1 unità nella spesa.</p>
+      <Field label="Scorta minima / soglia riordino (unità fisiche, opzionale)" type="number" value={reorderPoint} onChange={onReorderPointChange} />
+      <Field label="Quantità da riacquistare (confezioni)" type="number" value={reorderQuantity} onChange={onReorderQuantityChange} />
+      <p className="text-[11px]" style={{ color: "#6b5e4e" }}>Inserisci il numero di confezioni da acquistare, ad esempio 1, 2 o 3. Se la confezione è da 90 g, 2 confezioni verranno salvate come 180 g.</p>
     </div>
   );
 }
 
 function ConfirmStock({ candidate, qty, setQty, expiry, setExpiry, reorderPoint, setReorderPoint, reorderQuantity, setReorderQuantity, location, setLocation, onBack, onSave }: { candidate: Candidate; qty: string; setQty: (v: string) => void; expiry: string; setExpiry: (v: string) => void; reorderPoint: string; setReorderPoint: (v: string) => void; reorderQuantity: string; setReorderQuantity: (v: string) => void; location: StorageLocation; setLocation: (v: StorageLocation) => void; onBack: () => void; onSave: () => void }) {
-  return <div className="space-y-4"><div className="rounded-2xl p-4" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}><p className="font-semibold">{candidate.name}</p>{candidate.brand && <p className="text-xs" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}</div><Field label="Quantità" type="number" value={qty} onChange={setQty} /><Field label="Scadenza" type="date" value={expiry} onChange={setExpiry} /><OptionalReorderFields reorderPoint={reorderPoint} onReorderPointChange={setReorderPoint} reorderQuantity={reorderQuantity} onReorderQuantityChange={setReorderQuantity} /><div><label className="text-xs font-medium block mb-1">Luogo</label><select value={location} onChange={(e) => setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}>{LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select></div><p className="text-xs" style={{ color: "#6b5e4e" }}>Lascia la scadenza vuota per usare automaticamente la stima Shelf-Life. Il prodotto verrà scritto nella scorta solo premendo l'ultimo pulsante.</p><div className="flex gap-3"><button onClick={onBack} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Indietro</button><button onClick={onSave} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Inserisci nella scorta</button></div></div>;
+  const packageLabel = candidate.quantityLabel
+    ?? (candidate.quantityValue != null && candidate.quantityUnit
+      ? String(candidate.quantityValue) + " " + candidate.quantityUnit
+      : null);
+
+  return <div className="space-y-4">
+    <div className="rounded-2xl p-4" style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}>
+      <p className="font-semibold">{candidate.name}</p>
+      {candidate.brand && <p className="text-xs" style={{ color: "#6b5e4e" }}>{candidate.brand}</p>}
+    </div>
+    <Field label="Quantità (confezioni)" type="number" value={qty} onChange={setQty} />
+    {packageLabel && (
+      <p className="text-[11px] -mt-2" style={{ color: "#6b5e4e" }}>
+        1 confezione = {packageLabel}. Inserisci solo il numero di confezioni; la quantità fisica viene calcolata automaticamente.
+      </p>
+    )}
+    <Field label="Scadenza" type="date" value={expiry} onChange={setExpiry} />
+    <OptionalReorderFields
+      reorderPoint={reorderPoint}
+      onReorderPointChange={setReorderPoint}
+      reorderQuantity={reorderQuantity}
+      onReorderQuantityChange={setReorderQuantity}
+    />
+    <div><label className="text-xs font-medium block mb-1">Luogo</label><select value={location} onChange={(e) => setLocation(e.target.value as StorageLocation)} className="w-full px-3 py-2 rounded-xl" style={{ backgroundColor: "#ede6d6", border: "1px solid #d8cfc0" }}>{LOCATIONS.map((l) => <option key={l.key} value={l.key}>{l.icon} {l.label}</option>)}</select></div>
+    <p className="text-xs" style={{ color: "#6b5e4e" }}>Lascia la scadenza vuota per usare automaticamente la stima Shelf-Life. Il prodotto verrà scritto nella scorta solo premendo l'ultimo pulsante.</p>
+    <div className="flex gap-3"><button onClick={onBack} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Indietro</button><button onClick={onSave} className="flex-1 py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Inserisci nella scorta</button></div>
+  </div>;
 }
 function ManualProduct({ onAdd, code, onBack }: { onAdd: Props["onAdd"]; code: string; onBack: () => void }) {
   const [name, setName] = useState(""); const [qty, setQty] = useState("1"); const [expiry, setExpiry] = useState(""); const [reorderPoint, setReorderPoint] = useState(""); const [reorderQuantity, setReorderQuantity] = useState("1"); const [location, setLocation] = useState<StorageLocation>("dispensa");
@@ -1138,8 +1213,8 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       }
       const resolvedCandidate = candidateFromProduct(result.product);
       setCandidate(resolvedCandidate);
-      setQty(defaultStockQuantity(resolvedCandidate));
-      setReorderQuantity(defaultStockQuantity(resolvedCandidate));
+      setQty(defaultPackageCount(resolvedCandidate));
+      setReorderQuantity(defaultPackageCount(resolvedCandidate));
       setCandidateCode(item.code);
       setState("CANDIDATE");
     } catch (err) {
