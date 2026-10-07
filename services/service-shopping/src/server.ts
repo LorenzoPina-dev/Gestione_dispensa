@@ -1,11 +1,12 @@
 import express from "express";
-import { createContextAwarePool, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
+import { createContextAwarePool, setDbRequestContextFromHeaders, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import crypto from "node:crypto";
 import { isOptionalUuid, isShoppingSource, isShoppingUnit, normalizeListName, parseIfMatch, positiveQuantity, validFamilyId, validIdempotencyKey } from "./validation.js";
 
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
+app.use((req, _res, next) => { setDbRequestContextFromHeaders(req.headers); next(); });
 
 const port = Number(process.env.PORT ?? 3313);
 const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
