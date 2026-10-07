@@ -13,12 +13,13 @@ import {
   type CheckoutPlan,
   type ReceiptMatch,
 } from "../../domain/shopping-checkout";
-import { formatQuantity, formatUnit } from "../../domain/units";
+import { formatQuantity, formatUnit, isKnownUnit, normalizeUnit } from "../../domain/units";
 import { colors, fonts } from "../../tokens";
 import { Modal } from "../ui/Modal";
 import { Input } from "../ui/Input";
 import Button from "../ui/Button";
 import { Row, RowList } from "../ui/ListRow";
+import ProductSearch from "./ProductSearch";
 
 interface Props {
   items: ShoppingItem[];
@@ -37,7 +38,6 @@ export default function CheckoutModal({ items, familyId, onClose, onComplete }: 
   const [purchased, setPurchased] = useState<Set<string>>(() => initialPurchasedIds(items));
   const [extras, setExtras] = useState<CheckoutExtra[]>([]);
   const [matches, setMatches] = useState<ReceiptMatch[]>([]);
-  const [extraName, setExtraName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,11 +66,42 @@ export default function CheckoutModal({ items, familyId, onClose, onComplete }: 
     });
   }
 
-  function addExtra() {
-    const name = extraName.trim();
-    if (!name) return;
-    setExtras((current) => [...current, { id: `manual-extra-${Date.now()}-${current.length}`, name, quantity: 1, unit: "piece" }]);
-    setExtraName("");
+  function addExtra(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setExtras((current) => [...current, { id: "manual-extra-" + Date.now() + "-" + current.length, name: trimmed, quantity: 1, unit: "piece" }]);
+  }
+
+  function addProductFromSearch(product: import("../../api/types").ProductDto) {
+    const listed = items.find((item) => item.productId === product.id);
+    if (listed) {
+      setPurchased((current) => new Set([...current, listed.id]));
+      return;
+    }
+
+    setExtras((current) => {
+      if (current.some((extra) => extra.productId === product.id)) return current;
+      const packageValue = product.quantityValue;
+      const packageUnit = product.quantityUnit?.trim();
+      const hasPackageMeasure =
+        packageValue != null &&
+        Number.isFinite(packageValue) &&
+        packageValue > 0 &&
+        !!packageUnit &&
+        isKnownUnit(packageUnit);
+      const quantity = hasPackageMeasure ? packageValue : 1;
+      const unit = hasPackageMeasure ? normalizeUnit(packageUnit) : "pack";
+      return [
+        ...current,
+        {
+          id: "manual-product-" + product.id,
+          name: product.canonicalName,
+          quantity,
+          unit,
+          productId: product.id,
+        },
+      ];
+    });
   }
 
   async function changeReceipt() {
@@ -211,16 +242,17 @@ export default function CheckoutModal({ items, familyId, onClose, onComplete }: 
               </div>
             )}
 
-            <div className="flex gap-2 items-end">
-              <div className="flex-1">
-                <Input
-                  placeholder="Altro acquistato (es. Pane)"
-                  value={extraName}
-                  onChange={(e) => setExtraName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") addExtra(); }}
-                />
-              </div>
-              <Button variant="secondary" onClick={addExtra} disabled={!extraName.trim()}>Aggiungi</Button>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold" style={{ color: colors.inkMuted }}>Aggiungi un acquisto non presente nella lista</p>
+              <ProductSearch
+                placeholder="Cerca un prodotto (es. latte, pasta…)"
+                onSelect={addProductFromSearch}
+                onAddFreeText={addExtra}
+                emptyActionLabel="Aggiungi la ricerca come voce libera"
+              />
+              <p className="text-[11px]" style={{ color: colors.inkMuted }}>
+                Tocca direttamente un'anteprima per aggiungerla: se ha una confezione nota, viene caricata con la quantità fisica della confezione.
+              </p>
             </div>
 
             <div className="rounded-xl px-4 py-3 text-xs" style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}>
