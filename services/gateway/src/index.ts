@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from "express";
 import { Readable } from "node:stream";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { annotate, currentContext, errorMiddleware, log, metrics, metricsHandler, noteUpstreamError, rebindContext, recordError, requestObservability, startObservability } from "./observability.js";
+import { annotate, currentContext, errorMiddleware, log, metrics, metricsHandler, noteUpstreamError, rebindContext, recordError, requestObservability, startObservability } from "@gestione-dispensa/observability";
 
 // Must run before anything else: installs structured logging, outbound fetch tracing and crash handlers.
 startObservability("gateway");
