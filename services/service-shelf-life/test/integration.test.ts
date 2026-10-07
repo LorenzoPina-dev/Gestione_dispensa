@@ -90,7 +90,7 @@ describe("service-shelf-life / real lifecycle",()=>{
       headers:{"x-user-id":user,"x-family-id":familyId!},
     });
     assert.equal(currentItem.r.status,200);
-    const currentVersion=Number(currentItem.b?.version);
+    const currentVersion=Number(currentItem.b?.data?.version);
     assert.ok(Number.isInteger(currentVersion)&&currentVersion>=1);
 
     const x=await q(inventoryBase,"/api/v1/inventory/"+itemId+"/expiration/confirm",{
