@@ -283,8 +283,8 @@ services:
       KEYCLOAK_INTERNAL_URL: "http://keycloak:8080"
       KEYCLOAK_REALM: dispensa
       # Credenziali admin Keycloak (le stesse di KC_BOOTSTRAP_ADMIN_*), usate solo dal backend per creare utenti.
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN: "${KEYCLOAK_ADMIN:-admin}"
+      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:-change-me-local-only}"
       OIDC_ISSUER: "https://${LAN_HOST:-localhost}:8443/realms/dispensa"
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
@@ -656,8 +656,8 @@ services:
       MIGRATION_DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
       REDIS_URL: "redis://redis:6379"
       MINIO_ENDPOINT: "http://minio:9000"
-      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minio}"
-      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-miniochange}"
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minio-local}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-change-me-local-only}"
       MINIO_BUCKET: gestione-dispensa
       FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
@@ -743,7 +743,6 @@ services:
     networks: [data, egress]
 
 volumes:
-  keycloak_db:
   postgres_data:
   mongo_data:
   minio_data:
