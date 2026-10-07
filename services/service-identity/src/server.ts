@@ -151,6 +151,7 @@ const PROFILE_PATHS = new Set(["/api/v1/identity/me"]);
 
 const server = createServer(async (req, res) => {
   const requestId = String(req.headers["x-request-id"] ?? randomUUID());
+  setDbRequestContextFromHeaders(req.headers);
   const method = req.method ?? "GET";
   const path = new URL(req.url ?? "/", "http://service-identity").pathname;
 
