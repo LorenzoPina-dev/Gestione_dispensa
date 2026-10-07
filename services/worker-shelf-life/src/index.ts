@@ -32,7 +32,7 @@ const recoveryIntervalMs = Number(process.env.RECOVERY_INTERVAL_MS ?? 5000);
 if (!token) throw new Error("INTERNAL_SERVICE_TOKEN is required.");
 
 await redis.connect();
-await redis.xGroupCreate(stream, group, "$", { MKSTREAM: true }).catch((error: unknown) => {
+await redis.xGroupCreate(stream, group, process.env.EVENT_GROUP_START_ID ?? "0-0", { MKSTREAM: true }).catch((error: unknown) => {
   if (!String(error).includes("BUSYGROUP")) throw error;
 });
 
