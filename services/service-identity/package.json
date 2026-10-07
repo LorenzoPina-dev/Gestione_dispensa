@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "pg": "^8.23.0",
-    "jose": "^6.1.0"
+    "jose": "^6.1.0",
+    "@gestione-dispensa/runtime-db": "2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
