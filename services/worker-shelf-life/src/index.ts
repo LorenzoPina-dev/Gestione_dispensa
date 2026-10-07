@@ -24,7 +24,6 @@ const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" 
 const stream = process.env.EVENT_STREAM ?? "events:domain";
 const group = process.env.EVENT_CONSUMER_GROUP ?? "shelf-life";
 const consumer = process.env.EVENT_CONSUMER_NAME ?? `shelf-life-${process.pid}`;
-const queue = "q:shelf-life-prediction";
 const base = (process.env.SHELF_LIFE_SERVICE_BASE_URL ?? "http://service-shelf-life:3404/api/v1").replace(/\/$/, "");
 const token = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
 const recoveryIntervalMs = Number(process.env.RECOVERY_INTERVAL_MS ?? 5000);
