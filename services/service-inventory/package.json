@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "pg": "^8.23.0",
-    "redis": "^6.2.1"
+    "redis": "^6.2.1",
+    "@gestione-dispensa/runtime-db": "2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
