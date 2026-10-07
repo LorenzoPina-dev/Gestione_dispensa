@@ -342,6 +342,71 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to add shopping item.");}finally{client.release();}
 });
 
+app.patch("/api/v1/shopping/lists/:listId/items/batch", async (req,res)=>{
+  const ctx = requestContext(req);
+  const body = req.body as Body;
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (ctx === null || idempotencyKey(req) === null) {
+    return fail(res, 400, "VALIDATION_ERROR", "familyId, X-Idempotency-Key are required.");
+  }
+  if (items.length < 1 || items.length > 100 || items.some((item) =>
+    !item || typeof item !== "object" ||
+    typeof (item as Record<string, unknown>).itemId !== "string" ||
+    !Number.isInteger((item as Record<string, unknown>).version) ||
+    typeof (item as Record<string, unknown>).checked !== "boolean"
+  )) {
+    return fail(res, 400, "VALIDATION_ERROR", "items must contain 1-100 {itemId,version,checked} entries.");
+  }
+  const access = await authorizeFamily(ctx, true);
+  if (!access.ok) return fail(res, access.status, access.code, access.message);
+
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const idem = await beginIdempotency(client, req, ctx, body);
+    if (idem.kind === "conflict") { await client.query("rollback"); return fail(res, 409, "CONFLICT", "Idempotency key conflict."); }
+    if (idem.kind === "replay") { await client.query("commit"); return json(res, idem.status, idem.response); }
+
+    const list = await client.query("select * from shopping_domain.lists where id=$1 and family_id=$2 for update", [req.params.listId, ctx.familyId]);
+    if (!list.rowCount) { await client.query("rollback"); return fail(res, 404, "NOT_FOUND", "Shopping list not found."); }
+    if (list.rows[0].status !== "open") { await client.query("rollback"); return fail(res, 422, "BUSINESS_RULE_VIOLATION", "Closed shopping lists cannot be modified."); }
+
+    const updated: Record<string, unknown>[] = [];
+    for (const input of items as Array<Record<string, unknown>>) {
+      const current = await client.query(
+        "select * from shopping_domain.items where id=$1 and list_id=$2 for update",
+        [String(input.itemId), req.params.listId],
+      );
+      if (!current.rowCount) {
+        await client.query("rollback");
+        return fail(res, 404, "NOT_FOUND", `Shopping item ${String(input.itemId)} not found.`);
+      }
+      const row = current.rows[0] as Record<string, unknown>;
+      if (Number(row.version) !== Number(input.version)) {
+        await client.query("rollback");
+        return fail(res, 412, "PRECONDITION_FAILED", `Shopping item ${String(input.itemId)} changed.`);
+      }
+      const changed = await client.query(
+        "update shopping_domain.items set checked=$2,updated_at=now(),version=version+1 where id=$1 returning *",
+        [row.id, input.checked === true],
+      );
+      const dto = toItem(changed.rows[0] as Record<string, unknown>);
+      updated.push(dto);
+      await emitOutbox(client, "ShoppingItemUpdated", String(row.id), ctx, { data: dto });
+    }
+    await client.query("update shopping_domain.lists set version=version+$2,updated_at=now() where id=$1", [req.params.listId, updated.length]);
+    const response = { data: { updated }, version: Number(list.rows[0].version) + updated.length };
+    await finishIdempotency(client, req, 200, response);
+    await client.query("commit");
+    return json(res, 200, response);
+  } catch (error) {
+    await client.query("rollback");
+    return fail(res, 500, "INTERNAL_ERROR", error instanceof Error ? error.message : "Unable to update shopping items.");
+  } finally {
+    client.release();
+  }
+});
+
 app.patch("/api/v1/shopping/lists/:listId/items/:itemId", async (req,res)=>{
   const ctx=requestContext(req); const body=req.body as Body;
   if (ctx) {
