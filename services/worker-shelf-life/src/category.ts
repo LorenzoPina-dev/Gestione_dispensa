@@ -25,11 +25,11 @@ export function resolveShelfLifeCategory(context: ShelfLifeProductContext): stri
 
   if (hasAny(joined, [
     "canned", "tinned", "tin", "retort", "preserved", "preserve",
-    "canned-fish", "tinned-fish", "preserved-fish",
+    "canned-fish", "tinned-fish", "preserved-fish", "can", "cans",
     "en:conserves", "en:canned-foods", "en:canned-fish",
     "en:tinned-foods", "en:tinned-fish", "en:preserved-foods",
     "en:preserved-fish", "in scatola", "inscatol", "conserva",
-    "conserve", "shelf stable", "shelf-stable", "long-life",
+    "conserve", "conservato", "shelf stable", "shelf-stable", "long-life", "lattina", "lattine", "scatola", "scatole", "latta", "sottolio",
   ])) {
     return "canned-preserved";
   }
