@@ -53,7 +53,7 @@ describe("service-shelf-life / real lifecycle",()=>{
     assert.equal(db.rows[0].item_id,itemId);
     assert.equal(db.rows[0].product_id,product);
     const event=await pool.query("select event_type from shelf_life_domain.outbox_events where aggregate_id=$1",[predictionId]);
-    assert.equal(event.rows[0].event_type,"ShelfLifePredictionQueued");
+    assert.equal(event.rows[0].event_type,"shelf-life.prediction-queued.v1");
   });
 
   it("processes through the internal service boundary with the real rule engine",async()=>{
@@ -76,11 +76,24 @@ describe("service-shelf-life / real lifecycle",()=>{
     assert.deepEqual(Object.keys(x.b.data).sort(),["basis","confidence","estimatedExpiresAt","itemId","predictionId","status"].sort());
   });
 
-  it("applies the prediction through real Inventory and marks it applied",async()=>{
+  it("publishes the completed event and applies the estimate through the Inventory owner API",async()=>{
     assert.ok(predictionId&&familyId&&itemId);
-    const x=await q(base,"/api/v1/shelf-life/predictions/"+predictionId+"/apply",{method:"POST",headers:{"x-user-id":user,"x-family-id":familyId!,"x-idempotency-key":"apply-"+randomUUID(),"content-type":"application/json"},body:"{}"});
+    const event=await pool.query(
+      "select event_type,payload from shelf_life_domain.outbox_events where aggregate_id=$1 and event_type='shelf-life.prediction-completed.v1' order by occurred_at desc limit 1",
+      [predictionId],
+    );
+    assert.equal(event.rowCount,1);
+    const payload=event.rows[0].payload as { estimatedExpiresAt?: string };
+    assert.ok(payload.estimatedExpiresAt);
+
+    const x=await q(inventoryBase,"/api/v1/inventory/"+itemId+"/expiration/confirm",{
+      method:"POST",
+      headers:{"x-user-id":user,"x-family-id":familyId!,"x-idempotency-key":"apply-"+randomUUID(),"content-type":"application/json"},
+      body:JSON.stringify({expiresAt:payload.estimatedExpiresAt,source:"estimated"}),
+    });
     assert.equal(x.r.status,200);
-    assert.equal(x.b.data.status,"applied");
+    assert.equal(x.b.data.expirationSource,"estimated");
+
     const item=await q(inventoryBase,"/api/v1/inventory/"+itemId,{headers:{"x-user-id":user,"x-family-id":familyId!}});
     assert.equal(item.r.status,200);
     assert.equal(item.b.data.expirationSource,"estimated");
