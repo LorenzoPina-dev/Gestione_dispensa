@@ -44,3 +44,11 @@ CREATE POLICY inventory_idempotency_scope ON idempotency_keys
     actor_user_id = NULLIF(current_setting('app.user_id', true), '')::uuid
     AND family_id = NULLIF(current_setting('app.family_id', true), '')::uuid
   );
+
+
+ALTER TABLE reorder_policies ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS inventory_reorder_policies_scope ON reorder_policies;
+CREATE POLICY inventory_reorder_policies_scope ON reorder_policies
+  FOR ALL
+  USING (family_id = NULLIF(current_setting('app.family_id', true), '')::uuid)
+  WITH CHECK (family_id = NULLIF(current_setting('app.family_id', true), '')::uuid);
