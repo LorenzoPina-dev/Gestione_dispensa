@@ -51,7 +51,7 @@ console.log(JSON.stringify({ worker: "worker-shelf-life", stream, group, consume
 
 async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise<void> {
   const data = event.payload ?? {};
-  if (event.eventType !== "PantryItemAdded") return;
+  if (event.eventType !== "inventory.stock.received.v1") return;
   const itemId = typeof data.itemId === "string" ? data.itemId : "";
   const productId = typeof data.productId === "string" ? data.productId : "";
   const familyId = typeof event.familyId === "string" ? event.familyId : "";
