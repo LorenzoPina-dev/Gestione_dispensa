@@ -257,6 +257,7 @@ async function consumeInventoryEvents(): Promise<void> {
       { COUNT: 10 },
     );
     for (const message of claimed.messages) {
+      if (!message) continue;
       await processInventoryMessage(message);
     }
 
