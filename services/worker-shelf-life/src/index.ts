@@ -93,9 +93,9 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
     signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) throw new Error("Prediction queue failed with HTTP " + response.status);
-  const payload = await response.json() as { data?: { predictionId?: string } };
-  const predictionId = payload.data?.predictionId;
-  if (predictionId) await processPrediction({ predictionId, itemId, productId, storage, opened, userId, familyId, status: "queued" });
+  // The service-shelf-life endpoint durably queues the prediction and publishes
+  // shelf-life.prediction-queued.v1. Processing belongs exclusively to that
+  // queued event (or the recovery scanner); do not execute it inline here.
 }
 
 async function processPrediction(data: RecoveryItem): Promise<void> {
