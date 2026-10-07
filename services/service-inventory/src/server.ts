@@ -500,6 +500,7 @@ const server = createServer(async (req, res) => {
         await event(client, "PantryItemConsumed", itemMatch[1], ctx, {
           itemId: itemMatch[1],
           productId: String(row.product_id),
+          actorUserId: ctx.userId,
           quantity: String(quantity),
           unit: String(row.unit),
           remainingQuantity: Number(updated.rows[0]?.quantity ?? 0),
