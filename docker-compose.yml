@@ -378,7 +378,7 @@ services:
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
-    networks: [backend, data]
+    networks: [backend, data, egress]
 
   service-nutrition:
     build: { context: ., dockerfile: services/service-nutrition/Dockerfile }
