@@ -12,9 +12,7 @@ export interface MigrationRunnerOptions {
 
 function resolveMigrationsDir(options: MigrationRunnerOptions): string {
   if (options.migrationsDir) return options.migrationsDir;
-  if (options.moduleUrl) {
-    return fileURLToPath(new URL("../migrations/", options.moduleUrl));
-  }
+  if (options.moduleUrl) return fileURLToPath(new URL("../migrations/", options.moduleUrl));
   return join(process.cwd(), "migrations");
 }
 
@@ -34,7 +32,7 @@ export async function runMigrations(options: MigrationRunnerOptions): Promise<vo
     `);
 
     const files = (await readdir(migrationsDir))
-      .filter((file) => /^\\d+_.+\\.sql$/.test(file))
+      .filter((file) => /^\d+_.+\.sql$/.test(file))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
     if (files.length === 0) {
@@ -44,9 +42,8 @@ export async function runMigrations(options: MigrationRunnerOptions): Promise<vo
     }
 
     for (const file of files) {
-      const version = file.replace(/\\.sql$/, "");
+      const version = file.replace(/\.sql$/, "");
       const client = await pool.connect();
-
       try {
         await client.query("BEGIN");
         await client.query(
@@ -54,9 +51,6 @@ export async function runMigrations(options: MigrationRunnerOptions): Promise<vo
           [`gestione-dispensa-migration:${version}`],
         );
 
-        // Inventory historically stored the ".sql" suffix. Accept that legacy
-        // ledger representation so already-applied production migrations are
-        // never replayed when moving to the canonical version representation.
         const applied = await client.query(
           "SELECT 1 FROM schema_migrations WHERE version = $1 OR version = $2 LIMIT 1",
           [version, file],
