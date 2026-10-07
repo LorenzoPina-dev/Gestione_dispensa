@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import { resolveShelfLifeCategory, type ShelfLifeProductContext } from "./category.js";
 
 type EventEnvelope = {
   eventId: string;
@@ -50,8 +51,8 @@ process.once("SIGTERM", shutdown);
 
 console.log(JSON.stringify({ worker: "worker-shelf-life", stream, group, consumer, owner: "service-shelf-life" }));
 
-async function resolveProductCategory(productId: string): Promise<string | null> {
-  if (!catalogToken || !productId) return null;
+async function resolveProductCategory(productId: string, fallbackCategory?: string | null): Promise<string | null> {
+  if (!catalogToken || !productId) return fallbackCategory?.trim().toLowerCase() || null;
   try {
     const response = await fetch(
       catalogBase + "/catalog/internal/products/" + encodeURIComponent(productId),
@@ -60,11 +61,13 @@ async function resolveProductCategory(productId: string): Promise<string | null>
         signal: AbortSignal.timeout(3000),
       },
     );
-    if (!response.ok) return null;
-    const payload = await response.json() as { data?: { category?: unknown } };
-    return typeof payload.data?.category === "string" && payload.data.category.trim()
-      ? payload.data.category.trim().toLowerCase()
-      : null;
+    if (!response.ok) return fallbackCategory?.trim().toLowerCase() || null;
+    const payload = await response.json() as { data?: ShelfLifeProductContext };
+    return resolveShelfLifeCategory({
+      category: payload.data?.category ?? fallbackCategory ?? null,
+      name: payload.data?.name ?? null,
+      openFoodFacts: payload.data?.openFoodFacts ?? null,
+    });
   } catch (error) {
     console.warn(JSON.stringify({
       worker: "worker-shelf-life",
@@ -72,7 +75,7 @@ async function resolveProductCategory(productId: string): Promise<string | null>
       productId,
       error: error instanceof Error ? error.message : String(error),
     }));
-    return null;
+    return fallbackCategory?.trim().toLowerCase() || null;
   }
 }
 
@@ -87,9 +90,10 @@ async function processQueuedPredictionEvent(event: EventEnvelope): Promise<void>
   const storage = typeof data.storage === "string" ? data.storage : "PANTRY";
   const opened = typeof data.opened === "boolean" ? data.opened : false;
   if (!predictionId || !itemId || !productId || !familyId || !userId) return;
-  const category = typeof data.category === "string" && data.category.trim()
+  const eventCategory = typeof data.category === "string" && data.category.trim()
     ? data.category.trim().toLowerCase()
-    : await resolveProductCategory(productId);
+    : null;
+  const category = await resolveProductCategory(productId, eventCategory);
   console.log(JSON.stringify({
     worker: "worker-shelf-life",
     event: "prediction_queue_event_received",
@@ -126,9 +130,10 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
   if (!itemId || !productId || !familyId || !userId) return;
   if (data.expiresAt) return;
 
-  const category = typeof data.category === "string" && data.category.trim()
+  const eventCategory = typeof data.category === "string" && data.category.trim()
     ? data.category.trim().toLowerCase()
-    : await resolveProductCategory(productId);
+    : null;
+  const category = await resolveProductCategory(productId, eventCategory);
   const storedOn = typeof data.storedOn === "string"
     ? data.storedOn
     : (typeof data.occurredAt === "string" ? data.occurredAt : null);
@@ -203,7 +208,7 @@ async function queueRecoveryPrediction(data: RecoveryItem): Promise<RecoveryItem
 
 async function processPrediction(data: RecoveryItem): Promise<void> {
   if (data.status !== "queued") return;
-  const category = data.category?.trim().toLowerCase() || await resolveProductCategory(data.productId);
+  const category = await resolveProductCategory(data.productId, data.category);
   const response = await fetch(
     base + "/internal/shelf-life/predictions/" + encodeURIComponent(data.predictionId) + "/process",
     {
