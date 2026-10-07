@@ -1226,27 +1226,33 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
 
   function save() {
     if (!candidate) return;
-    const quantity = Number(qty);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      setError("La quantità deve essere maggiore di zero.");
+
+    const packageCount = Number(qty);
+    if (!Number.isInteger(packageCount) || packageCount <= 0) {
+      setError("La quantità deve essere un numero intero di confezioni maggiore di zero.");
       return;
     }
+
+    const stockQuantity = packageCountToStock(candidate, packageCount);
     const parsedReorderPoint = reorderPoint.trim() === "" ? undefined : Number(reorderPoint);
     if (parsedReorderPoint !== undefined && (!Number.isFinite(parsedReorderPoint) || parsedReorderPoint < 0)) {
       setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
       return;
     }
-    const parsedReorderQuantity = parsedReorderPoint === undefined ? undefined : (reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity));
-    if (parsedReorderQuantity !== undefined && (!Number.isFinite(parsedReorderQuantity) || parsedReorderQuantity <= 0)) {
-      setError("La quantità da riacquistare deve essere maggiore di zero.");
+
+    const reorderPackageCount = reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity);
+    if (!Number.isInteger(reorderPackageCount) || reorderPackageCount <= 0) {
+      setError("La quantità da riacquistare deve essere un numero intero di confezioni maggiore di zero.");
       return;
     }
+    const reorderStockQuantity = packageCountToStock(candidate, reorderPackageCount);
+
     onAdd({
       productId: candidate.productId,
       barcode: candidateCode,
       name: candidate.name,
       brand: candidate.brand,
-      unit: candidate.unit,
+      unit: stockQuantity.unit,
       category: candidate.category ?? "Altro",
       calories: candidate.calories,
       protein: candidate.protein,
@@ -1254,9 +1260,9 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       fat: candidate.fat,
       fiber: candidate.fiber,
       reorderPoint: parsedReorderPoint,
-      reorderQuantity: parsedReorderQuantity,
+      reorderQuantity: reorderStockQuantity.quantity,
       location,
-      batches: [{ quantity, expiryDate: expiry || undefined }],
+      batches: [{ quantity: stockQuantity.quantity, expiryDate: expiry || undefined }],
     });
   }
 
