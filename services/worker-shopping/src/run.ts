@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
-import { Pool } from "pg";
+import { createContextAwarePool, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { lowStockSuggestionPayload, parseReorderEvent, type ReorderEvent } from "./reorder.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -11,7 +11,7 @@ const consumer = process.env.CONSUMER_NAME ?? process.env.HOSTNAME ?? "shopping-
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = createContextAwarePool({ connectionString: databaseUrl });
 const redis = createClient({ url: redisUrl });
 await redis.connect();
 try {
