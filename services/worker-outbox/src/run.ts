@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { createClient } from "redis";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -14,7 +14,7 @@ if (!/^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?$/.test(outboxTable)) {
   throw new Error("OUTBOX_TABLE must be a simple table or schema.table identifier.");
 }
 
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = createContextAwarePool({ connectionString: databaseUrl });
 const redis = createClient({ url: redisUrl });
 await redis.connect();
 
