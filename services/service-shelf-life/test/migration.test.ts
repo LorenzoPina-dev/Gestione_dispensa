@@ -63,6 +63,14 @@ describe("shelf-life migration", () => {
   });
 
 
+  it("seeds a realistic commercial canned-food profile", async () => {
+    const q = await pool.query(
+      "select min_days,target_days,max_days from shelf_life_domain.rules where product_category='canned-preserved' and storage='PANTRY' and opened=false and model_version='profiles-v2'",
+    );
+    assert.equal(q.rowCount, 1);
+    assert.deepEqual(q.rows[0], { min_days: 730, target_days: 1095, max_days: 1825 });
+  });
+
   it("seeds a generic fallback for every storage/opened state", async () => {
     const q = await pool.query(
       "select storage,opened,min_days,target_days,max_days from shelf_life_domain.rules where product_category is null order by storage,opened",
