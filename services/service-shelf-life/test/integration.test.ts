@@ -86,9 +86,22 @@ describe("service-shelf-life / real lifecycle",()=>{
     const payload=event.rows[0].payload as { estimatedExpiresAt?: string };
     assert.ok(payload.estimatedExpiresAt);
 
+    const currentItem=await q(inventoryBase,"/api/v1/inventory/"+itemId,{
+      headers:{"x-user-id":user,"x-family-id":familyId!},
+    });
+    assert.equal(currentItem.r.status,200);
+    const currentVersion=Number(currentItem.b?.version);
+    assert.ok(Number.isInteger(currentVersion)&&currentVersion>=1);
+
     const x=await q(inventoryBase,"/api/v1/inventory/"+itemId+"/expiration/confirm",{
       method:"POST",
-      headers:{"x-user-id":user,"x-family-id":familyId!,"x-idempotency-key":"apply-"+randomUUID(),"content-type":"application/json"},
+      headers:{
+        "x-user-id":user,
+        "x-family-id":familyId!,
+        "x-idempotency-key":"apply-"+randomUUID(),
+        "if-match":String(currentVersion),
+        "content-type":"application/json",
+      },
       body:JSON.stringify({expiresAt:payload.estimatedExpiresAt,source:"estimated"}),
     });
     assert.equal(x.r.status,200);
