@@ -48,6 +48,20 @@ process.once("SIGTERM", shutdown);
 
 console.log(JSON.stringify({ worker: "worker-shelf-life", stream, group, consumer, owner: "service-shelf-life" }));
 
+async function processQueuedPredictionEvent(event: EventEnvelope): Promise<void> {
+  const data = event.payload ?? {};
+  if (event.eventType !== "shelf-life.prediction-queued.v1") return;
+  const predictionId = typeof data.predictionId === "string" ? data.predictionId : "";
+  const itemId = typeof data.itemId === "string" ? data.itemId : "";
+  const productId = typeof data.productId === "string" ? data.productId : "";
+  const familyId = typeof event.familyId === "string" ? event.familyId : "";
+  const userId = typeof data.userId === "string" ? data.userId : "";
+  const storage = typeof data.storage === "string" ? data.storage : "PANTRY";
+  const opened = typeof data.opened === "boolean" ? data.opened : false;
+  if (!predictionId || !itemId || !productId || !familyId || !userId) return;
+  await processPrediction({ predictionId, itemId, productId, storage, opened, userId, familyId, status: "queued", ...(typeof data.category === "string" ? { category: data.category } : {}), ...(typeof data.storedOn === "string" ? { storedOn: data.storedOn } : {}) });
+}
+
 async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise<void> {
   const data = event.payload ?? {};
   if (event.eventType !== "inventory.stock.received.v1") return;
@@ -136,7 +150,11 @@ async function consumeDomainEvents(): Promise<void> {
       try {
         const raw = message.message.event;
         const event = JSON.parse(String(raw)) as EventEnvelope;
-        await createPredictionFromInventoryEvent(event);
+        if (event.eventType === "shelf-life.prediction-queued.v1") {
+          await processQueuedPredictionEvent(event);
+        } else {
+          await createPredictionFromInventoryEvent(event);
+        }
         await redis.xAck(stream, group, message.id);
       } catch (error) {
         console.error(JSON.stringify({
