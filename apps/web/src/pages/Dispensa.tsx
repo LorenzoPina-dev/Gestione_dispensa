@@ -544,7 +544,7 @@ function ConsumeQuantityModal({ item, value, error, onChange, onConfirm, onClose
   const stockUnit = normalizeUnit(item.unit);
   const packageUnit = packageInfo ? normalizeUnit(packageInfo.unit) : null;
   const packageQuantity = packageInfo && packageUnit ? convertQuantity(packageInfo.value, packageUnit, stockUnit) : null;
-  const onePackageQuantity = packageQuantity != null ? Math.min(packageQuantity, available) : null;
+  const onePackageQuantity = packageQuantity != null && packageQuantity <= available ? packageQuantity : null;
   const halfQuantity = available / 2;
   const packageCount = packageQuantity != null && packageQuantity > 0 ? available / packageQuantity : null;
   const halfPackageCount = packageCount != null ? packageCount / 2 : null;
