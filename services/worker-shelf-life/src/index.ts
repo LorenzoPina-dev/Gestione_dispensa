@@ -165,11 +165,11 @@ async function handleDomainMessage(message: { id: string; message: Record<string
 
 async function consumeDomainEvents(): Promise<void> {
   const claimed = await redis.xAutoClaim(stream, group, consumer, 30_000, "0-0", { COUNT: 10 });
-  for (const message of claimed.messages ?? []) await handleDomainMessage(message);
+  for (const message of claimed.messages ?? []) if (message) await handleDomainMessage(message);
 
   const result = await redis.xReadGroup(group, consumer, [{ key: stream, id: ">" }], { COUNT: 10, BLOCK: 1000 });
   for (const streamResult of result ?? []) {
-    for (const message of streamResult.messages) await handleDomainMessage(message);
+    for (const message of streamResult.messages) if (message) await handleDomainMessage(message);
   }
 }
 
