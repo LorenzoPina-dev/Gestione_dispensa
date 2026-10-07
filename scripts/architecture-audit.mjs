@@ -23,6 +23,7 @@ const sqlMigrationServices = canonical
 
 const rlsRequiredServices = new Set([
   "service-family",
+  "service-identity",
   "service-inventory",
   "service-shopping",
   "service-notifications",
