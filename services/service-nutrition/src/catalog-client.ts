@@ -21,10 +21,13 @@ export async function loadNutritionSnapshot(
   baseUrl: string,
   authorization: string | undefined,
   productId: string,
+  internalToken?: string,
 ): Promise<NutritionSnapshot | null> {
-  const url = new URL("catalog/products/" + encodeURIComponent(productId), baseUrl.replace(/\/$/, "") + "/");
+  const path = internalToken ? "catalog/internal/products/" + encodeURIComponent(productId) : "catalog/products/" + encodeURIComponent(productId);
+  const url = new URL(path, baseUrl.replace(/\/$/, "") + "/");
   const headers: Record<string, string> = { Accept: "application/json" };
   if (authorization) headers.Authorization = authorization;
+  if (internalToken) headers["x-internal-service-token"] = internalToken;
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(2500) });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error("Catalog nutrition lookup failed with HTTP " + response.status);
