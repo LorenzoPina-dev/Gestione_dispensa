@@ -50,6 +50,20 @@ describe("service-inventory / real migration", () => {
     for (const row of rows.rows) assert.equal(Number(row.occurrences), 1);
   });
 
+  it("enforces a unique current-stock identity", async () => {
+    const index = await pool.query(
+      `SELECT indexdef
+       FROM pg_indexes
+       WHERE schemaname='public' AND indexname='pantry_items_identity_uq'`,
+    );
+    assert.equal(index.rowCount, 1);
+    assert.match(index.rows[0].indexdef, /UNIQUE/i);
+    assert.match(index.rows[0].indexdef, /family_id/);
+    assert.match(index.rows[0].indexdef, /product_id/);
+    assert.match(index.rows[0].indexdef, /lot_id/);
+    assert.match(index.rows[0].indexdef, /lot_code/);
+  });
+
   it("contains the schema required by the running inventory service", async () => {
     const checks = await pool.query(`
       SELECT table_name, column_name

@@ -128,6 +128,33 @@ describe("service-inventory / real cross-service integration", () => {
     assert.equal(db.rows[0].location, "pantry");
   });
 
+  it("merges separate creates for the same current stock identity", async () => {
+    assert.ok(familyId);
+    const mergeProductId = randomUUID();
+    const first = await request(inventoryUrl, "/api/v1/inventory/items", {
+      method: "POST",
+      headers: { ...authHeaders(), "content-type": "application/json", "x-idempotency-key": `merge-1-${randomUUID()}` },
+      body: JSON.stringify({ productId: mergeProductId, quantity: 2, unit: "piece", location: "pantry" }),
+    });
+    assert.equal(first.response.status, 201);
+
+    const second = await request(inventoryUrl, "/api/v1/inventory/items", {
+      method: "POST",
+      headers: { ...authHeaders(), "content-type": "application/json", "x-idempotency-key": `merge-2-${randomUUID()}` },
+      body: JSON.stringify({ productId: mergeProductId, quantity: 3, unit: "piece", location: "pantry" }),
+    });
+    assert.equal(second.response.status, 201);
+    assert.equal(second.body?.data?.itemId, first.body?.data?.itemId);
+    assert.equal(second.body?.data?.quantity, 5);
+
+    const rows = await pool.query(
+      "SELECT count(*)::int AS count, COALESCE(SUM(quantity),0)::numeric AS quantity FROM pantry_items WHERE family_id=$1 AND product_id=$2 AND unit='piece' AND location='pantry' AND lot_id IS NULL AND lot_code IS NULL",
+      [familyId, mergeProductId],
+    );
+    assert.equal(rows.rows[0].count, 1);
+    assert.equal(Number(rows.rows[0].quantity), 5);
+  });
+
   it("replays inventory creation idempotently without creating a second row", async () => {
     assert.ok(familyId);
     const key = `idem-${randomUUID()}`;

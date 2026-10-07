@@ -476,11 +476,19 @@ const server = createServer(async (req, res) => {
              id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at
            )
            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now())
-           ON CONFLICT DO UPDATE SET
+           ON CONFLICT (family_id, product_id, unit, location, lot_id, lot_code) DO UPDATE SET
              quantity = pantry_items.quantity + EXCLUDED.quantity,
              opened_at = COALESCE(pantry_items.opened_at, EXCLUDED.opened_at),
-             expires_at = COALESCE(pantry_items.expires_at, EXCLUDED.expires_at),
-             expiration_source = COALESCE(pantry_items.expiration_source, EXCLUDED.expiration_source),
+             expires_at = CASE
+               WHEN pantry_items.expiration_source = 'declared' THEN pantry_items.expires_at
+               WHEN EXCLUDED.expiration_source = 'declared' THEN EXCLUDED.expires_at
+               ELSE COALESCE(pantry_items.expires_at, EXCLUDED.expires_at)
+             END,
+             expiration_source = CASE
+               WHEN pantry_items.expiration_source = 'declared' THEN 'declared'
+               WHEN EXCLUDED.expiration_source = 'declared' THEN 'declared'
+               ELSE COALESCE(pantry_items.expiration_source, EXCLUDED.expiration_source)
+             END,
              updated_at = now(),
              version = pantry_items.version + 1
            RETURNING *`,
