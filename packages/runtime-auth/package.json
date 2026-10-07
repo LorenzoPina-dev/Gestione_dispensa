@@ -1,0 +1,16 @@
+{
+  "name":"@gestione-dispensa/runtime-auth",
+  "version":"2.0.0",
+  "private":true,
+  "type":"module",
+  "exports":{
+    ".":"./dist/index.js",
+    "./oidc":"./dist/oidc.js",
+    "./oidc-flow":"./dist/oidc-flow.js",
+    "./authorization":"./dist/authorization.js",
+    "./register":"./dist/register.js"
+  },
+  "scripts":{"build":"tsc -p tsconfig.json","typecheck":"tsc -p tsconfig.json --noEmit"},
+  "dependencies":{"jose":"^6.1.0"},
+  "devDependencies":{"@types/node":"^26.4.1","typescript":"^5.8.2"}
+}
