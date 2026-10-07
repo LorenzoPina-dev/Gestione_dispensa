@@ -382,6 +382,8 @@ const server = createServer(async (req, res) => {
           itemId: id,
           productId: String(body.productId),
           actorUserId: ctx.userId,
+          location: body.location ?? null,
+          openedAt: body.openedAt ?? null,
           quantity: String(quantity),
           unit: String(body.unit),
           expiresAt: joined.rows[0].expires_at ? new Date(joined.rows[0].expires_at).toISOString() : null,
