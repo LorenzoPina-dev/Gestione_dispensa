@@ -67,11 +67,32 @@ async function finishIdempotency(client: PoolClient, req: Request, status: numbe
   );
 }
 
-async function emitOutbox(client: PoolClient, type: string, aggregateId: string, userId: string, payload: unknown): Promise<void> {
+async function emitOutbox(
+  client: PoolClient,
+  type: string,
+  aggregateId: string,
+  userId: string,
+  familyId: string | null,
+  payload: unknown,
+): Promise<void> {
   await client.query(
     `insert into nutrition_domain.outbox_events(event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at)
-     values($1,$2,1,$3,null,$4,now(),$5::jsonb,now())`,
-    [crypto.randomUUID(), type, aggregateId, crypto.randomUUID(), JSON.stringify(toEventPayload({ actorUserId: userId, payload }))],
+     values($1,$2,1,$3,$4,$5,now(),$6::jsonb,now())`,
+    [
+      crypto.randomUUID(),
+      type,
+      aggregateId,
+      familyId,
+      crypto.randomUUID(),
+      JSON.stringify(toEventPayload({ actorUserId: userId, payload })),
+    ],
+  );
+}
+
+async function applyEventDbContext(client: PoolClient, userId: string, familyId: string): Promise<void> {
+  await client.query(
+    "select set_config('app.user_id',$1,true), set_config('app.family_id',$2,true)",
+    [userId, familyId],
   );
 }
 
@@ -94,6 +115,7 @@ type DomainEvent = {
   eventId: string;
   eventType: string;
   occurredAt?: string;
+  familyId?: string | null;
   payload?: Record<string, unknown>;
 };
 
@@ -102,13 +124,142 @@ const eventStream = process.env.EVENT_STREAM ?? "events:domain";
 const eventGroup = process.env.EVENT_CONSUMER_GROUP ?? "nutrition";
 const eventConsumer = process.env.EVENT_CONSUMER_NAME ?? `nutrition-${process.pid}`;
 
+type EventStreamMessage = {
+  id: string;
+  message: Record<string, string>;
+};
+
+async function processInventoryMessage(message: EventStreamMessage): Promise<void> {
+  try {
+    const raw = message.message.event;
+    const event = JSON.parse(String(raw)) as DomainEvent;
+    if (event.eventType !== "inventory.stock.consumed.v1") {
+      await eventRedis.xAck(eventStream, eventGroup, message.id);
+      return;
+    }
+
+    const payload = event.payload ?? {};
+    const userId = typeof payload.actorUserId === "string" ? payload.actorUserId : "";
+    const familyId = typeof event.familyId === "string" ? event.familyId : "";
+    const productId = typeof payload.productId === "string" ? payload.productId : "";
+    const quantity = Number(payload.quantity);
+    const unit = typeof payload.unit === "string" ? payload.unit : "";
+    const movementId = typeof payload.movementId === "string" ? payload.movementId : "";
+
+    if (
+      !event.eventId ||
+      !userId ||
+      !familyId ||
+      !productId ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      !isDiaryUnit(unit) ||
+      !movementId
+    ) {
+      throw new Error("Invalid inventory.stock.consumed.v1 event payload.");
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await applyEventDbContext(client, userId, familyId);
+
+      const consumed = await client.query(
+        `insert into nutrition_domain.event_consumers(event_id,event_type)
+         values($1,$2) on conflict(event_id) do nothing returning event_id`,
+        [event.eventId, event.eventType],
+      );
+      if (!consumed.rowCount) {
+        await client.query("commit");
+        await eventRedis.xAck(eventStream, eventGroup, message.id);
+        return;
+      }
+
+      const snapshot = await loadNutritionSnapshot(
+        catalogBaseUrl,
+        undefined,
+        productId,
+        catalogInternalToken,
+      );
+      if (!snapshot) throw new Error("Product nutrition data not found.");
+
+      const entryId = crypto.randomUUID();
+      const date =
+        typeof event.occurredAt === "string" && !Number.isNaN(new Date(event.occurredAt).getTime())
+          ? new Date(event.occurredAt).toISOString().slice(0, 10)
+          : new Date().toISOString().slice(0, 10);
+
+      await client.query(
+        `insert into nutrition_domain.diary_entries
+         (id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot)
+         values($1,$2,$3,'other',$4,$5,$6,'inventory',$7,$8::jsonb)`,
+        [entryId, userId, date, productId, quantity, unit, movementId, JSON.stringify(snapshot)],
+      );
+
+      await emitOutbox(client, "NutritionEntryRecorded", entryId, userId, familyId, {
+        entryId,
+        userId,
+        familyId,
+        date,
+        meal: "other",
+        productId,
+        quantity,
+        unit,
+        source: "inventory",
+        sourceMovementId: movementId,
+      });
+
+      await client.query("commit");
+      await eventRedis.xAck(eventStream, eventGroup, message.id);
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      console.error(JSON.stringify({
+        service: "service-nutrition",
+        event: "inventory_event_processing_failed",
+        eventId: event.eventId,
+        familyId,
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error(JSON.stringify({
+      service: "service-nutrition",
+      event: "domain_event_processing_failed",
+      messageId: message.id,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
+}
+
 async function consumeInventoryEvents(): Promise<void> {
   await eventRedis.connect();
-  await eventRedis.xGroupCreate(eventStream, eventGroup, process.env.EVENT_GROUP_START_ID ?? "0-0", { MKSTREAM: true }).catch((error: unknown) => {
+  await eventRedis.xGroupCreate(
+    eventStream,
+    eventGroup,
+    process.env.EVENT_GROUP_START_ID ?? "0-0",
+    { MKSTREAM: true },
+  ).catch((error: unknown) => {
     if (!String(error).includes("BUSYGROUP")) throw error;
   });
 
+  const retryIdleMs = Math.max(Number(process.env.EVENT_RETRY_IDLE_MS ?? 60000), 1000);
+
   while (true) {
+    const claimed = await eventRedis.xAutoClaim(
+      eventStream,
+      eventGroup,
+      eventConsumer,
+      retryIdleMs,
+      "0-0",
+      { COUNT: 10 },
+    );
+    for (const message of claimed.messages) {
+      await processInventoryMessage(message);
+    }
+
     const result = await eventRedis.xReadGroup(
       eventGroup,
       eventConsumer,
@@ -118,88 +269,7 @@ async function consumeInventoryEvents(): Promise<void> {
 
     for (const streamResult of result ?? []) {
       for (const message of streamResult.messages) {
-        try {
-          const raw = message.message.event;
-          const event = JSON.parse(String(raw)) as DomainEvent;
-          if (event.eventType !== "inventory.stock.consumed.v1") {
-            await eventRedis.xAck(eventStream, eventGroup, message.id);
-            continue;
-          }
-
-          const payload = event.payload ?? {};
-          const userId = typeof payload.actorUserId === "string" ? payload.actorUserId : "";
-          const productId = typeof payload.productId === "string" ? payload.productId : "";
-          const quantity = typeof payload.quantity === "string" ? Number(payload.quantity) : Number(payload.quantity);
-          const unit = typeof payload.unit === "string" ? payload.unit : "";
-          const movementId = typeof payload.movementId === "string" ? payload.movementId : "";
-          if (!event.eventId || !userId || !productId || !Number.isFinite(quantity) || quantity <= 0 || !isDiaryUnit(unit) || !movementId) {
-            throw new Error("Invalid inventory.stock.consumed.v1 event payload.");
-          }
-
-          const client = await pool.connect();
-          try {
-            await client.query("begin");
-            const consumed = await client.query(
-              `insert into nutrition_domain.event_consumers(event_id,event_type)
-               values($1,$2) on conflict(event_id) do nothing returning event_id`,
-              [event.eventId, event.eventType],
-            );
-            if (!consumed.rowCount) {
-              await client.query("commit");
-              await eventRedis.xAck(eventStream, eventGroup, message.id);
-              client.release();
-              continue;
-            }
-
-            const snapshot = await loadNutritionSnapshot(
-              catalogBaseUrl,
-              undefined,
-              productId,
-              catalogInternalToken,
-            );
-            if (!snapshot) throw new Error("Product nutrition data not found.");
-
-            const entryId = crypto.randomUUID();
-            const date = typeof event.occurredAt === "string" && !Number.isNaN(new Date(event.occurredAt).getTime())
-              ? new Date(event.occurredAt).toISOString().slice(0, 10)
-              : new Date().toISOString().slice(0, 10);
-            await client.query(
-              `insert into nutrition_domain.diary_entries
-               (id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot)
-               values($1,$2,$3,'other',$4,$5,$6,'inventory',$7,$8::jsonb)`,
-              [entryId, userId, date, productId, quantity, unit, movementId, JSON.stringify(snapshot)],
-            );
-            await emitOutbox(client, "NutritionEntryRecorded", entryId, userId, {
-              entryId,
-              userId,
-              date,
-              meal: "other",
-              productId,
-              quantity,
-              unit,
-              source: "inventory",
-            });
-            await client.query("commit");
-            await eventRedis.xAck(eventStream, eventGroup, message.id);
-          } catch (error) {
-            await client.query("rollback").catch(() => undefined);
-            console.error(JSON.stringify({
-              service: "service-nutrition",
-              event: "inventory_event_processing_failed",
-              eventId: event.eventId,
-              error: error instanceof Error ? error.message : String(error),
-            }));
-          } finally {
-            client.release();
-          }
-        } catch (error) {
-          console.error(JSON.stringify({
-            service: "service-nutrition",
-            event: "domain_event_processing_failed",
-            messageId: message.id,
-            error: error instanceof Error ? error.message : String(error),
-          }));
-        }
+        await processInventoryMessage(message);
       }
     }
   }
@@ -246,7 +316,7 @@ app.put("/api/v1/nutrition/targets", async(req,res)=>{
       [userId,body.caloriesKcal,body.proteinG,body.carbsG,body.fatG],
     );
     const row=q.rows[0] as Record<string,unknown>; const response={data:targetDto(row),version:Number(row.version)};
-    await emitOutbox(client,"NutritionTargetUpdated",userId,userId,response);
+    await emitOutbox(client,"NutritionTargetUpdated",userId,userId,null,response);
     await finishIdempotency(client,req,200,response); await client.query("commit"); return res.json(response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to update nutrition target.");}
   finally{client.release();}
@@ -283,7 +353,7 @@ app.post("/api/v1/nutrition/diary", async(req,res)=>{
     const id=crypto.randomUUID();
     const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) returning *`,[id,userId,body.date,body.meal,body.productId,quantity,body.unit,source,sourceMovementId,JSON.stringify(snapshot)]);
     const x=q.rows[0];const response={data:{entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source},version:x.version};
-    await emitOutbox(client,"NutritionEntryRecorded",id,userId,response);await finishIdempotency(client,req,201,response);await client.query("commit");return res.status(201).json(response);
+    await emitOutbox(client,"NutritionEntryRecorded",id,userId,null,response);await finishIdempotency(client,req,201,response);await client.query("commit");return res.status(201).json(response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to record diary entry.");}finally{client.release();}
 });
 
