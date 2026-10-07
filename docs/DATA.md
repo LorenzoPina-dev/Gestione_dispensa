@@ -274,7 +274,7 @@ quantity_label varchar(120) NULL -- original human-readable OFF quantity field
 serving_size varchar(120) NULL
 serving_quantity numeric(12,3) NULL
 images_json JSONB NULL -- normalized front/ingredients/nutrition/packaging image URLs
-openfoodfacts_raw JSONB NULL -- complete original OFF product object, excluding private cache metadata
+product_details_snapshot JSONB NULL -- bounded Catalog snapshot curated from OFF; complete provider data remains owned by OFF Lookup
 external_source varchar(128) NULL
 external_ref varchar(255) NULL
 external_synced_at timestamptz NULL

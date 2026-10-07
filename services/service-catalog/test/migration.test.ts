@@ -99,7 +99,7 @@ describe("service-catalog / real migration schema", () => {
       "serving_size",
       "serving_quantity",
       "images_json",
-      "openfoodfacts_raw",
+      "product_details_snapshot",
       "external_source",
       "external_ref",
       "created_at",
