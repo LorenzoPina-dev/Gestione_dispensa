@@ -9,9 +9,10 @@ import { barcodeObservationsAgree, consensusRequiredFrames, type FrameQualityRes
 import { normalizeProductBarcode, productBarcodePriority } from "../domain/barcode.js";
 import { increaseBarcodeZoom, openBarcodeCamera, readCameraDiagnostics, recoverBarcodeFocus, setBarcodeTorch, type CameraDiagnostics } from "../lib/barcodeCamera";
 import { isBackendUnreachable } from "../api/client.js";
+import ProductSearch from "./shopping/ProductSearch";
 
 type AddMode = "menu" | "barcode" | "manuale" | "lista";
-type BarcodeState = "IDLE" | "SCANNING" | "LOOKING" | "CANDIDATE" | "CONFIRMED" | "MANUAL_REQUIRED" | "NOT_FOUND" | "DEGRADED";
+type BarcodeState = "IDLE" | "SCANNING" | "LOOKING" | "CANDIDATE" | "MANUAL_REQUIRED" | "NOT_FOUND" | "DEGRADED";
 
 const LOCATIONS: { key: StorageLocation; label: string; icon: string }[] = [
   { key: "frigo", label: "Frigo", icon: "❄️" },
@@ -188,11 +189,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
   const [code, setCode] = useState("");
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [qty, setQty] = useState("1");
-  const [expiry, setExpiry] = useState("");
-  const [reorderPoint, setReorderPoint] = useState("");
-  const [reorderQuantity, setReorderQuantity] = useState("1");
-  const [location, setLocation] = useState<StorageLocation>("dispensa");
   const [cameraDiagnostics, setCameraDiagnostics] = useState<CameraDiagnostics | null>(null);
   const [cameraAspectRatio, setCameraAspectRatio] = useState("16/9");
   const [showPreprocessPreview, setShowPreprocessPreview] = useState(true);
@@ -727,52 +723,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
     setCameraDiagnostics(diagnostics);
   }
 
-  function confirmCandidate() {
-    if (!candidate) return;
-    setState("CONFIRMED");
-  }
-
-  function save() {
-    if (!candidate) return;
-
-    const packageCount = Number(qty);
-    if (!Number.isInteger(packageCount) || packageCount <= 0) {
-      setError("La quantità deve essere un numero intero di confezioni maggiore di zero.");
-      return;
-    }
-
-    const stockQuantity = packageCountToStock(candidate, packageCount);
-    const parsedReorderPoint = reorderPoint.trim() === "" ? undefined : Number(reorderPoint);
-    if (parsedReorderPoint !== undefined && (!Number.isFinite(parsedReorderPoint) || parsedReorderPoint < 0)) {
-      setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
-      return;
-    }
-    const reorderPackageCount = reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity);
-    if (!Number.isInteger(reorderPackageCount) || reorderPackageCount <= 0) {
-      setError("La quantità da riacquistare deve essere un numero intero di confezioni maggiore di zero.");
-      return;
-    }
-    const reorderStockQuantity = packageCountToStock(candidate, reorderPackageCount);
-
-    onAdd({
-      productId: candidate.productId,
-      barcode: code,
-      name: candidate.name,
-      brand: candidate.brand,
-      unit: stockQuantity.unit,
-      category: candidate.category ?? "Altro",
-      calories: candidate.calories,
-      protein: candidate.protein,
-      carbs: candidate.carbs,
-      fat: candidate.fat,
-      fiber: candidate.fiber,
-      reorderPoint: parsedReorderPoint,
-      reorderQuantity: reorderStockQuantity.quantity,
-      location,
-      batches: [{ quantity: stockQuantity.quantity, expiryDate: expiry || undefined }],
-    });
-  }
-
   const phaseLabel: Record<ScannerPhase, string> = {
     IDLE: "",
     INITIALIZING: "Avvio",
@@ -922,11 +872,119 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
 
       {state === "LOOKING" && <div className="py-10 text-center space-y-4"><div className="w-10 h-10 mx-auto rounded-full animate-spin" style={{ border: "3px solid #ede6d6", borderTopColor: "#c4623a" }} /><p className="text-sm" style={{ color: "#6b5e4e" }}>Ricerca prodotto per barcode…</p>{code && <p className="font-mono text-sm">{code}</p>}</div>}
 
-      {state === "CANDIDATE" && candidate && <CandidateView candidate={candidate} code={code} onCorrect={() => setState("MANUAL_REQUIRED")} onConfirm={confirmCandidate} />}
-
-      {(state === "CONFIRMED") && candidate && <ConfirmStock candidate={candidate} qty={qty} setQty={setQty} expiry={expiry} setExpiry={setExpiry} reorderPoint={reorderPoint} setReorderPoint={setReorderPoint} reorderQuantity={reorderQuantity} setReorderQuantity={setReorderQuantity} location={location} setLocation={setLocation} onBack={() => setState("CANDIDATE")} onSave={save} />}
+      {state === "CANDIDATE" && candidate && (
+        <ResolvedProductInsert
+          candidate={candidate}
+          code={code}
+          message="Prodotto trovato tramite barcode"
+          onAdd={onAdd}
+          onCorrect={() => {
+            stopCamera();
+            setState("IDLE");
+          }}
+        />
+      )}
 
       {(state === "MANUAL_REQUIRED" || state === "NOT_FOUND" || state === "DEGRADED") && <div className="space-y-4"><Message>{error ?? (state === "NOT_FOUND" ? `Nessun prodotto trovato per ${code}.` : "Verifica non riuscita.")}</Message>{state === "NOT_FOUND" && <ManualProduct onAdd={onAdd} code={code} onBack={() => setState("IDLE")} />}{state !== "NOT_FOUND" && <><button onClick={() => resolve(code)} disabled={!code} className="w-full py-2.5 rounded-xl" style={{ backgroundColor: "#c4623a", color: "#fff" }}>Riprova ricerca</button><button onClick={() => setState("NOT_FOUND")} className="w-full py-2.5 rounded-xl" style={{ backgroundColor: "#ede6d6" }}>Inserisci manualmente</button></>}</div>}
+    </div>
+  );
+}
+
+function ResolvedProductInsert({
+  candidate,
+  code,
+  message,
+  onAdd,
+  onCorrect,
+}: {
+  candidate: Candidate;
+  code: string;
+  message?: string;
+  onAdd: Props["onAdd"];
+  onCorrect: () => void;
+}) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [qty, setQty] = useState("1");
+  const [expiry, setExpiry] = useState("");
+  const [reorderPoint, setReorderPoint] = useState("");
+  const [reorderQuantity, setReorderQuantity] = useState("1");
+  const [location, setLocation] = useState<StorageLocation>("dispensa");
+  const [error, setError] = useState<string | null>(null);
+
+  function save() {
+    const packageCount = Number(qty);
+    if (!Number.isInteger(packageCount) || packageCount <= 0) {
+      setError("La quantità deve essere un numero intero di confezioni maggiore di zero.");
+      return;
+    }
+
+    const stockQuantity = packageCountToStock(candidate, packageCount);
+    const parsedReorderPoint = reorderPoint.trim() === "" ? undefined : Number(reorderPoint);
+    if (parsedReorderPoint !== undefined && (!Number.isFinite(parsedReorderPoint) || parsedReorderPoint < 0)) {
+      setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
+      return;
+    }
+
+    const reorderPackageCount = reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity);
+    if (!Number.isInteger(reorderPackageCount) || reorderPackageCount <= 0) {
+      setError("La quantità da riacquistare deve essere un numero intero di confezioni maggiore di zero.");
+      return;
+    }
+
+    const reorderStockQuantity = packageCountToStock(candidate, reorderPackageCount);
+
+    onAdd({
+      productId: candidate.productId,
+      barcode: code,
+      name: candidate.name,
+      brand: candidate.brand,
+      unit: stockQuantity.unit,
+      category: candidate.category ?? "Altro",
+      calories: candidate.calories,
+      protein: candidate.protein,
+      carbs: candidate.carbs,
+      fat: candidate.fat,
+      fiber: candidate.fiber,
+      reorderPoint: parsedReorderPoint,
+      reorderQuantity: reorderStockQuantity.quantity,
+      location,
+      batches: [{ quantity: stockQuantity.quantity, expiryDate: expiry || undefined }],
+    });
+  }
+
+  if (confirmed) {
+    return (
+      <ConfirmStock
+        candidate={candidate}
+        qty={qty}
+        setQty={(value) => { setQty(value); setError(null); }}
+        expiry={expiry}
+        setExpiry={setExpiry}
+        reorderPoint={reorderPoint}
+        setReorderPoint={(value) => { setReorderPoint(value); setError(null); }}
+        reorderQuantity={reorderQuantity}
+        setReorderQuantity={(value) => { setReorderQuantity(value); setError(null); }}
+        location={location}
+        setLocation={setLocation}
+        onBack={() => setConfirmed(false)}
+        onSave={save}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && <Message>{error}</Message>}
+      <CandidateView
+        candidate={candidate}
+        code={code}
+        message={message}
+        onCorrect={onCorrect}
+        onConfirm={() => {
+          setError(null);
+          setConfirmed(true);
+        }}
+      />
     </div>
   );
 }
@@ -1152,148 +1210,18 @@ function ManualProduct({ onAdd, code, onBack }: { onAdd: Props["onAdd"]; code: s
 }
 
 function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => void }) {
-  const [query, setQuery] = useState("");
-  const [items, setItems] = useState<Awaited<ReturnType<typeof api.searchCatalogProducts>>["items"]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [candidateCode, setCandidateCode] = useState("");
-  const [state, setState] = useState<"SEARCH" | "CANDIDATE" | "CONFIRMED" | "FALLBACK">("SEARCH");
-  const [qty, setQty] = useState("1");
-  const [expiry, setExpiry] = useState("");
-  const [reorderPoint, setReorderPoint] = useState("");
-  const [reorderQuantity, setReorderQuantity] = useState("1");
-  const [location, setLocation] = useState<StorageLocation>("dispensa");
+  const [state, setState] = useState<"SEARCH" | "INSERT" | "FALLBACK">("SEARCH");
 
-  useEffect(() => {
-    if (state !== "SEARCH") return;
-    const normalized = query.trim();
-    if (normalized.length < 3) {
-      setItems([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await api.searchCatalogProducts(normalized, 8, controller.signal);
-        if (!controller.signal.aborted) {
-          setItems(result.items);
-          if (result.items.length === 0) setError("Nessun prodotto trovato su Open Food Facts.");
-        }
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        setItems([]);
-        setError(isBackendUnreachable(err) ? "Impossibile contattare il server." : "La ricerca prodotto non è disponibile in questo momento.");
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  }, [query, state]);
-
-  async function selectProduct(item: (typeof items)[number]) {
-    setLoading(true);
-    setError(null);
-    try {
-      // Selection intentionally reuses the existing barcode path: the complete OFF record is
-      // resolved and persisted in Catalog only after the user chooses a search result.
-      const result = await api.resolveProductBarcode("BARCODE", item.code);
-      if (result.status !== "MATCHED" || !result.product) {
-        setError("Il prodotto selezionato non è più disponibile su Open Food Facts.");
-        return;
-      }
-      const resolvedCandidate = candidateFromProduct(result.product);
-      setCandidate(resolvedCandidate);
-      setQty(defaultPackageCount(resolvedCandidate));
-      setReorderQuantity(defaultPackageCount(resolvedCandidate));
-      setCandidateCode(item.code);
-      setState("CANDIDATE");
-    } catch (err) {
-      setError(isBackendUnreachable(err) ? "Impossibile contattare il server." : "Non è stato possibile caricare i dati completi del prodotto.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function save() {
-    if (!candidate) return;
-
-    const packageCount = Number(qty);
-    if (!Number.isInteger(packageCount) || packageCount <= 0) {
-      setError("La quantità deve essere un numero intero di confezioni maggiore di zero.");
-      return;
-    }
-
-    const stockQuantity = packageCountToStock(candidate, packageCount);
-    const parsedReorderPoint = reorderPoint.trim() === "" ? undefined : Number(reorderPoint);
-    if (parsedReorderPoint !== undefined && (!Number.isFinite(parsedReorderPoint) || parsedReorderPoint < 0)) {
-      setError("La soglia di riordino deve essere un numero maggiore o uguale a zero.");
-      return;
-    }
-
-    const reorderPackageCount = reorderQuantity.trim() === "" ? 1 : Number(reorderQuantity);
-    if (!Number.isInteger(reorderPackageCount) || reorderPackageCount <= 0) {
-      setError("La quantità da riacquistare deve essere un numero intero di confezioni maggiore di zero.");
-      return;
-    }
-    const reorderStockQuantity = packageCountToStock(candidate, reorderPackageCount);
-
-    onAdd({
-      productId: candidate.productId,
-      barcode: candidateCode,
-      name: candidate.name,
-      brand: candidate.brand,
-      unit: stockQuantity.unit,
-      category: candidate.category ?? "Altro",
-      calories: candidate.calories,
-      protein: candidate.protein,
-      carbs: candidate.carbs,
-      fat: candidate.fat,
-      fiber: candidate.fiber,
-      reorderPoint: parsedReorderPoint,
-      reorderQuantity: reorderStockQuantity.quantity,
-      location,
-      batches: [{ quantity: stockQuantity.quantity, expiryDate: expiry || undefined }],
-    });
-  }
-
-  if (state === "CANDIDATE" && candidate) {
+  if (state === "INSERT" && candidate) {
     return (
-      <CandidateView
+      <ResolvedProductInsert
         candidate={candidate}
         code={candidateCode}
         message="Prodotto selezionato dalla ricerca Open Food Facts"
+        onAdd={onAdd}
         onCorrect={() => setState("SEARCH")}
-        onConfirm={() => setState("CONFIRMED")}
-      />
-    );
-  }
-
-  if (state === "CONFIRMED" && candidate) {
-    return (
-      <ConfirmStock
-        candidate={candidate}
-        qty={qty}
-        setQty={setQty}
-        expiry={expiry}
-        setExpiry={setExpiry}
-        reorderPoint={reorderPoint}
-        setReorderPoint={setReorderPoint}
-        reorderQuantity={reorderQuantity}
-        setReorderQuantity={setReorderQuantity}
-        location={location}
-        setLocation={setLocation}
-        onBack={() => setState("CANDIDATE")}
-        onSave={save}
       />
     );
   }
@@ -1312,61 +1240,19 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
       <button onClick={onBack} className="text-sm" style={{ color: "#6b5e4e" }}>← Indietro</button>
       <div>
         <p className="text-lg font-semibold" style={{ color: "#1a1510" }}>Trova il prodotto</p>
-        <p className="text-xs mt-1" style={{ color: "#6b5e4e" }}>Scrivi il nome, poi scegli la confezione corretta.</p>
+        <p className="text-xs mt-1" style={{ color: "#6b5e4e" }}>Scrivi il nome, poi scegli il prodotto corretto.</p>
       </div>
-
-      <Field label="Nome prodotto" value={query} onChange={setQuery} />
-      {query.trim().length > 0 && query.trim().length < 3 && (
-        <p className="text-xs" style={{ color: "#6b5e4e" }}>Inserisci almeno 3 caratteri.</p>
-      )}
-
-      {loading && (
-        <div className="py-6 text-center">
-          <div className="w-8 h-8 mx-auto rounded-full animate-spin" style={{ border: "3px solid #ede6d6", borderTopColor: "#c4623a" }} />
-          <p className="text-xs mt-3" style={{ color: "#6b5e4e" }}>Cerco tra i prodotti Open Food Facts…</p>
-        </div>
-      )}
-
-      {!loading && items.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold" style={{ color: "#6b5e4e" }}>Risultati più pertinenti</p>
-          {items.map((item) => (
-            <button
-              key={item.code}
-              onClick={() => void selectProduct(item)}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl text-left"
-              style={{ backgroundColor: "#fff", border: "1px solid #d8cfc0" }}
-            >
-              {item.imageUrl ? (
-                <img src={item.imageUrl} alt="" loading="lazy" className="w-14 h-14 rounded-xl object-contain bg-white border" />
-              ) : (
-                <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#f5f0e8" }}>🍽️</div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold truncate" style={{ color: "#1a1510" }}>{item.name}</p>
-                {item.brand && <p className="text-xs mt-0.5 truncate" style={{ color: "#6b5e4e" }}>{item.brand}</p>}
-                <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[10px]" style={{ color: "#6b5e4e" }}>
-                  {item.packageLabel && <span>{item.packageLabel}</span>}
-                  {item.category && <span>{item.category}</span>}
-                  {item.completeness != null && <span>Dati {Math.round(item.completeness * 100)}%</span>}
-                </div>
-              </div>
-              <span style={{ color: "#d8cfc0" }}>›</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!loading && error && query.trim().length >= 3 && items.length === 0 && (
-        <Message>{error}</Message>
-      )}
-      {error && <Message>{error}</Message>}
-
-      {query.trim().length >= 3 && (
-        <button onClick={() => setState("FALLBACK")} className="w-full py-2.5 rounded-xl text-sm" style={{ backgroundColor: "#ede6d6", color: "#6b5e4e" }}>
-          Inserisci comunque manualmente
-        </button>
-      )}
+      <ProductSearch
+        placeholder="Cerca un prodotto (es. Golia Active Plus…)"
+        autoFocus
+        emptyActionLabel="Inserisci comunque manualmente"
+        onAddFreeText={() => setState("FALLBACK")}
+        onSelect={(product, barcode) => {
+          setCandidate(candidateFromProduct(product));
+          setCandidateCode(barcode);
+          setState("INSERT");
+        }}
+      />
     </div>
   );
 }
