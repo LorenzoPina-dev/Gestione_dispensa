@@ -87,7 +87,21 @@ async function processQueuedPredictionEvent(event: EventEnvelope): Promise<void>
   const storage = typeof data.storage === "string" ? data.storage : "PANTRY";
   const opened = typeof data.opened === "boolean" ? data.opened : false;
   if (!predictionId || !itemId || !productId || !familyId || !userId) return;
-  await processPrediction({ predictionId, itemId, productId, storage, opened, userId, familyId, status: "queued", ...(typeof data.category === "string" ? { category: data.category } : {}), ...(typeof data.storedOn === "string" ? { storedOn: data.storedOn } : {}) });
+  const category = typeof data.category === "string" && data.category.trim()
+    ? data.category.trim().toLowerCase()
+    : await resolveProductCategory(productId);
+  await processPrediction({
+    predictionId,
+    itemId,
+    productId,
+    storage,
+    opened,
+    userId,
+    familyId,
+    status: "queued",
+    ...(category ? { category } : {}),
+    ...(typeof data.storedOn === "string" ? { storedOn: data.storedOn } : {}),
+  });
 }
 
 async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise<void> {
@@ -165,6 +179,7 @@ async function queueRecoveryPrediction(data: RecoveryItem): Promise<RecoveryItem
 
 async function processPrediction(data: RecoveryItem): Promise<void> {
   if (data.status !== "queued") return;
+  const category = data.category?.trim().toLowerCase() || await resolveProductCategory(data.productId);
   const response = await fetch(
     base + "/internal/shelf-life/predictions/" + encodeURIComponent(data.predictionId) + "/process",
     {
@@ -177,7 +192,7 @@ async function processPrediction(data: RecoveryItem): Promise<void> {
         productId: data.productId,
         storedAt: data.storage,
         opened: data.opened,
-        ...(data.category ? { category: data.category } : {}),
+        ...(category ? { category } : {}),
         ...(data.storedOn ? { storedOn: data.storedOn } : {}),
       }),
       signal: AbortSignal.timeout(10000),
