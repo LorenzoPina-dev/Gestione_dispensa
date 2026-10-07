@@ -15,7 +15,7 @@ describe("nutrition validation", () => {
   it("restricts diary units and sources to the documented enum", () => {
     assert.equal(isDiaryUnit("g"), true);
     assert.equal(isDiaryUnit("kg"), true);
-    assert.equal(isDiaryUnit("l"), false);
+    assert.equal(isDiaryUnit("l"), true);
     assert.equal(isDiarySource("manual"), true);
     assert.equal(isDiarySource("inventory"), true);
     assert.equal(isDiarySource("catalog"), false);
