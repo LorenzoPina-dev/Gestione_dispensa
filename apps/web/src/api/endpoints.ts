@@ -90,7 +90,50 @@ interface FamiliesHttpResponse { items?: UserFamilySummaryDto[]; nextCursor?: st
 export interface FamiliesResult { families: UserFamilySummaryDto[]; nextCursor: string | null; }
 export async function listFamilies(): Promise<FamiliesResult> { const result = await apiRequest<FamiliesHttpResponse>("/families"); return { families: (result.items ?? []).map((f) => ({ ...f, displayName: f.name })), nextCursor: result.nextCursor ?? null }; }
 export async function listFamilyMembers(familyId: string): Promise<{ memberships: ManagedMembershipDto[] }> { const result = await apiRequest<{ items: Array<{ userId: string; role: "owner" | "admin" | "member" | "viewer"; joinedAt: string; version: number; status: "ACTIVE" | "SUSPENDED" | "REMOVED" }>; nextCursor: string | null }>(`/families/${familyId}/members`); return { memberships: result.items.map((m) => ({ id: m.userId, familyId, userId: m.userId, role: m.role === "owner" ? "OWNER" : m.role === "admin" ? "MANAGER" : m.role === "viewer" ? "VIEWER" : "MEMBER", status: m.status, version: m.version, joinedAt: m.joinedAt })) }; }
-export function updateFamilyMembership(familyId: string, membershipId: string, version: number, input: { role: MembershipRole | "ADMIN"; status?: "ACTIVE" | "SUSPENDED" }): Promise<ManagedMembershipDto> { return apiRequest(`/families/${familyId}/members/${membershipId}`, { method: "PATCH", ifMatch: version, query: { familyId }, body: { role: input.role === "ADMIN" || input.role === "MANAGER" ? "admin" : input.role.toLowerCase(), ...(input.status ? { status: input.status } : {}) } }); }
+export async function updateFamilyMembership(
+  familyId: string,
+  membershipId: string,
+  version: number,
+  input: { role: MembershipRole | "ADMIN"; status?: "ACTIVE" | "SUSPENDED" },
+): Promise<ManagedMembershipDto> {
+  const result = await apiRequest<{
+    data: {
+      userId: string;
+      role: "owner" | "admin" | "member" | "viewer";
+      status: "ACTIVE" | "SUSPENDED" | "REMOVED";
+      version: number;
+      joinedAt: string;
+    };
+    version: number;
+  }>(`/families/${familyId}/members/${membershipId}`, {
+    method: "PATCH",
+    ifMatch: version,
+    query: { familyId },
+    body: {
+      role: input.role === "ADMIN" || input.role === "MANAGER" ? "admin" : input.role.toLowerCase(),
+      ...(input.status ? { status: input.status } : {}),
+    },
+  });
+
+  const membershipRole =
+    result.data.role === "owner"
+      ? "OWNER"
+      : result.data.role === "admin"
+        ? "MANAGER"
+        : result.data.role === "viewer"
+          ? "VIEWER"
+          : "MEMBER";
+
+  return {
+    id: result.data.userId,
+    familyId,
+    userId: result.data.userId,
+    role: membershipRole,
+    status: result.data.status,
+    version: result.version,
+    joinedAt: result.data.joinedAt,
+  };
+}
 export async function removeFamilyMembership(familyId: string, membershipId: string, version: number): Promise<void> { await apiRequest<void>(`/families/${familyId}/members/${membershipId}`, { method: "DELETE", ifMatch: version, query: { familyId } }); }
 export async function createProduct(input: {
   canonicalName: string;
