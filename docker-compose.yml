@@ -278,7 +278,6 @@ services:
       SERVICE_NAME: service-identity
       DATABASE_URL: "postgres://identity_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/identity_db"
       MIGRATION_DATABASE_URL: "postgres://identity:identity@postgres:5432/identity_db"
-      MIGRATION_DATABASE_URL: "postgres://identity:identity@postgres:5432/identity_db"
       KEYCLOAK_INTERNAL_URL: "http://keycloak:8080"
       KEYCLOAK_REALM: dispensa
       # Credenziali admin Keycloak (le stesse di KC_BOOTSTRAP_ADMIN_*), usate solo dal backend per creare utenti.
@@ -305,7 +304,6 @@ services:
       SERVICE_NAME: service-inventory
       DATABASE_URL: "postgres://inventory_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/inventory_db"
       MIGRATION_DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
-      MIGRATION_DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
       REDIS_URL: "redis://redis:6379"
     depends_on:
@@ -329,7 +327,6 @@ services:
       PORT: 3314
       SERVICE_NAME: service-catalog
       DATABASE_URL: "postgres://catalog_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/catalog_db"
-      MIGRATION_DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
       MIGRATION_DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
       <<: *oidc-env
       OFF_LOOKUP_BASE_URL: "http://off-lookup:3200"
@@ -405,7 +402,6 @@ services:
       PORT: 3404
       SERVICE_NAME: service-shelf-life
       DATABASE_URL: "postgres://shelf_life_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shelf_life_db"
-      MIGRATION_DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
       MIGRATION_DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
       REDIS_URL: "redis://redis:6379"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
@@ -651,7 +647,6 @@ services:
       PORT: 3405
       SERVICE_NAME: service-ocr
       DATABASE_URL: "postgres://ocr_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/ocr_db"
-      MIGRATION_DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
       MIGRATION_DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
       REDIS_URL: "redis://redis:6379"
       MINIO_ENDPOINT: "http://minio:9000"
