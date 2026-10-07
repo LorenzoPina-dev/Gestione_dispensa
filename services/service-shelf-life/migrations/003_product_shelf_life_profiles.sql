@@ -56,7 +56,7 @@ INSERT INTO shelf_life_domain.rules(product_category,storage,opened,min_days,tar
 ('nuts-snacks','PANTRY',true,30,60,120,'profiles-v2',true),
 ('dry-staples','PANTRY',false,365,540,730,'profiles-v2',true),
 ('dry-staples','PANTRY',true,60,180,365,'profiles-v2',true),
-('canned-preserved','PANTRY',false,365,730,1095,'profiles-v2',true),
+('canned-preserved','PANTRY',false,730,1095,1825,'profiles-v2',true),
 ('canned-preserved','FRIDGE',true,3,5,7,'profiles-v2',true),
 ('sauces-condiments','PANTRY',false,180,365,540,'profiles-v2',true),
 ('sauces-condiments','FRIDGE',true,14,30,60,'profiles-v2',true),
