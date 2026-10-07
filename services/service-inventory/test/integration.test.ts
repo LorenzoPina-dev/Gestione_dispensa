@@ -216,9 +216,9 @@ describe("service-inventory / real cross-service integration", () => {
     });
 
     assert.equal(result.response.status, 200);
-    assert.equal(result.body?.data?.remainingQuantity, 2);
-    assert.equal(result.body?.data?.removed, false);
-    itemVersion = 2;
+    assert.equal(Number(result.body?.data?.quantity), 2);
+    itemVersion = Number(result.body?.version);
+    assert.equal(itemVersion, 2);
 
     const movement = await pool.query(
       "SELECT type,quantity,reason,pantry_item_id FROM movements WHERE pantry_item_id=$1 ORDER BY occurred_at DESC LIMIT 1",
@@ -252,6 +252,7 @@ describe("service-inventory / real cross-service integration", () => {
     assert.equal(patched.response.status, 200);
     assert.equal(patched.body?.data?.location, "fridge");
     itemVersion = Number(patched.body?.version);
+    assert.equal(itemVersion, 3);
   });
 
   it("reads the item and its movement history from real PostgreSQL", async () => {
@@ -319,6 +320,7 @@ describe("service-inventory / real cross-service integration", () => {
         ...authHeaders(),
         "content-type": "application/json",
         "x-idempotency-key": `expiration-${randomUUID()}`,
+        "if-match": String(version),
       },
       body: JSON.stringify({ expiresAt: "2030-01-01T00:00:00Z", source: "declared" }),
     });
