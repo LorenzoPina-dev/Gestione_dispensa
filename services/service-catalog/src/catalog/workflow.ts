@@ -298,7 +298,76 @@ function needsExternalReconciliation(product: Product): boolean {
   // evidence of staleness: those fields can legitimately be absent in OFF.
   const hasRawSnapshot = product.openFoodFacts !== undefined;
   // This checks only the Catalog projection. Raw OFF interpretation stays inside off-lookup.
-  return hasRawSnapshot && !hasImage && !hasCoreNutrition;
+  const missingProjection = hasRawSnapshot && !hasImage && !hasCoreNutrition;
+  const stalePackage = hasRawSnapshot && packageProjectionIsStale(product);
+  return missingProjection || stalePackage;
+}
+
+function packageProjectionIsStale(product: Product): boolean {
+  const raw = product.openFoodFacts;
+  if (!raw) return false;
+
+  const rawValue = numberFromRaw(raw.product_quantity)
+    ?? numberFromRaw(recordFromRaw(raw.quantity)?.value)
+    ?? parseQuantityFromRaw(raw.quantity);
+  const rawUnit = normalizePackageUnit(
+    firstStringFromRaw(
+      raw.product_quantity_unit,
+      recordFromRaw(raw.quantity)?.unit,
+    ) ?? inferUnitFromRaw(raw.quantity),
+  );
+
+  if (rawValue === null || rawUnit === null) return false;
+  const projectedUnit = normalizePackageUnit(product.quantityUnit);
+  if (product.quantityValue === undefined || projectedUnit === null) return true;
+
+  const projectedBase = toPackageBase(product.quantityValue, projectedUnit);
+  const rawBase = toPackageBase(rawValue, rawUnit);
+  return projectedBase === null || rawBase === null || Math.abs(projectedBase - rawBase) > 0.0001;
+}
+
+function recordFromRaw(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function firstStringFromRaw(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+  return null;
+}
+
+function numberFromRaw(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value.replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function parseQuantityFromRaw(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const match = value.replace(",", ".").match(/(\\d+(?:\\.\\d+)?)/);
+  return match ? numberFromRaw(match[1]) : null;
+}
+
+function inferUnitFromRaw(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return value.match(/\\b(kg|g|mg|l|cl|ml)\\b/i)?.[1]?.toLowerCase() ?? null;
+}
+
+function normalizePackageUnit(value: string | null | undefined): "g" | "kg" | "ml" | "l" | null {
+  const unit = String(value ?? "").trim().toLowerCase();
+  return unit === "g" || unit === "kg" || unit === "ml" || unit === "l" ? unit : null;
+}
+
+function toPackageBase(value: number, unit: "g" | "kg" | "ml" | "l"): number {
+  if (unit === "kg" || unit === "l") return value * 1000;
+  return value;
 }
 
 function externalResolution(match: ExternalProductMatch): "cache" | "provider" {
