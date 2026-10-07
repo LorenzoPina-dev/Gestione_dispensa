@@ -157,13 +157,29 @@ app.get("/api/v1/recipes", async (req, res) => {
   if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
   const q = String(req.query.q ?? "").trim();
+
+  if (q) {
+    const catalogRows = await pool.query(
+      "select id from recipe_catalog.recipes where title ilike $1 order by similarity(title,$2) desc limit $3",
+      ["%" + q + "%", q, limit],
+    );
+    const catalogItems = await Promise.all(catalogRows.rows.map(async row => {
+      const recipe = await getCatalogRecipe(pool, String(row.id));
+      return recipe ? { ...recipe, version: 1 } : null;
+    }));
+    const familyRows = await pool.query(
+      "select id from recipes_domain.recipes where family_id=$1 and title ilike $2 order by updated_at desc limit $3",
+      [ctx.familyId, "%" + q + "%", limit],
+    );
+    const familyItems = await Promise.all(familyRows.rows.map(async row => loadRecipe(String(row.id), ctx.familyId)));
+    return res.json({ items: [...catalogItems.filter(Boolean), ...familyItems.filter(Boolean)].slice(0, limit), nextCursor: null });
+  }
+
   const result = await pool.query(
-    `select id,title,servings,version from recipes_domain.recipes
-     where family_id=$1 and ($2='' or title ilike '%'||$2||'%')
-     order by created_at desc limit $3`,
-    [ctx.familyId, q, limit],
+    "select id,title,servings,version from recipes_domain.recipes where family_id=$1 order by created_at desc limit $2",
+    [ctx.familyId, limit],
   );
-  const items = await Promise.all(result.rows.map(async (row) => {
+  const items = await Promise.all(result.rows.map(async row => {
     const full = await loadRecipe(String(row.id), ctx.familyId);
     return full ?? { recipeId: row.id, title: row.title, servings: Number(row.servings), ingredients: [], steps: [], version: Number(row.version) };
   }));
