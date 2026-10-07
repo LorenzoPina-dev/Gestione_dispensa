@@ -11,6 +11,7 @@ coverage/
 /apps/web/dist-domain
 /certs
 /services/gateway/_deprecated
-
-# TypeScript incremental build metadata
+/py
+/venv
+/runs
 *.tsbuildinfo
