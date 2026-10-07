@@ -125,10 +125,40 @@ services:
     networks: [data]
   postgres:
     image: postgres:16-alpine
-    environment: { POSTGRES_USER: dispensa, POSTGRES_PASSWORD: dispensa, POSTGRES_DB: postgres }
+    environment: { POSTGRES_USER: dispensa, POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-dispensa}", POSTGRES_DB: postgres }
     volumes: [postgres_data:/var/lib/postgresql/data, ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U dispensa -d postgres"], interval: 5s, timeout: 5s, retries: 10, start_period: 5s }
     restart: unless-stopped
+    networks: [data]
+  postgres-app-role-init:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: "${POSTGRES_PASSWORD:-dispensa}"
+      POSTGRES_APP_PASSWORD: "${POSTGRES_APP_PASSWORD:-change-me-app-local-only}"
+    command:
+      - sh
+      - -ceu
+      - |
+        sql_escape() { printf "%s" "$1" | sed "s/\x27/\x27\x27/g"; }
+        app_password=$(sql_escape "$POSTGRES_APP_PASSWORD")
+        for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
+          if psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$role'" | grep -q 1; then
+            psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "ALTER ROLE \"$role\" LOGIN PASSWORD '$app_password';"
+          else
+            psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "CREATE ROLE \"$role\" LOGIN PASSWORD '$app_password';"
+          fi
+        done
+        if ! psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'keycloak'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "CREATE ROLE keycloak LOGIN PASSWORD 'keycloak';"
+        fi
+        if ! psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'keycloak_db'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "CREATE DATABASE keycloak_db OWNER keycloak;"
+        else
+          psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "ALTER DATABASE keycloak_db OWNER TO keycloak;"
+        fi
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
     networks: [data]
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
@@ -189,9 +219,9 @@ services:
     restart: unless-stopped
     networks: [data]
   minio:
-    image: ghcr.io/golithus/minio:latest
+    image: quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z
     command: server /data --console-address ":9001"
-    environment: { MINIO_ROOT_USER: minio, MINIO_ROOT_PASSWORD: miniochange, MINIO_PROMETHEUS_AUTH_TYPE: public }
+    environment: { MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minio-local}", MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-change-me-local-only}", MINIO_PROMETHEUS_AUTH_TYPE: public }
     volumes: [minio_data:/data]
     healthcheck:
       disable: true
@@ -219,12 +249,16 @@ services:
     restart: unless-stopped
     networks: [data]
   keycloak:
-    image: quay.io/keycloak/keycloak:26.3
-    command: start-dev --http-port=8080 --import-realm --metrics-enabled=true --health-enabled=true
+    image: quay.io/keycloak/keycloak:26.7.5
+    command: start --http-port=8080 --import-realm --metrics-enabled=true --health-enabled=true
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_DB: dev-file
+      KC_BOOTSTRAP_ADMIN_USERNAME: "${KEYCLOAK_ADMIN:-admin}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:-change-me-local-only}"
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       # URL pubblico fisso: l'`iss` dei token è sempre quello, qualunque Host arrivi da nginx.
       KC_HOSTNAME: "https://${LAN_HOST:-localhost}:8443"
@@ -242,7 +276,7 @@ services:
     environment:
       PORT: 3310
       SERVICE_NAME: service-identity
-      DATABASE_URL: "postgres://identity:identity@postgres:5432/identity_db"
+      DATABASE_URL: "postgres://identity_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/identity_db"
       KEYCLOAK_INTERNAL_URL: "http://keycloak:8080"
       KEYCLOAK_REALM: dispensa
       # Credenziali admin Keycloak (le stesse di KC_BOOTSTRAP_ADMIN_*), usate solo dal backend per creare utenti.
@@ -256,7 +290,7 @@ services:
 
   service-family:
     build: { context: ., dockerfile: services/service-family/Dockerfile }
-    environment: { PORT: 3311, SERVICE_NAME: service-family, DATABASE_URL: "postgres://family:family@postgres:5432/family_db", OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318" }
+    environment: { PORT: 3311, SERVICE_NAME: service-family, DATABASE_URL: "postgres://family_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/family_db", OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -267,7 +301,7 @@ services:
     environment:
       PORT: 3312
       SERVICE_NAME: service-inventory
-      DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
+      DATABASE_URL: "postgres://inventory_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/inventory_db"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
       REDIS_URL: "redis://redis:6379"
     depends_on:
@@ -279,7 +313,7 @@ services:
 
   service-shopping:
     build: { context: ., dockerfile: services/service-shopping/Dockerfile }
-    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
+    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shopping_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -290,7 +324,7 @@ services:
     environment:
       PORT: 3314
       SERVICE_NAME: service-catalog
-      DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
+      DATABASE_URL: "postgres://catalog_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/catalog_db"
       <<: *oidc-env
       OFF_LOOKUP_BASE_URL: "http://off-lookup:3200"
       OFF_LOOKUP_TIMEOUT_MS: "2500"
@@ -310,7 +344,7 @@ services:
 
   service-notifications:
     build: { context: ., dockerfile: services/service-notifications/Dockerfile }
-    environment: { PORT: 3315, SERVICE_NAME: service-notifications, DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
+    environment: { PORT: 3315, SERVICE_NAME: service-notifications, DATABASE_URL: "postgres://notifications_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/notifications_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -318,7 +352,7 @@ services:
 
   service-privacy:
     build: { context: ., dockerfile: services/service-privacy/Dockerfile }
-    environment: { <<: *oidc-env, PORT: 3316, SERVICE_NAME: service-privacy, DATABASE_URL: "postgres://privacy:privacy@postgres:5432/privacy_db", JOBS_SERVICE_BASE_URL: "http://service-jobs:3317/api/v1", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}" }
+    environment: { <<: *oidc-env, PORT: 3316, SERVICE_NAME: service-privacy, DATABASE_URL: "postgres://privacy_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/privacy_db", JOBS_SERVICE_BASE_URL: "http://service-jobs:3317/api/v1", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}" }
     depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -326,7 +360,7 @@ services:
 
   service-jobs:
     build: { context: ., dockerfile: services/service-jobs/Dockerfile }
-    environment: { <<: *oidc-env, PORT: 3317, SERVICE_NAME: service-jobs, DATABASE_URL: "postgres://jobs:jobs@postgres:5432/jobs_db", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}" }
+    environment: { <<: *oidc-env, PORT: 3317, SERVICE_NAME: service-jobs, DATABASE_URL: "postgres://jobs_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/jobs_db", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}" }
     depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -334,7 +368,7 @@ services:
 
   service-recipes:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
-    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
+    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -342,7 +376,7 @@ services:
 
   service-nutrition:
     build: { context: ., dockerfile: services/service-nutrition/Dockerfile }
-    environment: { PORT: 3402, SERVICE_NAME: service-nutrition, DATABASE_URL: "postgres://nutrition:nutrition@postgres:5432/nutrition_db", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1", CATALOG_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", REDIS_URL: "redis://redis:6379" }
+    environment: { PORT: 3402, SERVICE_NAME: service-nutrition, DATABASE_URL: "postgres://nutrition_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/nutrition_db", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1", CATALOG_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", REDIS_URL: "redis://redis:6379" }
     depends_on:
       postgres: { condition: service_healthy }
       service-catalog: { condition: service_healthy }
@@ -353,7 +387,7 @@ services:
 
   service-stores:
     build: { context: ., dockerfile: services/service-stores/Dockerfile }
-    environment: { PORT: 3403, SERVICE_NAME: service-stores, DATABASE_URL: "postgres://stores:stores@postgres:5432/stores_db" }
+    environment: { PORT: 3403, SERVICE_NAME: service-stores, DATABASE_URL: "postgres://stores_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/stores_db" }
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -364,7 +398,7 @@ services:
     environment:
       PORT: 3404
       SERVICE_NAME: service-shelf-life
-      DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
+      DATABASE_URL: "postgres://shelf_life_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shelf_life_db"
       REDIS_URL: "redis://redis:6379"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on:
@@ -400,7 +434,7 @@ services:
   relay-identity:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://identity:identity@postgres:5432/identity_db"
+      DATABASE_URL: "postgres://identity_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/identity_db"
       OUTBOX_TABLE: "outbox_events"
       PRODUCER: "service-service-identity"
       EVENT_STREAM: "events:domain"
@@ -415,7 +449,7 @@ services:
   relay-family:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://family:family@postgres:5432/family_db"
+      DATABASE_URL: "postgres://family_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/family_db"
       OUTBOX_TABLE: "outbox_events"
       PRODUCER: "service-service-family"
       EVENT_STREAM: "events:domain"
@@ -430,7 +464,7 @@ services:
   relay-inventory:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
+      DATABASE_URL: "postgres://inventory_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/inventory_db"
       OUTBOX_TABLE: "outbox_events"
       PRODUCER: "service-service-inventory"
       EVENT_STREAM: "events:domain"
@@ -445,7 +479,7 @@ services:
   relay-shopping:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db"
+      DATABASE_URL: "postgres://shopping_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shopping_db"
       OUTBOX_TABLE: "shopping_domain.outbox_events"
       PRODUCER: "service-service-shopping"
       EVENT_STREAM: "events:domain"
@@ -460,7 +494,7 @@ services:
   relay-catalog:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
+      DATABASE_URL: "postgres://catalog_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/catalog_db"
       OUTBOX_TABLE: "outbox_events"
       PRODUCER: "service-service-catalog"
       EVENT_STREAM: "events:domain"
@@ -475,7 +509,7 @@ services:
   relay-notifications:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db"
+      DATABASE_URL: "postgres://notifications_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/notifications_db"
       OUTBOX_TABLE: "notifications_domain.outbox_events"
       PRODUCER: "service-service-notifications"
       EVENT_STREAM: "events:domain"
@@ -490,7 +524,7 @@ services:
   relay-privacy:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://privacy:privacy@postgres:5432/privacy_db"
+      DATABASE_URL: "postgres://privacy_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/privacy_db"
       OUTBOX_TABLE: "outbox_events"
       PRODUCER: "service-service-privacy"
       EVENT_STREAM: "events:domain"
@@ -505,7 +539,7 @@ services:
   relay-recipes:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db"
+      DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db"
       OUTBOX_TABLE: "recipes_domain.outbox_events"
       PRODUCER: "service-service-recipes"
       EVENT_STREAM: "events:domain"
@@ -520,7 +554,7 @@ services:
   relay-nutrition:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://nutrition:nutrition@postgres:5432/nutrition_db"
+      DATABASE_URL: "postgres://nutrition_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/nutrition_db"
       OUTBOX_TABLE: "nutrition_domain.outbox_events"
       PRODUCER: "service-service-nutrition"
       EVENT_STREAM: "events:domain"
@@ -535,7 +569,7 @@ services:
   relay-stores:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://stores:stores@postgres:5432/stores_db"
+      DATABASE_URL: "postgres://stores_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/stores_db"
       OUTBOX_TABLE: "stores_domain.outbox_events"
       PRODUCER: "service-service-stores"
       EVENT_STREAM: "events:domain"
@@ -550,7 +584,7 @@ services:
   relay-shelf-life:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
+      DATABASE_URL: "postgres://shelf_life_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shelf_life_db"
       OUTBOX_TABLE: "shelf_life_domain.outbox_events"
       PRODUCER: "service-service-shelf-life"
       EVENT_STREAM: "events:domain"
@@ -565,7 +599,7 @@ services:
   relay-ocr:
     build: { context: ., dockerfile: services/worker-outbox/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
+      DATABASE_URL: "postgres://ocr_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/ocr_db"
       OUTBOX_TABLE: "ocr_domain.outbox_events"
       PRODUCER: "service-service-ocr"
       EVENT_STREAM: "events:domain"
@@ -579,7 +613,7 @@ services:
   worker-notifications:
     build: { context: ., dockerfile: services/worker-notifications/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db"
+      DATABASE_URL: "postgres://notifications_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/notifications_db"
       REDIS_URL: "redis://redis:6379"
       EVENT_STREAM: "events:domain"
       CONSUMER_GROUP: "notifications"
@@ -593,7 +627,7 @@ services:
   worker-shopping:
     build: { context: ., dockerfile: services/worker-shopping/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db"
+      DATABASE_URL: "postgres://shopping_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shopping_db"
       REDIS_URL: "redis://redis:6379"
       EVENT_STREAM: "events:domain"
       CONSUMER_GROUP: "shopping-reorder"
@@ -608,7 +642,7 @@ services:
     environment:
       PORT: 3405
       SERVICE_NAME: service-ocr
-      DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
+      DATABASE_URL: "postgres://ocr_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/ocr_db"
       REDIS_URL: "redis://redis:6379"
       MINIO_ENDPOINT: "http://minio:9000"
       MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minio}"
