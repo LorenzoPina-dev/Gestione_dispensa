@@ -161,6 +161,9 @@ jobs:
       - run: npm ci --include=dev --ignore-scripts
       - name: Prepare isolated service databases
         run: |
+          for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
+            psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE ROLE $role LOGIN PASSWORD 'test';"
+          done
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE family_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
           psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE catalog_db;"
@@ -335,9 +338,6 @@ jobs:
       - run: npm ci --include=dev --ignore-scripts
       - name: Provision isolated databases
         run: |
-          for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
-            psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE ROLE $role LOGIN PASSWORD 'test';"
-          done
           for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
             psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE ROLE $role LOGIN PASSWORD 'test';"
           done
