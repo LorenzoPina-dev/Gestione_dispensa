@@ -10,7 +10,12 @@ app.use((req, _res, next) => { setDbRequestContextFromHeaders(req.headers); next
 
 const port = Number(process.env.PORT ?? 3313);
 const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
-const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
+function normalizeFamilyServiceBaseUrl(value: string | undefined): string {
+  const base = (value ?? "http://service-family:3311").replace(/\/$/, "");
+  return base.endsWith("/api/v1") ? base : base + "/api/v1";
+}
+
+const familyServiceBaseUrl = normalizeFamilyServiceBaseUrl(process.env.FAMILY_SERVICE_BASE_URL);
 
 type ShoppingListStatus = "open" | "closed";
 type Body = Record<string, unknown>;
