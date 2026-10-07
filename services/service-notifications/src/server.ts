@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from "express";
-import { Pool, type PoolClient } from "pg";
+import { createContextAwarePool, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import crypto from "node:crypto";
 import { isBoolean, isNotificationFamilyContext, validIdempotencyKey } from "./validation.js";
 
@@ -8,7 +8,7 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
 const port = Number(process.env.PORT ?? 3315);
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 
 type Body = Record<string, unknown>;
