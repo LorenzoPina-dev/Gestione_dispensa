@@ -335,6 +335,9 @@ jobs:
       - run: npm ci --include=dev --ignore-scripts
       - name: Provision isolated databases
         run: |
+          for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
+            psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE ROLE $role LOGIN PASSWORD 'test';"
+          done
           for db in family_db inventory_db nutrition_db stores_db notifications_db ocr_db shelf_life_db privacy_db jobs_db; do
             psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE $db;"
             psql "postgresql://dispensa:dispensa@localhost:5432/$db" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
