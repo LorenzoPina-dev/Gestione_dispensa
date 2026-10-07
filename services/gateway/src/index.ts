@@ -19,6 +19,20 @@ const requestTimeoutMs = Number(process.env.GATEWAY_TIMEOUT_MS ?? 5000);
 const recipesBaseUrl = (process.env.RECIPES_SERVICE_BASE_URL ?? "http://service-recipes:3401/api/v1").replace(/\/$/, "");
 const nutritionBaseUrl = (process.env.NUTRITION_SERVICE_BASE_URL ?? "http://service-nutrition:3402/api/v1").replace(/\/$/, "");
 const storesBaseUrl = (process.env.STORES_SERVICE_BASE_URL ?? "http://service-stores:3403/api/v1").replace(/\/$/, "");
+const serviceRouteTable = [
+  { prefix: "/families", base: familyBaseUrl, proxy: true },
+  { prefix: "/family-invites", base: familyBaseUrl, proxy: true },
+  { prefix: "/invites", base: familyBaseUrl, proxy: true },
+  { prefix: "/inventory", base: inventoryBaseUrl, proxy: true },
+  { prefix: "/shopping", base: shoppingBaseUrl, proxy: true },
+  { prefix: "/products", base: catalogBaseUrl, proxy: false },
+  { prefix: "/catalog", base: catalogBaseUrl, proxy: true },
+  { prefix: "/notifications", base: notificationsBaseUrl, proxy: true },
+  { prefix: "/privacy", base: privacyBaseUrl, proxy: true },
+  { prefix: "/identity", base: identityBaseUrl, proxy: true },
+  { prefix: "/meta", base: identityBaseUrl, proxy: true },
+] as const;
+
 const oidcIssuer = process.env.OIDC_ISSUER ?? "";
 const oidcAudience = process.env.OIDC_AUDIENCE ?? "";
 const oidcJwksUrl = process.env.OIDC_JWKS_URL ?? "http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs";
@@ -112,13 +126,9 @@ app.get("/api/v1/family-invites/:token", serviceProxy(familyBaseUrl));
 app.get("/api/v1/inventory", requireGatewayAuth, inventoryListView);
 app.get("/api/v1/inventory/:itemId", requireGatewayAuth, inventoryItemView);
 
-for (const [prefix, base] of [
-  ["/api/v1/identity", identityBaseUrl],
-  ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
-  ["/api/v1/inventory", inventoryBaseUrl], ["/api/v1/shopping", shoppingBaseUrl],
-  ["/api/v1/catalog", catalogBaseUrl],
-  ["/api/v1/notifications", notificationsBaseUrl], ["/api/v1/privacy", privacyBaseUrl],
-] as const) app.use(prefix, requireGatewayAuth, serviceProxy(base));
+for (const route of serviceRouteTable.filter((entry) => entry.proxy)) {
+  app.use("/api/v1" + route.prefix, requireGatewayAuth, serviceProxy(route.base));
+}
 app.use("/api/v1/recipes", requireGatewayAuth, serviceProxy(recipesBaseUrl));
 app.use("/api/v1/nutrition", requireGatewayAuth, serviceProxy(nutritionBaseUrl));
 app.use("/api/v1/stores", requireGatewayAuth, serviceProxy(storesBaseUrl));
@@ -528,14 +538,8 @@ function navigationSummary(
 
 async function coreGet(path: string, authorization?: string, query?: Record<string, string>): Promise<Record<string, any>> {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  const table: Array<[string, string]> = [
-    ["/families", familyBaseUrl], ["/family-invites", familyBaseUrl], ["/invites", familyBaseUrl],
-    ["/inventory", inventoryBaseUrl], ["/shopping", shoppingBaseUrl],
-    ["/products", catalogBaseUrl], ["/catalog", catalogBaseUrl], ["/notifications", notificationsBaseUrl],
-    ["/privacy", privacyBaseUrl], ["/identity", identityBaseUrl], ["/meta", identityBaseUrl],
-  ];
-  const entry = table.find(([prefix]) => normalized === prefix || normalized.startsWith(`${prefix}/`));
-  const result = entry ? await callBase(entry[1], normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
+  const entry = serviceRouteTable.find(({ prefix }) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+  const result = entry ? await callBase(entry.base, normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
   if (!result.ok) throw new GatewayError(result.status, result.body, result.target);
   return (result.body?.data ?? result.body) as Record<string, any>;
 }
