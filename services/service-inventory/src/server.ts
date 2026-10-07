@@ -24,7 +24,7 @@ const eventConsumer = process.env.EVENT_CONSUMER_NAME ?? `inventory-${process.pi
 
 async function consumeShelfLifeEvents(): Promise<void> {
   await eventRedis.connect();
-  await eventRedis.xGroupCreate(eventStream, eventGroup, "$", { MKSTREAM: true }).catch((error: unknown) => {
+  await eventRedis.xGroupCreate(eventStream, eventGroup, process.env.EVENT_GROUP_START_ID ?? "0-0", { MKSTREAM: true }).catch((error: unknown) => {
     if (!String(error).includes("BUSYGROUP")) throw error;
   });
 
