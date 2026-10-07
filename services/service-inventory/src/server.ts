@@ -7,7 +7,12 @@ import { CONSUME_REASONS, isConsumeReason, isExpirationSource, positiveQuantity,
 const port = Number(process.env.PORT ?? 3312);
 const service = "service-inventory";
 const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL ?? "postgres://inventory:inventory@postgres:5432/inventory_db" });
-const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
+function normalizeFamilyServiceBaseUrl(value: string | undefined): string {
+  const base = (value ?? "http://service-family:3311").replace(/\/$/, "");
+  return base.endsWith("/api/v1") ? base : `${base}/api/v1`;
+}
+
+const familyServiceBaseUrl = normalizeFamilyServiceBaseUrl(process.env.FAMILY_SERVICE_BASE_URL);
 
 type DomainEvent = {
   eventId: string;
