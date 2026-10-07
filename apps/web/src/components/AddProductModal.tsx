@@ -33,6 +33,31 @@ interface Props {
   onAdd: (item: Omit<StockItem, "id" | "version" | "provenance">) => void;
 }
 
+export default function AddProductModal({ onClose, onAdd }: Props) {
+  const [mode, setMode] = useState<AddMode>("menu");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      style={{ backgroundColor: "rgba(26,21,16,.48)" }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-t-3xl sm:rounded-3xl"
+        style={{ backgroundColor: "#f5f0e8", maxHeight: "90vh", overflowY: "auto" }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {mode === "menu" && <ModeMenu onSelect={setMode} onClose={onClose} />}
+        {mode === "barcode" && <BarcodeFlow onAdd={onAdd} onBack={() => setMode("menu")} />}
+        {mode === "manuale" && <ManualForm onAdd={onAdd} onBack={() => setMode("menu")} />}
+        {mode === "lista" && <ImportList onAdd={onAdd} onBack={() => setMode("menu")} />}
+      </div>
+    </div>
+  );
+}
+
 
 function ModeMenu({ onSelect, onClose }: { onSelect: (m: AddMode) => void; onClose: () => void }) {
   const modes = [
