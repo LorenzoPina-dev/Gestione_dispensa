@@ -34,8 +34,8 @@ async function consumeShelfLifeEvents(): Promise<void> {
       for (const message of streamResult.messages) {
         const client = await pool.connect();
         try {
-          const event = JSON.parse(String(message.message.event)) as DomainEvent;
-          if (event.eventType !== "shelf-life.prediction-completed.v1") {
+          const domainEvent = JSON.parse(String(message.message.event)) as DomainEvent;
+          if (domainEvent.eventType !== "shelf-life.prediction-completed.v1") {
             await eventRedis.xAck(eventStream, eventGroup, message.id);
             client.release();
             continue;
@@ -45,13 +45,13 @@ async function consumeShelfLifeEvents(): Promise<void> {
           const itemId = typeof payload.itemId === "string" ? payload.itemId : "";
           const productId = typeof payload.productId === "string" ? payload.productId : "";
           const expiresAt = typeof payload.estimatedExpiresAt === "string" ? payload.estimatedExpiresAt : "";
-          if (!event.eventId || !familyId || !itemId || !productId || !expiresAt) throw new Error("Invalid shelf-life.prediction-completed.v1 payload.");
+          if (!domainEvent.eventId || !familyId || !itemId || !productId || !expiresAt) throw new Error("Invalid shelf-life.prediction-completed.v1 payload.");
 
           await client.query("BEGIN");
           const processed = await client.query(
             `INSERT INTO event_consumers(event_id,event_type) VALUES($1,$2)
              ON CONFLICT(event_id) DO NOTHING RETURNING event_id`,
-            [event.eventId, event.eventType],
+            [domainEvent.eventId, domainEvent.eventType],
           );
           if (!processed.rowCount) {
             await client.query("COMMIT");
@@ -76,8 +76,8 @@ async function consumeShelfLifeEvents(): Promise<void> {
             await event(client, "inventory.expiration-confirmed.v1", itemId, {
               userId: "system",
               familyId,
-              requestId: event.eventId,
-              correlationId: event.correlationId ?? randomUUID(),
+              requestId: domainEvent.eventId,
+              correlationId: domainEvent.correlationId ?? randomUUID(),
             }, {
               itemId,
               productId,
