@@ -36,7 +36,7 @@ const product = (overrides: Partial<Product> = {}): Product => ({
 });
 
 const candidates: CatalogCandidateRepository = {
-  applyImportedCandidate: async ({ candidate }) => candidate && product() as never,
+  applyImportedCandidate: async ({ candidate }) => candidate,
 };
 
 describe("catalog workflow", () => {
@@ -69,7 +69,6 @@ describe("catalog workflow", () => {
         return product({
           canonicalName: match.canonicalName,
           version: 2,
-          sourceRef: match.sourceRef,
         } as never);
       },
       refreshExternalMatch: async () => { throw new Error("must not refresh"); },
