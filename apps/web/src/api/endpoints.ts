@@ -167,7 +167,20 @@ export interface ShoppingItemPatch { label?: string; quantity?: number; unit?: I
 export function updateShoppingItem(familyId: string, listId: string, itemId: string, version: number, patch: ShoppingItemPatch, idempotencyKey?: string): Promise<ShoppingItemDto> { return apiRequest(`/shopping/lists/${listId}/items/${itemId}`, { method: "PATCH", ifMatch: version, idempotencyKey, query: { familyId }, body: patch }); }
 // Shopping persists one flag: only COMPLETED (in the cart) is checked. ACCEPTED means still to buy.
 export function updateShoppingItemState(familyId: string, listId: string, itemId: string, version: number, state: ShoppingItemState, idempotencyKey?: string): Promise<ShoppingItemDto> { return updateShoppingItem(familyId, listId, itemId, version, { checked: state === "COMPLETED" }, idempotencyKey); }
-export async function batchUpdateShoppingItems(familyId: string, listId: string, items: Array<{ itemId: string; version: number }>, state: ShoppingItemState): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> { const updated: ShoppingItemDto[] = []; const failedItemIds: string[] = []; for (const i of items) { try { updated.push(await updateShoppingItemState(familyId, listId, i.itemId, i.version, state, `shopping-state:${i.itemId}:${i.version}:${state}`)); } catch { failedItemIds.push(i.itemId); } } return { updated, failedItemIds }; }
+export async function batchUpdateShoppingItems(familyId: string, listId: string, items: Array<{ itemId: string; version: number }>, state: ShoppingItemState): Promise<{ updated: ShoppingItemDto[]; failedItemIds: string[] }> {
+  if (items.length === 0) return { updated: [], failedItemIds: [] };
+  try {
+    const result = await apiRequest<{ data: { updated: ShoppingItemDto[] }; version: number }>(`/shopping/lists/${listId}/items/batch`, {
+      method: "PATCH",
+      query: { familyId },
+      idempotencyKey: `shopping-state-batch:${listId}:${items.map((item) => `${item.itemId}:${item.version}`).join(",")}:${state}`,
+      body: { items: items.map((item) => ({ itemId: item.itemId, version: item.version, checked: state === "COMPLETED" })) },
+    });
+    return { updated: result.data?.updated ?? [], failedItemIds: [] };
+  } catch {
+    return { updated: [], failedItemIds: items.map((item) => item.itemId) };
+  }
+}
 export function deleteShoppingItem(familyId: string, listId: string, itemId: string, version: number, idempotencyKey?: string): Promise<void> { return apiRequest<void>(`/shopping/lists/${listId}/items/${itemId}`, { method: "DELETE", idempotencyKey, query: { familyId }, ifMatch: version }); }
 export async function listNotifications(familyId: string): Promise<{ notifications: NotificationDto[] }> { const r = await apiRequest<{ items: NotificationDto[]; nextCursor: string | null }>("/notifications", { query: { familyId } }); return { notifications: r.items }; }
 export function markNotificationRead(familyId: string, notificationId: string): Promise<NotificationDto> { return apiRequest(`/notifications/${notificationId}/read`, { method: "POST", body: { familyId } }); }
