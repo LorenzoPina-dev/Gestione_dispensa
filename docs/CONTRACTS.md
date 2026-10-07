@@ -15,29 +15,17 @@ In caso di ambiguità:
 
 Il codice non può introdurre un comportamento non documentato come comportamento implicito.
 
-## 2. Service contract package
+## 2. Sorgente canonica dei contratti
 
-Ogni servizio deve contenere:
+La sorgente condivisa machine-readable è `packages/contracts`:
 
-```
-services/<service>/
-  src/
-    domain/
-    application/
-    infrastructure/
-    http/
-      routes/
-      schemas/
-    events/
-  migrations/
-  contract/
-    openapi.yaml
-    events/
-  Dockerfile
-  package.json
-```
+- `packages/contracts/src/index.ts`: envelope/eventi e primitive HTTP;
+- `packages/contracts/src/api.ts`: DTO HTTP condivisi tra gateway, servizi e Web;
+- `packages/contracts/events/*.json`: schema dei payload asincroni.
 
-Il contratto locale può essere un sottoinsieme del contratto Gateway e dei contratti interni, ma non può contraddirli.
+`docs/API.md`, `docs/openapi.yaml` e `docs/EVENTS.md` restano documentazione normativa leggibile e devono essere mantenuti allineati ai contratti condivisi.
+
+Un servizio può avere schemi locali per dettagli interni, ma non può duplicare né contraddire un contratto pubblico condiviso.
 
 ## 3. Versioning
 
@@ -66,7 +54,7 @@ La validazione del Gateway non sostituisce quella del service owner.
 
 ## 5. Authorization
 
-Ogni request autenticata contiene subject/userId, familyId, roles, requestId e correlationId.
+Ogni request autenticata espone subject/userId e contesto tenant tramite un canale verificato. requestId e correlationId sono propagati lungo tutta la catena.
 
 Il Gateway costruisce il contesto; il service owner decide se l'operazione è autorizzata.
 
