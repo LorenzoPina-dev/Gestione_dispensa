@@ -16,7 +16,12 @@ describe("off-lookup domain", () => {
     let apiCalls = 0;
     const service = new ProductLookupService(
       {
-        findByCode: async () => ({ name: "Latte", _cache_meta: { schemaVersion: 2, enrichmentVersion: 1 } }),
+        findByCode: async () => ({
+          code: "8001234567890",
+          product_name: "Latte",
+          quantity: "90 g",
+          _cache_meta: { origin: "bulk-import", schemaVersion: 2, enrichmentVersion: 1 },
+        }),
         upsertFromLiveApi: async () => {},
         recordRefreshAttempt: async () => {},
       },
@@ -27,6 +32,9 @@ describe("off-lookup domain", () => {
         },
         isCircuitOpen: () => false,
       },
+      undefined,
+      undefined,
+      { remoteEnrichment: "never" },
     );
     const result = await service.lookup("8001234567890");
     assert.equal(result.outcome, "hit");
