@@ -266,13 +266,14 @@ export default function Famiglia({
         <SectionHeading>Membri</SectionHeading>
         <RowList>
           {activeMembers.map((m, idx) => {
-            const rc = roleColors[m.role];
+            const safeRole: Role = roleColors[m.role] ? m.role : "MEMBER";
+            const rc = roleColors[safeRole];
             const isCurrentUser = m.id === currentUserId;
             const canRemoveThis = canManage && !isCurrentUser && !(m.role === "OWNER" && activeOwners.length <= 1);
             const isRemoving = removingId === m.id;
             return (
               <Row key={m.id} index={idx} last={idx === activeMembers.length - 1} className="flex-wrap" style={{ opacity: isRemoving ? 0.5 : 1, transition: "opacity 0.3s" }}>
-                <AvatarUI initials={m.avatar} size={9} role={m.role} />
+                <AvatarUI initials={m.avatar} size={9} role={safeRole} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <p className="text-sm font-medium" style={{ color: colors.ink }}>{m.name}</p>
@@ -285,7 +286,7 @@ export default function Famiglia({
                   <p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>{m.email}</p>
                 </div>
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0" style={{ backgroundColor: rc.bg, color: rc.color }}>
-                  {ROLE_LABELS[m.role]}
+                  {ROLE_LABELS[safeRole]}
                 </span>
                 {canManage && !isCurrentUser && (
                   <div className="flex flex-wrap justify-end gap-1 shrink-0">
