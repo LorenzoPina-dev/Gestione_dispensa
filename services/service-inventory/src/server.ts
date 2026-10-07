@@ -152,6 +152,15 @@ function getContext(req: IncomingMessage): Ctx | null {
   };
 }
 
+function pagination(url: URL): { limit: number; offset: number } {
+  const parsedLimit = Number(url.searchParams.get("limit") ?? "100");
+  const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 100;
+  const cursor = url.searchParams.get("cursor");
+  const parsedCursor = cursor === null ? 0 : Number(cursor);
+  const offset = Number.isInteger(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+  return { limit, offset };
+}
+
 
 function isoDate(value: unknown): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
@@ -294,6 +303,12 @@ async function authorizeFamily(ctx: Ctx, write: boolean): Promise<AuthResult> {
 
 const requestHash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
+/**
+ * Scala `quantity` da una riga della dispensa già bloccata (FOR UPDATE).
+ * pantry_items.quantity ha CHECK (quantity > 0): quando la giacenza si esaurisce la riga va eliminata
+ * (lo storico resta in `movements`), altrimenti l'UPDATE a 0 viola il vincolo e l'endpoint risponde 500.
+ * Restituisce la stessa forma di `client.query` così i chiamanti usano `updated.rows[0]` come prima.
+ */
 async function applyOutflow(
   client: PoolClient,
   row: Record<string, unknown>,
@@ -381,39 +396,7 @@ const server = createServer(async (req, res) => {
       if (!Object.hasOwn(body, "reorderPoint")) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint is required.", ctx.requestId);
       if (body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
       if (body.reorderQuantity !== undefined && (typeof body.reorderQuantity !== "number" || !Number.isFinite(body.reorderQuantity) || body.reorderQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderQuantity must be a positive number.", ctx.requestId);
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        const key = String(req.headers["x-idempotency-key"] ?? "").trim();
-        if (!requiredIdempotencyKey(key)) { await client.query("ROLLBACK"); return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId); }
-        const old = await idempotency(client, key, ctx, body);
-        if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
-        if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
-        const current = await client.query("SELECT * FROM reorder_policies WHERE family_id=$1 AND product_id=$2 FOR UPDATE", [ctx.familyId, reorderPolicyMatch[1]]);
-        const before = current.rowCount ? await readReorderState(client, ctx.familyId, reorderPolicyMatch[1]) : null;
-        if (body.reorderPoint === null) {
-          await client.query("DELETE FROM reorder_policies WHERE family_id=$1 AND product_id=$2", [ctx.familyId, reorderPolicyMatch[1]]);
-        } else {
-          await upsertReorderPolicy(client, ctx, reorderPolicyMatch[1], Number(body.reorderPoint), body.reorderQuantity == null ? Number(current.rows[0]?.reorder_quantity ?? 1) : Number(body.reorderQuantity), body.unit == null ? String(current.rows[0]?.unit ?? "g") : String(body.unit));
-        }
-        const after = await readReorderState(client, ctx.familyId, reorderPolicyMatch[1]);
-        await emitReorderTransition(client, ctx, before, after);
-        const output = { data: after, version: 1 };
-        await finish(client, key, 200, output);
-        await client.query("COMMIT");
-        return send(res, 200, output, ctx.requestId);
-      } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
-    }
-    if (req.method === "POST" && req.url === "/api/v1/inventory") {
-      const auth = await authorizeFamily(ctx, true);
-      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
-      const body = await readBody(req);
-      const productId = String(body.productId ?? "").trim();
-      const quantity = positiveQuantity(body.quantity);
-      const unit = String(body.unit ?? "").trim();
-      if (!productId || quantity === undefined || !unit) return fail(res, 400, "VALIDATION_ERROR", "productId, positive quantity and unit are required.", ctx.requestId);
-      if (body.expiresAt !== undefined && body.expiresAt !== null && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
-      if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
+      if (body.unit !== undefined && (typeof body.unit !== "string" || !body.unit.trim())) return fail(res, 400, "VALIDATION_ERROR", "unit must be a non-empty string.", ctx.requestId);
       const key = String(req.headers["x-idempotency-key"] ?? "").trim();
       if (!requiredIdempotencyKey(key)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
       const client = await pool.connect();
@@ -422,36 +405,130 @@ const server = createServer(async (req, res) => {
         const old = await idempotency(client, key, ctx, body);
         if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
-        const existing = await client.query("SELECT * FROM pantry_items WHERE family_id=$1 AND product_id=$2 AND unit=$3 AND expires_at IS NULL ORDER BY added_at ASC FOR UPDATE", [ctx.familyId, productId, unit]);
-        const inputExpiresAt = body.expiresAt === null || body.expiresAt === undefined ? null : new Date(String(body.expiresAt));
-        let joined: { rows: any[] };
-        if (existing.rowCount) {
-          const current = existing.rows[0];
-          const mergedQuantity = Number(current.quantity) + quantity!;
-          const merged = await client.query("UPDATE pantry_items SET quantity=$1,version=version+1,updated_at=now() WHERE id=$2 RETURNING *", [mergedQuantity, current.id]);
-          joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1", [current.id]);
-          await event(client, "inventory.stock.received.v1", current.id, ctx, {
-            itemId: current.id, productId, quantity: String(quantity), unit,
-            location: String(body.location ?? current.location ?? "PANTRY"),
-            openedAt: body.openedAt ?? current.opened_at ?? null,
-            expiresAt: inputExpiresAt ? inputExpiresAt.toISOString() : null,
-            actorUserId: ctx.userId,
-          });
-        } else {
-          const inserted = await client.query("INSERT INTO pantry_items(id,family_id,product_id,quantity,unit,expires_at,expiration_source,location,lot_code,added_at,opened_at,updated_at,version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10,now(),1) RETURNING *", [randomUUID(), ctx.familyId, productId, quantity, unit, inputExpiresAt, inputExpiresAt ? "declared" : null, body.location ?? "PANTRY", body.lotCode ?? null, body.openedAt ? new Date(String(body.openedAt)) : null]);
-          const current = inserted.rows[0];
-          joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.unit=i.unit AND p.enabled=true WHERE i.id=$1", [current.id]);
-          await event(client, "inventory.stock.received.v1", current.id, ctx, {
-            itemId: current.id, productId, quantity: String(quantity), unit,
-            location: String(body.location ?? "PANTRY"),
-            openedAt: body.openedAt ?? null,
-            expiresAt: inputExpiresAt ? inputExpiresAt.toISOString() : null,
-            actorUserId: ctx.userId,
-          });
+        const productId = reorderPolicyMatch[1];
+        const before = await readReorderState(client, ctx.familyId, productId);
+        const existing = await client.query("SELECT * FROM reorder_policies WHERE family_id=$1 AND product_id=$2 FOR UPDATE", [ctx.familyId, productId]);
+        if (body.reorderPoint === null) {
+          await client.query("DELETE FROM reorder_policies WHERE family_id=$1 AND product_id=$2", [ctx.familyId, productId]);
+          await emitReorderTransition(client, ctx, before, null);
+          const response = { data: null, version: Number(existing.rows[0]?.version ?? 0) };
+          await finish(client, key, 200, response);
+          await client.query("COMMIT");
+          return send(res, 200, response, ctx.requestId);
         }
-        const afterReorder = await readReorderState(client, ctx.familyId, productId);
+        const point = Number(body.reorderPoint);
+        const quantity = body.reorderQuantity == null ? Number(existing.rows[0]?.reorder_quantity ?? 1) : Number(body.reorderQuantity);
+        const unit = body.unit == null ? String(existing.rows[0]?.unit ?? "piece") : String(body.unit);
+        await upsertReorderPolicy(client, ctx, productId, point, quantity, unit);
+        const after = await readReorderState(client, ctx.familyId, productId);
+        await emitReorderTransition(client, ctx, before, after);
+        const saved = await client.query("SELECT * FROM reorder_policies WHERE family_id=$1 AND product_id=$2", [ctx.familyId, productId]);
+        const response = { data: reorderPolicyDto(saved.rows[0]), version: Number(saved.rows[0].version) };
+        await finish(client, key, 200, response);
+        await client.query("COMMIT");
+        return send(res, 200, response, ctx.requestId);
+      } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+    }
+    if (req.method === "GET" && itemMatch && !itemMatch[2]) {
+      const auth = await authorizeFamily(ctx, false);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const result = await pool.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [itemMatch[1], ctx.familyId]);
+      return result.rowCount ? send(res, 200, { data: dto(result.rows[0]) }, ctx.requestId) : fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId);
+    }
+
+    if (req.method === "GET" && itemMatch?.[2] === "movements") {
+      const auth = await authorizeFamily(ctx, false);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const { limit, offset } = pagination(url);
+      const result = await pool.query("SELECT id,product_id,type,quantity,unit,reason,occurred_at,actor_user_id FROM movements WHERE pantry_item_id=$1 AND family_id=$2 ORDER BY occurred_at DESC LIMIT $3 OFFSET $4", [itemMatch[1], ctx.familyId, limit + 1, offset]);
+      const hasNext = result.rows.length > limit;
+      const rows = hasNext ? result.rows.slice(0, limit) : result.rows;
+      return send(res, 200, { items: rows.map((row) => ({ movementId: row.id, productId: row.product_id, type: row.type, quantity: Number(row.quantity), unit: row.unit, reason: row.reason, occurredAt: row.occurred_at, actorUserId: row.actor_user_id })), nextCursor: hasNext ? String(offset + limit) : null }, ctx.requestId);
+    }
+
+    if (req.method === "POST" && path === "/api/v1/inventory/items") {
+      const auth = await authorizeFamily(ctx, true);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const body = await readBody(req);
+      const quantity = positiveQuantity(body.quantity);
+      const allowedFields = ["productId", "quantity", "unit", "expiresAt", "location", "lotCode", "openedAt", "reorderPoint", "reorderQuantity"];
+      if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
+      if (!body.productId || !body.unit || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "productId, unit and positive quantity are required.", ctx.requestId);
+      if (body.expiresAt !== undefined && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
+      if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
+      if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
+      if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
+      if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
+      if (body.reorderQuantity !== undefined && (typeof body.reorderQuantity !== "number" || !Number.isFinite(body.reorderQuantity) || body.reorderQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderQuantity must be a positive number.", ctx.requestId);
+      if (body.reorderQuantity !== undefined && (body.reorderPoint === undefined || body.reorderPoint === null)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint is required when reorderQuantity is provided.", ctx.requestId);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      if (!requiredIdempotencyKey(key)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key is required.", ctx.requestId);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const old = await idempotency(client, key, ctx, body);
+        if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
+        if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
+        const beforeReorder = await readReorderState(client, ctx.familyId, String(body.productId));
+        const candidateId = randomUUID();
+        const savedInsert = await client.query(
+          `INSERT INTO pantry_items(
+             id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at
+           )
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now())
+           ON CONFLICT (family_id, product_id, unit, location, lot_id, lot_code) DO UPDATE SET
+             quantity = pantry_items.quantity + EXCLUDED.quantity,
+             opened_at = COALESCE(pantry_items.opened_at, EXCLUDED.opened_at),
+             expires_at = CASE
+               WHEN pantry_items.expiration_source = 'declared' THEN pantry_items.expires_at
+               WHEN EXCLUDED.expiration_source = 'declared' THEN EXCLUDED.expires_at
+               ELSE COALESCE(pantry_items.expires_at, EXCLUDED.expires_at)
+             END,
+             expiration_source = CASE
+               WHEN pantry_items.expiration_source = 'declared' THEN 'declared'
+               WHEN EXCLUDED.expiration_source = 'declared' THEN 'declared'
+               ELSE COALESCE(pantry_items.expiration_source, EXCLUDED.expiration_source)
+             END,
+             updated_at = now(),
+             version = pantry_items.version + 1
+           RETURNING *`,
+          [
+            candidateId,
+            ctx.familyId,
+            String(body.productId),
+            quantity,
+            String(body.unit),
+            body.location ?? null,
+            body.openedAt == null ? null : new Date(String(body.openedAt)),
+            body.expiresAt ? new Date(String(body.expiresAt)) : null,
+            body.expiresAt ? "declared" : null,
+            body.lotCode ?? null,
+          ],
+        );
+        if (!savedInsert.rowCount) throw new Error("Inventory item upsert returned no row.");
+        const id = String(savedInsert.rows[0].id);
+        // Every tracked product has an explicit reorder policy. The default is:
+        // reorder when completely exhausted, then buy one unit.
+        const reorderPoint = body.reorderPoint === undefined || body.reorderPoint === null ? 0 : Number(body.reorderPoint);
+        const reorderQuantity = body.reorderQuantity == null ? 1 : Number(body.reorderQuantity);
+        await upsertReorderPolicy(client, ctx, String(body.productId), reorderPoint, reorderQuantity, String(body.unit));
+        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'add',$5,$6,'added',$7,now(),now())", [randomUUID(), ctx.familyId, id, body.productId, quantity, body.unit, ctx.userId]);
+        const afterReorder = await readReorderState(client, ctx.familyId, String(body.productId));
+        await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
+        const joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [id, ctx.familyId]);
+        await event(client, "inventory.stock.received.v1", id, ctx, {
+          itemId: id,
+          productId: String(body.productId),
+          actorUserId: ctx.userId,
+          location: body.location ?? null,
+          openedAt: body.openedAt ?? null,
+          quantity: String(quantity),
+          unit: String(body.unit),
+          expiresAt: joined.rows[0].expires_at ? new Date(joined.rows[0].expires_at).toISOString() : null,
+          expirationSource: joined.rows[0].expiration_source ?? null,
+          occurredAt: new Date().toISOString(),
+        });
         const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
-        await emitReorderTransition(client, ctx, null, afterReorder);
         await finish(client, key, 201, output);
         await client.query("COMMIT");
         return send(res, 201, output, ctx.requestId);
@@ -459,7 +536,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "PATCH" && itemMatch && !itemMatch[2]) {
       const auth = await authorizeFamily(ctx, true);
-      if (!auth.ok) return fail(res, auth.status, ctx.requestId);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const key = String(req.headers["x-idempotency-key"] ?? "").trim();
       const ifMatch = String(req.headers["if-match"] ?? "").trim();
@@ -533,7 +610,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && itemMatch?.[2] === "consume") {
       const auth = await authorizeFamily(ctx, true);
-      if (!auth.ok) return fail(res, auth.status, ctx.requestId);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const quantity = positiveQuantity(body.quantity);
       if (quantity === undefined || !isConsumeReason(body.reason)) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and valid reason are required.", ctx.requestId);
@@ -579,7 +656,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && itemMatch?.[2] === "waste") {
       const auth = await authorizeFamily(ctx, true);
-      if (!auth.ok) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and reason are required.", ctx.requestId);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const quantity = positiveQuantity(body.quantity);
       if (quantity === undefined || typeof body.reason !== "string" || !body.reason.trim()) return fail(res, 400, "VALIDATION_ERROR", "Positive quantity and reason are required.", ctx.requestId);
@@ -620,10 +697,43 @@ const server = createServer(async (req, res) => {
         return send(res, 200, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
+    if (req.method === "POST" && itemMatch?.[2] === "expiration/confirm") {
+      const auth = await authorizeFamily(ctx, true);
+      if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
+      const body = await readBody(req);
+      if (body.expiresAt !== null && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt must be an ISO date or null.", ctx.requestId);
+      if (body.source !== undefined && !isExpirationSource(body.source)) return fail(res, 400, "VALIDATION_ERROR", "source is invalid.", ctx.requestId);
+      const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+      const ifMatch = String(req.headers["if-match"] ?? "").trim();
+      if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const old = await idempotency(client, key, ctx, body);
+        if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
+        if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
+        const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
+        if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
+        const row = current.rows[0];
+        if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
+        const updated = await client.query("UPDATE pantry_items SET expires_at=$1,expiration_source=$2,version=version+1,updated_at=now() WHERE id=$3 AND family_id=$4 RETURNING *", [body.expiresAt === null ? null : new Date(String(body.expiresAt)), body.source ?? "declared", itemMatch[1], ctx.familyId]);
+        await event(client, "inventory.expiration-confirmed.v1", itemMatch[1], ctx, {
+          itemId: itemMatch[1],
+          productId: String(row.product_id),
+          expiresAt: body.expiresAt === null ? null : new Date(String(body.expiresAt)).toISOString(),
+          source: String(body.source ?? "declared"),
+        });
+        const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
+        await finish(client, key, 200, output);
+        await client.query("COMMIT");
+        return send(res, 200, output, ctx.requestId);
+      } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+    }
 
     return fail(res, 404, "NOT_FOUND", "Route not found.", ctx.requestId);
   } catch (error) {
     if (!(error instanceof RequestBodyValidationError)) {
+      // Prima il 500 era muto: ora la causa (es. SQLSTATE 23514 = CHECK violato) finisce nei log del container.
       console.error(JSON.stringify({
         service,
         event: "request_failed",
