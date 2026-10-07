@@ -367,6 +367,8 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
             onChange={(v) => { setConsumeQty(v); setConsumeError(null); }}
             onConfirm={handleConsumeConfirm}
             onClose={closeConsumeModal}
+            packageInfo={consumePackage}
+            packageLoading={consumePackageLoading}
           />
         )}
       </>
