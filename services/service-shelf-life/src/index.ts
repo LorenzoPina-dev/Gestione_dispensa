@@ -56,6 +56,10 @@ function requireInternal(req: Request, res: ExpressResponse): boolean {
   return true;
 }
 
+async function enableInternalDbScope(client: PoolClient): Promise<void> {
+  await client.query("SELECT set_config('app.internal_service','true',true)");
+}
+
 function key(req: Request): string | null {
   const value = String(req.header("x-idempotency-key") ?? "").trim();
   return value.length >= 8 ? value : null;
@@ -147,12 +151,13 @@ type ShelfLifeRule = {
 };
 
 async function ruleFor(
+  client: PoolClient,
   category: string | null,
   productId: string,
   storage: Storage,
   opened: boolean,
 ): Promise<ShelfLifeRule | undefined> {
-  const product = await pool.query<ShelfLifeRule>(
+  const product = await client.query<ShelfLifeRule>(
     `select id,product_id,null::varchar as product_category,storage,opened,min_days,target_days,max_days,model_version,active
      from shelf_life_domain.product_profiles
      where active=true and product_id=$1 and storage=$2 and opened=$3
@@ -163,7 +168,7 @@ async function ruleFor(
   if (product.rows[0]) return product.rows[0];
 
   if (category) {
-    const specific = await pool.query<ShelfLifeRule>(
+    const specific = await client.query<ShelfLifeRule>(
       `select id,null::uuid as product_id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
        from shelf_life_domain.rules
        where active=true and product_category=$1 and storage=$2 and opened=$3
@@ -175,14 +180,14 @@ async function ruleFor(
 
     // A recognized category with an incompatible storage condition must fail closed;
     // it must not silently become an unrelated generic estimate.
-    const known = await pool.query<{ id: string }>(
+    const known = await client.query<{ id: string }>(
       `select id from shelf_life_domain.rules where active=true and product_category=$1 limit 1`,
       [category],
     );
     if (known.rows[0]) return undefined;
   }
 
-  const generic = await pool.query<ShelfLifeRule>(
+  const generic = await client.query<ShelfLifeRule>(
     `select id,null::uuid as product_id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
      from shelf_life_domain.rules
      where active=true and product_category is null and storage=$1 and opened=$2
@@ -283,14 +288,19 @@ app.get("/api/v1/internal/shelf-life/predictions/recoverable", async (req,res) =
   const parsedLimit = Number(req.query.limit ?? 50);
   const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 50;
   try {
-    const q = await pool.query(
-      `select id,item_id,product_id,storage,opened,category,stored_on,user_id,family_id,status
-       from shelf_life_domain.predictions
-       where status = 'queued'
-       order by created_at asc
-       limit $1`,
-      [limit],
-    );
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await enableInternalDbScope(client);
+      const q = await client.query(
+        `select id,item_id,product_id,storage,opened,category,stored_on,user_id,family_id,status
+         from shelf_life_domain.predictions
+         where status = 'queued'
+         order by created_at asc
+         limit $1`,
+        [limit],
+      );
+      await client.query("commit");
     return res.json({
       data: q.rows.map((row) => ({
         predictionId: row.id,
@@ -305,7 +315,23 @@ app.get("/api/v1/internal/shelf-life/predictions/recoverable", async (req,res) =
         status: row.status,
       })),
     });
-  } catch {
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      console.error(JSON.stringify({
+        service: "service-shelf-life",
+        event: "recoverable_predictions_failed",
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return fail(res,500,"INTERNAL_ERROR","Unable to recover queued shelf-life predictions.");
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error(JSON.stringify({
+      service: "service-shelf-life",
+      event: "recovery_connection_failed",
+      error: error instanceof Error ? error.message : String(error),
+    }));
     return fail(res,500,"INTERNAL_ERROR","Unable to recover queued shelf-life predictions.");
   }
 });
@@ -317,6 +343,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
   const client = await pool.connect();
   try {
     await client.query("begin");
+    await enableInternalDbScope(client);
     const current = await client.query(
       "select * from shelf_life_domain.predictions where id=$1 for update",
       [id],
@@ -334,7 +361,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
     if (storage === null) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","storedAt is invalid."); }
     if (body.storedOn !== undefined && parseOptionalIsoDate(body.storedOn) === undefined) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","storedOn is invalid."); }
 
-    const rule = await ruleFor(category,String(current.rows[0].product_id),storage,opened);
+    const rule = await ruleFor(client,category,String(current.rows[0].product_id),storage,opened);
     if (!rule) {
       await client.query(
         "update shelf_life_domain.predictions set status='failed',basis='no_matching_rule',model_version='none',updated_at=now(),version=version+1 where id=$1",
@@ -375,6 +402,16 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
       modelVersion:rule.model_version,
     });
     await client.query("commit");
+    console.log(JSON.stringify({
+      service: "service-shelf-life",
+      event: "prediction_completed",
+      predictionId: id,
+      itemId: current.rows[0].item_id,
+      productId: current.rows[0].product_id,
+      familyId: current.rows[0].family_id,
+      estimatedExpiresAt: expires.toISOString(),
+      modelVersion: rule.model_version,
+    }));
     return res.status(200).json({ data: q.rows[0], version: q.rows[0].version });
   } catch (error) {
     await client.query("rollback");
