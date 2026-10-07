@@ -16,22 +16,21 @@ test("all event schema files are valid JSON documents", async () => {
   );
 });
 
-test("event envelope validator requires household scope and payload", () => {
+test("event envelope validator requires family scope and payload", () => {
   const invalid = validateEventEnvelope({ eventType: "inventory.stock.received" });
   assert.equal(invalid.valid, false);
-  assert.ok(invalid.issues.some((issue) => issue.path === "$.householdId"));
+  assert.ok(invalid.issues.some((issue) => issue.path === "$.eventId"));
 
   const valid = validateEventEnvelope({
-    eventId: "event-1",
-    eventType: "inventory.stock.received",
-    eventVersion: 1,
+    eventId: "00000000-0000-4000-8000-000000000001",
+    eventType: "inventory.stock.received.v1",
+    schemaVersion: 1,
     occurredAt: "2026-01-01T00:00:00.000Z",
-    aggregateType: "stock_item",
-    aggregateId: "stock-1",
-    householdId: "family-1",
-    actorType: "SYSTEM",
-    traceId: "0123456789abcdef",
-    schemaRef: "events/inventory.stock.received.v1.json",
+    producer: "service-inventory",
+    aggregateId: "00000000-0000-4000-8000-000000000001",
+    familyId: "00000000-0000-4000-8000-000000000002",
+    correlationId: "00000000-0000-4000-8000-000000000003",
+    causationId: null,
     payload: { stockItemId: "stock-1" },
   });
 
