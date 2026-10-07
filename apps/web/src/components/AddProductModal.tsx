@@ -16,7 +16,7 @@ import {
   packageCountToStock,
   type Candidate,
 } from "./add-product/model";
-import { OpenFoodFactsSection } from "./add-product/OpenFoodFactsSection";
+import { OpenFoodFactsSection, formatOffValue, galleryImages, humanizeOffKey, InfoCell, isRecord } from "./add-product/OpenFoodFactsSection";
 
 type AddMode = "menu" | "barcode" | "manuale" | "lista";
 type BarcodeState = "IDLE" | "SCANNING" | "LOOKING" | "CANDIDATE" | "MANUAL_REQUIRED" | "NOT_FOUND" | "DEGRADED";
