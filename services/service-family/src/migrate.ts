@@ -1,3 +1,3 @@
 import { runMigrations } from "@gestione-dispensa/runtime-db";
 
-await runMigrations({ serviceName: "family" });
+await runMigrations({ serviceName: "family", moduleUrl: import.meta.url });

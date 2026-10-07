@@ -1,15 +1,25 @@
 import { readdir, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { createContextAwarePool } from "./postgres-client.js";
 
 export interface MigrationRunnerOptions {
   readonly serviceName: string;
   readonly migrationsDir?: string;
+  readonly moduleUrl?: string | URL;
   readonly connectionString?: string;
 }
 
+function resolveMigrationsDir(options: MigrationRunnerOptions): string {
+  if (options.migrationsDir) return options.migrationsDir;
+  if (options.moduleUrl) {
+    return fileURLToPath(new URL("../migrations/", options.moduleUrl));
+  }
+  return join(process.cwd(), "migrations");
+}
+
 export async function runMigrations(options: MigrationRunnerOptions): Promise<void> {
-  const migrationsDir = options.migrationsDir ?? join(process.cwd(), "migrations");
+  const migrationsDir = resolveMigrationsDir(options);
   const pool = createContextAwarePool({
     connectionString:
       options.connectionString ?? process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
@@ -27,6 +37,12 @@ export async function runMigrations(options: MigrationRunnerOptions): Promise<vo
       .filter((file) => /^\\d+_.+\\.sql$/.test(file))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
+    if (files.length === 0) {
+      throw new Error(
+        `No migration files found for service "${options.serviceName}" in ${migrationsDir}`,
+      );
+    }
+
     for (const file of files) {
       const version = file.replace(/\\.sql$/, "");
       const client = await pool.connect();
@@ -38,9 +54,9 @@ export async function runMigrations(options: MigrationRunnerOptions): Promise<vo
           [`gestione-dispensa-migration:${version}`],
         );
 
-        // Check both the canonical version and the legacy filename form.
-        // Inventory historically stored the ".sql" suffix; accepting it here
-        // prevents already-applied production migrations from running again.
+        // Inventory historically stored the ".sql" suffix. Accept that legacy
+        // ledger representation so already-applied production migrations are
+        // never replayed when moving to the canonical version representation.
         const applied = await client.query(
           "SELECT 1 FROM schema_migrations WHERE version = $1 OR version = $2 LIMIT 1",
           [version, file],
