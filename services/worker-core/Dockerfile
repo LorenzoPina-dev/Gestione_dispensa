@@ -20,6 +20,7 @@ ENV NODE_ENV=production
 
 COPY package.json package-lock.json ./
 COPY packages/observability/package.json ./packages/observability/
+COPY packages/runtime-db/package.json ./packages/runtime-db/
 COPY services/worker-core/package.json ./services/worker-core/
 RUN npm install --workspace @gestione-dispensa/worker-core --omit=dev --ignore-scripts
 
