@@ -44,7 +44,7 @@ after(async()=>{
 describe("service-shelf-life / real lifecycle",()=>{
   it("queues a prediction and writes the durable event",async()=>{
     assert.ok(familyId&&itemId);
-    const x=await q(base,"/api/v1/shelf-life/predictions",{method:"POST",headers:{"x-user-id":user,"x-family-id":familyId!,"x-idempotency-key":"prediction-"+randomUUID(),"content-type":"application/json"},body:JSON.stringify({itemId,productId,storedAt:"fridge",opened:false})});
+    const x=await q(base,"/api/v1/shelf-life/predictions",{method:"POST",headers:{"x-user-id":user,"x-family-id":familyId!,"x-idempotency-key":"prediction-"+randomUUID(),"content-type":"application/json"},body:JSON.stringify({itemId,productId:product,storedAt:"fridge",opened:false})});
     assert.equal(x.r.status,202);
     predictionId=x.b.data.predictionId;
     assert.equal(x.b.data.status,"queued");
