@@ -93,24 +93,27 @@ function packageAwarePurchase(
 async function fetchOffers(signal: AbortSignal): Promise<OfferSuggestionSource[]> {
   const { stores } = await api.listStores(undefined, 10, signal);
   const perStore = await Promise.all(
-    stores.map(async (store) => ({ store, offers: (await api.listStoreOffers(store.storeId, 20, signal)).offers })),
+    stores.map(async (store) => ({
+      store,
+      offers: (await api.listStoreOffers(store.storeId, 20, signal)).offers,
+    })),
   );
   const flat = perStore.flatMap(({ store, offers }) => offers.map((offer) => ({ store, offer })));
-  const productIds = [...new Set(flat.map(({ offer }) => offer.productId))].slice(0, 30);
-  const names = new Map<string, string>();
-  await Promise.allSettled(
-    productIds.map(async (id) => {
-      names.set(id, (await api.getCatalogProduct(id, signal)).name);
-    }),
-  );
-  return flat.map(({ store, offer }) => ({
-    offerId: offer.offerId,
-    productId: offer.productId,
-    storeName: store.name,
-    type: offer.type,
-    value: offer.value,
-    ...(names.has(offer.productId) ? { productName: names.get(offer.productId) } : {}),
-  }));
+  const productIds = [...new Set(flat.map(({ offer }) => offer.productId))].slice(0, 100);
+  const products = await api.getCatalogProductsBatch(productIds, signal);
+  const byId = new Map(products.map((product) => [product.id, product]));
+
+  return flat.map(({ store, offer }) => {
+    const product = byId.get(offer.productId);
+    return {
+      offerId: offer.offerId,
+      productId: offer.productId,
+      storeName: store.name,
+      type: offer.type,
+      value: offer.value,
+      ...(product?.name ? { productName: product.name } : {}),
+    };
+  });
 }
 
 /**
