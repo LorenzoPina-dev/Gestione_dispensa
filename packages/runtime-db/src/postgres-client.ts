@@ -170,11 +170,17 @@ export function createContextAwarePool(options: ContextAwarePoolOptions): Pool {
 
   Object.defineProperty(pool, "query", {
     configurable: false,
-    value: async (...args: Parameters<Pool["query"]>) => {
+    value: async (textOrConfig: string | { text: string; values?: readonly unknown[] }, values: readonly unknown[] = []) => {
       const client = await rawConnect();
       try {
         await applyRequestContext(client, false);
-        return await rawQuery(...args);
+        if (typeof textOrConfig === "string") {
+          return await client.query(textOrConfig, values as unknown[]);
+        }
+        return await client.query({
+          text: textOrConfig.text,
+          values: textOrConfig.values as unknown[] | undefined,
+        });
       } finally {
         client.release();
       }
