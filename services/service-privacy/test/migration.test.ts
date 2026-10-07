@@ -22,11 +22,8 @@ after(async()=>pool.end());
 describe("privacy migration",()=>{
   it("records every migration exactly once",async()=>{
     const q=await pool.query("select version,count(*)over(partition by version)n from schema_migrations order by version");
-    assert.equal(q.rows.length,2);
-    assert.equal(q.rows[0].version,"001_initial");
-    assert.equal(q.rows[1].version,"002_runtime_tables");
-    assert.equal(Number(q.rows[0].n),1);
-    assert.equal(Number(q.rows[1].n),1);
+    assert.deepEqual(q.rows.map((row)=>row.version),["001_initial","002_runtime_tables","999_security"]);
+    assert.ok(q.rows.every((row)=>Number(row.n)===1));
   });
 
   it("contains the runtime-owned tables used by the repositories",async()=>{
