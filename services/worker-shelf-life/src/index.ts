@@ -56,6 +56,8 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
   const productId = typeof data.productId === "string" ? data.productId : "";
   const familyId = typeof event.familyId === "string" ? event.familyId : "";
   const userId = typeof data.actorUserId === "string" ? data.actorUserId : "";
+  const storage = typeof data.location === "string" && data.location.trim() ? data.location : "PANTRY";
+  const opened = typeof data.openedAt === "string" && data.openedAt.trim().length > 0;
   if (!itemId || !productId || !familyId || !userId) return;
   if (data.expiresAt) return;
 
@@ -72,15 +74,15 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
       itemId,
       productId,
       familyId,
-      storedAt: "PANTRY",
-      opened: false,
+      storedAt: storage,
+      opened,
     }),
     signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) throw new Error("Prediction queue failed with HTTP " + response.status);
   const payload = await response.json() as { data?: { predictionId?: string } };
   const predictionId = payload.data?.predictionId;
-  if (predictionId) await processPrediction({ predictionId, itemId, productId, storage: "PANTRY", opened: false, userId, familyId, status: "queued" });
+  if (predictionId) await processPrediction({ predictionId, itemId, productId, storage, opened, userId, familyId, status: "queued" });
 }
 
 async function processPrediction(data: RecoveryItem): Promise<void> {
