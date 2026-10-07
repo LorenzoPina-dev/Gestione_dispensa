@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/inventory.stock.added.v1.json",
+  "title": "Inventory stock added v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "itemId",
+    "productId",
+    "quantity",
+    "unit",
+    "occurredAt"
+  ],
+  "properties": {
+    "itemId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "quantity": {
+      "type": "string"
+    },
+    "unit": {
+      "type": "string",
+      "enum": [
+        "g",
+        "kg",
+        "ml",
+        "l",
+        "piece",
+        "pack"
+      ]
+    },
+    "expiresAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "expirationSource": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actorUserId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "location": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "openedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}
