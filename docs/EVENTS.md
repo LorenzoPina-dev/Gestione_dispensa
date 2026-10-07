@@ -467,9 +467,9 @@ Event payloads contain domain data only. HTTP envelopes, `meta`, access tokens, 
 
 The runtime follows the ownership rules above:
 
-- Inventory emits `PantryItemAdded`, `PantryItemConsumed`, `PantryItemWasted` and `ExpirationConfirmed` from its own transaction.
+- Inventory emits `inventory.stock.received.v1`, `inventory.stock.consumed.v1`, `inventory.stock.wasted.v1` and `inventory.expiration-confirmed.v1` from its own transaction.
 - Shelf-Life consumes Inventory domain events and never calls Inventory to mutate stock.
-- Shelf-Life emits `ShelfLifePredictionCompleted`; Inventory consumes it and applies an estimated expiration only when a user-declared expiration has not won the race.
-- Nutrition consumes `PantryItemConsumed` and creates its immutable nutrition snapshot locally. Inventory does not synchronously call Nutrition.
+- Shelf-Life emits `shelf-life.prediction-completed.v1`; Inventory consumes it and applies an estimated expiration only when a user-declared expiration has not won the race.
+- Nutrition consumes `inventory.stock.consumed.v1` and creates its immutable nutrition snapshot locally. Inventory does not synchronously call Nutrition.
 - Consumers use Redis Streams consumer groups and durable `event_consumers` records so delivery is at-least-once and effects are idempotent.
 - Catalog enrichment uses bounded batch reads rather than one HTTP request per product.
