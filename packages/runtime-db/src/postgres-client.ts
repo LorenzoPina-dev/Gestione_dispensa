@@ -1,5 +1,5 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
-import { getDbRequestContext, setDbRequestContextFromHeaders } from "./request-context.js";
+import { getDbRequestContext } from "./request-context.js";
 export { setDbRequestContextFromHeaders } from "./request-context.js";
 
 export interface SqlResult<Row> {
@@ -165,7 +165,7 @@ export function createContextAwarePool(options: ContextAwarePoolOptions): Pool {
     value: async () => {
       const client = await rawConnect();
       await applyRequestContext(client, false);
-      return client;
+      return contextAwareRelease(client);
     },
   });
 
@@ -183,12 +183,35 @@ export function createContextAwarePool(options: ContextAwarePoolOptions): Pool {
           values: textOrConfig.values as unknown[] | undefined,
         });
       } finally {
+        await resetRequestContext(client);
         client.release();
       }
     },
   });
 
   return pool;
+}
+
+
+function contextAwareRelease(client: PoolClient): PoolClient {
+  const release = client.release.bind(client);
+  let released = false;
+  client.release = ((error?: Error | boolean) => {
+    if (released) return;
+    released = true;
+    void resetRequestContext(client)
+      .catch((resetError) => resetError)
+      .then((resetError) => {
+        release(error ?? (resetError instanceof Error ? resetError : undefined));
+      });
+  }) as PoolClient["release"];
+  return client;
+}
+
+async function resetRequestContext(client: PoolClient): Promise<void> {
+  await client.query(
+    "SELECT set_config('app.user_id', '', false), set_config('app.family_id', '', false)",
+  );
 }
 
 async function applyRequestContext(client: PoolClient, local: boolean): Promise<void> {
