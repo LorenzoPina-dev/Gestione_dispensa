@@ -52,3 +52,12 @@ CREATE POLICY inventory_reorder_policies_scope ON reorder_policies
   FOR ALL
   USING (family_id = NULLIF(current_setting('app.family_id', true), '')::uuid)
   WITH CHECK (family_id = NULLIF(current_setting('app.family_id', true), '')::uuid);
+
+CREATE UNIQUE INDEX IF NOT EXISTS pantry_items_identity_idx
+  ON pantry_items(
+    family_id,
+    product_id,
+    unit,
+    coalesce(location,''),
+    coalesce(lot_code,'')
+  );
