@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ProductDto } from "../../api/types";
 import type { ShoppingItem } from "../../types";
 import * as api from "../../api/endpoints";
 import { isBackendUnreachable } from "../../api/client";
@@ -16,7 +17,6 @@ import {
 import { formatQuantity, formatUnit, isKnownUnit, normalizeUnit } from "../../domain/units";
 import { colors, fonts } from "../../tokens";
 import { Modal } from "../ui/Modal";
-import { Input } from "../ui/Input";
 import Button from "../ui/Button";
 import { Row, RowList } from "../ui/ListRow";
 import ProductSearch from "./ProductSearch";
@@ -72,7 +72,7 @@ export default function CheckoutModal({ items, familyId, onClose, onComplete }: 
     setExtras((current) => [...current, { id: "manual-extra-" + Date.now() + "-" + current.length, name: trimmed, quantity: 1, unit: "piece" }]);
   }
 
-  function addProductFromSearch(product: import("../../api/types").ProductDto) {
+  function addProductFromSearch(product: ProductDto) {
     const listed = items.find((item) => item.productId === product.id);
     if (listed) {
       setPurchased((current) => new Set([...current, listed.id]));
