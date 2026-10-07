@@ -8,11 +8,11 @@ COPY packages/runtime-db/src ./packages/runtime-db/src
 COPY services/service-catalog/package.json services/service-catalog/tsconfig.json ./services/service-catalog/
 RUN npm install
 RUN npm --workspace @gestione-dispensa/runtime-auth run build
-RUN npm prune --omit=dev
 RUN npm --workspace @gestione-dispensa/runtime-db run build
 COPY services/service-catalog/src ./services/service-catalog/src
 COPY services/service-catalog/migrations ./services/service-catalog/migrations
 RUN npm --workspace @gestione-dispensa/service-catalog run build
+RUN npm prune --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app
