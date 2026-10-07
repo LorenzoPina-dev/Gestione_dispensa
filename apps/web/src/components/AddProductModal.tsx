@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StockItem, StorageLocation } from "../types";
-import type { ProductDto } from "../api/types";
 import * as api from "../api/endpoints";
 import { computeViewfinderCrop, detectBestBarcode, preprocessToCanvas, type BarcodeHit, type PreprocessVariant } from "../lib/barcodePreprocess";
 import { detectBarcodeRoi } from "../lib/barcodeRoi";
@@ -10,6 +9,14 @@ import { normalizeProductBarcode, productBarcodePriority } from "../domain/barco
 import { increaseBarcodeZoom, openBarcodeCamera, readCameraDiagnostics, recoverBarcodeFocus, setBarcodeTorch, type CameraDiagnostics } from "../lib/barcodeCamera";
 import { isBackendUnreachable } from "../api/client.js";
 import ProductSearch from "./shopping/ProductSearch";
+import {
+  candidateFromProduct,
+  defaultPackageCount,
+  normalizePackageUnit,
+  packageCountToStock,
+  type Candidate,
+} from "./add-product/model";
+import { OpenFoodFactsSection } from "./add-product/OpenFoodFactsSection";
 
 type AddMode = "menu" | "barcode" | "manuale" | "lista";
 type BarcodeState = "IDLE" | "SCANNING" | "LOOKING" | "CANDIDATE" | "MANUAL_REQUIRED" | "NOT_FOUND" | "DEGRADED";
@@ -932,8 +939,6 @@ function CandidateView({ candidate, code, message, onCorrect, onConfirm }: { can
   );
 }
 
-import { candidateFromProduct, defaultPackageCount, normalizePackageUnit, packageCountToStock, type Candidate } from './add-product/model';
-import { OpenFoodFactsSection } from './add-product/OpenFoodFactsSection';
 function OptionalReorderFields({ reorderPoint, onReorderPointChange, reorderQuantity, onReorderQuantityChange }: { reorderPoint: string; onReorderPointChange: (value: string) => void; reorderQuantity: string; onReorderQuantityChange: (value: string) => void }) {
   return (
     <div className="space-y-2 rounded-xl p-3" style={{ backgroundColor: "#fffaf4", border: "1px solid #e2d6c6" }}>
