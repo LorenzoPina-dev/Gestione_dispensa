@@ -270,32 +270,32 @@ async function composite(
 
 
 async function enrichInventoryItems(items: Array<Record<string, any>>, authorization?: string): Promise<Array<Record<string, any>>> {
-  const productIds = [...new Set(items.map((item) => typeof item.productId === "string" ? item.productId : "").filter(Boolean))];
-  const products = new Map<string, Record<string, any>>();
+  const productIds = [...new Set(items
+    .map((item) => typeof item.productId === "string" ? item.productId : "")
+    .filter(Boolean))];
+  if (productIds.length === 0) return items;
 
-  await Promise.all(productIds.map(async (productId) => {
-    try {
-      const product = await serviceGet(catalogBaseUrl, "/catalog/products/" + encodeURIComponent(productId), authorization);
-      products.set(productId, product);
-    } catch {
-      // Keep Inventory readable if Catalog is temporarily unavailable.
-    }
-  }));
+  const response = await servicePost(catalogBaseUrl, "/catalog/products/batch", { ids: productIds }, authorization);
+  const products = new Map<string, Record<string, any>>();
+  for (const product of Array.isArray(response.items) ? response.items : []) {
+    if (product && typeof product.productId === "string") products.set(product.productId, product);
+  }
 
   return items.map((item) => {
     const product = typeof item.productId === "string" ? products.get(item.productId) : undefined;
     if (!product) return item;
     return {
       ...item,
-      ...(typeof product.name === "string" ? { name: product.name, productName: product.name } : {}),
-      ...(typeof product.brand === "string" ? { brand: product.brand } : {}),
-      ...(typeof product.category === "string" ? { category: product.category } : {}),
-      ...(product.source?.type === "manual" ? { provenance: "VERIFIED" } : { provenance: "IMPORTED" }),
-      ...(typeof product.nutrition?.kcalPer100g === "number" ? { calories: product.nutrition.kcalPer100g } : {}),
-      ...(typeof product.nutrition?.proteinGPer100g === "number" ? { protein: product.nutrition.proteinGPer100g } : {}),
-      ...(typeof product.nutrition?.carbsGPer100g === "number" ? { carbs: product.nutrition.carbsGPer100g } : {}),
-      ...(typeof product.nutrition?.fatGPer100g === "number" ? { fat: product.nutrition.fatGPer100g } : {}),
-      ...(typeof product.nutrition?.fiberGPer100g === "number" ? { fiber: product.nutrition.fiberGPer100g } : {}),
+      productName: product.name ?? item.productName,
+      brand: product.brand ?? item.brand,
+      category: product.category ?? item.category,
+      imageUrl: product.imageObjectKey ?? item.imageUrl,
+      package: product.package ?? item.package,
+      calories: product.nutrition?.kcalPer100g ?? item.calories,
+      protein: product.nutrition?.proteinGPer100g ?? item.protein,
+      carbs: product.nutrition?.carbsGPer100g ?? item.carbs,
+      fat: product.nutrition?.fatGPer100g ?? item.fat,
+      fiber: product.nutrition?.fiberGPer100g ?? item.fiber,
     };
   });
 }
@@ -538,6 +538,38 @@ async function coreGet(path: string, authorization?: string, query?: Record<stri
   const result = entry ? await callBase(entry[1], normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
   if (!result.ok) throw new GatewayError(result.status, result.body, result.target);
   return (result.body?.data ?? result.body) as Record<string, any>;
+}
+
+async function servicePost(baseUrl: string, path: string, body: unknown, authorization?: string): Promise<Record<string, any>> {
+  const url = new URL(`${baseUrl}${path}`);
+  const ctx = currentContext();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    };
+    if (ctx?.userId) headers["x-user-id"] = ctx.userId;
+    if (ctx?.familyId) headers["x-family-id"] = ctx.familyId;
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new GatewayError(response.status, result, `${url.host}${url.pathname}`);
+    return (result?.data ?? result) as Record<string, any>;
+  } catch (error) {
+    if (error instanceof GatewayError) throw error;
+    throw new GatewayError(502, {
+      error: { code: "UPSTREAM_UNAVAILABLE", message: "Catalog batch lookup unavailable.", retryable: true },
+    }, `${url.host}${url.pathname}`, error);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function serviceGet(baseUrl: string, path: string, authorization?: string, query?: Record<string, string>): Promise<Record<string, any>> {
