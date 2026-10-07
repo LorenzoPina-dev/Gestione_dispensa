@@ -148,6 +148,7 @@ type ShelfLifeRule = {
   max_days: number;
   model_version: string;
   active: boolean;
+  fallback?: "category-conservative" | "generic";
 };
 
 async function ruleFor(
@@ -178,15 +179,32 @@ async function ruleFor(
     );
     if (specific.rows[0]) return specific.rows[0];
 
-    // A recognized category with an incompatible storage condition must fail closed;
-    // it must not silently become an unrelated generic estimate.
-    const known = await client.query<{ id: string }>(
-      `select id from shelf_life_domain.rules where active=true and product_category=$1 limit 1`,
-      [category],
+    // Open Food Facts contains a much larger and evolving taxonomy than the
+    // curated shelf-life profiles. If a known category has no exact
+    // storage/opened profile, keep the prediction available by using its
+    // most conservative active rule for the same opened state.
+    const categoryFallback = await client.query<ShelfLifeRule>(
+      `select id,null::uuid as product_id,product_category,$2::varchar as storage,$3::boolean as opened,
+              min_days,target_days,min_days as max_days,
+              model_version || '-conservative-fallback' as model_version,active
+       from shelf_life_domain.rules
+       where active=true and product_category=$1
+       order by (opened=$3) desc, min_days asc, coalesce(target_days,min_days) asc, created_at desc
+       limit 1`,
+      [category, storage, opened],
     );
-    if (known.rows[0]) return undefined;
+    if (categoryFallback.rows[0]) {
+      return {
+        ...categoryFallback.rows[0],
+        fallback: "category-conservative",
+        target_days: Number(categoryFallback.rows[0].min_days),
+        max_days: Number(categoryFallback.rows[0].min_days),
+      };
+    }
   }
 
+  // Final fallback: the storage baseline exists for every supported storage
+  // and opened state, so an arbitrary/unknown OFF category is always processable.
   const generic = await client.query<ShelfLifeRule>(
     `select id,null::uuid as product_id,product_category,storage,opened,min_days,target_days,max_days,model_version,active
      from shelf_life_domain.rules
@@ -195,10 +213,12 @@ async function ruleFor(
      limit 1`,
     [storage, opened],
   );
-  return generic.rows[0];
+  return generic.rows[0] ? { ...generic.rows[0], fallback: "generic" } : undefined;
 }
 
-function confidenceFor(rule: Pick<ShelfLifeRule, "min_days" | "max_days" | "product_category" | "product_id">): number {
+function confidenceFor(rule: Pick<ShelfLifeRule, "min_days" | "max_days" | "product_category" | "product_id" | "fallback">): number {
+  if (rule.fallback === "category-conservative") return 0.55;
+  if (rule.fallback === "generic") return 0.5;
   const productBonus = rule.product_id ? 0.08 : 0;
   const categoryBonus = rule.product_category ? 0.12 : 0;
   const rangePenalty = Math.min(0.2, Math.max(0, (rule.max_days - rule.min_days) / 500));
