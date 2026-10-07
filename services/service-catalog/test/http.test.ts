@@ -27,6 +27,10 @@ class MemoryRepository implements CatalogRepository {
     return this.products.get(productId);
   }
 
+  async getProductsByIds(productIds: readonly string[]): Promise<Product[]> {
+    return productIds.map((id) => this.products.get(id)).filter((product): product is Product => product !== undefined);
+  }
+
   async createManualProductAtomic(input: { product: Product }): Promise<Product> {
     this.products.set(input.product.id, input.product);
     return input.product;
