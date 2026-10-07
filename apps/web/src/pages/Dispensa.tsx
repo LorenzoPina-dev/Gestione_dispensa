@@ -321,7 +321,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
                       <p className="text-xs mt-0.5" style={{ color: colors.inkMuted }}>
                         {detail.batches.length === 1
                           ? "Una sola scorta"
-                          : \`\${detail.batches.length} scorte separate, ordinate dalla scadenza più vicina\`}
+                          : `${detail.batches.length} scorte separate, ordinate dalla scadenza più vicina`}
                       </p>
                     </div>
                     {days !== null && uniqueExpiryDates.length > 0 && (
@@ -331,7 +331,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
                     )}
                   </div>
 
-                  <div className="overflow-hidden rounded-xl" style={{ border: \`1px solid \${colors.border}\` }}>
+                  <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${colors.border}` }}>
                     {detail.batches.map((batch, index) => {
                       const batchDays = batch.expiryDate
                         ? Math.ceil((new Date(batch.expiryDate).getTime() - Date.now()) / 86400000)
@@ -342,11 +342,11 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
                         batchDays <= 5 ? "EXPIRING" : "FRESH";
                       return (
                         <div
-                          key={\`\${batch.sourceId}-\${batch.expiryDate ?? "none"}-\${index}\`}
+                          key={`${batch.sourceId}-${batch.expiryDate ?? "none"}-${index}`}
                           className="flex items-center justify-between gap-3 px-4 py-3"
                           style={{
                             backgroundColor: index === 0 && detail.batches.length > 1 ? colors.cream : colors.white,
-                            borderBottom: index < detail.batches.length - 1 ? \`1px solid \${colors.border}\` : undefined,
+                            borderBottom: index < detail.batches.length - 1 ? `1px solid ${colors.border}` : undefined,
                           }}
                         >
                           <div className="min-w-0 flex items-center gap-3">
@@ -369,8 +369,8 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
                                 {batchDays === null
                                   ? "Data non disponibile"
                                   : batchDays <= 0
-                                    ? batchDays === 0 ? "Scade oggi" : \`Scaduto da \${Math.abs(batchDays)} giorni\`
-                                    : batchDays === 1 ? "Scade domani" : \`Scade tra \${batchDays} giorni\`}
+                                    ? batchDays === 0 ? "Scade oggi" : `Scaduto da ${Math.abs(batchDays)} giorni`
+                                    : batchDays === 1 ? "Scade domani" : `Scade tra ${batchDays} giorni`}
                                 {index === 0 && detail.batches.length > 1 ? " · da consumare prima" : ""}
                               </p>
                             </div>
