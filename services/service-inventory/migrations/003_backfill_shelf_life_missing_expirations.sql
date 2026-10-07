@@ -25,8 +25,7 @@ SELECT
     'expiresAt', NULL,
     'expirationSource', NULL,
     'occurredAt', COALESCE(i.added_at, now()),
-    'storedOn', COALESCE(i.added_at, now()),
-    'shelfLifeBackfill', 'v1'
+    'storedOn', COALESCE(i.added_at, now())
   ),
   now()
 FROM pantry_items i
@@ -39,11 +38,4 @@ JOIN LATERAL (
   LIMIT 1
 ) actor ON true
 WHERE i.expires_at IS NULL
-  AND i.expiration_source IS NULL
-  AND NOT EXISTS (
-    SELECT 1
-    FROM outbox_events existing
-    WHERE existing.event_type = 'inventory.stock.received.v1'
-      AND existing.aggregate_id = i.id
-      AND existing.payload->>'shelfLifeBackfill' = 'v1'
-  );
+  AND i.expiration_source IS NULL;
