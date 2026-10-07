@@ -381,6 +381,7 @@ const server = createServer(async (req, res) => {
         await event(client, "PantryItemAdded", id, ctx, {
           itemId: id,
           productId: String(body.productId),
+          actorUserId: ctx.userId,
           quantity: String(quantity),
           unit: String(body.unit),
           expiresAt: joined.rows[0].expires_at ? new Date(joined.rows[0].expires_at).toISOString() : null,
