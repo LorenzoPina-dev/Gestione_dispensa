@@ -25,7 +25,9 @@ const stream = process.env.EVENT_STREAM ?? "events:domain";
 const group = process.env.EVENT_CONSUMER_GROUP ?? "shelf-life";
 const consumer = process.env.EVENT_CONSUMER_NAME ?? `shelf-life-${process.pid}`;
 const base = (process.env.SHELF_LIFE_SERVICE_BASE_URL ?? "http://service-shelf-life:3404/api/v1").replace(/\/$/, "");
+const catalogBase = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
 const token = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
+const catalogToken = process.env.CATALOG_INTERNAL_TOKEN?.trim() ?? token;
 const recoveryIntervalMs = Number(process.env.RECOVERY_INTERVAL_MS ?? 5000);
 
 if (!token) throw new Error("INTERNAL_SERVICE_TOKEN is required.");
@@ -47,6 +49,32 @@ process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
 console.log(JSON.stringify({ worker: "worker-shelf-life", stream, group, consumer, owner: "service-shelf-life" }));
+
+async function resolveProductCategory(productId: string): Promise<string | null> {
+  if (!catalogToken || !productId) return null;
+  try {
+    const response = await fetch(
+      catalogBase + "/catalog/internal/products/" + encodeURIComponent(productId),
+      {
+        headers: { "x-internal-service-token": catalogToken, accept: "application/json" },
+        signal: AbortSignal.timeout(3000),
+      },
+    );
+    if (!response.ok) return null;
+    const payload = await response.json() as { data?: { category?: unknown } };
+    return typeof payload.data?.category === "string" && payload.data.category.trim()
+      ? payload.data.category.trim().toLowerCase()
+      : null;
+  } catch (error) {
+    console.warn(JSON.stringify({
+      worker: "worker-shelf-life",
+      event: "product_category_lookup_failed",
+      productId,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return null;
+  }
+}
 
 async function processQueuedPredictionEvent(event: EventEnvelope): Promise<void> {
   const data = event.payload ?? {};
@@ -74,6 +102,13 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
   if (!itemId || !productId || !familyId || !userId) return;
   if (data.expiresAt) return;
 
+  const category = typeof data.category === "string" && data.category.trim()
+    ? data.category.trim().toLowerCase()
+    : await resolveProductCategory(productId);
+  const storedOn = typeof data.storedOn === "string"
+    ? data.storedOn
+    : (typeof data.occurredAt === "string" ? data.occurredAt : null);
+
   const response = await fetch(base + "/shelf-life/predictions", {
     method: "POST",
     headers: {
@@ -89,6 +124,8 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
       familyId,
       storedAt: storage,
       opened,
+      ...(category ? { category } : {}),
+      ...(storedOn ? { storedOn } : {}),
     }),
     signal: AbortSignal.timeout(10000),
   });
@@ -96,6 +133,34 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
   // The service-shelf-life endpoint durably queues the prediction and publishes
   // shelf-life.prediction-queued.v1. Processing belongs exclusively to that
   // queued event (or the recovery scanner); do not execute it inline here.
+}
+
+async function queueRecoveryPrediction(data: RecoveryItem): Promise<RecoveryItem> {
+  const response = await fetch(base + "/shelf-life/predictions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + token,
+      "x-user-id": data.userId,
+      "x-family-id": data.familyId,
+      "content-type": "application/json",
+      "x-idempotency-key": "shelf-life-recovery:" + data.predictionId,
+    },
+    body: JSON.stringify({
+      itemId: data.itemId,
+      productId: data.productId,
+      familyId: data.familyId,
+      storedAt: data.storage,
+      opened: data.opened,
+      ...(data.category ? { category: data.category } : {}),
+      ...(data.storedOn ? { storedOn: data.storedOn } : {}),
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error("Prediction requeue failed with HTTP " + response.status);
+  const payload = await response.json() as { data?: { predictionId?: unknown } };
+  const predictionId = typeof payload.data?.predictionId === "string" ? payload.data.predictionId : "";
+  if (!predictionId) throw new Error("Prediction requeue returned no predictionId.");
+  return { ...data, predictionId, status: "queued" };
 }
 
 async function processPrediction(data: RecoveryItem): Promise<void> {
@@ -118,7 +183,16 @@ async function processPrediction(data: RecoveryItem): Promise<void> {
       signal: AbortSignal.timeout(10000),
     },
   );
-  if (!response.ok) throw new Error("Prediction processing failed with HTTP " + response.status);
+  if (!response.ok) {
+    if (response.status === 404) {
+      const replacement = await queueRecoveryPrediction(data);
+      if (replacement.predictionId !== data.predictionId) {
+        await processPrediction(replacement);
+        return;
+      }
+    }
+    throw new Error("Prediction processing failed with HTTP " + response.status);
+  }
 }
 
 async function recoverDurableWork(): Promise<void> {
