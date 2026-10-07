@@ -205,6 +205,16 @@ async function processPrediction(data: RecoveryItem): Promise<void> {
         await processPrediction(replacement);
         return;
       }
+      // The original event can legitimately reference a prediction that no longer
+      // exists (for example after a previous recovery/retry). If requeueing
+      // resolves to an already-queued prediction, do not retry the same stale id:
+      // the durable recovery scanner will process that queued row.
+      console.warn(JSON.stringify({
+        worker: "worker-shelf-life",
+        event: "stale_prediction_event_recovered",
+        predictionId: data.predictionId,
+      }));
+      return;
     }
     throw new Error("Prediction processing failed with HTTP " + response.status);
   }
