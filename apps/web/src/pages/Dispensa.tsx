@@ -1,9 +1,11 @@
 import { useState, useMemo } from "react";
 import type { StockBatch, StockItem, StorageLocation, ExpiryStatus } from "../types";
+import * as api from "../api/endpoints";
 import AddProductModal from "../components/AddProductModal";
 import { Modal } from "../components/ui/Modal";
 import { colors, fonts, freshnessColor, provenanceColor } from "../tokens";
 import { Input } from "../components/ui/Input";
+import { convertQuantity, formatQuantity, formatUnit, isKnownUnit, normalizeUnit } from "../domain/units";
 
 const LOCATIONS: { key: StorageLocation; label: string; icon: string }[] = [
   { key: "frigo", label: "Frigo", icon: "❄️" },
@@ -118,8 +120,10 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
 
   // Consume modal state
   const [consumeTarget, setConsumeTarget] = useState<GroupedStockItem | null>(null);
-  const [consumeQty, setConsumeQty] = useState("1");
+  const [consumeQty, setConsumeQty] = useState("");
   const [consumeError, setConsumeError] = useState<string | null>(null);
+  const [consumePackage, setConsumePackage] = useState<{ value: number; unit: string; label: string | null } | null>(null);
+  const [consumePackageLoading, setConsumePackageLoading] = useState(false);
 
   const groupedItems = useMemo(() => groupStockItems(stock), [stock]);
 
@@ -167,16 +171,38 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
     setShowAdd(false);
   }
 
-  function openConsumeModal(item: GroupedStockItem) {
+  async function openConsumeModal(item: GroupedStockItem) {
     setConsumeTarget(item);
-    setConsumeQty("1");
+    setConsumeQty("");
     setConsumeError(null);
+    setConsumePackage(null);
+    setConsumePackageLoading(false);
+
+    if (!item.productId) return;
+
+    setConsumePackageLoading(true);
+    try {
+      const product = await api.getCatalogProduct(item.productId);
+      if (product.package.value != null && product.package.value > 0 && product.package.unit && isKnownUnit(product.package.unit)) {
+        setConsumePackage({
+          value: product.package.value,
+          unit: product.package.unit,
+          label: product.package.label,
+        });
+      }
+    } catch {
+      // Manual partial consumption remains available when Catalog metadata cannot be loaded.
+    } finally {
+      setConsumePackageLoading(false);
+    }
   }
 
   function closeConsumeModal() {
     setConsumeTarget(null);
-    setConsumeQty("1");
+    setConsumeQty("");
     setConsumeError(null);
+    setConsumePackage(null);
+    setConsumePackageLoading(false);
   }
 
   function handleConsumeConfirm() {
@@ -335,7 +361,7 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
               {!readOnly ? (
                 <div className="flex gap-2">
                   <button
-                    onClick={() => openConsumeModal(detail)}
+                    onClick={() => void openConsumeModal(detail)}
                     disabled={totalQty <= 0}
                     className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-80 disabled:opacity-40"
                     style={{ backgroundColor: colors.sageLight, color: colors.sageDark }}
@@ -509,110 +535,146 @@ interface ConsumeQuantityModalProps {
   onChange: (value: string) => void;
   onConfirm: () => void;
   onClose: () => void;
+  packageInfo: { value: number; unit: string; label: string | null } | null;
+  packageLoading: boolean;
 }
 
-function ConsumeQuantityModal({ item, value, error, onChange, onConfirm, onClose }: ConsumeQuantityModalProps) {
+function ConsumeQuantityModal({ item, value, error, onChange, onConfirm, onClose, packageInfo, packageLoading }: ConsumeQuantityModalProps) {
   const available = item.batches.reduce((sum, b) => sum + b.quantity, 0);
-
-  // Valori rapidi in base all'unità: grammi/ml → step da 50/100/250, pezzi/pack → 1/2/5.
-  const unit = String(item.unit ?? "piece").toLowerCase();
-  const quickValues =
-    unit === "g" || unit === "kg"
-      ? [50, 100, 250]
-      : unit === "ml" || unit === "l"
-        ? [100, 250, 500]
-        : [1, 2, 5];
-
+  const stockUnit = normalizeUnit(item.unit);
+  const packageUnit = packageInfo ? normalizeUnit(packageInfo.unit) : null;
+  const packageQuantity = packageInfo && packageUnit ? convertQuantity(packageInfo.value, packageUnit, stockUnit) : null;
+  const onePackageQuantity = packageQuantity != null ? Math.min(packageQuantity, available) : null;
+  const halfQuantity = available / 2;
+  const packageCount = packageQuantity != null && packageQuantity > 0 ? available / packageQuantity : null;
+  const halfPackageCount = packageCount != null ? packageCount / 2 : null;
   const parsedQty = Number(value);
   const isValid = Number.isFinite(parsedQty) && parsedQty > 0 && parsedQty <= available;
+  const selectedValue = value.trim() !== "" ? String(Number(value)) : "";
+
+  function choose(quantity: number) {
+    onChange(String(Math.round(quantity * 1000) / 1000));
+  }
 
   return (
     <Modal onClose={onClose} variant="dialog" maxWidth="max-w-sm">
       <div className="p-6 space-y-5">
         <div>
-          <h3 className="text-lg font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>
-            Quanto ne consumi?
-          </h3>
-          <p className="text-sm mt-1" style={{ color: colors.inkMuted }}>
-            {item.name}
-          </p>
+          <h3 className="text-lg font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>Quanto ne consumi?</h3>
+          <p className="text-sm mt-1" style={{ color: colors.inkMuted }}>{item.name}</p>
         </div>
 
         <div className="rounded-xl px-4 py-3 flex items-center justify-between" style={{ backgroundColor: colors.cream }}>
           <span className="text-xs" style={{ color: colors.inkMuted }}>Disponibile</span>
-          <span className="text-sm font-semibold" style={{ color: colors.ink }}>
-            {available} {item.unit}
+          <span className="text-sm font-semibold text-right" style={{ color: colors.ink }}>
+            {packageCount != null && Math.abs(packageCount - Math.round(packageCount)) < 0.0001
+              ? `${formatQuantity(packageCount)} conf. · ${formatQuantity(available)} ${formatUnit(stockUnit)}`
+              : `${formatQuantity(available)} ${formatUnit(stockUnit)}`}
           </span>
         </div>
 
-        <div>
-          <label className="text-xs font-medium block mb-1.5" style={{ color: colors.inkMuted }}>
-            Quantità da consumare ({item.unit})
-          </label>
-          <Input
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="any"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && isValid) onConfirm(); }}
-            autoFocus
-            error={error ?? undefined}
-          />
-          {error && (
-            <p className="text-xs mt-1.5" style={{ color: colors.terracotta }}>
-              {error}
+        {packageLoading && (
+          <p className="text-xs text-center" style={{ color: colors.inkMuted }}>Recupero la quantità della confezione…</p>
+        )}
+
+        {packageInfo?.label && (
+          <p className="text-[11px] text-center" style={{ color: colors.inkMuted }}>
+            1 confezione = {packageInfo.label}
+          </p>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="rounded-xl p-3 text-left border transition-all"
+            style={{ backgroundColor: value === "" ? colors.ink : colors.white, borderColor: colors.border, color: value === "" ? colors.cream : colors.ink }}
+          >
+            <p className="text-sm font-semibold">Parziale</p>
+            <p className="text-[10px] mt-0.5 opacity-75">Inserisci la quantità</p>
+          </button>
+
+          <button
+            type="button"
+            disabled={onePackageQuantity == null || onePackageQuantity <= 0}
+            onClick={() => onePackageQuantity != null && choose(onePackageQuantity)}
+            className="rounded-xl p-3 text-left border transition-all disabled:opacity-40"
+            style={{
+              backgroundColor: packageQuantity != null && selectedValue === String(onePackageQuantity) ? colors.ink : colors.white,
+              borderColor: colors.border,
+              color: packageQuantity != null && selectedValue === String(onePackageQuantity) ? colors.cream : colors.ink,
+            }}
+          >
+            <p className="text-sm font-semibold">1 confezione</p>
+            <p className="text-[10px] mt-0.5 opacity-75">
+              {packageQuantity != null ? `${formatQuantity(packageQuantity)} ${formatUnit(stockUnit)}` : "Quantità confezione non disponibile"}
             </p>
-          )}
+          </button>
+
+          <button
+            type="button"
+            disabled={available <= 0}
+            onClick={() => choose(halfQuantity)}
+            className="rounded-xl p-3 text-left border transition-all disabled:opacity-40"
+            style={{
+              backgroundColor: selectedValue === String(Math.round(halfQuantity * 1000) / 1000) ? colors.ink : colors.white,
+              borderColor: colors.border,
+              color: selectedValue === String(Math.round(halfQuantity * 1000) / 1000) ? colors.cream : colors.ink,
+            }}
+          >
+            <p className="text-sm font-semibold">Metà confezioni</p>
+            <p className="text-[10px] mt-0.5 opacity-75">
+              {packageCount != null
+                ? `${formatQuantity(halfPackageCount as number)} conf. · ${formatQuantity(halfQuantity)} ${formatUnit(stockUnit)}`
+                : `${formatQuantity(halfQuantity)} ${formatUnit(stockUnit)}`}
+            </p>
+          </button>
+
+          <button
+            type="button"
+            disabled={available <= 0}
+            onClick={() => choose(available)}
+            className="rounded-xl p-3 text-left border transition-all disabled:opacity-40"
+            style={{
+              backgroundColor: selectedValue === String(available) ? colors.ink : colors.white,
+              borderColor: colors.border,
+              color: selectedValue === String(available) ? colors.cream : colors.ink,
+            }}
+          >
+            <p className="text-sm font-semibold">Tutto</p>
+            <p className="text-[10px] mt-0.5 opacity-75">
+              {formatQuantity(available)} {formatUnit(stockUnit)}
+              {packageCount != null ? ` · ${formatQuantity(packageCount)} conf.` : ""}
+            </p>
+          </button>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          {quickValues.filter((v) => v <= available).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => onChange(String(v))}
-              className="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
-              style={{
-                backgroundColor: value === String(v) ? colors.ink : colors.creamDark,
-                color: value === String(v) ? colors.cream : colors.inkMuted,
-              }}
-            >
-              {v} {item.unit}
-            </button>
-          ))}
-          {available > 0 && (
-            <button
-              type="button"
-              onClick={() => onChange(String(available))}
-              className="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
-              style={{
-                backgroundColor: value === String(available) ? colors.ink : colors.creamDark,
-                color: value === String(available) ? colors.cream : colors.inkMuted,
-              }}
-            >
-              tutto ({available} {item.unit})
-            </button>
-          )}
-        </div>
+        {value === "" && (
+          <div>
+            <label className="text-xs font-medium block mb-1.5" style={{ color: colors.inkMuted }}>
+              Quantità da consumare ({formatUnit(stockUnit)})
+            </label>
+            <Input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="any"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && isValid) onConfirm(); }}
+              autoFocus
+              error={error ?? undefined}
+            />
+          </div>
+        )}
+
+        {error && value !== "" && (
+          <p className="text-xs rounded-xl px-3 py-2" style={{ backgroundColor: colors.terracottaLight, color: colors.terracotta }}>{error}</p>
+        )}
 
         <div className="flex gap-3 pt-1">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium"
-            style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}
-          >
-            Annulla
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={!isValid}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
-            style={{ backgroundColor: colors.sage, color: colors.white }}
-          >
-            Consuma
-          </button>
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}>Annulla</button>
+          <button onClick={onConfirm} disabled={!isValid} className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40" style={{ backgroundColor: colors.sage, color: colors.white }}>Consuma</button>
         </div>
       </div>
     </Modal>
