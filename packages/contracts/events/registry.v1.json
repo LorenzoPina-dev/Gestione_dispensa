@@ -18,9 +18,10 @@
       "inventory.stock.added.v1",
       "inventory.stock.wasted.v1",
       "inventory.expiration-confirmed.v1",
-      "shelf-life.prediction-completed.v1"
+      "shelf-life.prediction-completed.v1",
+      "inventory.stock.updated.v1"
     ]
   },
   "uniqueItems": true,
-  "minItems": 13
+  "minItems": 14
 }
