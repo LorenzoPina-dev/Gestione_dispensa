@@ -1,5 +1,6 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
-import { getDbRequestContext } from "./request-context.js";
+import { getDbRequestContext, setDbRequestContextFromHeaders } from "./request-context.js";
+export { setDbRequestContextFromHeaders } from "./request-context.js";
 
 export interface SqlResult<Row> {
   readonly rows: readonly Row[];
@@ -133,7 +134,7 @@ export class PostgresClient implements SqlClient, SqlTransactionFactory {
 }
 
 export interface ContextAwarePoolOptions {
-  connectionString: string;
+  connectionString?: string;
   max?: number;
   statementTimeoutMs?: number;
   idleTimeoutMs?: number;
@@ -148,8 +149,9 @@ export interface ContextAwarePoolOptions {
  * centralized in one place.
  */
 export function createContextAwarePool(options: ContextAwarePoolOptions): Pool {
+  const connectionString = options.connectionString?.trim() || resolveDatabaseUrl();
   const pool = new Pool({
-    connectionString: options.connectionString,
+    connectionString,
     max: options.max ?? 10,
     statement_timeout: options.statementTimeoutMs ?? 5_000,
     idleTimeoutMillis: options.idleTimeoutMs ?? 30_000,
