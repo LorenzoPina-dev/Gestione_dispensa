@@ -83,14 +83,6 @@ function NutritionTable({ nutriments }: { nutriments: Record<string, unknown> })
     );
   }
 
-  const seenEnergy = new Set<string>();
-  const uniqueRows = visible.filter((row) => {
-    if (row.label !== "Energia") return true;
-    if (seenEnergy.has(row.label)) return false;
-    seenEnergy.add(row.label);
-    return true;
-  });
-
   return (
     <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #d8cfc0", backgroundColor: "#fff" }}>
       <div className="px-4 py-3" style={{ backgroundColor: "#f5f0e8", borderBottom: "1px solid #d8cfc0" }}>
@@ -99,7 +91,7 @@ function NutritionTable({ nutriments }: { nutriments: Record<string, unknown> })
       </div>
       <table className="w-full text-xs">
         <tbody>
-          {uniqueRows.map(({ label, keys, unit }) => {
+          {visible.map(({ label, keys, unit }) => {
             const key = keys.find((candidate) => nutriments[candidate] !== undefined && nutriments[candidate] !== null && nutriments[candidate] !== "");
             if (!key) return null;
             const rawValue = nutriments[key];
