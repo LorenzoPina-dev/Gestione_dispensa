@@ -20,4 +20,4 @@ COPY --from=build /app/services/service-identity/dist ./dist
 COPY --from=build /app/services/service-identity/migrations ./migrations
 USER node
 EXPOSE 3310
-CMD ["sh","-c","node dist/migrate.js && node dist/server.js"]
+CMD ["sh","-c","DATABASE_URL=\"\${MIGRATION_DATABASE_URL:-\${DATABASE_URL}}\" node dist/migrate.js && node dist/server.js"]
