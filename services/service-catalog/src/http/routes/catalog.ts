@@ -85,6 +85,31 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     .all(methodNotAllowed);
 
   router
+    .route("/catalog/internal/products/:productId")
+    .get(
+      asyncHandler(async (req, res) => {
+        const expected = process.env.INTERNAL_SERVICE_TOKEN?.trim();
+        const provided = String(req.header("x-internal-service-token") ?? "").trim();
+        if (!expected || !provided || provided !== expected) {
+          sendFailure(res, 401, "UNAUTHENTICATED", "Internal service authentication is required.", req.meta);
+          return;
+        }
+        const productId = String(req.params.productId ?? "").trim();
+        if (!/^[0-9a-f-]{36}$/i.test(productId)) {
+          sendFailure(res, 400, "VALIDATION_ERROR", "productId must be a UUID.", req.meta);
+          return;
+        }
+        await respond(
+          res,
+          req.meta,
+          controller.getProduct(productId, req.meta),
+          toCatalogHttpError,
+        );
+      }),
+    )
+    .all(methodNotAllowed);
+
+  router
     .route("/catalog/products/batch")
     .post(
       asyncHandler(async (req, res) => {
