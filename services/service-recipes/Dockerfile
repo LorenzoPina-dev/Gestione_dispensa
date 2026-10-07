@@ -12,6 +12,7 @@ RUN npm --workspace @gestione-dispensa/service-recipes run build
 RUN npm prune --omit=dev
 
 FROM node:22-alpine
+RUN apk add --no-cache unzip
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
