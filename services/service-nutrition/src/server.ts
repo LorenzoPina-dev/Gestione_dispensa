@@ -11,6 +11,7 @@ app.use(express.json({ limit: "1mb" }));
 
 const port = Number(process.env.PORT ?? 3402);
 const catalogBaseUrl = process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1";
+const catalogInternalToken = process.env.CATALOG_INTERNAL_TOKEN?.trim() ?? "";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 type Body = Record<string, unknown>;
@@ -153,6 +154,7 @@ async function consumeInventoryEvents(): Promise<void> {
               catalogBaseUrl,
               undefined,
               productId,
+              catalogInternalToken,
             );
             if (!snapshot) throw new Error("Product nutrition data not found.");
 
