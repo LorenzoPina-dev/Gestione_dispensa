@@ -77,7 +77,7 @@ async function consumeShelfLifeEvents(): Promise<void> {
               userId: "system",
               familyId,
               requestId: event.eventId,
-              correlationId: event.correlationId ?? crypto.randomUUID(),
+              correlationId: event.correlationId ?? randomUUID(),
             }, {
               itemId,
               productId,
