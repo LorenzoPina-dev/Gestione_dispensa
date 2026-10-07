@@ -50,7 +50,8 @@ export interface KeycloakAdminConfig {
   readonly adminPassword: string;
 }
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+import type { FetchLike } from "./oidc.js";
+export type { FetchLike } from "./oidc.js";
 
 /** Reads Keycloak admin connection settings from the environment (same variables as before). */
 export function resolveKeycloakAdminConfig(env: NodeJS.ProcessEnv = process.env): KeycloakAdminConfig {
