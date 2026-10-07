@@ -1,4 +1,4 @@
-import { JsonLogSink, RuntimeObservability } from "@gestione-dispensa/observability";
+import { log, startObservability } from "@gestione-dispensa/observability";
 import { RedisConnection } from "./redis-client.js";
 import { PostgresClient, resolveDatabaseUrl } from "./postgres-client.js";
 import {
@@ -9,7 +9,7 @@ import {
 import { RedisQueueAdapter } from "./redis-queue.js";
 import { reconciliationHandler } from "./handlers.js";
 import { JobWorker } from "./worker.js";
-import { WorkerProcess } from "./process.js";
+import { WorkerProcess, type WorkerObservability } from "./process.js";
 import { InMemoryMetrics } from "./metrics.js";
 import type { JobHandler } from "./job.js";
 
@@ -68,10 +68,11 @@ export async function buildReconciliationWorker(options: BuildReconciliationWork
     ["inventory.reconcile", reconciliationHandler(new PostgresReconciliationRepository(postgres))],
   ]);
 
-  const observability = new RuntimeObservability(
-    "worker-core",
-    new JsonLogSink({ write: (line) => process.stdout.write(line) }),
-  );
+  const observability: WorkerObservability = {
+    logger: ({ requestId, traceId }) => ({
+      info: (event, fields = {}) => log.info(event, { requestId, traceId, ...fields }),
+    }),
+  };
 
   const workerProcess = new WorkerProcess({
     worker,
@@ -97,6 +98,7 @@ export async function buildReconciliationWorker(options: BuildReconciliationWork
 }
 
 export async function main(): Promise<void> {
+  startObservability("worker-core");
   const { workerProcess, close } = await buildReconciliationWorker();
   await workerProcess.run();
   await close();
