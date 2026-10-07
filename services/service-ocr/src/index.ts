@@ -157,10 +157,12 @@ async function putMinioObject(objectKey: string, data: Buffer, contentType: stri
   }
 }
 
+let minioBucketReady = false;
+
 async function ensureMinioBucket(): Promise<void> {
   const endpoint = new URL("/" + encodePathPart(minioBucket), minioEndpoint);
   const probe = await fetch(endpoint, { method: "HEAD", headers: { Host: endpoint.host } }).catch(() => null);
-  if (probe?.ok) return;
+  if (probe?.ok) { minioBucketReady = true; return; }
 
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
@@ -187,6 +189,7 @@ async function ensureMinioBucket(): Promise<void> {
     },
   });
   if (!response.ok && response.status !== 409) throw new Error("MinIO bucket initialization failed with HTTP " + response.status);
+  minioBucketReady = true;
 }
 
 async function readRequest(req: Request, limit: number): Promise<Buffer> {
@@ -518,6 +521,7 @@ app.post("/api/v1/ocr/jobs", async (req, res) => {
 
     const jobId = crypto.randomUUID();
     const objectKey = "ocr/" + jobId + "/source";
+    if (!minioBucketReady) await ensureMinioBucket();
     await putMinioObject(objectKey, file.buffer, file.mimeType);
 
     await client.query(
@@ -674,5 +678,9 @@ app.post("/api/v1/ocr/drafts/:draftId/confirm", async(req,res)=>{
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
 
-init().then(()=>ensureMinioBucket()).then(()=>app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-ocr",port,bucket:minioBucket}))))
+// MinIO è una dipendenza secondaria: se non è disponibile all'avvio (es. AIStor senza licenza, HTTP 403) il servizio
+// parte comunque; il bucket viene riprovato al primo upload e solo la creazione di job OCR fallisce finché MinIO non funziona.
+init()
+  .then(() => ensureMinioBucket().catch((e) => console.warn(JSON.stringify({ service: "service-ocr", warning: "minio_unavailable_at_startup", message: e instanceof Error ? e.message : String(e) }))))
+  .then(()=>app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-ocr",port,bucket:minioBucket,minioReady:minioBucketReady}))))
   .catch(e=>{console.error(e);process.exit(1)});

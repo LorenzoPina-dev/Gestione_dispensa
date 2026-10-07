@@ -272,7 +272,8 @@ services:
       postgres-app-role-init: { condition: service_completed_successfully }
     healthcheck: { test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r line <&3; case \"$$line\" in *' 200 '*) exit 0;; *) exit 1;; esac"], interval: 10s, timeout: 5s, retries: 30, start_period: 60s }
     restart: unless-stopped
-    networks: [backend]
+    # `data` serve per raggiungere postgres (che sta solo su `data`); `backend` per gateway/nginx/servizi.
+    networks: [backend, data]
   service-identity:
     build: { context: ., dockerfile: services/service-identity/Dockerfile }
     environment:
@@ -662,7 +663,8 @@ services:
     depends_on:
       postgres-app-role-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-      minio-ready: { condition: service_healthy }
+      # MinIO è secondario: se non è pronto (es. AIStor senza licenza) lo stack parte comunque e solo l'OCR resta degradato.
+      minio-ready: { condition: service_healthy, required: false }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]

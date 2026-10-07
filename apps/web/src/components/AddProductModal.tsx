@@ -824,7 +824,7 @@ function ResolvedProductInsert({
   const [confirmed, setConfirmed] = useState(false);
   const [qty, setQty] = useState("1");
   const [expiry, setExpiry] = useState("");
-  const [reorderPoint, setReorderPoint] = useState("");
+  const [reorderPoint, setReorderPoint] = useState("1");
   const [reorderQuantity, setReorderQuantity] = useState("1");
   const [location, setLocation] = useState<StorageLocation>("dispensa");
   const [error, setError] = useState<string | null>(null);
