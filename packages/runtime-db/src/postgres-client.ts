@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import { getDbRequestContext } from "./request-context.js";
 
 export interface SqlResult<Row> {
@@ -130,6 +130,110 @@ export class PostgresClient implements SqlClient, SqlTransactionFactory {
   public async close(): Promise<void> {
     await this.pool.end();
   }
+}
+
+export interface DatabasePoolOptions extends PostgresClientOptions {}
+
+export function createDatabasePool(options: DatabasePoolOptions): DatabasePool {
+  return new DatabasePool(options);
+}
+
+export interface DatabasePool {
+  query<T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<QueryResult<T>>;
+  query<T extends QueryResultRow = QueryResultRow>(
+    config: { text: string; values?: readonly unknown[] },
+  ): Promise<QueryResult<T>>;
+  connect(): Promise<DatabasePoolClient>;
+  end(): Promise<void>;
+}
+
+export type DatabasePoolClient = Pick<PoolClient, "query" | "release">;
+
+class DatabasePoolImpl implements DatabasePool {
+  private readonly pool: Pool;
+
+  public constructor(options: DatabasePoolOptions) {
+    this.pool = new Pool({
+      connectionString: options.connectionString,
+      max: options.max ?? 10,
+      statement_timeout: options.statementTimeoutMs ?? 5_000,
+      idleTimeoutMillis: options.idleTimeoutMs ?? 30_000,
+      ssl: options.ssl ? { rejectUnauthorized: true } : undefined,
+    });
+  }
+
+  public async query<T extends QueryResultRow = QueryResultRow>(
+    textOrConfig: string | { text: string; values?: readonly unknown[] },
+    values: readonly unknown[] = [],
+  ): Promise<QueryResult<T>> {
+    const client = await this.pool.connect();
+    try {
+      await applyRequestContext(client, false);
+      if (typeof textOrConfig === "string") {
+        return await client.query<T>(textOrConfig, values as unknown[]);
+      }
+      return await client.query<T>({
+        text: textOrConfig.text,
+        values: textOrConfig.values as unknown[] | undefined,
+      });
+    } finally {
+      client.release();
+    }
+  }
+
+  public async connect(): Promise<DatabasePoolClient> {
+    const client = await this.pool.connect();
+    try {
+      await applyRequestContext(client, false);
+      return new DatabasePoolClientImpl(client);
+    } catch (error) {
+      client.release();
+      throw error;
+    }
+  }
+
+  public async end(): Promise<void> {
+    await this.pool.end();
+  }
+}
+
+class DatabasePoolClientImpl implements DatabasePoolClient {
+  public constructor(private readonly client: PoolClient) {}
+
+  public async query<T extends QueryResultRow = QueryResultRow>(
+    textOrConfig: string | { text: string; values?: readonly unknown[] },
+    values: readonly unknown[] = [],
+  ): Promise<QueryResult<T>> {
+    await applyRequestContext(this.client, false);
+    if (typeof textOrConfig === "string") {
+      return await this.client.query<T>(textOrConfig, values as unknown[]);
+    }
+    return await this.client.query<T>({
+      text: textOrConfig.text,
+      values: textOrConfig.values as unknown[] | undefined,
+    });
+  }
+
+  public release(err?: Error): void {
+    this.client.release(err);
+  }
+}
+
+export function setDbRequestContextFromHeaders(headers: {
+  [key: string]: string | string[] | undefined;
+}): void {
+  const value = (key: string): string | undefined => {
+    const raw = headers[key] ?? headers[key.toLowerCase()];
+    const normalized = Array.isArray(raw) ? raw[0] : raw;
+    return typeof normalized === "string" && normalized.trim() ? normalized.trim() : undefined;
+  };
+  setDbRequestContext({
+    userId: value("x-user-id"),
+    familyId: value("x-family-id"),
+  });
 }
 
 async function applyRequestContext(client: PoolClient, local: boolean): Promise<void> {
