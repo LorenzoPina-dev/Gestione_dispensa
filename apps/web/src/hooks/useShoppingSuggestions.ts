@@ -101,7 +101,7 @@ async function fetchOffers(signal: AbortSignal): Promise<OfferSuggestionSource[]
   const flat = perStore.flatMap(({ store, offers }) => offers.map((offer) => ({ store, offer })));
   const productIds = [...new Set(flat.map(({ offer }) => offer.productId))].slice(0, 100);
   const products = await api.getCatalogProductsBatch(productIds, signal);
-  const byId = new Map(products.map((product) => [product.id, product]));
+  const byId = new Map(products.map((product) => [product.productId, product]));
 
   return flat.map(({ store, offer }) => {
     const product = byId.get(offer.productId);
@@ -156,7 +156,7 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
             suggestions.map((item) => item.productId),
             controller.signal,
           );
-          const byId = new Map(products.map((product) => [product.id, product]));
+          const byId = new Map(products.map((product) => [product.productId, product]));
           for (const product of products) catalogCache.current.set(product.productId, product);
 
           const enriched = suggestions.map((item) => {
