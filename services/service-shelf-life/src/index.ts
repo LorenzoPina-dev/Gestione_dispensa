@@ -377,7 +377,14 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
        where id=$1 returning *`,
       [id,expires.toISOString(),confidence,`${rule.product_id ? "product:" + rule.product_id + "+" : ""}${category ? "category:" + category : "category:unknown"}+storage:${storage}+opened:${opened}+target_days:${targetDays}`,rule.model_version],
     );
-    await emitOutbox(client,"ShelfLifePredictionCompleted",id,current.rows[0].family_id ?? null,{predictionId:id,estimatedExpiresAt:expires.toISOString(),confidence,modelVersion:rule.model_version});
+    await emitOutbox(client,"ShelfLifePredictionCompleted",id,current.rows[0].family_id ?? null,{
+      predictionId:id,
+      itemId:current.rows[0].item_id,
+      productId:current.rows[0].product_id,
+      estimatedExpiresAt:expires.toISOString(),
+      confidence,
+      modelVersion:rule.model_version,
+    });
     await client.query("commit");
     return res.status(200).json({ data: q.rows[0], version: q.rows[0].version });
   } catch (error) {
@@ -395,135 +402,6 @@ app.get("/api/v1/shelf-life/predictions/:predictionId", async (req,res) => {
     predictionId:x.id,itemId:x.item_id,estimatedExpiresAt:x.estimated_expires_at,
     confidence:Number(x.confidence),basis:x.basis,status:x.status
   }});
-});
-
-app.post("/api/v1/shelf-life/predictions/:predictionId/apply", async (req,res) => {
-  const userId=actor(req), idempotencyKey=key(req);
-  if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
-  if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
-  const familyId=familyContext(req);
-  if(!familyId)return fail(res,400,"VALIDATION_ERROR","familyId is required.");
-  const familyAccess=await authorizeFamily(userId,familyId,true);
-  if(!familyAccess.ok)return fail(res,familyAccess.status,familyAccess.code,familyAccess.message);
-
-  const client=await pool.connect();
-  try {
-    await client.query("begin");
-    const idem=await beginIdempotency(client,req,{predictionId:req.params.predictionId,operation:"apply"},userId);
-    if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}
-    if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}
-    if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
-
-    const q=await client.query("select * from shelf_life_domain.predictions where id=$1 and user_id=$2 for update",[req.params.predictionId,userId]);
-    if(!q.rowCount){await client.query("rollback");return fail(res,404,"NOT_FOUND","Prediction not found.");}
-    const x=q.rows[0];
-    if(x.status==="applied"){
-      const response={data:{predictionId:x.id,itemId:x.item_id,estimatedExpiresAt:x.estimated_expires_at,confidence:Number(x.confidence),basis:x.basis,status:"applied"},version:Number(x.version)};
-      await finishIdempotency(client,req,200,response);await client.query("commit");return res.json(response);
-    }
-    if(x.status!=="completed"){await client.query("rollback");return fail(res,422,"BUSINESS_RULE_VIOLATION","Only completed predictions can be applied.");}
-
-    const inventoryBase=(process.env.INVENTORY_SERVICE_BASE_URL??"http://service-inventory:3312/api/v1").replace(/\/$/,"");
-    const inventoryHeaders={
-      "x-user-id":userId,
-      "x-family-id":String(x.family_id ?? ""),
-      "authorization":req.header("authorization")??"",
-      "accept":"application/json",
-    };
-    let upstream: globalThis.Response | null = null;
-
-    // Inventory uses optimistic concurrency and requires the current item version in If-Match.
-    // Read the version immediately before the write. A 412 means the item changed between
-    // the read and the write, so refresh the version once and retry the confirm operation.
-    for(let attempt=0;attempt<2;attempt++){
-      let currentItem: globalThis.Response;
-      try {
-        currentItem=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id)),{
-          method:"GET",
-          headers:inventoryHeaders,
-          signal:AbortSignal.timeout(5000),
-        });
-      } catch {
-        await client.query("rollback");
-        return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable while reading the current item.");
-      }
-
-      let currentPayload: { data?: { version?: unknown }; error?: { code?: unknown; message?: unknown } } = {};
-      try { currentPayload=await currentItem.json() as typeof currentPayload; } catch {}
-
-      if(!currentItem.ok){
-        await client.query("rollback");
-        const status=currentItem.status>=500?502:currentItem.status;
-        const code=status>=500
-          ?"UPSTREAM_ERROR"
-          :(typeof currentPayload.error?.code==="string"?currentPayload.error.code:"UPSTREAM_ERROR");
-        const message=typeof currentPayload.error?.message==="string"
-          ?currentPayload.error.message
-          :"Inventory could not read the current item.";
-        return fail(res,status,code,message);
-      }
-
-      const version=Number(currentPayload.data?.version);
-      if(!Number.isInteger(version)||version<0){
-        await client.query("rollback");
-        return fail(res,502,"UPSTREAM_ERROR","Inventory returned an invalid item version.");
-      }
-
-      try {
-        upstream=await fetch(inventoryBase+"/inventory/"+encodeURIComponent(String(x.item_id))+"/expiration/confirm",{
-          method:"POST",
-          headers:{
-            ...inventoryHeaders,
-            "content-type":"application/json",
-            "x-idempotency-key":idempotencyKey,
-            "if-match":String(version),
-          },
-          body:JSON.stringify({expiresAt:x.estimated_expires_at,source:"estimated"}),
-          signal:AbortSignal.timeout(5000),
-        });
-      } catch {
-        await client.query("rollback");
-        return fail(res,502,"UPSTREAM_ERROR","Inventory service is unavailable while applying the shelf-life prediction.");
-      }
-
-      if(upstream.ok) break;
-      if(upstream.status===412 && attempt===0) continue;
-      break;
-    }
-
-    if(!upstream||!upstream.ok){
-      let upstreamPayload: { error?: { code?: unknown; message?: unknown } } = {};
-      try { upstreamPayload=await upstream!.json() as typeof upstreamPayload; } catch {}
-
-      const status=upstream!.status>=500?502:upstream!.status;
-      const code=status>=500
-        ?"UPSTREAM_ERROR"
-        :(typeof upstreamPayload.error?.code==="string"?upstreamPayload.error.code:"UPSTREAM_ERROR");
-      const message=typeof upstreamPayload.error?.message==="string"
-        ?upstreamPayload.error.message
-        :"Inventory could not apply the shelf-life prediction.";
-
-      await client.query("rollback");
-      return fail(res,status,code,message);
-    }
-
-    const updated=await client.query(
-      "update shelf_life_domain.predictions set status='applied',updated_at=now(),version=version+1 where id=$1 and status='completed' returning *",
-      [req.params.predictionId],
-    );
-    if(!updated.rowCount){await client.query("rollback");return fail(res,409,"CONFLICT","Prediction state changed before apply.");}
-    const u=updated.rows[0];
-    const response={data:{predictionId:u.id,itemId:u.item_id,estimatedExpiresAt:u.estimated_expires_at,confidence:Number(u.confidence),basis:u.basis,status:"applied"},version:Number(u.version)};
-    await emitOutbox(client,"ShelfLifePredictionApplied",String(u.id),u.family_id ?? null,response);
-    await finishIdempotency(client,req,200,response);
-    await client.query("commit");
-    return res.json(response);
-  } catch(error) {
-    await client.query("rollback");
-    return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to apply prediction.");
-  } finally {
-    client.release();
-  }
 });
 
 app.use((_req,res)=>fail(res,404,"NOT_FOUND","Route not found."));
