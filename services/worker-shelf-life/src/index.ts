@@ -143,28 +143,33 @@ async function recoverDurableWork(): Promise<void> {
   }
 }
 
+async function handleDomainMessage(message: { id: string; message: Record<string, string> }): Promise<void> {
+  try {
+    const raw = message.message.event;
+    const event = JSON.parse(String(raw)) as EventEnvelope;
+    if (event.eventType === "shelf-life.prediction-queued.v1") {
+      await processQueuedPredictionEvent(event);
+    } else {
+      await createPredictionFromInventoryEvent(event);
+    }
+    await redis.xAck(stream, group, message.id);
+  } catch (error) {
+    console.error(JSON.stringify({
+      worker: "worker-shelf-life",
+      event: "domain_event_processing_failed",
+      messageId: message.id,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
+}
+
 async function consumeDomainEvents(): Promise<void> {
+  const claimed = await redis.xAutoClaim(stream, group, consumer, 30_000, "0-0", { COUNT: 10 });
+  for (const message of claimed.messages ?? []) await handleDomainMessage(message);
+
   const result = await redis.xReadGroup(group, consumer, [{ key: stream, id: ">" }], { COUNT: 10, BLOCK: 1000 });
   for (const streamResult of result ?? []) {
-    for (const message of streamResult.messages) {
-      try {
-        const raw = message.message.event;
-        const event = JSON.parse(String(raw)) as EventEnvelope;
-        if (event.eventType === "shelf-life.prediction-queued.v1") {
-          await processQueuedPredictionEvent(event);
-        } else {
-          await createPredictionFromInventoryEvent(event);
-        }
-        await redis.xAck(stream, group, message.id);
-      } catch (error) {
-        console.error(JSON.stringify({
-          worker: "worker-shelf-life",
-          event: "domain_event_processing_failed",
-          messageId: message.id,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      }
-    }
+    for (const message of streamResult.messages) await handleDomainMessage(message);
   }
 }
 
