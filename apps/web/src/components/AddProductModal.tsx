@@ -255,8 +255,6 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         const p = result.product;
         const resolvedCandidate = candidateFromProduct(p);
         setCandidate(resolvedCandidate);
-        setQty(defaultPackageCount(resolvedCandidate));
-        setReorderQuantity(defaultPackageCount(resolvedCandidate));
         setState("CANDIDATE");
         return;
       }
