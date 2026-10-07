@@ -2,6 +2,7 @@ import express from "express";
 import { createContextAwarePool, setDbRequestContextFromHeaders, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import crypto from "node:crypto";
 import { registerAddMissingIngredientsRoute } from "./add-missing.js";
+import { discover, getCatalogRecipe } from "./recipe-discovery.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -11,6 +12,7 @@ app.use((req, _res, next) => { setDbRequestContextFromHeaders(req.headers); next
 const port = Number(process.env.PORT ?? 3401);
 const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
+const inventoryServiceBaseUrl = (process.env.INVENTORY_SERVICE_BASE_URL ?? "http://service-inventory:3312/api/v1").replace(/\/$/, "");
 
 type Body = Record<string, unknown>;
 
@@ -235,17 +237,21 @@ app.get("/api/v1/recipes/suggestions", async (req, res) => {
   if (!ctx) return res.status(400).json(errorBody("VALIDATION_ERROR", "familyId is required."));
   const access = await authorizeFamily(ctx, false);
   if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
-
-  const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
-  const q = await pool.query(
-    "select id from recipes_domain.recipes where family_id=$1 order by updated_at desc limit $2",
-    [ctx.familyId, limit],
-  );
-  const items = await Promise.all(q.rows.map(async (row) => {
-    const recipe = await loadRecipe(String(row.id), ctx.familyId);
-    return { recipeId: recipe?.recipeId ?? String(row.id), score: 1, missingIngredients: [] };
-  }));
-  return res.json({ items });
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
+    const q = String(req.query.q ?? "").trim() || undefined;
+    const items = await discover(pool, {
+      userId: ctx.userId,
+      familyId: ctx.familyId,
+      inventoryBaseUrl: inventoryServiceBaseUrl,
+      limit,
+      q,
+      authorization: req.header("authorization") ?? undefined,
+    });
+    return res.json({ items, nextCursor: null });
+  } catch (error) {
+    return res.status(502).json(errorBody("UPSTREAM_ERROR", error instanceof Error ? error.message : "Unable to generate recipe suggestions."));
+  }
 });
 
 app.get("/api/v1/recipes/:recipeId", async (req, res) => {
@@ -255,10 +261,13 @@ app.get("/api/v1/recipes/:recipeId", async (req, res) => {
   if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
 
   const recipe = await loadRecipe(req.params.recipeId, ctx.familyId);
-  if (!recipe) return res.status(404).json(errorBody("NOT_FOUND", "Recipe not found."));
-
-  res.setHeader("ETag", `"version-${recipe.version}"`);
-  return res.json({ data: recipe, version: recipe.version });
+  if (recipe) {
+    res.setHeader("ETag", `"version-${recipe.version}"`);
+    return res.json({ data: recipe, version: recipe.version });
+  }
+  const catalogRecipe = await getCatalogRecipe(pool, req.params.recipeId);
+  if (!catalogRecipe) return res.status(404).json(errorBody("NOT_FOUND", "Recipe not found."));
+  return res.json({ data: catalogRecipe, version: 1 });
 });
 
 app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
