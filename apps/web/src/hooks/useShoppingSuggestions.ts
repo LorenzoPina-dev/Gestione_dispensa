@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ShoppingList, StockItem } from "../types";
-import type { CatalogProductRefDto, RecipeMatchDto } from "../api/types";
+import type { CatalogProductSummaryDto, RecipeMatchDto } from "../api/types";
 import * as api from "../api/endpoints";
 import { isBackendUnreachable } from "../api/client";
 import { convertQuantity, normalizeUnit, type CanonicalUnit } from "../domain/units";
@@ -134,7 +134,7 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
     packageValue?: number;
     packageUnit?: string;
   }>>([]);
-  const catalogCache = useRef(new Map<string, CatalogProductRefDto>());
+  const catalogCache = useRef(new Map<string, CatalogProductSummaryDto>());
   const [recipes, setRecipes] = useState<RecipeSuggestionSource[]>([]);
   const [offers, setOffers] = useState<OfferSuggestionSource[]>([]);
   const [loading, setLoading] = useState<Record<Remote, boolean>>({ REORDER: false, RECIPE: false, OFFER: false });
@@ -157,7 +157,7 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
             controller.signal,
           );
           const byId = new Map(products.map((product) => [product.id, product]));
-          for (const product of products) catalogCache.current.set(product.id, product);
+          for (const product of products) catalogCache.current.set(product.productId, product);
 
           const enriched = suggestions.map((item) => {
             const fallback = {
