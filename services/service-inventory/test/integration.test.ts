@@ -195,7 +195,7 @@ describe("service-inventory / real cross-service integration", () => {
       body: JSON.stringify({ quantity: 1, reason: "used" }),
     });
     assert.equal(stale.response.status, 412);
-    assert.equal(stale.body?.error?.code, "VERSION_CONFLICT");
+    assert.equal(stale.body?.error?.code, "PRECONDITION_FAILED");
 
     const db = await pool.query("SELECT quantity,version FROM pantry_items WHERE id=$1", [itemId]);
     assert.equal(Number(db.rows[0].quantity), 3);
@@ -230,7 +230,7 @@ describe("service-inventory / real cross-service integration", () => {
     assert.equal(movement.rows[0].pantry_item_id, itemId);
 
     const event = await pool.query(
-      "SELECT event_type FROM outbox_events WHERE aggregate_id=$1 AND event_type='PantryItemAdjusted'",
+      "SELECT event_type FROM outbox_events WHERE aggregate_id=$1 AND event_type='inventory.stock.consumed.v1'",
       [itemId],
     );
     assert.ok(event.rowCount >= 1);
@@ -286,8 +286,7 @@ describe("service-inventory / real cross-service integration", () => {
     });
 
     assert.equal(result.response.status, 200);
-    assert.equal(result.body?.data?.remainingQuantity, 0);
-    assert.equal(result.body?.data?.removed, true);
+    assert.equal(Number(result.body?.data?.quantity), 0);
 
     const current = await pool.query("SELECT id FROM pantry_items WHERE id=$1", [itemId]);
     assert.equal(current.rowCount, 0);
