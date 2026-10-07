@@ -39,6 +39,26 @@ export interface PublicProductSearchHit {
   completeness: number | null;
 }
 
+export interface PublicProductSummary {
+  productId: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  imageObjectKey: string | null;
+  package: {
+    value: number | null;
+    unit: string | null;
+    label: string | null;
+  };
+  nutrition: {
+    kcalPer100g: number | null;
+    proteinGPer100g: number | null;
+    carbsGPer100g: number | null;
+    fatGPer100g: number | null;
+    fiberGPer100g: number | null;
+  };
+}
+
 export interface PublicProduct {
   productId: string;
   name: string;
@@ -146,6 +166,18 @@ export class CatalogController {
     return success(toPublicProduct(product), meta, product.version);
   }
 
+  public async getProductsBatch(productIds: readonly string[], meta: CatalogHttpMeta): Promise<CatalogHttpSuccess<{ items: PublicProductSummary[] }>> {
+    const normalized = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))].slice(0, 100);
+    const products = await this.catalog.getProductsByIds(normalized);
+    const byId = new Map(products.map((product) => [product.id, product]));
+    return success({
+      items: normalized
+        .map((id) => byId.get(id))
+        .filter((product): product is Product => product !== undefined)
+        .map(toPublicProductSummary),
+    }, meta);
+  }
+
   public async createProduct(
     principal: Principal | undefined,
     command: Omit<CreateManualProductCommand, "actorId">,
@@ -217,6 +249,28 @@ export class CatalogController {
     const result = await this.workflow.submitImportedCandidate(candidate, principal.subject, meta.traceId);
     return success(result, meta);
   }
+}
+
+function toPublicProductSummary(product: Product): PublicProductSummary {
+  return {
+    productId: product.id,
+    name: product.canonicalName,
+    brand: product.brand ?? null,
+    category: product.category ?? null,
+    imageObjectKey: product.photoUrl ?? product.images?.front ?? null,
+    package: {
+      value: product.quantityValue ?? null,
+      unit: product.quantityUnit ?? null,
+      label: product.quantityLabel ?? null,
+    },
+    nutrition: {
+      kcalPer100g: product.calories ?? null,
+      proteinGPer100g: product.protein ?? null,
+      carbsGPer100g: product.carbs ?? null,
+      fatGPer100g: product.fat ?? null,
+      fiberGPer100g: product.fiber ?? null,
+    },
+  };
 }
 
 function toPublicProduct(product: Product): PublicProduct {
