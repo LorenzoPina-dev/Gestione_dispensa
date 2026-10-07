@@ -122,6 +122,26 @@ export interface RecipeMatchDto { recipe: RecipeDto; score: number; matchedIngre
 export interface NutritionSummaryDto { caloriesKcal?: number; proteinG?: number; carbsG?: number; fatG?: number; period?: "today" | "week"; since?: string; totals?: { calories: number; protein: number; carbs: number; fat: number; fiber: number }; items?: Array<{ movementId: string; productId: string; productName: string; quantity: number; unit: string; occurredAt: string; nutrients: { calories: number; protein: number; carbs: number; fat: number; fiber: number }; confidence: "CONFIRMED" | "ESTIMATED" | "UNKNOWN" }>; }
 export interface StoreDto { storeId: string; name: string; chain: string | null; address: string | null; }
 export interface StoreOfferDto { offerId: string; productId: string; storeId: string; type: "percentage" | "fixed"; value: number; validFrom: string; validTo: string; }
+export interface CatalogProductSummaryDto {
+  productId: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  imageObjectKey: string | null;
+  package: {
+    value: number | null;
+    unit: string | null;
+    label: string | null;
+  };
+  nutrition: {
+    kcalPer100g: number | null;
+    proteinGPer100g: number | null;
+    carbsGPer100g: number | null;
+    fatGPer100g: number | null;
+    fiberGPer100g: number | null;
+  };
+}
+
 export interface CatalogProductRefDto {
   productId: string;
   name: string;
