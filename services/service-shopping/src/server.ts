@@ -342,7 +342,7 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
     const item = await client.query(`insert into shopping_domain.items(id,list_id,product_id,label,quantity,unit,checked,source) values($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
       [crypto.randomUUID(),req.params.listId,body.productId??null,label,quantity,unit,Boolean(body.checked??false),typeof body.source==="string"?body.source:"manual"]);
     await client.query("update shopping_domain.lists set version=version+1,updated_at=now() where id=$1",[req.params.listId]);
-    const response={data:toItem(item.rows[0] as Record<string,unknown>),version:Number(item.rows[0].version)};
+    const response={data:toItem(item.rows[0] as Record<string,unknown>),version:Number(list.rows[0].version)+1};
     await emitOutbox(client, "ShoppingItemAdded", String(item.rows[0].id), ctx, response);
     await finishIdempotency(client,req,201,response);await client.query("commit");return json(res,201,response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to add shopping item.");}finally{client.release();}
