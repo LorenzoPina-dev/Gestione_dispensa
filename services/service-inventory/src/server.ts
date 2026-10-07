@@ -35,7 +35,7 @@ async function consumeShelfLifeEvents(): Promise<void> {
         const client = await pool.connect();
         try {
           const event = JSON.parse(String(message.message.event)) as DomainEvent;
-          if (event.eventType !== "ShelfLifePredictionCompleted") {
+          if (event.eventType !== "shelf-life.prediction-completed.v1") {
             await eventRedis.xAck(eventStream, eventGroup, message.id);
             client.release();
             continue;
@@ -45,7 +45,7 @@ async function consumeShelfLifeEvents(): Promise<void> {
           const itemId = typeof payload.itemId === "string" ? payload.itemId : "";
           const productId = typeof payload.productId === "string" ? payload.productId : "";
           const expiresAt = typeof payload.estimatedExpiresAt === "string" ? payload.estimatedExpiresAt : "";
-          if (!event.eventId || !familyId || !itemId || !productId || !expiresAt) throw new Error("Invalid ShelfLifePredictionCompleted payload.");
+          if (!event.eventId || !familyId || !itemId || !productId || !expiresAt) throw new Error("Invalid shelf-life.prediction-completed.v1 payload.");
 
           await client.query("BEGIN");
           const processed = await client.query(
