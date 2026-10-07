@@ -90,6 +90,16 @@ async function processQueuedPredictionEvent(event: EventEnvelope): Promise<void>
   const category = typeof data.category === "string" && data.category.trim()
     ? data.category.trim().toLowerCase()
     : await resolveProductCategory(productId);
+  console.log(JSON.stringify({
+    worker: "worker-shelf-life",
+    event: "prediction_queue_event_received",
+    eventId: event.eventId,
+    predictionId,
+    itemId,
+    productId,
+    familyId,
+    category: category ?? null,
+  }));
   await processPrediction({
     predictionId,
     itemId,
@@ -143,7 +153,21 @@ async function createPredictionFromInventoryEvent(event: EventEnvelope): Promise
     }),
     signal: AbortSignal.timeout(10000),
   });
-  if (!response.ok) throw new Error("Prediction queue failed with HTTP " + response.status);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error("Prediction queue failed with HTTP " + response.status + (detail ? ": " + detail.slice(0, 500) : ""));
+  }
+  const queued = await response.json().catch(() => null) as { data?: { predictionId?: unknown; status?: unknown } } | null;
+  console.log(JSON.stringify({
+    worker: "worker-shelf-life",
+    event: "prediction_queued_from_inventory_event",
+    eventId: event.eventId,
+    itemId,
+    productId,
+    familyId,
+    predictionId: typeof queued?.data?.predictionId === "string" ? queued.data.predictionId : null,
+    status: typeof queued?.data?.status === "string" ? queued.data.status : null,
+  }));
   // The service-shelf-life endpoint durably queues the prediction and publishes
   // shelf-life.prediction-queued.v1. Processing belongs exclusively to that
   // queued event (or the recovery scanner); do not execute it inline here.
@@ -198,6 +222,16 @@ async function processPrediction(data: RecoveryItem): Promise<void> {
       signal: AbortSignal.timeout(10000),
     },
   );
+  if (response.ok) {
+    console.log(JSON.stringify({
+      worker: "worker-shelf-life",
+      event: "prediction_processed",
+      predictionId: data.predictionId,
+      itemId: data.itemId,
+      productId: data.productId,
+    }));
+    return;
+  }
   if (!response.ok) {
     if (response.status === 404) {
       const replacement = await queueRecoveryPrediction(data);
@@ -216,7 +250,8 @@ async function processPrediction(data: RecoveryItem): Promise<void> {
       }));
       return;
     }
-    throw new Error("Prediction processing failed with HTTP " + response.status);
+    const detail = await response.text().catch(() => "");
+    throw new Error("Prediction processing failed with HTTP " + response.status + (detail ? ": " + detail.slice(0, 500) : ""));
   }
 }
 
@@ -227,7 +262,15 @@ async function recoverDurableWork(): Promise<void> {
   });
   if (!response.ok) throw new Error("Recovery query failed with HTTP " + response.status);
   const payload = await response.json() as { data?: RecoveryItem[] };
-  for (const item of payload.data ?? []) {
+  const items = payload.data ?? [];
+  if (items.length > 0) {
+    console.log(JSON.stringify({
+      worker: "worker-shelf-life",
+      event: "durable_recovery_found",
+      count: items.length,
+    }));
+  }
+  for (const item of items) {
     if (item.status !== "queued" || !item.predictionId || !item.itemId || !item.productId || !item.userId || !item.familyId) continue;
     try {
       await processPrediction(item);
