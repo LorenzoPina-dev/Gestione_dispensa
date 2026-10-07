@@ -377,7 +377,7 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
        where id=$1 returning *`,
       [id,expires.toISOString(),confidence,`${rule.product_id ? "product:" + rule.product_id + "+" : ""}${category ? "category:" + category : "category:unknown"}+storage:${storage}+opened:${opened}+target_days:${targetDays}`,rule.model_version],
     );
-    await emitOutbox(client,"ShelfLifePredictionCompleted",id,current.rows[0].family_id ?? null,{
+    await emitOutbox(client,"shelf-life.prediction-completed.v1",id,current.rows[0].family_id ?? null,{
       predictionId:id,
       itemId:current.rows[0].item_id,
       productId:current.rows[0].product_id,
