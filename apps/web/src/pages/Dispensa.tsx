@@ -313,28 +313,76 @@ export default function Dispensa({ stock, setStock, readOnly = false }: Props) {
                 ))}
               </div>
 
-              {days !== null && uniqueExpiryDates.length > 0 && (
-                <div className="rounded-xl p-3 space-y-2" style={{ backgroundColor: st === "EXPIRED" ? colors.terracottaLight : st === "EXPIRING" ? colors.amberLight : colors.sageLight }}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg">{st === "EXPIRED" ? "⚠️" : st === "EXPIRING" ? "📅" : "✓"}</span>
+              {detail.batches.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-end justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium" style={{ color: freshnessColor[st] }}>
-                        {uniqueExpiryDates.length > 1 ? "Scadenza più vicina" : st === "EXPIRED" ? "Scaduto" : st === "EXPIRING" ? `Scade in ${days} giorni` : `Fresco ancora ${days} giorni`}
-                      </p>
-                      <p className="text-xs" style={{ color: colors.inkMuted }}>
-                        {new Date(uniqueExpiryDates[0]).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}
+                      <p className="text-sm font-semibold" style={{ color: colors.ink }}>Scadenze in dispensa</p>
+                      <p className="text-xs mt-0.5" style={{ color: colors.inkMuted }}>
+                        {detail.batches.length === 1
+                          ? "Una sola scorta"
+                          : \`\${detail.batches.length} scorte separate, ordinate dalla scadenza più vicina\`}
                       </p>
                     </div>
+                    {days !== null && uniqueExpiryDates.length > 0 && (
+                      <span className="text-xs font-medium" style={{ color: freshnessColor[st] }}>
+                        Prima scadenza: {new Date(uniqueExpiryDates[0]).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}
+                      </span>
+                    )}
                   </div>
-                  {uniqueExpiryDates.length > 1 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {uniqueExpiryDates.map((date) => (
-                        <span key={date} className="text-[10px] px-2 py-1 rounded-full" style={{ backgroundColor: colors.white, color: colors.inkMuted }}>
-                          {new Date(date).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+
+                  <div className="overflow-hidden rounded-xl" style={{ border: \`1px solid \${colors.border}\` }}>
+                    {detail.batches.map((batch, index) => {
+                      const batchDays = batch.expiryDate
+                        ? Math.ceil((new Date(batch.expiryDate).getTime() - Date.now()) / 86400000)
+                        : null;
+                      const batchStatus: ExpiryStatus =
+                        batchDays === null ? "UNKNOWN" :
+                        batchDays <= 0 ? "EXPIRED" :
+                        batchDays <= 5 ? "EXPIRING" : "FRESH";
+                      return (
+                        <div
+                          key={\`\${batch.sourceId}-\${batch.expiryDate ?? "none"}-\${index}\`}
+                          className="flex items-center justify-between gap-3 px-4 py-3"
+                          style={{
+                            backgroundColor: index === 0 && detail.batches.length > 1 ? colors.cream : colors.white,
+                            borderBottom: index < detail.batches.length - 1 ? \`1px solid \${colors.border}\` : undefined,
+                          }}
+                        >
+                          <div className="min-w-0 flex items-center gap-3">
+                            <span
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                              style={{
+                                backgroundColor: freshnessColor[batchStatus],
+                                color: colors.white,
+                              }}
+                            >
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium" style={{ color: colors.ink }}>
+                                {batch.expiryDate
+                                  ? new Date(batch.expiryDate).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })
+                                  : "Nessuna scadenza registrata"}
+                              </p>
+                              <p className="text-xs" style={{ color: colors.inkMuted }}>
+                                {batchDays === null
+                                  ? "Data non disponibile"
+                                  : batchDays <= 0
+                                    ? batchDays === 0 ? "Scade oggi" : \`Scaduto da \${Math.abs(batchDays)} giorni\`
+                                    : batchDays === 1 ? "Scade domani" : \`Scade tra \${batchDays} giorni\`}
+                                {index === 0 && detail.batches.length > 1 ? " · da consumare prima" : ""}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-semibold" style={{ color: colors.ink }}>{batch.quantity} {detail.unit}</p>
+                            <p className="text-[10px]" style={{ color: colors.inkMuted }}>quantità</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
