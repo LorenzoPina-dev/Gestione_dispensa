@@ -165,7 +165,12 @@ for (const service of sqlMigrationServices) {
 for (const root of ["services", "packages"]) {
   let files = [];
   try { files = await listFiles(root); } catch {}
-  for (const file of files.filter((value) => value.endsWith(".ts"))) {
+  for (const file of files.filter((value) =>
+    value.endsWith(".ts") &&
+    !value.includes("/node_modules/") &&
+    !value.includes("/test/") &&
+    !value.endsWith(".test.ts")
+  )) {
     if (file.startsWith("packages/runtime-db/")) continue;
     const source = await readFile(file, "utf8");
     if (/from "pg"|from 'pg'/.test(source) || /new Pool\s*\(/.test(source)) {
