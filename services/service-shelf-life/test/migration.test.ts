@@ -62,6 +62,29 @@ describe("shelf-life migration", () => {
     }
   });
 
+
+  it("seeds a generic fallback for every storage/opened state", async () => {
+    const q = await pool.query(
+      "select storage,opened,min_days,target_days,max_days from shelf_life_domain.rules where product_category is null order by storage,opened",
+    );
+    assert.equal(q.rowCount, 10);
+    assert.deepEqual(
+      q.rows,
+      [
+        { storage: "CELLAR", opened: false, min_days: 14, target_days: 30, max_days: 60 },
+        { storage: "CELLAR", opened: true, min_days: 7, target_days: 14, max_days: 21 },
+        { storage: "FREEZER", opened: false, min_days: 90, target_days: 135, max_days: 180 },
+        { storage: "FREEZER", opened: true, min_days: 30, target_days: 60, max_days: 90 },
+        { storage: "FRIDGE", opened: false, min_days: 7, target_days: 14, max_days: 21 },
+        { storage: "FRIDGE", opened: true, min_days: 2, target_days: 4, max_days: 7 },
+        { storage: "OTHER", opened: false, min_days: 14, target_days: 30, max_days: 60 },
+        { storage: "OTHER", opened: true, min_days: 7, target_days: 14, max_days: 21 },
+        { storage: "PANTRY", opened: false, min_days: 30, target_days: 60, max_days: 90 },
+        { storage: "PANTRY", opened: true, min_days: 7, target_days: 14, max_days: 21 },
+      ],
+    );
+  });
+
   it("seeds the confectionery profile", async () => {
     const q = await pool.query(
       "select product_category,storage,opened,min_days,target_days,max_days from shelf_life_domain.rules where product_category='confectionery-candy' and storage='PANTRY' and opened=false",
