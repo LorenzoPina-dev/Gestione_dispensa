@@ -15,7 +15,8 @@
     "test:integration": "node --import tsx --test test/integration.test.ts"
   },
   "dependencies": {
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "redis": "^6.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
