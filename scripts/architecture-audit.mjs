@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 
 const canonical = [
   ["service-identity", 3310],
@@ -27,6 +27,18 @@ const data = await readFile("docs/DATA.md", "utf8");
 const servicesDoc = await readFile("docs/SERVICES.md", "utf8");
 const architectureDoc = await readFile("docs/ARCHITECTURE.md", "utf8");
 const failures = [];
+
+async function listFiles(root) {
+  const entries = await readdir(root, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const path = root + "/" + entry.name;
+    if (entry.isDirectory()) files.push(...await listFiles(path));
+    else files.push(path);
+  }
+  return files;
+}
+
 
 function hasComposeService(name) {
   return new RegExp("^  " + name.replace(/[.*+?^(){}|[\]\\]/g, "\\$&") + ":\\s*$", "m").test(compose);
@@ -117,6 +129,55 @@ if (!servicesDoc.includes("database isolation") && !servicesDoc.includes("Databa
 if (!architectureDoc.includes("database-per-service")) {
   failures.push("ARCHITECTURE.md is missing database-per-service rule");
 }
+
+
+for (const service of sqlMigrationServices) {
+  const packageJson = JSON.parse(await readFile("services/" + service + "/package.json", "utf8"));
+  if (!packageJson.dependencies?.["@gestione-dispensa/runtime-db"]) {
+    failures.push(service + ": runtime-db dependency is missing");
+  }
+  try {
+    const securityMigration = await readFile("services/" + service + "/migrations/999_security.sql", "utf8");
+    if (!/ENABLE ROW LEVEL SECURITY/i.test(securityMigration)) {
+      failures.push(service + ": security migration does not enable RLS");
+    }
+  } catch {
+    failures.push(service + ": missing migrations/999_security.sql");
+  }
+}
+
+for (const root of ["services", "packages"]) {
+  let files = [];
+  try { files = await listFiles(root); } catch {}
+  for (const file of files.filter((value) => value.endsWith(".ts"))) {
+    if (file.startsWith("packages/runtime-db/")) continue;
+    const source = await readFile(file, "utf8");
+    if (/from "pg"|from 'pg'/.test(source) || /new Pool\s*\(/.test(source)) {
+      failures.push("direct postgres client usage outside runtime-db: " + file);
+    }
+  }
+}
+
+for (const [name] of canonical) {
+  if (name === "off-lookup") continue;
+  const block = composeBlock(name);
+  if (!/DATABASE_URL:\s*["']?postgres:\/\/[^\n]*_app:/.test(block)) {
+    failures.push(name + ": runtime DATABASE_URL must use the service app role");
+  }
+  if (!/MIGRATION_DATABASE_URL:\s*["']?postgres:\/\//.test(block)) {
+    failures.push(name + ": migration role URL is missing");
+  }
+}
+
+const keycloakBlock = composeBlock("keycloak");
+if (/start-dev\b/.test(keycloakBlock)) failures.push("Keycloak dev mode must not be used");
+if (/KC_DB:\s*dev-file/.test(keycloakBlock)) failures.push("Keycloak must use PostgreSQL, not dev-file storage");
+if (/KC_BOOTSTRAP_ADMIN_PASSWORD:\s*admin\b/.test(keycloakBlock)) failures.push("Keycloak bootstrap password must not be hardcoded");
+if (compose.includes("  keycloak_db:")) failures.push("obsolete keycloak_db Docker volume must be absent");
+const minioBlock = composeBlock("minio");
+if (/image:\s*[^\n]+:latest\b/.test(minioBlock)) failures.push("MinIO image must be pinned");
+if (/MINIO_ROOT_PASSWORD:\s*miniochange\b/.test(minioBlock)) failures.push("MinIO root password must not be hardcoded");
+
 
 for (const service of sqlMigrationServices) {
   const docker = await readFile("services/" + service + "/Dockerfile", "utf8");
