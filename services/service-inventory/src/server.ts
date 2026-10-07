@@ -494,11 +494,24 @@ const server = createServer(async (req, res) => {
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
         const beforeReorder = await readReorderState(client, ctx.familyId, String(body.productId));
         const candidateId = randomUUID();
+        const declaredExpiry = body.expiresAt ? new Date(String(body.expiresAt)) : null;
+        // A declared expiration represents a concrete batch. When there is no lot
+        // code, create an internal lot id so two packages of the same product with
+        // different expiration dates cannot be merged into one pantry row.
+        const lotId = declaredExpiry ? candidateId : null;
+        if (lotId) {
+          await client.query(
+            `INSERT INTO pantry_lots
+              (id,family_id,product_id,lot_code,received_at,best_before_at,created_at,updated_at)
+             VALUES($1,$2,$3,$4,now(),$5,now(),now())`,
+            [lotId, ctx.familyId, String(body.productId), body.lotCode ?? null, declaredExpiry],
+          );
+        }
         const savedInsert = await client.query(
           `INSERT INTO pantry_items(
-             id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at
+             id,family_id,product_id,lot_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at
            )
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now())
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now(),now())
            ON CONFLICT (family_id, product_id, unit, location, lot_id, lot_code) DO UPDATE SET
              quantity = pantry_items.quantity + EXCLUDED.quantity,
              opened_at = COALESCE(pantry_items.opened_at, EXCLUDED.opened_at),
@@ -509,7 +522,7 @@ const server = createServer(async (req, res) => {
              END,
              expiration_source = CASE
                WHEN pantry_items.expiration_source = 'declared' THEN 'declared'
-               WHEN EXCLUDED.expiration_source = 'declared' THEN 'declared'
+               WHEN EXCLUDED.expiration_source = 'declared' THEN EXCLUDED.expiration_source
                ELSE COALESCE(pantry_items.expiration_source, EXCLUDED.expiration_source)
              END,
              updated_at = now(),
@@ -518,6 +531,8 @@ const server = createServer(async (req, res) => {
           [
             candidateId,
             ctx.familyId,
+            String(body.productId),
+            lotId,
             String(body.productId),
             quantity,
             String(body.unit),
