@@ -173,11 +173,7 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
               ...fallback,
               name: cached.name.trim() || undefined,
               brand: cached.brand?.trim() || undefined,
-              imageUrl: cached.imageObjectKey
-                ?? cached.images?.front
-                ?? cached.images?.frontSmall
-                ?? cached.images?.frontThumb
-                ?? undefined,
+              imageUrl: cached.imageObjectKey ?? undefined,
               packageLabel: cached.package?.label?.trim() || undefined,
               packageValue: cached.package?.value ?? undefined,
               packageUnit: cached.package?.unit?.trim() || undefined,
