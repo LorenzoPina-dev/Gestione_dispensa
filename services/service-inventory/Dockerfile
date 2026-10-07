@@ -21,4 +21,4 @@ COPY --from=build /app/services/service-inventory/migrations ./migrations
 COPY services/service-inventory/docker-entrypoint.sh ./docker-entrypoint.sh
 USER node
 EXPOSE 3312
-CMD ["./docker-entrypoint.sh"]
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]

@@ -24,4 +24,4 @@ COPY --from=build /app/services/service-privacy/migrations ./migrations
 COPY services/service-privacy/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3316
-CMD ["./docker-entrypoint.sh"]
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]
