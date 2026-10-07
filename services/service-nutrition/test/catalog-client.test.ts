@@ -24,7 +24,7 @@ describe("nutrition catalog boundary",()=>{
   before(()=>{mode="ok";});
   it("maps the documented catalog nutrition DTO",async()=>{
     const x=await loadNutritionSnapshot(baseUrl,undefined,"00000000-0000-4000-8000-000000000001");
-    assert.deepEqual(x,{caloriesKcalPer100g:62,proteinGPer100g:3.2,carbsGPer100g:4.8,fatGPer100g:3.5,fiberGPer100g:0,source:"manual",sourceProductVersion:3});
+    assert.deepEqual(x,{productName:"00000000-0000-4000-8000-000000000001",brand:null,caloriesKcalPer100g:62,proteinGPer100g:3.2,carbsGPer100g:4.8,fatGPer100g:3.5,fiberGPer100g:0,source:"manual",sourceProductVersion:3,confidence:"CONFIRMED",packageQuantityValue:null,packageQuantityUnit:null});
   });
   it("maps catalog 404 to no snapshot",async()=>{mode="404"; assert.equal(await loadNutritionSnapshot(baseUrl,undefined,"missing"),null);});
   it("does not hide catalog failures",async()=>{mode="500"; await assert.rejects(()=>loadNutritionSnapshot(baseUrl,undefined,"x"),/HTTP 500/);});
