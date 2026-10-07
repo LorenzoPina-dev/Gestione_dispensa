@@ -15,7 +15,7 @@ function csv(text) {
   const out=[], row=[]; let current=row, field="", quoted=false;
   for(let i=0;i<text.length;i++){const c=text[i];
     if(c==='"'){if(quoted&&text[i+1]==='"'){field+='"';i++;}else quoted=!quoted;}
-    else if(c===','&&!quoted){current.push(field);field="";}
+    else if(c===delimiter&&!quoted){current.push(field);field="";}
     else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;current.push(field);field="";if(current.some(x=>x.trim()))out.push(current.splice(0));}
     else field+=c;
   }
