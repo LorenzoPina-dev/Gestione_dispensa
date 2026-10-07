@@ -1,21 +1,24 @@
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY tsconfig.base.json ./tsconfig.base.json
-COPY services/service-inventory/package.json ./services/service-inventory/package.json
-COPY services/service-inventory/tsconfig.json ./services/service-inventory/tsconfig.json
+COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
+COPY packages/runtime-db/package.json packages/runtime-db/tsconfig.json ./packages/runtime-db/
+COPY packages/runtime-db/src ./packages/runtime-db/src
+COPY services/service-inventory/package.json services/service-inventory/tsconfig.json ./services/service-inventory/
 COPY services/service-inventory/src ./services/service-inventory/src
 COPY services/service-inventory/migrations ./services/service-inventory/migrations
-WORKDIR /app/services/service-inventory
 RUN npm install
-RUN npm run build
+RUN npm --workspace @gestione-dispensa/runtime-db run build
+RUN npm --workspace @gestione-dispensa/service-inventory run build
+RUN npm prune --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY services/service-inventory/package.json ./package.json
-RUN npm install --omit=dev --ignore-scripts
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages ./packages
 COPY --from=build /app/services/service-inventory/dist ./dist
 COPY --from=build /app/services/service-inventory/migrations ./migrations
 COPY services/service-inventory/docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
+USER node
+EXPOSE 3312
 CMD ["./docker-entrypoint.sh"]
