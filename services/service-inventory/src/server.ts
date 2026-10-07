@@ -460,6 +460,7 @@ const server = createServer(async (req, res) => {
         await event(client, "PantryItemUpdated", itemMatch[1], ctx, {
           itemId: itemMatch[1],
           productId: String(row.product_id),
+          actorUserId: ctx.userId,
           item: output.data,
         });
         await finish(client, key, 200, output);
