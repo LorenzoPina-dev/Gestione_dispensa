@@ -279,20 +279,21 @@ services:
       SERVICE_NAME: service-identity
       DATABASE_URL: "postgres://identity_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/identity_db"
       MIGRATION_DATABASE_URL: "postgres://identity:identity@postgres:5432/identity_db"
+      MIGRATION_DATABASE_URL: "postgres://identity:identity@postgres:5432/identity_db"
       KEYCLOAK_INTERNAL_URL: "http://keycloak:8080"
       KEYCLOAK_REALM: dispensa
       # Credenziali admin Keycloak (le stesse di KC_BOOTSTRAP_ADMIN_*), usate solo dal backend per creare utenti.
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
       OIDC_ISSUER: "https://${LAN_HOST:-localhost}:8443/realms/dispensa"
-    depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
+    depends_on: { postgres-app-role-init: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
 
   service-family:
     build: { context: ., dockerfile: services/service-family/Dockerfile }
-    environment: { PORT: 3311, SERVICE_NAME: service-family, DATABASE_URL: "postgres://family_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/family_db", OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318" }
+    environment: { PORT: 3311, SERVICE_NAME: service-family, DATABASE_URL: "postgres://family_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/family_db", OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318", MIGRATION_DATABASE_URL: "postgres://family:family@postgres:5432/family_db" }
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -305,6 +306,7 @@ services:
       SERVICE_NAME: service-inventory
       DATABASE_URL: "postgres://inventory_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/inventory_db"
       MIGRATION_DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
+      MIGRATION_DATABASE_URL: "postgres://inventory:inventory@postgres:5432/inventory_db"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
       REDIS_URL: "redis://redis:6379"
     depends_on:
@@ -316,7 +318,7 @@ services:
 
   service-shopping:
     build: { context: ., dockerfile: services/service-shopping/Dockerfile }
-    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shopping_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
+    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shopping_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", MIGRATION_DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db" }
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -329,13 +331,14 @@ services:
       SERVICE_NAME: service-catalog
       DATABASE_URL: "postgres://catalog_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/catalog_db"
       MIGRATION_DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
+      MIGRATION_DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
       <<: *oidc-env
       OFF_LOOKUP_BASE_URL: "http://off-lookup:3200"
       OFF_LOOKUP_TIMEOUT_MS: "2500"
       OFF_LOOKUP_SEARCH_TIMEOUT_MS: "9000"
       OFF_LOOKUP_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
-    depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
+    depends_on: { postgres-app-role-init: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
     # Readiness includes PostgreSQL and OIDC discovery. Liveness remains available during bootstrap.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -348,7 +351,7 @@ services:
 
   service-notifications:
     build: { context: ., dockerfile: services/service-notifications/Dockerfile }
-    environment: { PORT: 3315, SERVICE_NAME: service-notifications, DATABASE_URL: "postgres://notifications_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/notifications_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
+    environment: { PORT: 3315, SERVICE_NAME: service-notifications, DATABASE_URL: "postgres://notifications_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/notifications_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", MIGRATION_DATABASE_URL: "postgres://notifications:notifications@postgres:5432/notifications_db" }
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -356,23 +359,23 @@ services:
 
   service-privacy:
     build: { context: ., dockerfile: services/service-privacy/Dockerfile }
-    environment: { <<: *oidc-env, PORT: 3316, SERVICE_NAME: service-privacy, DATABASE_URL: "postgres://privacy_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/privacy_db", JOBS_SERVICE_BASE_URL: "http://service-jobs:3317/api/v1", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}" }
-    depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
+    environment: { <<: *oidc-env, PORT: 3316, SERVICE_NAME: service-privacy, DATABASE_URL: "postgres://privacy_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/privacy_db", JOBS_SERVICE_BASE_URL: "http://service-jobs:3317/api/v1", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", MIGRATION_DATABASE_URL: "postgres://privacy:privacy@postgres:5432/privacy_db" }
+    depends_on: { postgres-app-role-init: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
 
   service-jobs:
     build: { context: ., dockerfile: services/service-jobs/Dockerfile }
-    environment: { <<: *oidc-env, PORT: 3317, SERVICE_NAME: service-jobs, DATABASE_URL: "postgres://jobs_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/jobs_db", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}" }
-    depends_on: { postgres: { condition: service_healthy }, keycloak: { condition: service_healthy } }
+    environment: { <<: *oidc-env, PORT: 3317, SERVICE_NAME: service-jobs, DATABASE_URL: "postgres://jobs_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/jobs_db", INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", MIGRATION_DATABASE_URL: "postgres://jobs:jobs@postgres:5432/jobs_db" }
+    depends_on: { postgres-app-role-init: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
 
   service-recipes:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
-    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1" }
+    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", MIGRATION_DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -380,7 +383,7 @@ services:
 
   service-nutrition:
     build: { context: ., dockerfile: services/service-nutrition/Dockerfile }
-    environment: { PORT: 3402, SERVICE_NAME: service-nutrition, DATABASE_URL: "postgres://nutrition_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/nutrition_db", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1", CATALOG_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", REDIS_URL: "redis://redis:6379" }
+    environment: { PORT: 3402, SERVICE_NAME: service-nutrition, DATABASE_URL: "postgres://nutrition_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/nutrition_db", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1", CATALOG_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", REDIS_URL: "redis://redis:6379", MIGRATION_DATABASE_URL: "postgres://nutrition:nutrition@postgres:5432/nutrition_db" }
     depends_on:
       postgres-app-role-init: { condition: service_completed_successfully }
       service-catalog: { condition: service_healthy }
@@ -391,7 +394,7 @@ services:
 
   service-stores:
     build: { context: ., dockerfile: services/service-stores/Dockerfile }
-    environment: { PORT: 3403, SERVICE_NAME: service-stores, DATABASE_URL: "postgres://stores_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/stores_db" }
+    environment: { PORT: 3403, SERVICE_NAME: service-stores, DATABASE_URL: "postgres://stores_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/stores_db", MIGRATION_DATABASE_URL: "postgres://stores:stores@postgres:5432/stores_db" }
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
@@ -403,6 +406,7 @@ services:
       PORT: 3404
       SERVICE_NAME: service-shelf-life
       DATABASE_URL: "postgres://shelf_life_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shelf_life_db"
+      MIGRATION_DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
       MIGRATION_DATABASE_URL: "postgres://shelf_life:shelf_life@postgres:5432/shelf_life_db"
       REDIS_URL: "redis://redis:6379"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
@@ -648,6 +652,7 @@ services:
       PORT: 3405
       SERVICE_NAME: service-ocr
       DATABASE_URL: "postgres://ocr_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/ocr_db"
+      MIGRATION_DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
       MIGRATION_DATABASE_URL: "postgres://ocr:ocr@postgres:5432/ocr_db"
       REDIS_URL: "redis://redis:6379"
       MINIO_ENDPOINT: "http://minio:9000"
