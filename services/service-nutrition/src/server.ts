@@ -88,6 +88,10 @@ function toEventPayload(payload: unknown): unknown {
   return payload;
 }
 
+function isDiaryUnit(value: string): boolean {
+  return value === "g" || value === "kg" || value === "ml" || value === "l" || value === "piece" || value === "pack";
+}
+
 type DomainEvent = {
   eventId: string;
   eventType: string;
