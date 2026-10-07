@@ -123,7 +123,7 @@ async function consumeInventoryEvents(): Promise<void> {
         try {
           const raw = message.message.event;
           const event = JSON.parse(String(raw)) as DomainEvent;
-          if (event.eventType !== "PantryItemConsumed") {
+          if (event.eventType !== "inventory.stock.consumed.v1") {
             await eventRedis.xAck(eventStream, eventGroup, message.id);
             continue;
           }
@@ -135,7 +135,7 @@ async function consumeInventoryEvents(): Promise<void> {
           const unit = typeof payload.unit === "string" ? payload.unit : "";
           const movementId = typeof payload.movementId === "string" ? payload.movementId : "";
           if (!event.eventId || !userId || !productId || !Number.isFinite(quantity) || quantity <= 0 || !isDiaryUnit(unit) || !movementId) {
-            throw new Error("Invalid PantryItemConsumed event payload.");
+            throw new Error("Invalid inventory.stock.consumed.v1 event payload.");
           }
 
           const client = await pool.connect();
