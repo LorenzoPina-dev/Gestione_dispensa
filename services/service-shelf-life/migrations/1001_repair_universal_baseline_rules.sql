@@ -16,7 +16,12 @@ VALUES
   (NULL, 'CELLAR', true, 7, 14, 21, 'baseline-v1', true),
   (NULL, 'OTHER', false, 14, 30, 60, 'baseline-v1', true),
   (NULL, 'OTHER', true, 7, 14, 21, 'baseline-v1', true)
-ON CONFLICT DO NOTHING;
+ON CONFLICT DO UPDATE SET
+  min_days = EXCLUDED.min_days,
+  target_days = EXCLUDED.target_days,
+  max_days = EXCLUDED.max_days,
+  active = true,
+  updated_at = now();
 
 -- Repair target_days on legacy baseline rows created before target_days existed.
 UPDATE shelf_life_domain.rules
