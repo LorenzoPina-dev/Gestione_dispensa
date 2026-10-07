@@ -14,11 +14,11 @@ COPY services/service-jobs/src ./services/service-jobs/src
 COPY services/service-jobs/migrations ./services/service-jobs/migrations
 RUN npm install
 RUN npm --workspace @gestione-dispensa/runtime-auth run build
-RUN npm prune --omit=dev
 RUN npm --workspace @gestione-dispensa/runtime-db run build
 RUN npm --workspace @gestione-dispensa/observability run build
 RUN npm --workspace @gestione-dispensa/worker-core run build
 RUN npm --workspace @gestione-dispensa/service-jobs run build
+RUN npm prune --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app
