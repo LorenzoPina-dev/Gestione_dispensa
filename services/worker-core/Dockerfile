@@ -4,11 +4,14 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY packages/observability/package.json packages/observability/tsconfig.json ./packages/observability/
 COPY packages/observability/src ./packages/observability/src
+COPY packages/runtime-db/package.json packages/runtime-db/tsconfig.json ./packages/runtime-db/
+COPY packages/runtime-db/src ./packages/runtime-db/src
 COPY services/worker-core/package.json services/worker-core/tsconfig.json ./services/worker-core/
 COPY services/worker-core/src ./services/worker-core/src
 
 RUN npm install
 RUN npm --workspace @gestione-dispensa/observability run build
+RUN npm --workspace @gestione-dispensa/runtime-db run build
 RUN npm --workspace @gestione-dispensa/worker-core run build
 
 FROM node:22-alpine
@@ -21,6 +24,7 @@ COPY services/worker-core/package.json ./services/worker-core/
 RUN npm install --workspace @gestione-dispensa/worker-core --omit=dev --ignore-scripts
 
 COPY --from=build /app/packages/observability/dist ./packages/observability/dist
+COPY --from=build /app/packages/runtime-db/dist ./packages/runtime-db/dist
 COPY --from=build /app/services/worker-core/dist ./services/worker-core/dist
 
 USER node
