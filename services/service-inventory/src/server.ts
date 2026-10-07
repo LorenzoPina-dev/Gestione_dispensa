@@ -390,7 +390,6 @@ const server = createServer(async (req, res) => {
         const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
         await finish(client, key, 201, output);
         await client.query("COMMIT");
-        void queueShelfLifePrediction(ctx, { id, productId: String(body.productId), location: body.location == null ? null : String(body.location), expiresAt: joined.rows[0].expires_at, addedAt: joined.rows[0].added_at, openedAt: joined.rows[0].opened_at }, req.headers.authorization ? String(req.headers.authorization) : undefined);
         return send(res, 201, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     }
@@ -463,7 +462,6 @@ const server = createServer(async (req, res) => {
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         if (body.expiresAt !== undefined || body.openedAt !== undefined) {
-          void queueShelfLifePrediction(ctx, { id: String(updated.id), productId: String(updated.product_id), location: updated.location == null ? null : String(updated.location), expiresAt: updated.expires_at, addedAt: updated.added_at, openedAt: updated.opened_at }, req.headers.authorization ? String(req.headers.authorization) : undefined, true);
         }
         return send(res, 200, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
@@ -508,50 +506,6 @@ const server = createServer(async (req, res) => {
         await finish(client, key, 200, output);
         await client.query("COMMIT");
 
-        // Nutrition is a separate bounded context/database. The inventory transaction is
-        // already committed before this call, so a nutrition outage can never roll back a
-        // successful stock consumption. The movement UUID is used as the idempotency key,
-        // making retries safe.
-        try {
-          const authorization = req.headers.authorization ? String(req.headers.authorization) : undefined;
-          const nutritionResponse = await fetch(nutritionServiceBaseUrl + "/nutrition/diary", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-user-id": ctx.userId,
-              "x-family-id": ctx.familyId,
-              "x-idempotency-key": "inventory-consumption:" + movementId,
-              ...(authorization ? { authorization } : {}),
-            },
-            body: JSON.stringify({
-              date: new Date().toISOString().slice(0, 10),
-              meal: "other",
-              productId: String(row.product_id),
-              quantity: Number(quantity),
-              unit: String(row.unit),
-              source: "inventory",
-              sourceMovementId: movementId,
-            }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (!nutritionResponse.ok) {
-            console.warn(JSON.stringify({
-              service,
-              event: "nutrition_record_failed",
-              movementId,
-              productId: String(row.product_id),
-              status: nutritionResponse.status,
-            }));
-          }
-        } catch (error) {
-          console.warn(JSON.stringify({
-            service,
-            event: "nutrition_record_unavailable",
-            movementId,
-            productId: String(row.product_id),
-            error: error instanceof Error ? error.message : String(error),
-          }));
-        }
 
         return send(res, 200, output, ctx.requestId);
       } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
