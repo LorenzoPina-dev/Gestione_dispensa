@@ -136,6 +136,7 @@ services:
       POSTGRES_USER: dispensa
       PGPASSWORD: "${POSTGRES_PASSWORD:-dispensa}"
       POSTGRES_APP_PASSWORD: "${POSTGRES_APP_PASSWORD:-change-me-app-local-only}"
+      KEYCLOAK_DB_PASSWORD: "${KEYCLOAK_DB_PASSWORD:-change-me-keycloak-local-only}"
     command:
       - sh
       - -ceu
@@ -150,7 +151,7 @@ services:
           fi
         done
         if ! psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'keycloak'" | grep -q 1; then
-          psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "CREATE ROLE keycloak LOGIN PASSWORD 'keycloak';"
+          psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "CREATE ROLE keycloak LOGIN PASSWORD '$KEYCLOAK_DB_PASSWORD';"
         fi
         if ! psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'keycloak_db'" | grep -q 1; then
           psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c "CREATE DATABASE keycloak_db OWNER keycloak;"
@@ -258,7 +259,7 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: keycloak
+      KC_DB_PASSWORD: "${KEYCLOAK_DB_PASSWORD:-change-me-keycloak-local-only}"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       # URL pubblico fisso: l'`iss` dei token è sempre quello, qualunque Host arrivi da nginx.
@@ -266,9 +267,7 @@ services:
       KC_HOSTNAME_STRICT: "false"
     volumes:
       - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-      # Persiste gli utenti (H2 dev-file). Va montato su /opt/keycloak/data (esiste nell'immagine ed è dell'utente
-      # keycloak): montarlo su .../data/h2 lo crea di proprietà root e H2 non riesce a scrivere.
-      - keycloak_db:/opt/keycloak/data
+      # Keycloak usa PostgreSQL come datastore persistente; il file di realm è importato al bootstrap.
     healthcheck: { test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r line <&3; case \"$$line\" in *' 200 '*) exit 0;; *) exit 1;; esac"], interval: 10s, timeout: 5s, retries: 30, start_period: 60s }
     restart: unless-stopped
     networks: [backend]
