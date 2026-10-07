@@ -22,6 +22,3 @@ WHERE product_details_snapshot IS NULL
   AND openfoodfacts_raw IS NOT NULL;
 
 ALTER TABLE products DROP COLUMN IF EXISTS openfoodfacts_raw;
-
-INSERT INTO schema_migrations(version) VALUES ('007_curated_product_details_snapshot')
-ON CONFLICT DO NOTHING;
