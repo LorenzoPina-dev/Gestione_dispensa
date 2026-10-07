@@ -8,6 +8,7 @@ COPY packages/runtime-db/src ./packages/runtime-db/src
 COPY services/service-privacy/package.json services/service-privacy/tsconfig.json ./services/service-privacy/
 RUN npm install
 RUN npm --workspace @gestione-dispensa/runtime-auth run build
+RUN npm prune --omit=dev
 RUN npm --workspace @gestione-dispensa/runtime-db run build
 COPY services/service-privacy/src ./services/service-privacy/src
 COPY services/service-privacy/migrations ./services/service-privacy/migrations
