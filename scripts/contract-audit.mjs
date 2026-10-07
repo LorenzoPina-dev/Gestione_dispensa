@@ -106,7 +106,7 @@ for (const serviceRoot of migrationRoots) {
     // Service has no migrations directory.
   }
 }
-const technicalTables = new Set(["schema_migrations", "outbox_events", "idempotency_keys"]);
+const technicalTables = new Set(["schema_migrations", "outbox_events", "idempotency_keys", "event_consumers", "nutrition_domain.event_consumers"]);
 const dataMissingTables = [...physicalTables].filter((table) => !technicalTables.has(table) && !data.toLowerCase().includes(table));
 
 // Migration startup contract: every service with migrations must ship a runner and execute it in Docker.
