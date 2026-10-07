@@ -152,57 +152,37 @@ export function useShoppingSuggestions({ familyId, open, tab, stock, list }: Arg
 
     const run = key === "REORDER"
       ? api.listReorderSuggestions(familyId).then(async ({ suggestions }) => {
-          const enriched = await Promise.all(
-            suggestions.map(async (item) => {
-              const fallback = {
-                suggestionId: item.suggestionId,
-                productId: item.productId,
-                quantity: item.quantity,
-                unit: item.unit,
-                reorderPoint: item.reorderPoint,
-              };
-
-              const cached = catalogCache.current.get(item.productId);
-              if (cached) {
-                return {
-                  ...fallback,
-                  name: cached.name.trim() || undefined,
-                  brand: cached.brand?.trim() || undefined,
-                  imageUrl: cached.imageObjectKey
-                    ?? cached.images?.front
-                    ?? cached.images?.frontSmall
-                    ?? cached.images?.frontThumb
-                    ?? undefined,
-                  packageLabel: cached.package?.label?.trim() || undefined,
-                  packageValue: cached.package?.value ?? undefined,
-                  packageUnit: cached.package?.unit?.trim() || undefined,
-                };
-              }
-
-              try {
-                const product = await api.getCatalogProduct(item.productId, controller.signal);
-                catalogCache.current.set(item.productId, product);
-                return {
-                  ...fallback,
-                  name: product.name.trim() || undefined,
-                  brand: product.brand?.trim() || undefined,
-                  imageUrl: product.imageObjectKey
-                    ?? product.images?.front
-                    ?? product.images?.frontSmall
-                    ?? product.images?.frontThumb
-                    ?? undefined,
-                  packageLabel: product.package?.label?.trim() || undefined,
-                  packageValue: product.package?.value ?? undefined,
-                  packageUnit: product.package?.unit?.trim() || undefined,
-                };
-              } catch (error) {
-                if (controller.signal.aborted) throw error;
-                // The reorder record is still valid when Catalog is temporarily unavailable.
-                // Keep the suggestion visible with its deterministic product-id fallback.
-                return fallback;
-              }
-            }),
+          const products = await api.getCatalogProductsBatch(
+            suggestions.map((item) => item.productId),
+            controller.signal,
           );
+          const byId = new Map(products.map((product) => [product.id, product]));
+          for (const product of products) catalogCache.current.set(product.id, product);
+
+          const enriched = suggestions.map((item) => {
+            const fallback = {
+              suggestionId: item.suggestionId,
+              productId: item.productId,
+              quantity: item.quantity,
+              unit: item.unit,
+              reorderPoint: item.reorderPoint,
+            };
+            const cached = byId.get(item.productId);
+            if (!cached) return fallback;
+            return {
+              ...fallback,
+              name: cached.name.trim() || undefined,
+              brand: cached.brand?.trim() || undefined,
+              imageUrl: cached.imageObjectKey
+                ?? cached.images?.front
+                ?? cached.images?.frontSmall
+                ?? cached.images?.frontThumb
+                ?? undefined,
+              packageLabel: cached.package?.label?.trim() || undefined,
+              packageValue: cached.package?.value ?? undefined,
+              packageUnit: cached.package?.unit?.trim() || undefined,
+            };
+          });
 
           if (!controller.signal.aborted) setRemoteReorder(enriched);
         })
