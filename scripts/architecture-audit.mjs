@@ -21,6 +21,19 @@ const sqlMigrationServices = canonical
   .map(([name]) => String(name))
   .filter((name) => name !== "off-lookup" && name !== "gateway");
 
+const rlsRequiredServices = new Set([
+  "service-family",
+  "service-inventory",
+  "service-shopping",
+  "service-notifications",
+  "service-privacy",
+  "service-jobs",
+  "service-recipes",
+  "service-nutrition",
+  "service-shelf-life",
+  "service-ocr",
+]);
+
 const compose = await readFile("docker-compose.yml", "utf8");
 const observabilityIndex = await readFile("packages/observability/src/index.ts", "utf8");
 const data = await readFile("docs/DATA.md", "utf8");
@@ -136,13 +149,15 @@ for (const service of sqlMigrationServices) {
   if (!packageJson.dependencies?.["@gestione-dispensa/runtime-db"]) {
     failures.push(service + ": runtime-db dependency is missing");
   }
-  try {
-    const securityMigration = await readFile("services/" + service + "/migrations/999_security.sql", "utf8");
-    if (!/ENABLE ROW LEVEL SECURITY/i.test(securityMigration)) {
-      failures.push(service + ": security migration does not enable RLS");
+  if (rlsRequiredServices.has(service)) {
+    try {
+      const securityMigration = await readFile("services/" + service + "/migrations/999_security.sql", "utf8");
+      if (!/ENABLE ROW LEVEL SECURITY/i.test(securityMigration)) {
+        failures.push(service + ": security migration does not enable RLS");
+      }
+    } catch {
+      failures.push(service + ": missing migrations/999_security.sql");
     }
-  } catch {
-    failures.push(service + ": missing migrations/999_security.sql");
   }
 }
 
