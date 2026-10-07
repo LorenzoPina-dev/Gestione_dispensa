@@ -1,8 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Pool } from "pg";
+import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = createContextAwarePool({ connectionString: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL });;
 const migrationsDir = join(process.cwd(), "migrations");
 
 async function main(): Promise<void> {
