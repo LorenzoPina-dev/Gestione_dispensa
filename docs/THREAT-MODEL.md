@@ -20,7 +20,7 @@ Il modello usa STRIDE per i flussi principali e considera un deployment domestic
 1. browser -> gateway;
 2. gateway -> API;
 3. API -> database/cache/object storage;
-4. producer -> broker -> consumer;
+4. producer -> Redis Streams -> consumer;
 5. servizio -> provider esterno;
 6. control plane -> runtime/container;
 7. tenant household -> tenant retailer/backoffice;
@@ -34,7 +34,7 @@ Ogni boundary ha autenticazione, autorizzazione, validazione, timeout, audit o c
 | ID | Minaccia | Superficie | Controlli principali | Evidenza |
 |---|---|---|---|---|
 | T-001 | furto sessione/token | browser/gateway | OIDC PKCE, HttpOnly Secure cookie, CSP, revoca, MFA privilegiata | auth/security test |
-| T-002 | cross-household access | API/query/events | ABAC, household scope, RLS defense-in-depth, tenant tests | authorization matrix |
+| T-002 | cross-household access | API/query/events | ABAC, family scope, database tenant controls; RLS as defense-in-depth after DB request-context adoption, tenant tests | authorization matrix |
 | T-003 | upload malware | foto/allegati | MIME allowlist, size quota, antivirus, EXIF removal, quarantine | upload test |
 | T-004 | SSRF | provider URL/import | allowlist host, DNS/IP validation, no internal ranges, egress policy | SSRF test |
 | T-005 | prompt injection/data exfiltration | OCR/AI | adapter isolation, content boundary, redaction, no tool access, output validation | AI abuse test |
@@ -81,8 +81,8 @@ Ogni boundary ha autenticazione, autorizzazione, validazione, timeout, audit o c
 
 ### Messaging
 
-- broker non esposto pubblicamente;
-- ACL per producer/consumer e coda;
+- Redis Streams non esposto pubblicamente;
+- ACL/credenziali Redis per producer/consumer e stream isolati per ambiente;
 - schema validation, idempotenza, DLQ e replay autorizzato;
 - nessun payload sensibile non necessario nell'evento;
 - trace context propagato ma non usato come segreto.

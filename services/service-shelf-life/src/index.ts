@@ -1,7 +1,6 @@
 import { isBoolean, isConfidence, isPredictionStatus, isStorage } from "./validation.js";
 import express, { type Request, type Response as ExpressResponse } from "express";
 import { Pool, type PoolClient } from "pg";
-import { createClient } from "redis";
 import crypto from "node:crypto";
 
 const app = express();
@@ -11,9 +10,7 @@ app.use(express.json({ limit: "1mb" }));
 const port = Number(process.env.PORT ?? 3404);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
-const redis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
-const queue = "q:shelf-life-prediction";
 
 type Storage = "PANTRY" | "FRIDGE" | "FREEZER" | "CELLAR" | "OTHER";
 type PredictionStatus = "queued" | "completed" | "applied" | "superseded" | "failed";
@@ -272,22 +269,6 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
     await finishIdempotency(client,req,202,response);
     await client.query("commit");
 
-    try {
-      await redis.connect().catch(() => undefined);
-      if (redis.isOpen) {
-        await redis.lPush(queue,JSON.stringify({data:{
-          predictionId,
-          itemId,
-          productId,
-          storage,
-          opened,
-          category:typeof body.category==="string"?body.category:null,
-          ...(storedOn ? { storedOn } : {}),
-          userId,
-          familyId,
-        }}));
-      }
-    } catch { /* durable queued prediction remains */ }
 
     return res.status(202).json(response);
   } catch (error) {

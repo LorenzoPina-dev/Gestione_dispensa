@@ -22,6 +22,7 @@ const sqlMigrationServices = canonical
   .filter((name) => name !== "off-lookup" && name !== "gateway");
 
 const compose = await readFile("docker-compose.yml", "utf8");
+const observabilityIndex = await readFile("packages/observability/src/index.ts", "utf8");
 const data = await readFile("docs/DATA.md", "utf8");
 const servicesDoc = await readFile("docs/SERVICES.md", "utf8");
 const architectureDoc = await readFile("docs/ARCHITECTURE.md", "utf8");
@@ -124,6 +125,10 @@ for (const service of sqlMigrationServices) {
   }
 }
 
+if (/\bkafka\b/i.test(compose)) failures.push("Kafka must not be enabled: Redis Streams is the canonical event transport");
+if (/q:shelf-life-prediction|lPush\(/i.test(await readFile("services/service-shelf-life/src/index.ts", "utf8"))) failures.push("shelf-life must use durable Outbox -> Redis Stream delivery, not a parallel Redis List queue");
+if (observabilityIndex.trim() !== 'export * from "./service-runtime.js";') failures.push("observability/index.ts must only re-export the canonical service runtime");
+try { await stat("tools/sync-observability.mjs"); failures.push("stale observability copy-sync tool must be absent"); } catch {}
 if (!compose.includes("backend: { internal: true }")) failures.push("backend network must be internal");
 if (!compose.includes("egress:")) failures.push("explicit egress network is missing");
 const offLookupBlock = composeBlock("off-lookup");
