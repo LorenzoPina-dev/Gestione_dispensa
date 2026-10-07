@@ -53,6 +53,50 @@ CREATE POLICY inventory_reorder_policies_scope ON reorder_policies
   USING (family_id = NULLIF(current_setting('app.family_id', true), '')::uuid)
   WITH CHECK (family_id = NULLIF(current_setting('app.family_id', true), '')::uuid);
 
+CREATE TEMP TABLE inventory_duplicate_items AS
+WITH ranked AS (
+  SELECT
+    id,
+    first_value(id) OVER (
+      PARTITION BY family_id, product_id, unit, coalesce(location,''), coalesce(lot_code,'')
+      ORDER BY added_at ASC, created_at ASC, id ASC
+    ) AS keep_id,
+    row_number() OVER (
+      PARTITION BY family_id, product_id, unit, coalesce(location,''), coalesce(lot_code,'')
+      ORDER BY added_at ASC, created_at ASC, id ASC
+    ) AS rn
+  FROM pantry_items
+)
+SELECT id AS duplicate_id, keep_id
+FROM ranked
+WHERE rn > 1;
+
+UPDATE pantry_items keeper
+SET quantity = keeper.quantity + totals.extra_quantity,
+    expires_at = COALESCE(keeper.expires_at, totals.max_expires_at),
+    updated_at = now(),
+    version = keeper.version + 1
+FROM (
+  SELECT d.keep_id,
+         COALESCE(SUM(p.quantity),0) AS extra_quantity,
+         MAX(p.expires_at) AS max_expires_at
+  FROM inventory_duplicate_items d
+  JOIN pantry_items p ON p.id = d.duplicate_id
+  GROUP BY d.keep_id
+) totals
+WHERE keeper.id = totals.keep_id;
+
+UPDATE movements m
+SET pantry_item_id = d.keep_id
+FROM inventory_duplicate_items d
+WHERE m.pantry_item_id = d.duplicate_id;
+
+DELETE FROM pantry_items p
+USING inventory_duplicate_items d
+WHERE p.id = d.duplicate_id;
+
+DROP TABLE inventory_duplicate_items;
+
 CREATE UNIQUE INDEX IF NOT EXISTS pantry_items_identity_idx
   ON pantry_items(
     family_id,
