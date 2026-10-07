@@ -876,7 +876,7 @@ function BarcodeFlow({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => v
         <ResolvedProductInsert
           candidate={candidate}
           code={code}
-          message="Prodotto trovato tramite barcode"
+          message="Prodotto selezionato"
           onAdd={onAdd}
           onCorrect={() => {
             stopCamera();
@@ -1216,13 +1216,15 @@ function ManualForm({ onAdd, onBack }: { onAdd: Props["onAdd"]; onBack: () => vo
 
   if (state === "INSERT" && candidate) {
     return (
-      <ResolvedProductInsert
-        candidate={candidate}
-        code={candidateCode}
-        message="Prodotto selezionato dalla ricerca Open Food Facts"
-        onAdd={onAdd}
-        onCorrect={() => setState("SEARCH")}
-      />
+      <div className="p-4 space-y-5 sm:p-6">
+        <ResolvedProductInsert
+          candidate={candidate}
+          code={candidateCode}
+          message="Prodotto selezionato"
+          onAdd={onAdd}
+          onCorrect={() => setState("SEARCH")}
+        />
+      </div>
     );
   }
 
