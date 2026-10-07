@@ -1,5 +1,5 @@
 import { apiRequest, ApiError, newIdempotencyKey } from "./client";
-import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductImagesDto, ProductUnit, ProductSearchResultDto, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto, StoreDto, StoreOfferDto, CatalogProductRefDto, ReorderSuggestionDto } from "./types";
+import type { ActiveShoppingListDto, AcceptInviteResultDto, CreatedInviteDto, FamilyCreationResultDto, InventoryUnit, JoinAttemptDto, ManagedMembershipDto, MembershipRole, MovementKind, ProductDto, ProductImagesDto, ProductUnit, ProductSearchResultDto, ReadinessDto, ShoppingItemDto, ShoppingItemState, ShoppingSourceType, StockItemDto, RecordMovementResultDto, InviteRole, UserFamilySummaryDto, UserDto, MovementDto, NotificationDto, RecipeDto, RecipeMatchDto, NutritionSummaryDto, BarcodeResolutionDto, StoreDto, StoreOfferDto, CatalogProductRefDto, CatalogProductSummaryDto, ReorderSuggestionDto } from "./types";
 import { isUuid, shoppingSourceToApi } from "./mappers";
 
 export function getReadiness(): Promise<ReadinessDto> { return apiRequest<ReadinessDto>("/health/ready"); }
@@ -350,10 +350,10 @@ export function getCatalogProduct(productId: string, signal?: AbortSignal): Prom
   return apiRequest<CatalogProductRefDto>(`/catalog/products/${productId}`, { signal });
 }
 
-export async function getCatalogProductsBatch(productIds: string[], signal?: AbortSignal): Promise<CatalogProductRefDto[]> {
+export async function getCatalogProductsBatch(productIds: string[], signal?: AbortSignal): Promise<CatalogProductSummaryDto[]> {
   const ids = [...new Set(productIds.filter(Boolean))].slice(0, 100);
   if (ids.length === 0) return [];
-  const result = await apiRequest<{ items: CatalogProductRefDto[] }>("/catalog/products/batch", {
+  const result = await apiRequest<{ items: CatalogProductSummaryDto[] }>("/catalog/products/batch", {
     method: "POST",
     body: { ids },
     signal,
