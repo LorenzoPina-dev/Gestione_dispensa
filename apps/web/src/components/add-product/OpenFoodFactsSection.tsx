@@ -53,12 +53,68 @@ export function OpenFoodFactsSection({ raw, images }: { raw: Record<string, unkn
         </div>
       )}
 
-      <details className="rounded-xl overflow-hidden" style={{ backgroundColor: "#f5f0e8", border: "1px solid #d8cfc0" }}>
-        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Tutti i dati originali Open Food Facts</summary>
-        <pre className="px-4 pb-4 text-[10px] leading-4 overflow-x-auto whitespace-pre-wrap break-words" style={{ color: "#4b4035" }}>
-{JSON.stringify(raw, null, 2)}
-        </pre>
-      </details>
+      <NutritionTable nutriments={isRecord(raw.nutriments) ? raw.nutriments : {}} />
+    </div>
+  );
+}
+
+function NutritionTable({ nutriments }: { nutriments: Record<string, unknown> }) {
+  const rows: Array<{ label: string; keys: string[]; unit: string }> = [
+    { label: "Energia", keys: ["energy-kcal_100g"], unit: "kcal" },
+    { label: "Energia", keys: ["energy-kj_100g"], unit: "kJ" },
+    { label: "Grassi", keys: ["fat_100g"], unit: "g" },
+    { label: "di cui saturi", keys: ["saturated-fat_100g"], unit: "g" },
+    { label: "Carboidrati", keys: ["carbohydrates_100g"], unit: "g" },
+    { label: "di cui zuccheri", keys: ["sugars_100g"], unit: "g" },
+    { label: "Fibre", keys: ["fiber_100g"], unit: "g" },
+    { label: "Proteine", keys: ["proteins_100g"], unit: "g" },
+    { label: "Sale", keys: ["salt_100g"], unit: "g" },
+  ];
+
+  const visible = rows.filter(({ keys }) =>
+    keys.some((key) => nutriments[key] !== undefined && nutriments[key] !== null && nutriments[key] !== ""),
+  );
+
+  if (visible.length === 0) {
+    return (
+      <div className="rounded-xl px-3 py-3 text-xs" style={{ backgroundColor: "#f5f0e8", color: "#6b5e4e" }}>
+        Valori nutrizionali non disponibili.
+      </div>
+    );
+  }
+
+  const seenEnergy = new Set<string>();
+  const uniqueRows = visible.filter((row) => {
+    if (row.label !== "Energia") return true;
+    if (seenEnergy.has(row.label)) return false;
+    seenEnergy.add(row.label);
+    return true;
+  });
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #d8cfc0", backgroundColor: "#fff" }}>
+      <div className="px-4 py-3" style={{ backgroundColor: "#f5f0e8", borderBottom: "1px solid #d8cfc0" }}>
+        <p className="text-xs font-semibold" style={{ color: "#1a1510" }}>Valori nutrizionali</p>
+        <p className="text-[10px] mt-0.5" style={{ color: "#6b5e4e" }}>Valori indicativi per 100 g / 100 ml, quando disponibili.</p>
+      </div>
+      <table className="w-full text-xs">
+        <tbody>
+          {uniqueRows.map(({ label, keys, unit }) => {
+            const key = keys.find((candidate) => nutriments[candidate] !== undefined && nutriments[candidate] !== null && nutriments[candidate] !== "");
+            if (!key) return null;
+            const rawValue = nutriments[key];
+            const value = typeof rawValue === "number"
+              ? Number.isInteger(rawValue) ? String(rawValue) : rawValue.toFixed(2).replace(/0+$/, "").replace(/.$/, "")
+              : String(rawValue);
+            return (
+              <tr key={key} style={{ borderTop: "1px solid #eee7dc" }}>
+                <td className="px-4 py-2.5" style={{ color: "#4b4035" }}>{label}</td>
+                <td className="px-4 py-2.5 text-right font-semibold" style={{ color: "#1a1510" }}>{value} {unit}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
