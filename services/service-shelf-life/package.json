@@ -5,7 +5,8 @@
   "type": "module",
   "dependencies": {
     "express": "^4.21.2",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "@gestione-dispensa/runtime-db": "2.0.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
