@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Pool } from "pg";
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
+const pool = createContextAwarePool({ connectionString: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL });;
 const dir = join(process.cwd(), "migrations");
 const run = async () => {
   await pool.query("CREATE TABLE IF NOT EXISTS schema_migrations(version varchar(128) PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
