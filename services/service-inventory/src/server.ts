@@ -465,8 +465,35 @@ const server = createServer(async (req, res) => {
         if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
         const beforeReorder = await readReorderState(client, ctx.familyId, String(body.productId));
-        const id = randomUUID();
-        await client.query("INSERT INTO pantry_items(id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now())", [id, ctx.familyId, String(body.productId), quantity, String(body.unit), body.location ?? null, body.openedAt == null ? null : new Date(String(body.openedAt)), body.expiresAt ? new Date(String(body.expiresAt)) : null, body.expiresAt ? "declared" : null, body.lotCode ?? null]);
+        const candidateId = randomUUID();
+        const savedInsert = await client.query(
+          `INSERT INTO pantry_items(
+             id,family_id,product_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at
+           )
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),now())
+           ON CONFLICT DO UPDATE SET
+             quantity = pantry_items.quantity + EXCLUDED.quantity,
+             opened_at = COALESCE(pantry_items.opened_at, EXCLUDED.opened_at),
+             expires_at = COALESCE(pantry_items.expires_at, EXCLUDED.expires_at),
+             expiration_source = COALESCE(pantry_items.expiration_source, EXCLUDED.expiration_source),
+             updated_at = now(),
+             version = pantry_items.version + 1
+           RETURNING *`,
+          [
+            candidateId,
+            ctx.familyId,
+            String(body.productId),
+            quantity,
+            String(body.unit),
+            body.location ?? null,
+            body.openedAt == null ? null : new Date(String(body.openedAt)),
+            body.expiresAt ? new Date(String(body.expiresAt)) : null,
+            body.expiresAt ? "declared" : null,
+            body.lotCode ?? null,
+          ],
+        );
+        if (!savedInsert.rowCount) throw new Error("Inventory item upsert returned no row.");
+        const id = String(savedInsert.rows[0].id);
         // Every tracked product has an explicit reorder policy. The default is:
         // reorder when completely exhausted, then buy one unit.
         const reorderPoint = body.reorderPoint === undefined || body.reorderPoint === null ? 0 : Number(body.reorderPoint);
