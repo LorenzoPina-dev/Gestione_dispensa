@@ -16,7 +16,7 @@ import {
   packageCountToStock,
   type Candidate,
 } from "./add-product/model";
-import { OpenFoodFactsSection, formatOffValue, galleryImages, humanizeOffKey, InfoCell, isRecord } from "./add-product/OpenFoodFactsSection";
+import { OpenFoodFactsSection, galleryImages, InfoCell } from "./add-product/OpenFoodFactsSection";
 
 type AddMode = "menu" | "barcode" | "manuale" | "lista";
 type BarcodeState = "IDLE" | "SCANNING" | "LOOKING" | "CANDIDATE" | "MANUAL_REQUIRED" | "NOT_FOUND" | "DEGRADED";
@@ -908,8 +908,6 @@ function ResolvedProductInsert({
 }
 
 function CandidateView({ candidate, code, message, onCorrect, onConfirm }: { candidate: Candidate; code: string; message?: string; onCorrect: () => void; onConfirm: () => void }) {
-  const raw = candidate.openFoodFacts ?? {};
-  const nutriments = isRecord(raw.nutriments) ? raw.nutriments : {};
   const frontImage = candidate.images?.front ?? candidate.photoUrl;
   const imageEntries = galleryImages(candidate.images);
 
@@ -937,18 +935,7 @@ function CandidateView({ candidate, code, message, onCorrect, onConfirm }: { can
           <InfoCell label="Serving" value={candidate.servingQuantity != null ? `${candidate.servingQuantity}${candidate.servingUnit ? ` ${candidate.servingUnit}` : ""}` : candidate.servingSize ?? "—"} />
         </div>
 
-        {Object.keys(nutriments).length > 0 && (
-          <div>
-            <p className="text-xs font-semibold mb-2" style={{ color: "#6b5e4e" }}>Valori nutrizionali Open Food Facts</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {Object.entries(nutriments).slice(0, 18).map(([key, value]) => (
-                <InfoCell key={key} label={humanizeOffKey(key)} value={formatOffValue(value)} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        <OpenFoodFactsSection raw={raw} images={imageEntries} />
+        <OpenFoodFactsSection raw={candidate.openFoodFacts ?? {}} images={imageEntries} />
       </div>
 
       <p className="text-xs" style={{ color: "#6b5e4e" }}>
