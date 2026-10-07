@@ -1,10 +1,16 @@
 import { JobError, type JobHandler } from "./job.js";
 import { JobWorker } from "./worker.js";
-import type { RuntimeObservability } from "@gestione-dispensa/observability";
-
 export interface WorkerSignalSource {
   on(signal: "SIGINT" | "SIGTERM", listener: () => void): void;
   off(signal: "SIGINT" | "SIGTERM", listener: () => void): void;
+}
+
+export interface WorkerLogger {
+  info(event: string, fields?: Record<string, unknown>): void;
+}
+
+export interface WorkerObservability {
+  logger(context: { requestId: string; traceId: string }): WorkerLogger;
 }
 
 export interface WorkerProcessOptions {
@@ -13,7 +19,7 @@ export interface WorkerProcessOptions {
   readonly pollIntervalMs: number;
   readonly sleep?: (delayMs: number) => Promise<void>;
   readonly signals?: WorkerSignalSource;
-  readonly observability?: RuntimeObservability;
+  readonly observability?: WorkerObservability;
 }
 
 export class WorkerProcess {
@@ -22,7 +28,7 @@ export class WorkerProcess {
   private readonly pollIntervalMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly signals: WorkerSignalSource | undefined;
-  private readonly observability: RuntimeObservability | undefined;
+  private readonly observability: WorkerObservability | undefined;
   private stopping = false;
   private running: Promise<void> | undefined;
   private readonly stopListener = (): void => {
