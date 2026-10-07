@@ -265,7 +265,7 @@ app.post("/api/v1/shelf-life/predictions", async (req,res) => {
        values($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),0,'pending','pending','queued')`,
       [predictionId,userId,familyId,itemId,productId,storage,opened,typeof body.category==="string"?body.category.trim().toLowerCase():null,storedOn ?? null],
     );
-    await emitOutbox(client,"shelf-life.prediction-queued.v1",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null,storedOn:storedOn ?? null});
+    await emitOutbox(client,"shelf-life.prediction-queued.v1",predictionId,familyId,{predictionId,itemId,productId,storage,opened,category:typeof body.category==="string"?body.category:null,storedOn:storedOn ?? null,userId});
     await finishIdempotency(client,req,202,response);
     await client.query("commit");
 

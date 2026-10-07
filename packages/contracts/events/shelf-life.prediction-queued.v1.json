@@ -41,6 +41,10 @@
         "null"
       ],
       "format": "date-time"
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid"
     }
   },
   "required": [
@@ -48,6 +52,7 @@
     "itemId",
     "productId",
     "storage",
-    "opened"
+    "opened",
+    "userId"
   ]
 }
