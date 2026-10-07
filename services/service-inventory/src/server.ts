@@ -40,8 +40,8 @@ async function consumeShelfLifeEvents(): Promise<void> {
             client.release();
             continue;
           }
-          const payload = event.payload ?? {};
-          const familyId = typeof event.familyId === "string" ? event.familyId : "";
+          const payload = domainEvent.payload ?? {};
+          const familyId = typeof domainEvent.familyId === "string" ? domainEvent.familyId : "";
           const itemId = typeof payload.itemId === "string" ? payload.itemId : "";
           const productId = typeof payload.productId === "string" ? payload.productId : "";
           const expiresAt = typeof payload.estimatedExpiresAt === "string" ? payload.estimatedExpiresAt : "";
