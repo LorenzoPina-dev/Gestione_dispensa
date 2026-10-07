@@ -426,6 +426,7 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       service-shelf-life: { condition: service_healthy }
+      service-catalog: { condition: service_healthy }
     restart: unless-stopped
     networks: [backend, data]
   worker-ocr:
