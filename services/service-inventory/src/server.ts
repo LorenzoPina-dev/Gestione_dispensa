@@ -671,7 +671,7 @@ const server = createServer(async (req, res) => {
         const beforeReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         const updated = await applyOutflow(client, row, quantity!, ctx);
         const movementId = randomUUID();
-        const persistedPantryItemId = Number(updated.rows[0]?.quantity ?? 0) > 0 ? itemMatch[1] : null;
+        const persistedPantryItemId = Number(updated.rows[0]?.quantity ?? 0) > 0 ? String(row.id) : null;
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'consume',$5,$6,$7,$8,now(),now())", [movementId, ctx.familyId, persistedPantryItemId, row.product_id, quantity, row.unit, body.reason, ctx.userId]);
         const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
