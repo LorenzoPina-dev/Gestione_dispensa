@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/inventory.stock.updated.v1.json",
+  "title": "Inventory stock updated v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "itemId",
+    "productId",
+    "item"
+  ],
+  "properties": {
+    "itemId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "item": {
+      "type": "object"
+    }
+  }
+}
