@@ -1,5 +1,5 @@
 import express, { type Request } from "express";
-import { Pool, type PoolClient } from "pg";
+import { createContextAwarePool, type Pool, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import crypto from "node:crypto";
 import { calculateMissingIngredients, type MissingIngredient, type StockItem } from "./add-missing-domain.js";
 
