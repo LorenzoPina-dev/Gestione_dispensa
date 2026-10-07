@@ -62,6 +62,13 @@ describe("service-inventory / real migration", () => {
     assert.match(index.rows[0].indexdef, /product_id/);
     assert.match(index.rows[0].indexdef, /lot_id/);
     assert.match(index.rows[0].indexdef, /lot_code/);
+
+    const legacy = await pool.query(
+      `SELECT 1
+       FROM pg_indexes
+       WHERE schemaname='public' AND indexname='pantry_items_identity_idx'`,
+    );
+    assert.equal(legacy.rowCount, 0, "legacy identity index must not block distinct inventory batches");
   });
 
   it("contains the schema required by the running inventory service", async () => {
