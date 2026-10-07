@@ -298,6 +298,47 @@ describe("service-inventory / real cross-service integration", () => {
     assert.ok(history.rows.some((row) => row.type === "waste" && Number(row.quantity) === 2 && row.pantry_item_id === null));
   });
 
+  it("detaches the movement reference when the final consume removes the current row", async () => {
+    assert.ok(familyId);
+    const add = await request(inventoryUrl, "/api/v1/inventory/items", {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `final-consume-item-${randomUUID()}`,
+      },
+      body: JSON.stringify({ productId: randomUUID(), quantity: 1, unit: "piece" }),
+    });
+    assert.equal(add.response.status, 201);
+    const id = add.body?.data?.itemId;
+    const version = Number(add.body?.version);
+    const product = add.body?.data?.productId;
+
+    const consumed = await request(inventoryUrl, `/api/v1/inventory/${id}/consume`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `final-consume-${randomUUID()}`,
+        "if-match": String(version),
+      },
+      body: JSON.stringify({ quantity: 1, reason: "used" }),
+    });
+    assert.equal(consumed.response.status, 200);
+    assert.equal(Number(consumed.body?.data?.quantity), 0);
+
+    const current = await pool.query("SELECT id FROM pantry_items WHERE id=$1", [id]);
+    assert.equal(current.rowCount, 0);
+
+    const movement = await pool.query(
+      "SELECT type,quantity,pantry_item_id FROM movements WHERE product_id=$1 ORDER BY occurred_at DESC LIMIT 1",
+      [product],
+    );
+    assert.equal(movement.rows[0].type, "consume");
+    assert.equal(Number(movement.rows[0].quantity), 1);
+    assert.equal(movement.rows[0].pantry_item_id, null);
+  });
+
   it("confirms a declared expiration through the real service", async () => {
     assert.ok(familyId);
     const add = await request(inventoryUrl, "/api/v1/inventory/items", {
