@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { Pool } from "pg";
+import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   RegistrationError,
@@ -18,7 +18,7 @@ import {
  */
 const port = Number(process.env.PORT ?? 3310);
 const service = "service-identity";
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 const keycloak = resolveKeycloakAdminConfig();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
