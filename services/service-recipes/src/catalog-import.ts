@@ -4,51 +4,282 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 
-const URL = process.env.RECIPE_DATASET_URL ?? "https://zenodo.org/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip?download=1";
-const MD5 = "b90427179a4304270fd5b7b7490b565d";
-const KEY = "italian-gastronomic-recipes-v4";
+const DATASET_URL = process.env.RECIPE_DATASET_URL ??
+  "https://zenodo.org/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip?download=1";
+const DATASET_MD5 = "b90427179a4304270fd5b7b7490b565d";
+const DATASET_KEY = "italian-gastronomic-recipes-v4";
 const SOURCE = "italian-gastronomic-recipes-v4";
-const WORK = "/tmp/italian-recipes";
+const WORK_DIR = "/tmp/italian-recipes";
 
-function norm(s) { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); }
-function csv(text) {
-  const out=[], row=[]; let current=row, field="", quoted=false;
-  for(let i=0;i<text.length;i++){const c=text[i];
-    if(c==='"'){if(quoted&&text[i+1]==='"'){field+='"';i++;}else quoted=!quoted;}
-    else if(c===delimiter&&!quoted){current.push(field);field="";}
-    else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;current.push(field);field="";if(current.some(x=>x.trim()))out.push(current.splice(0));}
-    else field+=c;
+type CsvRow = string[];
+
+function normalize(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseCsv(text: string): CsvRow[] {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
+  const delimiter = firstLine.split(";").length > firstLine.split(",").length ? ";" : ",";
+  const rows: CsvRow[] = [];
+  let row: CsvRow = [];
+  let field = "";
+  let quoted = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+      continue;
+    }
+
+    if (char === delimiter && !quoted) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && text[i + 1] === "\n") i += 1;
+      row.push(field);
+      field = "";
+      if (row.some((value: string) => value.trim() !== "")) rows.push(row);
+      row = [];
+      continue;
+    }
+
+    field += char;
   }
-  if(field||current.length){current.push(field);out.push(current.splice(0));}
-  return out;
-}
-function find(root,name){const stack=[root];while(stack.length){const d=stack.pop();for(const e of readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);if(e.isDirectory())stack.push(p);else if(e.name.toLowerCase()===name.toLowerCase())return p;}}throw new Error(name+" not found");}
-function num(v){if(!v||!String(v).trim())return null;const n=Number(String(v).replace(",","."));return Number.isFinite(n)?n:null;}
-function uuid(id){const b=Buffer.from(createHash("sha256").update(SOURCE+":"+id).digest("hex").slice(0,32),"hex");b[6]=(b[6]&15)|80;b[8]=(b[8]&63)|128;const h=b.toString("hex");return h.slice(0,8)+"-"+h.slice(8,12)+"-"+h.slice(12,16)+"-"+h.slice(16,20)+"-"+h.slice(20);}
-function terms(s){const n=norm(s);return [...new Set([n,...n.split(" ").filter(x=>x.length>=3)])];}
 
-async function main(){
- const pool=createContextAwarePool({connectionString:process.env.DATABASE_URL});
- const ready=await pool.query("select source_md5,recipe_count from recipe_catalog.datasets where dataset_key=$1",[KEY]);
- if(ready.rowCount&&String(ready.rows[0].source_md5)===MD5&&Number(ready.rows[0].recipe_count)>0&&process.env.RECIPE_DATASET_FORCE_REIMPORT!=="1"){console.log(JSON.stringify({event:"recipe_dataset_ready",recipes:Number(ready.rows[0].recipe_count)}));await pool.end();return;}
- mkdirSync(WORK,{recursive:true});const zip=path.join(WORK,"dataset.zip"),ext=path.join(WORK,"dataset");rmSync(ext,{recursive:true,force:true});
- const response=await fetch(URL,{signal:AbortSignal.timeout(120000)});if(!response.ok)throw new Error("dataset HTTP "+response.status);
- const data=Buffer.from(await response.arrayBuffer());const md5=createHash("md5").update(data).digest("hex");if(md5!==MD5)throw new Error("dataset MD5 mismatch: "+md5);
- writeFileSync(zip,data);mkdirSync(ext,{recursive:true});execFileSync("unzip",["-q","-o",zip,"-d",ext]);
- const rows=csv(readFileSync(find(ext,"recipes.csv"),"utf8"));const h=rows[0].map(norm);
- const idx=(names)=>{for(const n of names){const i=h.indexOf(norm(n));if(i>=0)return i;}return -1;};
- const id=idx(["id"]),title=idx(["name"]),category=idx(["category name"]),cost=idx(["cost"]),difficulty=idx(["difficulty"]),time=idx(["preparation time"]),link=idx(["link"]);
- const ing=h.map((x,i)=>x==="ingredient"?i:-1).filter(i=>i>=0),ingId=h.map((x,i)=>x==="ingredient id"?i:-1).filter(i=>i>=0),weights=h.map((x,i)=>(x==="weight"||x==="w")?i:-1).filter(i=>i>=0),steps=h.map((x,i)=>x==="preparation"?i:-1).filter(i=>i>=0);
- if(id<0||title<0||!ing.length)throw new Error("unexpected recipes.csv schema");
- const client=await pool.connect();let count=0;
- try{await client.query("begin");await client.query("delete from recipe_catalog.recipes where source=$1",[SOURCE]);
- for(const r of rows.slice(1)){const sourceId=(r[id]||"").trim(),name=(r[title]||"").trim();if(!sourceId||!name)continue;const rid=uuid(sourceId);
-  await client.query("insert into recipe_catalog.recipes(id,source,source_recipe_id,title,category,cost,difficulty,prep_time_minutes,source_url) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",[rid,SOURCE,sourceId,name,category>=0?r[category]||null:null,cost>=0?num(r[cost]):null,difficulty>=0?num(r[difficulty]):null,time>=0?num(r[time]):null,link>=0?r[link]||null:null]);
-  let p=0;for(let j=0;j<ing.length;j++){const n=(r[ing[j]]||"").trim();if(!n)continue;p++;await client.query("insert into recipe_catalog.recipe_ingredients(id,recipe_id,position,source_ingredient_id,name,display_name,weight,terms) values($1,$2,$3,$4,$5,$6,$7,$8)",[randomUUID(),rid,p,ingId[j]!==undefined?(r[ingId[j]]||"").trim()||null:null,n,n,num(r[weights[j]]),terms(n)]);}
-  let s=0;for(const c of steps){const text=(r[c]||"").trim();if(text){s++;await client.query("insert into recipe_catalog.recipe_steps(id,recipe_id,position,instruction) values($1,$2,$3,$4)",[randomUUID(),rid,s,text]);}}
-  count++;if(count%250===0)console.log(JSON.stringify({event:"recipe_dataset_progress",recipes:count}));
- }
- await client.query("insert into recipe_catalog.datasets(dataset_key,source_url,source_md5,recipe_count) values($1,$2,$3,$4) on conflict(dataset_key) do update set source_url=excluded.source_url,source_md5=excluded.source_md5,recipe_count=excluded.recipe_count,imported_at=now()",[KEY,URL,MD5,count]);await client.query("commit");console.log(JSON.stringify({event:"recipe_dataset_imported",recipes:count}));
- }catch(e){await client.query("rollback");throw e;}finally{client.release();await pool.end();rmSync(WORK,{recursive:true,force:true});}
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    if (row.some((value: string) => value.trim() !== "")) rows.push(row);
+  }
+
+  return rows;
 }
-main().catch(e=>{console.error(JSON.stringify({event:"recipe_dataset_import_failed",error:e instanceof Error?e.message:String(e)}));process.exit(1);});
+
+function findFile(root: string, fileName: string): string {
+  const stack: string[] = [root];
+
+  while (stack.length > 0) {
+    const directory = stack.pop() as string;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) stack.push(candidate);
+      else if (entry.name.toLowerCase() === fileName.toLowerCase()) return candidate;
+    }
+  }
+
+  throw new Error(fileName + " not found in recipe dataset.");
+}
+
+function parseNumber(value: string | undefined): number | null {
+  if (!value?.trim()) return null;
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function deterministicUuid(sourceId: string): string {
+  const bytes = Buffer.from(
+    createHash("sha256").update(SOURCE + ":" + sourceId).digest("hex").slice(0, 32),
+    "hex",
+  );
+  bytes[6] = (bytes[6] & 0x0f) | 0x80;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
+}
+
+function ingredientTerms(value: string): string[] {
+  const normalized = normalize(value);
+  return [...new Set([normalized, ...normalized.split(" ").filter((token: string) => token.length >= 3)])];
+}
+
+function columnIndex(headers: string[], names: string[]): number {
+  for (const name of names) {
+    const index = headers.indexOf(normalize(name));
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
+async function main(): Promise<void> {
+  const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
+
+  const existing = await pool.query(
+    "SELECT source_md5, recipe_count FROM recipe_catalog.datasets WHERE dataset_key=$1",
+    [DATASET_KEY],
+  );
+
+  if (
+    existing.rowCount &&
+    String(existing.rows[0].source_md5) === DATASET_MD5 &&
+    Number(existing.rows[0].recipe_count) > 0 &&
+    process.env.RECIPE_DATASET_FORCE_REIMPORT !== "1"
+  ) {
+    console.log(JSON.stringify({
+      service: "recipe-catalog-import",
+      event: "recipe_dataset_ready",
+      recipes: Number(existing.rows[0].recipe_count),
+      cached: true,
+    }));
+    await pool.end();
+    return;
+  }
+
+  mkdirSync(WORK_DIR, { recursive: true });
+  const zipPath = path.join(WORK_DIR, "dataset.zip");
+  const extractedPath = path.join(WORK_DIR, "dataset");
+  rmSync(extractedPath, { recursive: true, force: true });
+
+  const response = await fetch(DATASET_URL, { signal: AbortSignal.timeout(120_000) });
+  if (!response.ok) throw new Error("Recipe dataset download failed with HTTP " + response.status);
+
+  const data = Buffer.from(await response.arrayBuffer());
+  const md5 = createHash("md5").update(data).digest("hex");
+  if (md5 !== DATASET_MD5) {
+    throw new Error("Recipe dataset MD5 mismatch: expected " + DATASET_MD5 + ", got " + md5);
+  }
+
+  writeFileSync(zipPath, data);
+  mkdirSync(extractedPath, { recursive: true });
+  execFileSync("unzip", ["-q", "-o", zipPath, "-d", extractedPath], { stdio: "inherit" });
+
+  const rows = parseCsv(readFileSync(findFile(extractedPath, "recipes.csv"), "utf8"));
+  if (rows.length < 2) throw new Error("Recipe dataset recipes.csv is empty.");
+
+  const headers = rows[0].map(normalize);
+  const idColumn = columnIndex(headers, ["id"]);
+  const titleColumn = columnIndex(headers, ["name"]);
+  const categoryColumn = columnIndex(headers, ["category name"]);
+  const costColumn = columnIndex(headers, ["cost"]);
+  const difficultyColumn = columnIndex(headers, ["difficulty"]);
+  const timeColumn = columnIndex(headers, ["preparation time"]);
+  const linkColumn = columnIndex(headers, ["link"]);
+  const ingredientColumns = headers.map((header: string, index: number) => header === "ingredient" ? index : -1).filter((index: number) => index >= 0);
+  const ingredientIdColumns = headers.map((header: string, index: number) => header === "ingredient id" ? index : -1).filter((index: number) => index >= 0);
+  const weightColumns = headers.map((header: string, index: number) => header === "weight" || header === "w" ? index : -1).filter((index: number) => index >= 0);
+  const preparationColumns = headers.map((header: string, index: number) => header === "preparation" ? index : -1).filter((index: number) => index >= 0);
+
+  if (idColumn < 0 || titleColumn < 0 || ingredientColumns.length === 0) {
+    throw new Error("Unexpected recipes.csv schema: required columns are missing.");
+  }
+
+  const client = await pool.connect();
+  let imported = 0;
+
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM recipe_catalog.recipes WHERE source=$1", [SOURCE]);
+
+    for (const row of rows.slice(1)) {
+      const sourceRecipeId = (row[idColumn] ?? "").trim();
+      const title = (row[titleColumn] ?? "").trim();
+      if (!sourceRecipeId || !title) continue;
+
+      const recipeId = deterministicUuid(sourceRecipeId);
+      await client.query(
+        "INSERT INTO recipe_catalog.recipes(id,source,source_recipe_id,title,category,cost,difficulty,prep_time_minutes,source_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [
+          recipeId,
+          SOURCE,
+          sourceRecipeId,
+          title,
+          categoryColumn >= 0 ? row[categoryColumn] || null : null,
+          costColumn >= 0 ? parseNumber(row[costColumn]) : null,
+          difficultyColumn >= 0 ? parseNumber(row[difficultyColumn]) : null,
+          timeColumn >= 0 ? parseNumber(row[timeColumn]) : null,
+          linkColumn >= 0 ? row[linkColumn] || null : null,
+        ],
+      );
+
+      let ingredientPosition = 0;
+      for (let j = 0; j < ingredientColumns.length; j += 1) {
+        const name = (row[ingredientColumns[j]] ?? "").trim();
+        if (!name) continue;
+
+        ingredientPosition += 1;
+        await client.query(
+          "INSERT INTO recipe_catalog.recipe_ingredients(id,recipe_id,position,source_ingredient_id,name,display_name,weight,terms) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+          [
+            randomUUID(),
+            recipeId,
+            ingredientPosition,
+            ingredientIdColumns[j] !== undefined ? (row[ingredientIdColumns[j]] ?? "").trim() || null : null,
+            name,
+            name,
+            weightColumns[j] !== undefined ? parseNumber(row[weightColumns[j]]) : null,
+            ingredientTerms(name),
+          ],
+        );
+      }
+
+      let stepPosition = 0;
+      for (const preparationColumn of preparationColumns) {
+        const instruction = (row[preparationColumn] ?? "").trim();
+        if (!instruction) continue;
+
+        stepPosition += 1;
+        await client.query(
+          "INSERT INTO recipe_catalog.recipe_steps(id,recipe_id,position,instruction) VALUES($1,$2,$3,$4)",
+          [randomUUID(), recipeId, stepPosition, instruction],
+        );
+      }
+
+      imported += 1;
+      if (imported % 250 === 0) {
+        console.log(JSON.stringify({
+          service: "recipe-catalog-import",
+          event: "recipe_dataset_progress",
+          recipes: imported,
+        }));
+      }
+    }
+
+    await client.query(
+      "INSERT INTO recipe_catalog.datasets(dataset_key,source_url,source_md5,recipe_count) VALUES($1,$2,$3,$4) ON CONFLICT(dataset_key) DO UPDATE SET source_url=excluded.source_url,source_md5=excluded.source_md5,recipe_count=excluded.recipe_count,imported_at=now()",
+      [DATASET_KEY, DATASET_URL, DATASET_MD5, imported],
+    );
+    await client.query("COMMIT");
+
+    console.log(JSON.stringify({
+      service: "recipe-catalog-import",
+      event: "recipe_dataset_imported",
+      recipes: imported,
+    }));
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+    rmSync(WORK_DIR, { recursive: true, force: true });
+  }
+}
+
+main().catch((error: unknown) => {
+  console.error(JSON.stringify({
+    service: "recipe-catalog-import",
+    event: "recipe_dataset_import_failed",
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  process.exit(1);
+});
