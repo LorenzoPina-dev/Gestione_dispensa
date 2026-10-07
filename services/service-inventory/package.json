@@ -15,13 +15,11 @@
     "test:integration": "node --import tsx --test test/integration.test.ts"
   },
   "dependencies": {
-    "pg": "^8.23.0",
     "redis": "^6.2.1",
     "@gestione-dispensa/runtime-db": "2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/pg": "^8.11.10",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
