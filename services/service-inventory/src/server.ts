@@ -44,7 +44,6 @@ async function consumeShelfLifeEvents(): Promise<void> {
           const domainEvent = JSON.parse(String(message.message.event)) as DomainEvent;
           if (domainEvent.eventType !== "shelf-life.prediction-completed.v1") {
             await eventRedis.xAck(eventStream, eventGroup, message.id);
-            client.release();
             continue;
           }
           const payload = domainEvent.payload ?? {};
@@ -63,7 +62,6 @@ async function consumeShelfLifeEvents(): Promise<void> {
           if (!processed.rowCount) {
             await client.query("COMMIT");
             await eventRedis.xAck(eventStream, eventGroup, message.id);
-            client.release();
             continue;
           }
 
