@@ -32,7 +32,7 @@ const match = (req: Request): number | null => {
 };
 const hash = (value: unknown): string => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-async function beginIdempotency(client: PoolClient, req: Request, body: unknown) {
+async function beginIdempotency(client: PoolClient, req: Request, body: unknown, familyId: string | null = null) {
   const idempotencyKey = key(req);
   const userId = actor(req);
   if (!idempotencyKey || !userId) return { kind: "missing" as const };
@@ -45,15 +45,15 @@ async function beginIdempotency(client: PoolClient, req: Request, body: unknown)
 
   if (existing.rowCount) {
     const row = existing.rows[0];
-    if (String(row.actor_user_id) !== userId || row.request_hash !== requestHash) return { kind: "conflict" as const };
+    if (String(row.actor_user_id) !== userId || row.request_hash !== requestHash || String(row.family_id ?? "") !== String(familyId ?? "")) return { kind: "conflict" as const };
     if (row.status === "completed") return { kind: "replay" as const, status: Number(row.response_status), response: row.response_body };
     return { kind: "new" as const };
   }
 
   await client.query(
     `insert into nutrition_domain.idempotency_keys(key,actor_user_id,family_id,request_hash,status,created_at,expires_at)
-     values($1,$2,null,$3,'processing',now(),now()+interval '24 hours')`,
-    [idempotencyKey, userId, requestHash],
+     values($1,$2,$3,$4,'processing',now(),now()+interval '24 hours')`,
+    [idempotencyKey, userId, familyId, requestHash],
   );
   return { kind: "new" as const };
 }
@@ -191,9 +191,9 @@ async function processInventoryMessage(message: EventStreamMessage): Promise<voi
 
       await client.query(
         `insert into nutrition_domain.diary_entries
-         (id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot)
-         values($1,$2,$3,'other',$4,$5,$6,'inventory',$7,$8::jsonb)`,
-        [entryId, userId, date, productId, quantity, unit, movementId, JSON.stringify(snapshot)],
+         (id,user_id,family_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot)
+         values($1,$2,$3,$4,'other',$5,$6,$7,'inventory',$8,$9::jsonb)`,
+        [entryId, userId, familyId, date, productId, quantity, unit, movementId, JSON.stringify(snapshot)],
       );
 
       await emitOutbox(client, "NutritionEntryRecorded", entryId, userId, familyId, {
@@ -324,14 +324,17 @@ app.put("/api/v1/nutrition/targets", async(req,res)=>{
 });
 
 app.get("/api/v1/nutrition/diary", async(req,res)=>{
-  const userId=actor(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  const userId=actor(req);
+  const familyId=String(req.header("x-family-id") ?? (typeof req.query.familyId === "string" ? req.query.familyId : "")).trim();
+  if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  if(!familyId)return fail(res,400,"VALIDATION_ERROR","familyId is required.");
   const limit=Math.min(Math.max(Number(req.query.limit??50),1),100),offset=Math.max(Number(req.query.cursor??0),0);
   const from=String(req.query.from??""),to=String(req.query.to??"");
   const q=await pool.query(
     `select id,date,meal,product_id,quantity,unit,source,source_movement_id,created_at,updated_at,version
-     from nutrition_domain.diary_entries where user_id=$1 and ($2='' or date >= $2::date) and ($3='' or date <= $3::date)
+     from nutrition_domain.diary_entries where family_id=$1 and ($2='' or date >= $2::date) and ($3='' or date <= $3::date)
      order by date desc,created_at desc limit $4 offset $5`,
-    [userId,from,to,limit+1,offset],
+    [familyId,from,to,limit+1,offset],
   );
   const hasNext=q.rows.length>limit; const rows=hasNext?q.rows.slice(0,limit):q.rows;
   return res.json({items:rows.map(x=>({entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source})),nextCursor:hasNext?String(offset+limit):null});
@@ -339,7 +342,12 @@ app.get("/api/v1/nutrition/diary", async(req,res)=>{
 
 app.post("/api/v1/nutrition/diary", async(req,res)=>{
 
-  const userId=actor(req),idempotencyKey=key(req);if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
+  const userId=actor(req);
+  const familyId=String(req.header("x-family-id") ?? (typeof req.query.familyId === "string" ? req.query.familyId : "")).trim();
+  const idempotencyKey=key(req);
+  if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  if(!familyId)return fail(res,400,"VALIDATION_ERROR","familyId is required.");
+  if(!idempotencyKey)return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");
   const body=req.body as Body;const quantity=body.quantity;
   if(Object.keys(body).some((field)=>!["date","meal","productId","quantity","unit","source","sourceMovementId"].includes(field)))return fail(res,400,"VALIDATION_ERROR","Only date, meal, productId, quantity, unit, source and sourceMovementId are accepted.");
   const source=isDiarySource(body.source ?? "manual") ? String(body.source ?? "manual") : "";
@@ -347,29 +355,31 @@ app.post("/api/v1/nutrition/diary", async(req,res)=>{
   if(!source)return fail(res,400,"VALIDATION_ERROR","source must be manual or inventory.");
   if(typeof body.date!=="string"||typeof body.meal!=="string"||typeof body.productId!=="string"||!isPositiveNumber(quantity)||!isDiaryUnit(body.unit))return fail(res,400,"VALIDATION_ERROR","date, meal, productId, quantity and unit are required.");
   const client=await pool.connect();
-  try{await client.query("begin");const idem=await beginIdempotency(client,req,body);if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
+  try{await client.query("begin");const idem=await beginIdempotency(client,req,body,familyId);if(idem.kind==="missing"){await client.query("rollback");return fail(res,400,"VALIDATION_ERROR","X-Idempotency-Key is required.");}if(idem.kind==="conflict"){await client.query("rollback");return fail(res,409,"CONFLICT","Idempotency key conflict.");}if(idem.kind==="replay"){await client.query("commit");return res.status(idem.status).json(idem.response);}
     if (!isDiaryUnit(body.unit)) { await client.query("rollback"); return fail(res,400,"VALIDATION_ERROR","Nutrition diary entries require a supported mass, package or volume unit."); }
     const snapshot = await loadNutritionSnapshot(catalogBaseUrl, req.header("authorization") ?? undefined, String(body.productId));
     if (!snapshot) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Product nutrition data not found."); }
     const id=crypto.randomUUID();
-    const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) returning *`,[id,userId,body.date,body.meal,body.productId,quantity,body.unit,source,sourceMovementId,JSON.stringify(snapshot)]);
-    const x=q.rows[0];const response={data:{entryId:x.id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source},version:x.version};
+    const q=await client.query(`insert into nutrition_domain.diary_entries(id,user_id,family_id,date,meal,product_id,quantity,unit,source,source_movement_id,nutrition_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb) returning *`,[id,userId,familyId,body.date,body.meal,body.productId,quantity,body.unit,source,sourceMovementId,JSON.stringify(snapshot)]);
+    const x=q.rows[0];const response={data:{entryId:x.id,familyId:x.family_id,date:x.date,meal:x.meal,productId:x.product_id,quantity:Number(x.quantity),unit:x.unit,source:x.source},version:x.version};
     await emitOutbox(client,"NutritionEntryRecorded",id,userId,null,response);await finishIdempotency(client,req,201,response);await client.query("commit");return res.status(201).json(response);
   }catch(error){await client.query("rollback");return fail(res,500,"INTERNAL_ERROR",error instanceof Error?error.message:"Unable to record diary entry.");}finally{client.release();}
 });
 
 app.get("/api/v1/nutrition/summary", async(req,res)=>{
   const userId=actor(req);
+  const familyId=String(req.header("x-family-id") ?? (typeof req.query.familyId === "string" ? req.query.familyId : "")).trim();
   if(!userId)return fail(res,401,"UNAUTHENTICATED","Authenticated user required.");
+  if(!familyId)return fail(res,400,"VALIDATION_ERROR","familyId is required.");
   const period=String(req.query.period??"today");
   if(!isSummaryPeriod(period))return fail(res,400,"VALIDATION_ERROR","period must be today or week.");
   const days=period==="today"?0:6;
   const q=await pool.query(
     `select id,date,meal,product_id,quantity,unit,created_at,nutrition_snapshot
        from nutrition_domain.diary_entries
-      where user_id=$1 and date between current_date-$2::integer and current_date
+      where family_id=$1 and date between current_date-$2::integer and current_date
       order by date desc,created_at desc`,
-    [userId,days],
+    [familyId,days],
   );
   let caloriesKcal=0,proteinG=0,carbsG=0,fatG=0,fiberG=0;
   const items:Array<Record<string,unknown>>=[];
