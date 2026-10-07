@@ -5,6 +5,8 @@ WORKDIR /app
 # can resolve the root lockfile while installing only this workspace.
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY apps/web/package.json apps/web/tsconfig.json apps/web/tsconfig.app.json ./apps/web/
+COPY packages/contracts/package.json packages/contracts/tsconfig.json ./packages/contracts/
+COPY packages/contracts/src ./packages/contracts/src
 
 RUN npm install --workspace @gestione-dispensa/web --include-workspace-root=false
 
