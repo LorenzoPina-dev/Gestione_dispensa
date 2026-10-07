@@ -7,9 +7,6 @@ const port = Number(process.env.PORT ?? 3312);
 const service = "service-inventory";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL ?? "postgres://inventory:inventory@postgres:5432/inventory_db" });
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
-const catalogServiceBaseUrl = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
-const shelfLifeServiceBaseUrl = (process.env.SHELF_LIFE_SERVICE_BASE_URL ?? "http://service-shelf-life:3404/api/v1").replace(/\/$/, "");
-const nutritionServiceBaseUrl = (process.env.NUTRITION_SERVICE_BASE_URL ?? "http://service-nutrition:3402/api/v1").replace(/\/$/, "");
 
 type Ctx = { userId: string; familyId: string; requestId: string; correlationId: string };
 type AuthResult = { ok: true } | { ok: false; status: number; code: string; message: string };
@@ -63,106 +60,11 @@ function pagination(url: URL): { limit: number; offset: number } {
 }
 
 
-async function queueShelfLifePrediction(
-  ctx: Ctx,
-  item: { id: string; productId: string; location: string | null; expiresAt: unknown; addedAt?: unknown; openedAt?: unknown },
-  authorization?: string,
-  force = false,
-): Promise<void> {
-  if (item.expiresAt && !force) return;
-
-  let category: string | undefined;
-  try {
-    const response = await fetch(
-      catalogServiceBaseUrl + "/catalog/products/" + encodeURIComponent(item.productId),
-      {
-        headers: {
-          accept: "application/json",
-          ...(authorization ? { authorization } : {}),
-          "x-user-id": ctx.userId,
-        },
-        signal: AbortSignal.timeout(3000),
-      },
-    );
-    if (response.ok) {
-      const payload = await response.json() as { data?: { category?: unknown } };
-      if (typeof payload.data?.category === "string" && payload.data.category.trim()) {
-        category = payload.data.category.trim();
-      }
-    }
-  } catch {
-    // The generic Shelf-Life rule remains available when Catalog is temporarily unavailable.
-  }
-
-  try {
-    const response = await fetch(shelfLifeServiceBaseUrl + "/shelf-life/predictions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-user-id": ctx.userId,
-        "x-family-id": ctx.familyId,
-        "x-idempotency-key": "inventory-shelf-life:v3:" + ctx.familyId + ":" + item.id,
-      },
-      body: JSON.stringify({
-        itemId: item.id,
-        productId: item.productId,
-        familyId: ctx.familyId,
-        storedAt: item.location ?? "altro",
-        opened: Boolean(isoDate(item.openedAt)),
-        ...(category ? { category } : {}),
-        ...((isoDate(item.openedAt) ?? isoDate(item.addedAt))
-          ? { storedOn: isoDate(item.openedAt) ?? isoDate(item.addedAt) }
-          : {}),
-      }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) {
-      console.warn(JSON.stringify({
-        service,
-        event: "shelf_life_queue_failed",
-        itemId: item.id,
-        productId: item.productId,
-        status: response.status,
-      }));
-    }
-  } catch (error) {
-    console.warn(JSON.stringify({
-      service,
-      event: "shelf_life_queue_unavailable",
-      itemId: item.id,
-      productId: item.productId,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  }
-}
-
 function isoDate(value: unknown): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) return undefined;
   return date.toISOString();
-}
-
-function queueMissingShelfLifePredictions(
-  ctx: Ctx,
-  rows: Array<Record<string, unknown>>,
-  authorization?: string,
-): void {
-  for (const row of rows) {
-    if (row.expires_at) continue;
-    void queueShelfLifePrediction(
-      ctx,
-      {
-        id: String(row.id),
-        productId: String(row.product_id),
-        location: row.location == null ? null : String(row.location),
-        expiresAt: row.expires_at,
-        addedAt: row.added_at,
-        openedAt: row.opened_at,
-      },
-      authorization,
-    );
-  }
 }
 
 function dto(row: Record<string, unknown>) {
@@ -374,7 +276,6 @@ const server = createServer(async (req, res) => {
       const result = await pool.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.family_id=$1 ORDER BY i.added_at DESC LIMIT $2 OFFSET $3", [ctx.familyId, limit + 1, offset]);
       const hasNext = result.rows.length > limit;
       const rows = hasNext ? result.rows.slice(0, limit) : result.rows;
-      queueMissingShelfLifePredictions(ctx, rows, req.headers.authorization ? String(req.headers.authorization) : undefined);
       return send(res, 200, { items: rows.map(dto), nextCursor: hasNext ? String(offset + limit) : null }, ctx.requestId);
     }
 
@@ -477,7 +378,15 @@ const server = createServer(async (req, res) => {
         const afterReorder = await readReorderState(client, ctx.familyId, String(body.productId));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [id, ctx.familyId]);
-        await event(client, "PantryItemAdjusted", id, ctx, { action: "add", item: dto(joined.rows[0] as Record<string, unknown>) });
+        await event(client, "PantryItemAdded", id, ctx, {
+          itemId: id,
+          productId: String(body.productId),
+          quantity: String(quantity),
+          unit: String(body.unit),
+          expiresAt: joined.rows[0].expires_at ? new Date(joined.rows[0].expires_at).toISOString() : null,
+          expirationSource: joined.rows[0].expiration_source ?? null,
+          occurredAt: new Date().toISOString(),
+        });
         const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
         await finish(client, key, 201, output);
         await client.query("COMMIT");
@@ -546,7 +455,11 @@ const server = createServer(async (req, res) => {
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const joined = await client.query("SELECT i.*, p.reorder_point, p.reorder_quantity FROM pantry_items i LEFT JOIN reorder_policies p ON p.family_id=i.family_id AND p.product_id=i.product_id AND p.enabled=true WHERE i.id=$1 AND i.family_id=$2", [itemMatch[1], ctx.familyId]);
         const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "update", item: output.data });
+        await event(client, "PantryItemUpdated", itemMatch[1], ctx, {
+          itemId: itemMatch[1],
+          productId: String(row.product_id),
+          item: output.data,
+        });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         if (body.expiresAt !== undefined || body.openedAt !== undefined) {
@@ -582,7 +495,16 @@ const server = createServer(async (req, res) => {
         const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "consume", quantity, movementId, item: output.data });
+        await event(client, "PantryItemConsumed", itemMatch[1], ctx, {
+          itemId: itemMatch[1],
+          productId: String(row.product_id),
+          quantity: String(quantity),
+          unit: String(row.unit),
+          remainingQuantity: Number(updated.rows[0]?.quantity ?? 0),
+          removed: Number(updated.rows[0]?.quantity ?? 0) <= 0,
+          movementId,
+          reason: String(body.reason),
+        });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
 
@@ -656,11 +578,21 @@ const server = createServer(async (req, res) => {
         if (Number(row.quantity) < quantity!) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
         const beforeReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         const updated = await applyOutflow(client, row, quantity!, ctx);
-        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'waste',$5,$6,$7,$8,now(),now())", [randomUUID(), ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
+        const wasteMovementId = randomUUID();
+        await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'waste',$5,$6,$7,$8,now(),now())", [wasteMovementId, ctx.familyId, itemMatch[1], row.product_id, quantity, row.unit, body.reason, ctx.userId]);
         const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
         const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "waste", quantity, item: output.data });
+        await event(client, "PantryItemWasted", itemMatch[1], ctx, {
+          itemId: itemMatch[1],
+          productId: String(row.product_id),
+          quantity: String(quantity),
+          unit: String(row.unit),
+          remainingQuantity: Number(updated.rows[0]?.quantity ?? 0),
+          removed: Number(updated.rows[0]?.quantity ?? 0) <= 0,
+          movementId: wasteMovementId,
+          reason: String(body.reason),
+        });
         await finish(client, key, 200, output);
         await client.query("COMMIT");
         return send(res, 200, output, ctx.requestId);
@@ -686,7 +618,12 @@ const server = createServer(async (req, res) => {
         const row = current.rows[0];
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
         const updated = await client.query("UPDATE pantry_items SET expires_at=$1,expiration_source=$2,version=version+1,updated_at=now() WHERE id=$3 AND family_id=$4 RETURNING *", [body.expiresAt === null ? null : new Date(String(body.expiresAt)), body.source ?? "declared", itemMatch[1], ctx.familyId]);
-        await event(client, "PantryItemAdjusted", itemMatch[1], ctx, { action: "expiration_confirmed", item: dto(updated.rows[0]) });
+        await event(client, "ExpirationConfirmed", itemMatch[1], ctx, {
+          itemId: itemMatch[1],
+          productId: String(row.product_id),
+          expiresAt: body.expiresAt === null ? null : new Date(String(body.expiresAt)).toISOString(),
+          source: String(body.source ?? "declared"),
+        });
         const output = { data: dto(updated.rows[0]), version: Number(updated.rows[0].version) };
         await finish(client, key, 200, output);
         await client.query("COMMIT");
