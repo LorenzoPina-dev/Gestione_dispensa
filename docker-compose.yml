@@ -420,6 +420,8 @@ services:
     environment:
       REDIS_URL: "redis://redis:6379"
       SHELF_LIFE_SERVICE_BASE_URL: "http://service-shelf-life:3404/api/v1"
+      CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1"
+      CATALOG_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on:
       redis: { condition: service_healthy }
