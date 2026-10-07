@@ -89,6 +89,7 @@ export interface CatalogUpdatedEvent {
 export interface CatalogRepository {
   listActive(): Promise<Product[]>;
   getById(productId: string): Promise<Product | undefined>;
+  getProductsByIds(productIds: readonly string[]): Promise<Product[]>;
   updateProductAtomic(input: {
     productId: string;
     expectedVersion: number;
@@ -145,6 +146,11 @@ export class CatalogService {
   public async getProduct(productId: string): Promise<Product | undefined> {
     if (!productId.trim()) throw new CatalogValidationError(["productId is required"]);
     return this.repository.getById(productId);
+  }
+
+  public async getProductsByIds(productIds: readonly string[]): Promise<Product[]> {
+    const normalized = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))].slice(0, 100);
+    return this.repository.getProductsByIds(normalized);
   }
 
   public async createManualProduct(command: CreateManualProductCommand): Promise<Product> {
