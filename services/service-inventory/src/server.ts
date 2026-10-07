@@ -647,11 +647,27 @@ const server = createServer(async (req, res) => {
         const old = await idempotency(client, key, ctx, body);
         if (old?.conflict) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Idempotency key conflict.", ctx.requestId); }
         if (old?.body !== undefined) { await client.query("COMMIT"); return send(res, old.status, old.body, ctx.requestId); }
-        const current = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
-        if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
-        const row = current.rows[0] as Record<string, unknown>;
-        if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
-        if (Number(row.quantity) < quantity!) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity.", ctx.requestId); }
+        // The If-Match precondition still protects the item the user interacted with.
+        // The actual source row is selected using FEFO: earliest expiration first,
+        // with oldest stock as deterministic tie-breaker.
+        const requested = await client.query("SELECT * FROM pantry_items WHERE id=$1 AND family_id=$2 FOR UPDATE", [itemMatch[1], ctx.familyId]);
+        if (!requested.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
+        const requestedRow = requested.rows[0] as Record<string, unknown>;
+        if (String(requestedRow.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
+
+        const fefo = await client.query(
+          "SELECT * FROM pantry_items " +
+          "WHERE family_id=$1 AND product_id=$2 AND unit=$3 " +
+            "AND location IS NOT DISTINCT FROM $4 " +
+          "ORDER BY CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END ASC, " +
+            "expires_at ASC NULLS LAST, added_at ASC, created_at ASC, id ASC " +
+          "FOR UPDATE",
+          [ctx.familyId, String(requestedRow.product_id), String(requestedRow.unit), requestedRow.location ?? null],
+        );
+        const row = fefo.rows[0] as Record<string, unknown> | undefined;
+        if (!row) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "No consumable inventory item found.", ctx.requestId); }
+        if (Number(row.quantity) < quantity!) { await client.query("ROLLBACK"); return fail(res, 409, "CONFLICT", "Insufficient quantity in the oldest expiring stock.", ctx.requestId); }
+
         const beforeReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         const updated = await applyOutflow(client, row, quantity!, ctx);
         const movementId = randomUUID();
@@ -659,9 +675,10 @@ const server = createServer(async (req, res) => {
         await client.query("INSERT INTO movements(id,family_id,pantry_item_id,product_id,type,quantity,unit,reason,actor_user_id,occurred_at,created_at) VALUES($1,$2,$3,$4,'consume',$5,$6,$7,$8,now(),now())", [movementId, ctx.familyId, persistedPantryItemId, row.product_id, quantity, row.unit, body.reason, ctx.userId]);
         const afterReorder = await readReorderState(client, ctx.familyId, String(row.product_id));
         await emitReorderTransition(client, ctx, beforeReorder, afterReorder);
+        const consumedItemId = String(row.id);
         const output = { data: dto(updated.rows[0] as Record<string, unknown>), version: Number(updated.rows[0].version) };
-        await event(client, "inventory.stock.consumed.v1", itemMatch[1], ctx, {
-          itemId: itemMatch[1],
+        await event(client, "inventory.stock.consumed.v1", consumedItemId, ctx, {
+          itemId: consumedItemId,
           productId: String(row.product_id),
           actorUserId: ctx.userId,
           quantity: String(quantity),
