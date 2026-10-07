@@ -74,10 +74,10 @@ async function consumeShelfLifeEvents(): Promise<void> {
 
           if (updated.rowCount) {
             await event(client, "ExpirationConfirmed", itemId, {
-              userId: null,
+              userId: "system",
               familyId,
+              requestId: event.eventId,
               correlationId: event.correlationId ?? crypto.randomUUID(),
-              causationId: event.eventId,
             }, {
               itemId,
               productId,
