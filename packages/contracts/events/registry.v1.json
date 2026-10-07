@@ -15,7 +15,6 @@
       "recognition.completed.v1",
       "offer.imported.v1",
       "recipe.suggestion-generated.v1",
-      "inventory.stock.added.v1",
       "inventory.stock.wasted.v1",
       "inventory.expiration-confirmed.v1",
       "shelf-life.prediction-completed.v1",
@@ -23,5 +22,5 @@
     ]
   },
   "uniqueItems": true,
-  "minItems": 14
+  "minItems": 13
 }
