@@ -236,6 +236,79 @@ describe("service-inventory / real cross-service integration", () => {
     assert.ok(event.rowCount >= 1);
   });
 
+  it("consumes stock using FEFO and leaves later-expiring stock untouched", async () => {
+    assert.ok(familyId);
+    const fefoProductId = randomUUID();
+
+    const olderExpiry = await request(inventoryUrl, "/api/v1/inventory/items", {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `fefo-old-${randomUUID()}`,
+      },
+      body: JSON.stringify({
+        productId: fefoProductId,
+        quantity: 1,
+        unit: "piece",
+        location: "pantry",
+        lotCode: "FEFO-OLD",
+        expiresAt: "2027-01-10T00:00:00Z",
+      }),
+    });
+    assert.equal(olderExpiry.response.status, 201);
+
+    const newerExpiry = await request(inventoryUrl, "/api/v1/inventory/items", {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `fefo-new-${randomUUID()}`,
+      },
+      body: JSON.stringify({
+        productId: fefoProductId,
+        quantity: 1,
+        unit: "piece",
+        location: "pantry",
+        lotCode: "FEFO-NEW",
+        expiresAt: "2028-01-10T00:00:00Z",
+      }),
+    });
+    assert.equal(newerExpiry.response.status, 201);
+
+    const olderItemId = String(olderExpiry.body?.data?.itemId);
+    const newerItemId = String(newerExpiry.body?.data?.itemId);
+    const newerVersion = Number(newerExpiry.body?.version);
+    assert.notEqual(olderItemId, newerItemId);
+
+    // Consume through the newer row: Inventory must still select the earliest
+    // expiring row for the same family/product/unit/location.
+    const consumed = await request(inventoryUrl, `/api/v1/inventory/${newerItemId}/consume`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `fefo-consume-${randomUUID()}`,
+        "if-match": String(newerVersion),
+      },
+      body: JSON.stringify({ quantity: 1, reason: "used" }),
+    });
+
+    assert.equal(consumed.response.status, 200);
+    assert.equal(consumed.body?.data?.itemId, olderItemId);
+    assert.equal(Number(consumed.body?.data?.quantity), 0);
+
+    const stock = await pool.query(
+      "SELECT id,quantity,expires_at,lot_code FROM pantry_items WHERE family_id=$1 AND product_id=$2 AND unit='piece' AND location='pantry' ORDER BY expires_at ASC",
+      [familyId, fefoProductId],
+    );
+    assert.equal(stock.rowCount, 1);
+    assert.equal(stock.rows[0].id, newerItemId);
+    assert.equal(Number(stock.rows[0].quantity), 1);
+    assert.equal(stock.rows[0].lot_code, "FEFO-NEW");
+    assert.equal(new Date(stock.rows[0].expires_at).toISOString(), "2028-01-10T00:00:00.000Z");
+  });
+
   it("applies PATCH /inventory/{itemId} as required by the API contract", async () => {
     assert.ok(itemId);
     const patched = await request(inventoryUrl, `/api/v1/inventory/${itemId}`, {
