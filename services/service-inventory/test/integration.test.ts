@@ -128,86 +128,32 @@ describe("service-inventory / real cross-service integration", () => {
     assert.equal(db.rows[0].location, "pantry");
   });
 
-  it("merges separate creates for the same current stock identity", async () => {
-    assert.ok(familyId);
-    const mergeProductId = randomUUID();
-    const first = await request(inventoryUrl, "/api/v1/inventory/items", {
-      method: "POST",
-      headers: { ...authHeaders(), "content-type": "application/json", "x-idempotency-key": `merge-1-${randomUUID()}` },
-      body: JSON.stringify({ productId: mergeProductId, quantity: 2, unit: "piece", location: "pantry" }),
-    });
-    assert.equal(first.response.status, 201);
-
-    const second = await request(inventoryUrl, "/api/v1/inventory/items", {
-      method: "POST",
-      headers: { ...authHeaders(), "content-type": "application/json", "x-idempotency-key": `merge-2-${randomUUID()}` },
-      body: JSON.stringify({ productId: mergeProductId, quantity: 3, unit: "piece", location: "pantry" }),
-    });
-    assert.equal(second.response.status, 201);
-    assert.equal(second.body?.data?.itemId, first.body?.data?.itemId);
-    assert.equal(second.body?.data?.quantity, 5);
-
-    const rows = await pool.query(
-      "SELECT count(*)::int AS count, COALESCE(SUM(quantity),0)::numeric AS quantity FROM pantry_items WHERE family_id=$1 AND product_id=$2 AND unit='piece' AND location='pantry' AND lot_id IS NULL AND lot_code IS NULL",
-      [familyId, mergeProductId],
-    );
-    assert.equal(rows.rows[0].count, 1);
-    assert.equal(Number(rows.rows[0].quantity), 5);
-  });
-
-  it("keeps same-product stock with different expiration dates as separate batches", async () => {
+  it("keeps separate stock receipts as independent batches", async () => {
     assert.ok(familyId);
     const batchProductId = randomUUID();
 
     const first = await request(inventoryUrl, "/api/v1/inventory/items", {
       method: "POST",
-      headers: {
-        ...authHeaders(),
-        "content-type": "application/json",
-        "x-idempotency-key": `expiry-batch-1-${randomUUID()}`,
-      },
-      body: JSON.stringify({
-        productId: batchProductId,
-        quantity: 2,
-        unit: "piece",
-        location: "pantry",
-        expiresAt: "2027-03-01T00:00:00Z",
-      }),
+      headers: { ...authHeaders(), "content-type": "application/json", "x-idempotency-key": `batch-1-${randomUUID()}` },
+      body: JSON.stringify({ productId: batchProductId, quantity: 2, unit: "piece", location: "pantry" }),
     });
     assert.equal(first.response.status, 201);
 
     const second = await request(inventoryUrl, "/api/v1/inventory/items", {
       method: "POST",
-      headers: {
-        ...authHeaders(),
-        "content-type": "application/json",
-        "x-idempotency-key": `expiry-batch-2-${randomUUID()}`,
-      },
-      body: JSON.stringify({
-        productId: batchProductId,
-        quantity: 3,
-        unit: "piece",
-        location: "pantry",
-        expiresAt: "2028-03-01T00:00:00Z",
-      }),
+      headers: { ...authHeaders(), "content-type": "application/json", "x-idempotency-key": `batch-2-${randomUUID()}` },
+      body: JSON.stringify({ productId: batchProductId, quantity: 3, unit: "piece", location: "pantry" }),
     });
     assert.equal(second.response.status, 201);
     assert.notEqual(second.body?.data?.itemId, first.body?.data?.itemId);
+    assert.notEqual(second.body?.data?.lotId, first.body?.data?.lotId);
 
-    const list = await request(inventoryUrl, "/api/v1/inventory?familyId=" + encodeURIComponent(familyId!));
-    assert.equal(list.response.status, 200);
-    const batches = (list.body?.items ?? [])
-      .filter((item: any) => item.productId === batchProductId)
-      .sort((a: any, b: any) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime());
-
-    assert.equal(batches.length, 2);
-    assert.equal(Number(batches[0].quantity), 2);
-    assert.equal(batches[0].expiresAt, "2027-03-01T00:00:00.000Z");
-    assert.equal(Number(batches[1].quantity), 3);
-    assert.equal(batches[1].expiresAt, "2028-03-01T00:00:00.000Z");
-    assert.ok(batches[0].lotId);
-    assert.ok(batches[1].lotId);
-    assert.notEqual(batches[0].lotId, batches[1].lotId);
+    const rows = await pool.query(
+      "SELECT count(*)::int AS count, COALESCE(SUM(quantity),0)::numeric AS quantity FROM pantry_items WHERE family_id=$1 AND product_id=$2 AND unit='piece' AND location='pantry'",
+      [familyId, batchProductId],
+    );
+    assert.equal(rows.rows[0].count, 2);
+    assert.equal(Number(rows.rows[0].quantity), 5);
   });
 
   it("replays inventory creation idempotently without creating a second row", async () => {
