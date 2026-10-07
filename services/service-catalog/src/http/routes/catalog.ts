@@ -85,6 +85,31 @@ export function buildCatalogRouter(deps: CatalogRouteDependencies): Router {
     .all(methodNotAllowed);
 
   router
+    .route("/catalog/products/batch")
+    .post(
+      asyncHandler(async (req, res) => {
+        const principal = await resolvePrincipal(req, verifier);
+        if (!principal) {
+          sendFailure(res, 401, "UNAUTHENTICATED", "Authentication is required.", req.meta);
+          return;
+        }
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+        const validIds = ids.filter((id: unknown): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id));
+        if (validIds.length !== ids.length || validIds.length > 100) {
+          sendFailure(res, 400, "VALIDATION_ERROR", "ids must contain at most 100 UUID product ids.", req.meta);
+          return;
+        }
+        await respond(
+          res,
+          req.meta,
+          controller.getProductsBatch(validIds, req.meta),
+          toCatalogHttpError,
+        );
+      }),
+    )
+    .all(methodNotAllowed);
+
+  router
     .route("/catalog/products/:productId")
     .get(
       asyncHandler(async (req, res) => {
