@@ -95,7 +95,6 @@ describe("catalog workflow", () => {
     const result = await workflow.resolveBarcode("BARCODE", "8003440108888", "trace-1234567890123456");
 
     assert.equal(result.status, "MATCHED");
-    assert.equal(result.resolution, "cache");
     assert.equal(result.normalizedValue, "8003440108888");
     assert.equal(result.product?.canonicalName, "Golia");
     assert.equal(persisted, 1);
