@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
+import { createContextAwarePool, setDbRequestContextFromHeaders } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   RegistrationError,
