@@ -84,7 +84,9 @@ export default function ProductSearch({
   async function select(item: ProductSearchResultDto) {
     if (resolving !== null) return;
     const product = await resolve(item);
-    if (product) await onSelect(product);
+    if (!product) return;
+    await onSelect(product);
+    setQuery("");
   }
 
   return (
@@ -161,7 +163,10 @@ export default function ProductSearch({
           type="button"
           className="w-full text-left rounded-xl px-3 py-2 text-xs"
           style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}
-          onClick={() => onAddFreeText(trimmed)}
+          onClick={() => {
+            onAddFreeText(trimmed);
+            setQuery("");
+          }}
         >
           {emptyActionLabel ?? `Aggiungi «${trimmed}» come voce libera`}
         </button>
