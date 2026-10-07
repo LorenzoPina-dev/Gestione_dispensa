@@ -63,7 +63,7 @@ export function OpenFoodFactsSection({ raw, images }: { raw: Record<string, unkn
   );
 }
 
-function InfoCell({ label, value }: { label: string; value: string }) {
+export function InfoCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg p-2" style={{ backgroundColor: "#f5f0e8" }}>
       <p className="text-[10px]" style={{ color: "#6b5e4e" }}>{label}</p>
@@ -72,7 +72,7 @@ function InfoCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-type GalleryImage = { key: string; full: string; preview: string };
+export type GalleryImage = { key: string; full: string; preview: string };
 
 const GALLERY_KINDS = ["front", "ingredients", "nutrition", "packaging"] as const;
 
@@ -81,7 +81,7 @@ const GALLERY_KINDS = ["front", "ingredients", "nutrition", "packaging"] as cons
  * frontThumb (and the same for the other kinds) but they are the same picture. The Small
  * rendition is used as the on-screen thumbnail, the full one as the link target.
  */
-function galleryImages(images: Candidate["images"]): GalleryImage[] {
+export function galleryImages(images: Candidate["images"]): GalleryImage[] {
   if (!images) return [];
   const pick = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
   const result: GalleryImage[] = [];
@@ -96,11 +96,11 @@ function galleryImages(images: Candidate["images"]): GalleryImage[] {
   return result;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function humanizeOffKey(key: string): string {
+export function humanizeOffKey(key: string): string {
   return key
     .replace(/_100g$/, " / 100 g")
     .replace(/_/g, " ")
@@ -108,7 +108,7 @@ function humanizeOffKey(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatOffValue(value: unknown): string {
+export function formatOffValue(value: unknown): string {
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
