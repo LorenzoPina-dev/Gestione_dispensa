@@ -1,6 +1,6 @@
 import { isBoolean, isConfidence, isPredictionStatus, isStorage } from "./validation.js";
 import express, { type Request, type Response as ExpressResponse } from "express";
-import { Pool, type PoolClient } from "pg";
+import { createContextAwarePool, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import crypto from "node:crypto";
 
 const app = express();
@@ -8,7 +8,7 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
 const port = Number(process.env.PORT ?? 3404);
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
 
