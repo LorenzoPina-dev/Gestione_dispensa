@@ -23,4 +23,4 @@ COPY --from=build /app/services/service-catalog/dist ./dist
 COPY --from=build /app/services/service-catalog/migrations ./migrations
 USER node
 EXPOSE 3314
-CMD ["sh","-c","node dist/migrate.js && node dist/server.js"]
+CMD ["sh","-c","DATABASE_URL=\"\${MIGRATION_DATABASE_URL:-\${DATABASE_URL}}\" node dist/migrate.js && node dist/server.js"]
