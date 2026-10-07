@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/inventory.stock.wasted.v1.json",
+  "title": "Inventory stock wasted v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "itemId",
+    "productId",
+    "quantity",
+    "unit",
+    "movementId",
+    "reason"
+  ],
+  "properties": {
+    "itemId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "quantity": {
+      "type": "string"
+    },
+    "unit": {
+      "type": "string"
+    },
+    "remainingQuantity": {
+      "type": "number"
+    },
+    "removed": {
+      "type": "boolean"
+    },
+    "movementId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "actorUserId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    }
+  }
+}
