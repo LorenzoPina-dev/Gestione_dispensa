@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from "express";
-import { Pool, type PoolClient } from "pg";
+import { createContextAwarePool, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import crypto from "node:crypto";
 import { createClient } from "redis";
 import { consumedGramsForQuantity, loadNutritionSnapshot, nutrientMultiplier, type NutritionSnapshot } from "./catalog-client.js";
@@ -12,7 +12,7 @@ app.use(express.json({ limit: "1mb" }));
 const port = Number(process.env.PORT ?? 3402);
 const catalogBaseUrl = process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1";
 const catalogInternalToken = process.env.CATALOG_INTERNAL_TOKEN?.trim() ?? "";
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 
 type Body = Record<string, unknown>;
 
