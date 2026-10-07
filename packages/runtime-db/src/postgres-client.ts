@@ -157,7 +157,6 @@ export function createContextAwarePool(options: ContextAwarePoolOptions): Pool {
   });
 
   const rawConnect = pool.connect.bind(pool);
-  const rawQuery = pool.query.bind(pool);
 
   Object.defineProperty(pool, "connect", {
     configurable: false,
