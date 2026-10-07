@@ -30,7 +30,7 @@ describe("service-shopping / real migration schema", () => {
 
   it("records all migrations exactly once", async () => {
     const result = await pool.query("SELECT version,count(*) OVER(PARTITION BY version) AS occurrences FROM schema_migrations ORDER BY version");
-    assert.deepEqual(result.rows.map((row) => row.version), ["001_initial", "002_reorder_suggestions"]);
+    assert.deepEqual(result.rows.map((row) => row.version), ["001_initial", "002_reorder_suggestions", "999_security"]);
     assert.ok(result.rows.every((row) => Number(row.occurrences) === 1));
   });
 
