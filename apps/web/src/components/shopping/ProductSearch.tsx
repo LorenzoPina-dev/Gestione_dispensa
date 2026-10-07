@@ -7,7 +7,7 @@ import { Input } from "../ui/Input";
 import { Row, RowList } from "../ui/ListRow";
 
 export interface ProductSearchProps {
-  onSelect: (product: ProductDto) => void | Promise<void>;
+  onSelect: (product: ProductDto, barcode: string) => void | Promise<void>;
   placeholder?: string;
   autoFocus?: boolean;
   emptyActionLabel?: string;
@@ -85,7 +85,7 @@ export default function ProductSearch({
     if (resolving !== null) return;
     const product = await resolve(item);
     if (!product) return;
-    await onSelect(product);
+    await onSelect(product, item.code);
     setQuery("");
   }
 
