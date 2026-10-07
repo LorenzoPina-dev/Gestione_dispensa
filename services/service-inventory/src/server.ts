@@ -27,6 +27,10 @@ const eventStream = process.env.EVENT_STREAM ?? "events:domain";
 const eventGroup = process.env.EVENT_CONSUMER_GROUP ?? "inventory";
 const eventConsumer = process.env.EVENT_CONSUMER_NAME ?? `inventory-${process.pid}`;
 
+async function enableInternalDbScope(client: PoolClient): Promise<void> {
+  await client.query("SELECT set_config('app.internal_service','true',true)");
+}
+
 async function consumeShelfLifeEvents(): Promise<void> {
   await eventRedis.connect();
   await eventRedis.xGroupCreate(eventStream, eventGroup, process.env.EVENT_GROUP_START_ID ?? "0-0", { MKSTREAM: true }).catch((error: unknown) => {
@@ -54,6 +58,7 @@ async function consumeShelfLifeEvents(): Promise<void> {
           if (!domainEvent.eventId || !familyId || !itemId || !productId || !expiresAt) throw new Error("Invalid shelf-life.prediction-completed.v1 payload.");
 
           await client.query("BEGIN");
+          await enableInternalDbScope(client);
           const processed = await client.query(
             `INSERT INTO event_consumers(event_id,event_type) VALUES($1,$2)
              ON CONFLICT(event_id) DO NOTHING RETURNING event_id`,
@@ -89,6 +94,26 @@ async function consumeShelfLifeEvents(): Promise<void> {
               expiresAt: new Date(expiresAt).toISOString(),
               source: "estimated",
             });
+            console.log(JSON.stringify({
+              service,
+              event: "shelf_life_expiration_applied",
+              messageId: message.id,
+              itemId,
+              productId,
+              familyId,
+              expiresAt: new Date(expiresAt).toISOString(),
+            }));
+          } else {
+            console.warn(JSON.stringify({
+              service,
+              event: "shelf_life_expiration_not_applied",
+              messageId: message.id,
+              itemId,
+              productId,
+              familyId,
+              expiresAt,
+              reason: "inventory_item_not_found_or_declared_expiration",
+            }));
           }
           await client.query("COMMIT");
           await eventRedis.xAck(eventStream, eventGroup, message.id);
@@ -525,6 +550,7 @@ const server = createServer(async (req, res) => {
           expiresAt: joined.rows[0].expires_at ? new Date(joined.rows[0].expires_at).toISOString() : null,
           expirationSource: joined.rows[0].expiration_source ?? null,
           occurredAt: new Date().toISOString(),
+          storedOn: joined.rows[0].added_at ? new Date(joined.rows[0].added_at).toISOString() : null,
         });
         const output = { data: dto(joined.rows[0] as Record<string, unknown>), version: Number(joined.rows[0].version) };
         await finish(client, key, 201, output);
