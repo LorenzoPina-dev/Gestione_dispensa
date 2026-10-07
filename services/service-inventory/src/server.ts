@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
-import { createContextAwarePool, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
+import { createContextAwarePool, setDbRequestContextFromHeaders, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { createClient } from "redis";
 import { CONSUME_REASONS, isConsumeReason, isExpirationSource, positiveQuantity, requiredIdempotencyKey, validIfMatch, validIsoDate, validOptionalText } from "./validation.js";
 
@@ -349,6 +349,7 @@ async function event(client: PoolClient, type: string, aggregateId: string, ctx:
 
 const server = createServer(async (req, res) => {
   const requestId = String(req.headers["x-request-id"] ?? randomUUID());
+  setDbRequestContextFromHeaders(req.headers);
   try {
     if (req.url === "/health/live") return send(res, 200, { status: "ok", service }, requestId);
     if (req.url === "/health/ready") {
