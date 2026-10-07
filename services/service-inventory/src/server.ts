@@ -1,12 +1,107 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { createClient } from "redis";
 import { CONSUME_REASONS, isConsumeReason, isExpirationSource, positiveQuantity, requiredIdempotencyKey, validIfMatch, validIsoDate, validOptionalText } from "./validation.js";
 
 const port = Number(process.env.PORT ?? 3312);
 const service = "service-inventory";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL ?? "postgres://inventory:inventory@postgres:5432/inventory_db" });
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
+
+type DomainEvent = {
+  eventId: string;
+  eventType: string;
+  familyId?: string | null;
+  correlationId?: string;
+  payload?: Record<string, unknown>;
+};
+
+const eventRedis = createClient({ url: process.env.REDIS_URL ?? "redis://redis:6379" });
+const eventStream = process.env.EVENT_STREAM ?? "events:domain";
+const eventGroup = process.env.EVENT_CONSUMER_GROUP ?? "inventory";
+const eventConsumer = process.env.EVENT_CONSUMER_NAME ?? `inventory-${process.pid}`;
+
+async function consumeShelfLifeEvents(): Promise<void> {
+  await eventRedis.connect();
+  await eventRedis.xGroupCreate(eventStream, eventGroup, "$", { MKSTREAM: true }).catch((error: unknown) => {
+    if (!String(error).includes("BUSYGROUP")) throw error;
+  });
+
+  while (true) {
+    const result = await eventRedis.xReadGroup(eventGroup, eventConsumer, [{ key: eventStream, id: ">" }], { COUNT: 10, BLOCK: 1000 });
+    for (const streamResult of result ?? []) {
+      for (const message of streamResult.messages) {
+        const client = await pool.connect();
+        try {
+          const event = JSON.parse(String(message.message.event)) as DomainEvent;
+          if (event.eventType !== "ShelfLifePredictionCompleted") {
+            await eventRedis.xAck(eventStream, eventGroup, message.id);
+            client.release();
+            continue;
+          }
+          const payload = event.payload ?? {};
+          const familyId = typeof event.familyId === "string" ? event.familyId : "";
+          const itemId = typeof payload.itemId === "string" ? payload.itemId : "";
+          const productId = typeof payload.productId === "string" ? payload.productId : "";
+          const expiresAt = typeof payload.estimatedExpiresAt === "string" ? payload.estimatedExpiresAt : "";
+          if (!event.eventId || !familyId || !itemId || !productId || !expiresAt) throw new Error("Invalid ShelfLifePredictionCompleted payload.");
+
+          await client.query("BEGIN");
+          const processed = await client.query(
+            `INSERT INTO event_consumers(event_id,event_type) VALUES($1,$2)
+             ON CONFLICT(event_id) DO NOTHING RETURNING event_id`,
+            [event.eventId, event.eventType],
+          );
+          if (!processed.rowCount) {
+            await client.query("COMMIT");
+            await eventRedis.xAck(eventStream, eventGroup, message.id);
+            client.release();
+            continue;
+          }
+
+          const updated = await client.query(
+            `UPDATE pantry_items
+                SET expires_at=$1,
+                    expiration_source='estimated',
+                    version=version+1,
+                    updated_at=now()
+              WHERE id=$2 AND family_id=$3
+                AND (expiration_source IS NULL OR expiration_source <> 'declared')
+              RETURNING id,product_id,expires_at`,
+            [new Date(expiresAt).toISOString(), itemId, familyId],
+          );
+
+          if (updated.rowCount) {
+            await event(client, "ExpirationConfirmed", itemId, {
+              userId: null,
+              familyId,
+              correlationId: event.correlationId ?? crypto.randomUUID(),
+              causationId: event.eventId,
+            }, {
+              itemId,
+              productId,
+              expiresAt: new Date(expiresAt).toISOString(),
+              source: "estimated",
+            });
+          }
+          await client.query("COMMIT");
+          await eventRedis.xAck(eventStream, eventGroup, message.id);
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => undefined);
+          console.error(JSON.stringify({
+            service: "service-inventory",
+            event: "shelf_life_event_processing_failed",
+            messageId: message.id,
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        } finally {
+          client.release();
+        }
+      }
+    }
+  }
+}
 
 type Ctx = { userId: string; familyId: string; requestId: string; correlationId: string };
 type AuthResult = { ok: true } | { ok: false; status: number; code: string; message: string };
