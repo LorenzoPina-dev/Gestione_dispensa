@@ -100,11 +100,12 @@ describe("service-catalog / real PostgreSQL flow", () => {
           canonicalName: "Integration Imported Product",
           brand: "Integration Provider Brand",
           defaultUnit: "piece",
-          quantityValue: 500,
+          quantityValue: 90,
           quantityUnit: "g",
-          quantityLabel: "500 g",
-          servingSize: "100 g",
-          servingQuantity: 100,
+          quantityLabel: "90 g",
+          servingSize: "3 g",
+          servingQuantity: 3,
+          servingUnit: "g",
           images: { front: "https://example.test/front.jpg" },
           openFoodFacts: { code: barcode, product_name: "Integration Imported Product" },
           source: "openfoodfacts",
@@ -257,8 +258,8 @@ describe("service-catalog / real PostgreSQL flow", () => {
     const provenance = await db.query("SELECT id FROM data_provenance WHERE entity_id=$1", [duplicateId]);
     const events = await db.query("SELECT id FROM outbox_events WHERE aggregate_id=$1", [duplicateId]);
 
-    assert.equal(product.rowCount, 0);
-    assert.equal(provenance.rowCount, 0);
-    assert.equal(events.rowCount, 0);
+    assert.equal(product.rows.length, 0);
+    assert.equal(provenance.rows.length, 0);
+    assert.equal(events.rows.length, 0);
   });
 });
