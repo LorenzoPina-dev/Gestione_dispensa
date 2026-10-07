@@ -355,9 +355,16 @@ app.post("/api/v1/internal/shelf-life/predictions/:predictionId/process", async 
 
     const q = await client.query(
       `update shelf_life_domain.predictions
-       set estimated_expires_at=$2,confidence=$3,basis=$4,model_version=$5,status='completed',updated_at=now(),version=version+1
+       set category=coalesce($6,category),
+           estimated_expires_at=$2,
+           confidence=$3,
+           basis=$4,
+           model_version=$5,
+           status='completed',
+           updated_at=now(),
+           version=version+1
        where id=$1 returning *`,
-      [id,expires.toISOString(),confidence,`${rule.product_id ? "product:" + rule.product_id + "+" : ""}${category ? "category:" + category : "category:unknown"}+storage:${storage}+opened:${opened}+target_days:${targetDays}`,rule.model_version],
+      [id,expires.toISOString(),confidence,`${rule.product_id ? "product:" + rule.product_id + "+" : ""}${category ? "category:" + category : "category:unknown"}+storage:${storage}+opened:${opened}+target_days:${targetDays}`,rule.model_version,category],
     );
     await emitOutbox(client,"shelf-life.prediction-completed.v1",id,current.rows[0].family_id ?? null,{
       predictionId:id,
