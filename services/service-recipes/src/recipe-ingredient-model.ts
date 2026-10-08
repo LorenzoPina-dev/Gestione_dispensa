@@ -2,6 +2,7 @@ import {
   canonicalizeIngredient,
   classifyCulinaryWeight,
   foodQuantity,
+  parseFoodIngredientLine,
   parseFoodQuantityFromText,
   parseFoodCountFromText,
   type CulinaryWeight,
@@ -26,11 +27,13 @@ export function normalizeRecipeIngredient(
   unit?: string | null,
 ): RecipeIngredientSemantic {
   const rawName=name.trim();
-  const canonical=canonicalizeIngredient(rawName);
+  const parsedLine=parseFoodIngredientLine(rawName);
+  const semanticText=parsedLine.ingredientText||rawName;
+  const canonical=canonicalizeIngredient(semanticText);
   const explicit=quantity !== null && quantity !== undefined && unit?.trim()
     ? foodQuantity(typeof quantity==="number" ? quantity : String(quantity),String(unit))
     : null;
-  const embedded=explicit ? null : parseFoodQuantityFromText(rawName);
+  const embedded=explicit ? null : parsedLine.quantity ?? parseFoodQuantityFromText(rawName);
   const inferredCount=explicit || embedded ? null : parseFoodCountFromText(rawName,canonical.canonicalIngredient);
   const parsed=explicit ?? embedded ?? inferredCount;
   return {
@@ -42,6 +45,6 @@ export function normalizeRecipeIngredient(
     quantity:parsed,
     quantityConfidence:parsed ? (explicit ? 1 : embedded ? 0.9 : 0.82) : 0,
     sourceQuantityRaw:parsed?.sourceRaw ?? null,
-    prepState:null,
+    prepState:parsedLine.prepState,
   };
 }
