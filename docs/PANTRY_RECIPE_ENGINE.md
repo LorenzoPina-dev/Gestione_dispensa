@@ -55,10 +55,12 @@
 - [ ] Estendere `food_components[]` con ruoli culinari, percentuali affidabili, annidamento e provenance per componente; la prima proiezione di componenti, percentuali e `compositionConfidence` è già presente.
 - [x] Mapping recipe ingredient -> canonical ingredient con una prima gerarchia alimentare direzionale: specifico -> generico è ammesso solo quando richiesto dalla ricetta.
 - [ ] Densità e conversioni massa<->volume solo quando esiste una regola/dato affidabile e versionato per quello specifico ingrediente.
-- [ ] Modello di “quantità usabile”: packaging aperto, residui, porzioni, sfridi e prodotti non interamente disponibili.
+- [x] Modello iniziale di quantità usabile per confezioni aperte: `remainingContentQuantity/unit` esplicito in Inventory; una confezione aperta senza residuo misurato non contribuisce alla copertura quantitativa.
+- [ ] Estendere quantità usabile a porzioni, sfridi, resa post-apertura, densità e residui non misurati.
 - [x] Sostituzioni semantiche/funzionali curate con fattore `0.8 * peso originale`, motivazione e tracciamento dei prodotti usati.
 - [x] Profilo famigliare: Recipes legge i membri da Family e aggrega i profili personali da Identity; allergeni/restrizioni si uniscono e una policy tracce `EXCLUDE` prevale.
-- [ ] Policy separate per allergie assolute, tracce e contaminazione incerta.
+- [x] Policy separate per allergeni dichiarati e tracce; le frasi testuali di contaminazione vengono classificate distintamente.
+- [ ] Rendere configurabile la policy per contaminazione/incertezza a livello di profilo.
 - [ ] Calcolo nutrizionale reale per porzione e ranking recipe-level; è presente solo il tie-breaker ingredient-level basato sui Nutri-Score dei prodotti di dispensa.
 - [x] `RecipeMatch` stabile con prodotti usati, quantità, mancanti, sostituzioni, istruzioni, sicurezza, copertura e spiegazione dello score. La nutrizione recipe-level resta separata perché il dataset non fornisce dati sufficienti.
 - [x] Cache/materializzazione del profilo semantico nel Catalog con upsert atomico su create/update/import/refresh, funzione SQL di lettura, backfill one-shot e fallback quando la `rulesVersion` cambia.
