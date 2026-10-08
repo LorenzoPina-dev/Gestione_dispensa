@@ -14,3 +14,7 @@ CREATE INDEX IF NOT EXISTS dietary_preferences_allergens_gin
 
 CREATE INDEX IF NOT EXISTS dietary_preferences_diet_gin
   ON dietary_preferences USING gin(dietary_restrictions);
+
+INSERT INTO dietary_preferences(user_id)
+SELECT id FROM users
+ON CONFLICT (user_id) DO NOTHING;
