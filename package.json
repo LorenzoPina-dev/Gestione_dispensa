@@ -6,7 +6,7 @@
     "compose:up": "docker compose up -d --wait --wait-timeout 240",
     "compose:down": "docker compose down",
     "compose:build": "docker compose build",
-    "build:libs": "npm run build -w @gestione-dispensa/runtime-db && npm run build -w @gestione-dispensa/runtime-auth && npm run build -w @gestione-dispensa/observability && npm run build -w @gestione-dispensa/worker-core",
+    "build:libs": "npm run build -w @gestione-dispensa/runtime-db && npm run build -w @gestione-dispensa/runtime-auth && npm run build -w @gestione-dispensa/observability && npm run build -w @gestione-dispensa/worker-core && npm run build -w @gestione-dispensa/food-rules",
     "typecheck": "npm run build:libs && npm run typecheck --workspaces --if-present",
     "build": "node scripts/build-workspaces.mjs",
     "test": "npm run contract:audit && npm run test:policy && npm run test:suites && npm run build:libs && npm run test:unit --workspaces --if-present",
