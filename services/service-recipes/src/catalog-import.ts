@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { ingredientTerms } from "@gestione-dispensa/food-rules";
-import { normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
+import { resolveRecipeIngredient, normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 const DATASET_URL = process.env.RECIPE_DATASET_URL ??
   "https://zenodo.org/api/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip/content";
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
         if (!name) continue;
 
         ingredientPosition += 1;
-        const semantic = normalizeRecipeIngredient(name);
+        const semantic = await resolveRecipeIngredient(name, null, null, "it-IT");
         const quantity = semantic.quantity;
         await client.query(
           "INSERT INTO recipe_catalog.recipe_ingredients(id,recipe_id,position,source_ingredient_id,name,display_name,weight,terms,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_value,quantity_unit,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state,source_quantity_raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
