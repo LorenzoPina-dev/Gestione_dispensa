@@ -443,6 +443,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      name:pantryName(item),
      quantity:Number(item.quantity),
      unit:String(item.unit),
+     nutrition:item.nutrition??null,
      expiresAt:item.expiresAt??null,
      addedAt:item.addedAt??null,
      openedAt:item.openedAt??null,
