@@ -3,6 +3,7 @@ import {
   classifyCulinaryWeight,
   foodQuantity,
   parseFoodQuantityFromText,
+  parseFoodCountFromText,
   type CulinaryWeight,
   type FoodQuantity,
 } from "@gestione-dispensa/food-rules";
@@ -30,7 +31,8 @@ export function normalizeRecipeIngredient(
     ? foodQuantity(typeof quantity==="number" ? quantity : String(quantity),String(unit))
     : null;
   const embedded=explicit ? null : parseFoodQuantityFromText(rawName);
-  const parsed=explicit ?? embedded;
+  const inferredCount=explicit || embedded ? null : parseFoodCountFromText(rawName,canonical.canonicalIngredient);
+  const parsed=explicit ?? embedded ?? inferredCount;
   return {
     canonicalIngredient:canonical.canonicalIngredient,
     semanticConfidence:canonical.confidence,
@@ -38,7 +40,7 @@ export function normalizeRecipeIngredient(
     ingredientTerms:[...new Set([...canonical.ingredientTerms, rawName.toLowerCase()])],
     culinaryWeight:classifyCulinaryWeight(canonical.canonicalIngredient),
     quantity:parsed,
-    quantityConfidence:parsed ? (explicit ? 1 : 0.9) : 0,
+    quantityConfidence:parsed ? (explicit ? 1 : embedded ? 0.9 : 0.82) : 0,
     sourceQuantityRaw:parsed?.sourceRaw ?? null,
     prepState:null,
   };
