@@ -232,7 +232,9 @@ async function enrichSuggestionIngredientQuantities(rows:any[],maxSources=64):Pr
    const index=cursor++;
    if(index>=candidates.length)return;
    const row=candidates[index];
-   const sourceTexts=await resolveRecipeIngredientTexts(typeof row.source_url==="string"?row.source_url:undefined);
+   const sourceUrl=typeof row.source_url==="string"?row.source_url:undefined;
+   const sourceTexts=await resolveRecipeIngredientTexts(sourceUrl);
+   if(sourceUrl)row.servings=SERVINGS_CACHE.get(sourceUrl)??null;
    row.ingredients=mergeSourceIngredientQuantities(row.ingredients,sourceTexts);
   }
  });
@@ -487,7 +489,8 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    );
    const missing=coverage.missingIngredients;
    const nutri=averageNutriScore(pantry,coverage.matchedProductIds);
-   const nutrition=estimateRecipeNutrition(coverage.matchedIngredients,pantry);
+   const servings=typeof r.servings==="number"&&r.servings>0?Number(r.servings):null;
+   const nutrition=estimateRecipeNutrition(coverage.matchedIngredients,pantry,servings);
    const recipe={
      recipeId:String(r.id),
      title:String(r.title),
@@ -556,13 +559,13 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      readiness:safety.safe?coverage.readiness:"DISCARD",
      timeMinutes:r.prep_time_minutes==null?null:Number(r.prep_time_minutes),
      difficulty:r.difficulty==null?null:Number(r.difficulty)<=2?"Facile":Number(r.difficulty)===3?"Medio":"Difficile",
-     servings:null,
+     servings:r.servings==null?null:Number(r.servings),
      pantryProductsUsed,
      matchedIngredients:coverage.matchedIngredients,
      missingIngredients:coverage.missingIngredients,
      substitutions:coverage.substitutions,
      instructions:Array.isArray(r.steps)?r.steps.map(String):[],
-     nutrition:{status:nutrition.status,total:nutrition.total,perServing:null,coverage:nutrition.coverage,nutriScoreAverage:nutri.average,nutriScoreCoverage:nutri.coverage,nutriScoreScope:nutri.average===null?"UNAVAILABLE":"MATCHED_PANTRY_PRODUCTS",note:nutrition.note},
+     nutrition:{status:nutrition.status,total:nutrition.total,perServing:nutrition.perServing,coverage:nutrition.coverage,nutriScoreAverage:nutri.average,nutriScoreCoverage:nutri.coverage,nutriScoreScope:nutri.average===null?"UNAVAILABLE":"MATCHED_PANTRY_PRODUCTS",note:nutrition.note},
      safety:{safe:safety.safe,warnings:safety.warnings},
      availability:{excludedExpiredProductIds:coverage.excludedExpiredProductIds},
      coverage:{
@@ -601,6 +604,7 @@ export async function getCatalogRecipe(pool:Pool,id:string){
   resolveRecipeSteps(sourceUrl,x.steps),
   resolveRecipeIngredientTexts(sourceUrl),
  ]);
+ const sourceServings=sourceUrl?SERVINGS_CACHE.get(sourceUrl)??null:null;
  const enrichedIngredients=mergeSourceIngredientQuantities(x.ingredients.map((i:any)=>({
   name:String(i.name),
   displayName:String(i.display_name||i.name),
@@ -612,7 +616,7 @@ export async function getCatalogRecipe(pool:Pool,id:string){
   sourceWeight:i.weight==null?null:Number(i.weight),
   sourceQuantityRaw:i.source_quantity_raw??null,
  })),sourceIngredientTexts);
- const recipe={recipeId:String(x.id),title:String(x.title),servings:null,timeMinutes:x.prep_time_minutes==null?null:Number(x.prep_time_minutes),difficulty:x.difficulty==null?null:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl,tags:x.category?[String(x.category)]:[],steps,ingredients:enrichedIngredients};
+ const recipe={recipeId:String(x.id),title:String(x.title),servings:sourceServings,timeMinutes:x.prep_time_minutes==null?null:Number(x.prep_time_minutes),difficulty:x.difficulty==null?null:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl,tags:x.category?[String(x.category)]:[],steps,ingredients:enrichedIngredients};
  const image=await resolveRecipeImage(typeof recipe.sourceUrl==="string"?recipe.sourceUrl:undefined);
  return image?{...recipe,image}:recipe;
 }
