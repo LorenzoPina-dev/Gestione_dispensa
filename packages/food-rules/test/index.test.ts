@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canonicalAllergenTag, canonicalizeIngredient, foodQuantity, foodSemanticRelation, parseIngredientText } from "../src/index.ts";
+import { canonicalAllergenTag, canonicalizeIngredient, foodQuantity, foodSemanticRelation, inferTextAllergens, parseIngredientText } from "../src/index.ts";
 
 describe("food-rules",()=>{
   it("does not canonicalize substrings such as salted -> sale",()=>{
@@ -29,6 +29,11 @@ describe("food-rules",()=>{
   it("does not allow a generic pantry category to satisfy a specific recipe ingredient",()=>{
     const relation = foodSemanticRelation("parmigiano","formaggio");
     assert.equal(relation,"UNSAFE_GENERALIZATION");
+  });
+  it("infers allergens from multilingual ingredient text even when canonicalization is unknown",()=>{
+    assert.ok(inferTextAllergens("soy sauce").includes("soybeans"));
+    assert.ok(inferTextAllergens("beurre et lait").includes("milk"));
+    assert.ok(inferTextAllergens("crevettes").includes("crustaceans") === false);
   });
   it("keeps mass and volume as distinct dimensions",()=>{
     assert.equal(foodQuantity(1,"kg")?.baseUnit,"g");
