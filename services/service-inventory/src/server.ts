@@ -205,6 +205,8 @@ function dto(row: Record<string, unknown>) {
     lotCode: row.lot_code ?? null,
     addedAt: row.added_at,
     openedAt: row.opened_at ?? null,
+    remainingContentQuantity: row.remaining_content_quantity == null ? null : Number(row.remaining_content_quantity),
+    remainingContentUnit: row.remaining_content_unit ?? null,
     updatedAt: row.updated_at,
     version: Number(row.version),
     ...(row.reorder_point == null ? {} : { reorderPoint: Number(row.reorder_point) }),
@@ -474,11 +476,20 @@ const server = createServer(async (req, res) => {
       if (!auth.ok) return fail(res, auth.status, auth.code, auth.message, ctx.requestId);
       const body = await readBody(req);
       const quantity = positiveQuantity(body.quantity);
-      const allowedFields = ["productId", "quantity", "unit", "expiresAt", "location", "lotCode", "openedAt", "reorderPoint", "reorderQuantity"];
+      const allowedFields = ["productId", "quantity", "unit", "expiresAt", "location", "lotCode", "openedAt", "remainingContentQuantity", "remainingContentUnit", "reorderPoint", "reorderQuantity"];
       if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
       if (!body.productId || !body.unit || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "productId, unit and positive quantity are required.", ctx.requestId);
       if (body.expiresAt !== undefined && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
       if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
+      if (body.remainingContentQuantity !== undefined && body.remainingContentQuantity !== null && (typeof body.remainingContentQuantity !== "number" || !Number.isFinite(body.remainingContentQuantity) || body.remainingContentQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity must be a positive number or null.", ctx.requestId);
+      if (body.remainingContentUnit !== undefined && body.remainingContentUnit !== null && !["g","kg","ml","l","piece"].includes(String(body.remainingContentUnit))) return fail(res, 400, "VALIDATION_ERROR", "remainingContentUnit must be g, kg, ml, l or piece.", ctx.requestId);
+      if (Object.hasOwn(body, "remainingContentQuantity") !== Object.hasOwn(body, "remainingContentUnit")) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity and remainingContentUnit must be updated together.", ctx.requestId);
+      if (body.remainingContentQuantity !== undefined && body.remainingContentQuantity !== null && (typeof body.remainingContentQuantity !== "number" || !Number.isFinite(body.remainingContentQuantity) || body.remainingContentQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity must be a positive number or null.", ctx.requestId);
+      if (body.remainingContentUnit !== undefined && body.remainingContentUnit !== null && !["g","kg","ml","l","piece"].includes(String(body.remainingContentUnit))) return fail(res, 400, "VALIDATION_ERROR", "remainingContentUnit must be g, kg, ml, l or piece.", ctx.requestId);
+      const hasRemainingQuantity = Object.hasOwn(body, "remainingContentQuantity") && body.remainingContentQuantity !== null && body.remainingContentQuantity !== undefined;
+      const hasRemainingUnit = Object.hasOwn(body, "remainingContentUnit") && body.remainingContentUnit !== null && body.remainingContentUnit !== undefined;
+      if (hasRemainingQuantity !== hasRemainingUnit) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity and remainingContentUnit must be provided together.", ctx.requestId);
+      if ((hasRemainingQuantity || hasRemainingUnit) && body.openedAt === undefined) return fail(res, 400, "VALIDATION_ERROR", "openedAt is required when remaining package content is provided.", ctx.requestId);
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
       if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
@@ -509,9 +520,9 @@ const server = createServer(async (req, res) => {
 
         const savedInsert = await client.query(
           `INSERT INTO pantry_items(
-             id,family_id,product_id,lot_id,quantity,unit,location,opened_at,expires_at,expiration_source,lot_code,added_at,created_at,updated_at
+             id,family_id,product_id,lot_id,quantity,unit,location,opened_at,remaining_content_quantity,remaining_content_unit,expires_at,expiration_source,lot_code,added_at,created_at,updated_at
            )
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now(),now())
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now(),now())
            RETURNING *`
           , [
             candidateId,
@@ -522,6 +533,8 @@ const server = createServer(async (req, res) => {
             String(body.unit),
             body.location ?? null,
             body.openedAt == null ? null : new Date(String(body.openedAt)),
+            body.remainingContentQuantity ?? null,
+            body.remainingContentUnit ?? null,
             declaredExpiry,
             declaredExpiry ? "declared" : null,
             body.lotCode ?? null,
@@ -564,7 +577,7 @@ const server = createServer(async (req, res) => {
       const key = String(req.headers["x-idempotency-key"] ?? "").trim();
       const ifMatch = String(req.headers["if-match"] ?? "").trim();
       if (!requiredIdempotencyKey(key) || !validIfMatch(ifMatch)) return fail(res, 400, "VALIDATION_ERROR", "X-Idempotency-Key and If-Match are required.", ctx.requestId);
-      const allowedFields = ["quantity", "unit", "expiresAt", "location", "lotCode", "openedAt", "reorderPoint", "reorderQuantity"];
+      const allowedFields = ["quantity", "unit", "expiresAt", "location", "lotCode", "openedAt", "remainingContentQuantity", "remainingContentUnit", "reorderPoint", "reorderQuantity"];
       if (Object.keys(body).some((field) => !allowedFields.includes(field))) return fail(res, 400, "VALIDATION_ERROR", "Unknown inventory field.", ctx.requestId);
       if (!Object.keys(body).length) return fail(res, 400, "VALIDATION_ERROR", "At least one field is required.", ctx.requestId);
       if (body.quantity !== undefined && positiveQuantity(body.quantity) === undefined) return fail(res, 400, "VALIDATION_ERROR", "quantity must be positive.", ctx.requestId);
@@ -596,7 +609,9 @@ const server = createServer(async (req, res) => {
         if (body.expiresAt !== undefined) add(`expires_at=$${values.length + 1}`, body.expiresAt === null ? null : new Date(String(body.expiresAt)));
         if (body.location !== undefined) add(`location=$${values.length + 1}`, body.location ?? null);
         if (body.lotCode !== undefined) add(`lot_code=$${values.length + 1}`, body.lotCode ?? null);
-        if (body.openedAt !== undefined) add(`opened_at=$${values.length + 1}`, body.openedAt === null ? null : new Date(String(body.openedAt)));
+        if (body.openedAt !== undefined) add(`opened_at=${values.length + 1}`, body.openedAt === null ? null : new Date(String(body.openedAt)));
+        if (body.remainingContentQuantity !== undefined) add(`remaining_content_quantity=${values.length + 1}`, body.remainingContentQuantity);
+        if (body.remainingContentUnit !== undefined) add(`remaining_content_unit=${values.length + 1}`, body.remainingContentUnit);
         let updated = row;
         if (fields.length) {
           fields.push("version=version+1", "updated_at=now()"); values.push(itemMatch[1], ctx.familyId);
