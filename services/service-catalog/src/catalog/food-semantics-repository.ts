@@ -48,7 +48,8 @@ export async function upsertProductFoodSemantics(
        updated_at=now(),
        components_json=excluded.components_json,
        composition_confidence=excluded.composition_confidence,
-       rules_version=excluded.rules_version`,
+       rules_version=excluded.rules_version,
+       nutriscore_grade=excluded.nutriscore_grade`,
     [
       productId,
       semantics.canonicalIngredient,
