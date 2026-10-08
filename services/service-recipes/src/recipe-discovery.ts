@@ -21,7 +21,7 @@ type FoodSemantics = {
  components?: Array<{raw?:string;canonicalIngredient:string|null;ingredientTerms:string[];percentage?:number|null;confidence:number}>;
  compositionConfidence?: number;
 };
-type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null;foodSemantics?:FoodSemantics|null};
+type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null;addedAt?:string|null;foodSemantics?:FoodSemantics|null};
 
 type CatalogProduct={productId:string;name?:string|null;foodSemantics?:FoodSemantics|null};
 type Suggestion=RecipeMatch & { matchedIngredientNames:string[]; matchedProducts:string[]; safetyWarnings:RecipeMatch["safety"]["warnings"]; recipe:Record<string,unknown> };
@@ -339,6 +339,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      quantity:Number(item.quantity),
      unit:String(item.unit),
      expiresAt:item.expiresAt??null,
+     addedAt:item.addedAt??null,
      foodSemantics:item.foodSemantics??null,
    }));
  const scored:Suggestion[]=full.map((r:any)=>{
