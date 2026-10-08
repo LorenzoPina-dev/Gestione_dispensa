@@ -24,6 +24,13 @@ export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
   mozzarella: ["mozzarella"],
   parmigiano: ["parmigiano","parmesan"],
   pecorino: ["pecorino","pecorino cheese"],
+  fiordilatte: ["fiordilatte","fior di latte"],
+  pesto: ["pesto","pesto genovese","genovese pesto"],
+  yogurt: ["yogurt","yoghurt","yaourt","yogur","joghurt"],
+  tofu: ["tofu"],
+  seitan: ["seitan"],
+  brodo: ["brodo","broth","bouillon"],
+  ragu: ["ragù","ragu","ragout"],
   farina: ["farina","flour","farine","harina","mehl"],
   pane: ["pane","bread","pain","pan","brot"],
   pangrattato: ["pangrattato","breadcrumbs","bread crumbs","chapelure","pan rallado"],
@@ -187,6 +194,27 @@ export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
   return numeric===null ? null : foodQuantity(numeric,match[5]);
 }
 
+
+export interface FunctionalSubstitution {
+  fromCanonical:string;
+  toCanonical:string;
+  factor:number;
+  reason:string;
+}
+
+export const FUNCTIONAL_SUBSTITUTIONS:readonly FunctionalSubstitution[] = [
+  {fromCanonical:"parmigiano",toCanonical:"pecorino",factor:0.8,reason:"Hard aged sheep cheese can fulfill the grating/savoury-cheese function."},
+  {fromCanonical:"pecorino",toCanonical:"parmigiano",factor:0.8,reason:"Hard aged grating cheese can fulfill the same savoury-cheese function."},
+  {fromCanonical:"mozzarella",toCanonical:"fiordilatte",factor:0.8,reason:"Fiordilatte is a direct fresh-milk-cheese functional substitute for mozzarella."},
+  {fromCanonical:"fiordilatte",toCanonical:"mozzarella",factor:0.8,reason:"Mozzarella is a direct fresh-cheese functional substitute for fiordilatte."}
+];
+
+export function functionalSubstitution(target:string|null,candidate:string|null):FunctionalSubstitution|null {
+  if(!target||!candidate)return null;
+  const from=normalizeFoodText(target);
+  const to=normalizeFoodText(candidate);
+  return FUNCTIONAL_SUBSTITUTIONS.find(rule=>normalizeFoodText(rule.fromCanonical)===from&&normalizeFoodText(rule.toCanonical)===to)??null;
+}
 
 export interface FoodComponent {
   raw:string;
