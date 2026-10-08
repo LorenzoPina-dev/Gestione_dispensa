@@ -125,6 +125,7 @@ user_id UUID PK -- remote Identity user, local in identity_db
 allergen_tags text[] NOT NULL
 dietary_restrictions text[] NOT NULL
 trace_policy varchar(16) NOT NULL -- WARN|EXCLUDE
+uncertainty_policy varchar(16) NOT NULL DEFAULT EXCLUDE -- WARN|EXCLUDE
 version integer NOT NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
