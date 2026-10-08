@@ -3,11 +3,12 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "nod
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
+import { normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 const DATASET_URL = process.env.RECIPE_DATASET_URL ??
   "https://zenodo.org/api/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip/content";
 const DATASET_MD5 = "b90427179a4304270fd5b7b7490b565d";
-const DATASET_KEY = "italian-gastronomic-recipes-v4";
+const DATASET_KEY = "italian-gastronomic-recipes-v5";
 const SOURCE = "italian-gastronomic-recipes-v4";
 const WORK_DIR = "/tmp/italian-recipes";
 
@@ -250,8 +251,10 @@ async function main(): Promise<void> {
         if (!name) continue;
 
         ingredientPosition += 1;
+        const semantic = normalizeRecipeIngredient(name);
+        const quantity = semantic.quantity;
         await client.query(
-          "INSERT INTO recipe_catalog.recipe_ingredients(id,recipe_id,position,source_ingredient_id,name,display_name,weight,terms) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+          "INSERT INTO recipe_catalog.recipe_ingredients(id,recipe_id,position,source_ingredient_id,name,display_name,weight,terms,canonical_ingredient,ingredient_terms,quantity_value,quantity_unit,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state,source_quantity_raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",
           [
             randomUUID(),
             recipeId,
@@ -261,6 +264,17 @@ async function main(): Promise<void> {
             name,
             weightColumns[j] !== undefined ? parseNumber(row[weightColumns[j]]) : null,
             ingredientTerms(name),
+            semantic.canonicalIngredient,
+            semantic.ingredientTerms,
+            quantity?.value ?? null,
+            quantity?.unit ?? null,
+            quantity?.dimension ?? null,
+            quantity?.baseValue ?? null,
+            quantity?.baseUnit ?? null,
+            semantic.quantityConfidence,
+            semantic.culinaryWeight,
+            semantic.prepState,
+            semantic.sourceQuantityRaw,
           ],
         );
       }
