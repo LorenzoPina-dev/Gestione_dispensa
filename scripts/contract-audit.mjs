@@ -109,8 +109,22 @@ for (const serviceRoot of migrationRoots) {
 const technicalTables = new Set(["schema_migrations", "outbox_events", "idempotency_keys", "event_consumers", "nutrition_domain.event_consumers"]);
 const dataMissingTables = [...physicalTables].filter((table) => !technicalTables.has(table) && !data.toLowerCase().includes(table));
 
-// Migration startup contract: every service with migrations must ship a runner and execute it in Docker.
+// Migration runtime contract: every service with migrations must ship a runner.
+// Normally the application Docker startup executes it. A dedicated
+// <service>-schema-migrate one-shot Compose job is also a valid runtime owner.
 const migrationRuntimeMissing = [];
+const compose = await readFile("docker-compose.yml", "utf8");
+function hasDedicatedMigrationJob(serviceRoot) {
+  const serviceName = serviceRoot.split("/").pop();
+  if (!serviceName) return false;
+  const jobName = serviceName + "-schema-migrate";
+  const lines = compose.split("\n");
+  const start = lines.findIndex((line) => line === "  " + jobName + ":");
+  if (start < 0) return false;
+  let end = start + 1;
+  while (end < lines.length && !/^  [A-Za-z0-9_-]+:/.test(lines[end])) end += 1;
+  return lines.slice(start, end).some((line) => line.includes("dist/migrate.js"));
+}
 for (const serviceRoot of migrationServices) {
   const migratePath = serviceRoot + "/src/migrate.ts";
   const dockerPath = serviceRoot + "/Dockerfile";
@@ -124,8 +138,8 @@ for (const serviceRoot of migrationServices) {
     if (docker.includes("entrypoint.sh")) {
       try { startup += "\n" + await readFile(serviceRoot + "/entrypoint.sh", "utf8"); } catch {}
     }
-    if (!startup.includes("dist/migrate.js")) {
-      migrationRuntimeMissing.push(serviceRoot + ": Docker startup does not run dist/migrate.js");
+    if (!startup.includes("dist/migrate.js") && !hasDedicatedMigrationJob(serviceRoot)) {
+      migrationRuntimeMissing.push(serviceRoot + ": no Docker startup or dedicated Compose migration job runs dist/migrate.js");
     }
   } catch {
     migrationRuntimeMissing.push(serviceRoot + ": missing migrate.ts or Dockerfile");
