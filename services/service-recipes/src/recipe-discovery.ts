@@ -1,4 +1,4 @@
-import { normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
+import { ingredientTerms, normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
 import { scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 
 type FoodSemantics = {
@@ -246,7 +246,11 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    const semanticTerms=x.foodSemantics?.ingredientTerms ?? [];
    const taxonomy=x.foodSemantics?.taxonomyTags ?? [];
    const name=pantryName(x);
-   return [...semanticTerms,...taxonomy,...(name?[...terms(name)]:[])].flatMap(value=>terms(value));
+   return [
+     ...semanticTerms.map(value=>norm(value)),
+     ...taxonomy.map(value=>norm(value)),
+     ...(name?ingredientTerms(name):[]),
+   ].filter(Boolean);
  }))];
  let fullCandidateRows:any[];
  if(p.q){
