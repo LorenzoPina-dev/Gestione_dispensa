@@ -287,6 +287,7 @@ services:
       KEYCLOAK_ADMIN: "${KEYCLOAK_ADMIN:-admin}"
       KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:-change-me-local-only}"
       OIDC_ISSUER: "https://${LAN_HOST:-localhost}:8443/realms/dispensa"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
