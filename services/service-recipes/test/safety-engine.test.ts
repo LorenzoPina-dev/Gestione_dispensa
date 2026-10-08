@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 import { evaluateRecipeSafety } from "../src/safety-engine.js";
 
 describe("recipe safety engine",()=>{
+  it("fails closed for ambiguous compound recipe ingredients under active safety policy",()=>{
+    const result=evaluateRecipeSafety(
+      [{name:"pesto",canonicalIngredient:"pesto",ingredientTerms:["pesto"],matchedProductIds:[]}],
+      [],
+      {allergenTags:["milk"],dietaryRestrictions:[],tracePolicy:"WARN",uncertaintyPolicy:"EXCLUDE"},
+    );
+    assert.equal(result.safe,false);
+    assert.equal(result.warnings.some(w=>w.code==="UNKNOWN_COMPOSITION"&&w.severity==="BLOCK"),true);
+  });
   it("blocks a known allergen in a recipe ingredient",()=>{
     const result=evaluateRecipeSafety([{name:"Latte",canonicalIngredient:"latte",ingredientTerms:["latte","milk"]}],[],{allergenTags:["milk"],dietaryRestrictions:[],tracePolicy:"WARN",uncertaintyPolicy:"EXCLUDE"});
     assert.equal(result.safe,false);
