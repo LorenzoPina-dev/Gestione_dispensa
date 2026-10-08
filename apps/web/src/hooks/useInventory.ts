@@ -5,7 +5,8 @@ import { ApiError, isBackendUnreachable } from "../api/client";
 import { FAMILY_ID as DEFAULT_FAMILY_ID } from "../api/config";
 import { mapStockItemDtoToUi } from "../api/mappers";
 import { reportSyncIssue } from "../lib/syncBus";
-import { invalidateCached } from "../api/screenCache";
+import { invalidateCached, prefetchCached } from "../api/screenCache";
+import { getRecipesScreenView, getDashboardView } from "../api/views";
 import {
   beginInventoryAction,
   resolveInventoryResult,
@@ -144,8 +145,12 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
           hydrationTargetRef.current = canonical;
           prevStockRef.current = canonical;
           setStockState(canonical);
-        } catch (err) {
-          reportIssue("Impossibile riallineare la dispensa con il server.", err, async () => {
+        }
+        invalidateCached(`screen:ricette:${family}`);
+        prefetchCached(`screen:ricette:${family}`, () => getRecipesScreenView(family));
+        invalidateCached(`screen:oggi:${family}`);
+        prefetchCached(`screen:oggi:${family}`, () => getDashboardView(family));
+      } catch (err) {
             const result = await api.listStockItems(family);
             const canonical = result.items.map(mapStockItemDtoToUi);
             hydrationTargetRef.current = canonical;
