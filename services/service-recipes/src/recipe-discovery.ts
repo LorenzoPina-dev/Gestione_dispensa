@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 
-type PantryItem={productId?:string|null;name:string;quantity?:number;unit?:string;expiresAt?:string|null};
+type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null};
+
+type CatalogProduct={productId:string;name?:string|null};
 type Suggestion={recipeId:string;score:number;matchedIngredientNames:string[];missingIngredients:Array<{name:string;quantity:number;unit:string}>;recipe:any};
 
 const ALIASES:Record<string,string[]>={pomodoro:["tomato","tomatoes"],cipolla:["onion","onions"],aglio:["garlic"],patata:["potato","potatoes"],carota:["carrot","carrots"],zucchina:["zucchini"],melanzana:["eggplant"],peperone:["bell pepper"],pollo:["chicken"],manzo:["beef"],pancetta:["bacon"],tonno:["tuna"],salmone:["salmon"],uovo:["egg","eggs"],latte:["milk"],burro:["butter"],panna:["cream"],formaggio:["cheese"],mozzarella:["mozzarella"],parmigiano:["parmesan"],farina:["flour"],pane:["bread"],pangrattato:["breadcrumbs"],pasta:["pasta"],spaghetti:["spaghetti"],riso:["rice"],ceci:["chickpea","chickpeas"],fagioli:["bean","beans"],piselli:["pea","peas"],mais:["corn"],olive:["olive"],"olio extravergine":["olive oil"],olio:["oil"],sale:["salt"],acqua:["water"],basilico:["basil"],prezzemolo:["parsley"],rosmarino:["rosemary"],limone:["lemon"],zucchero:["sugar"],cacao:["cocoa"],cioccolato:["chocolate"],miele:["honey"],mandorle:["almond","almonds"],noci:["walnut","walnuts"],nocciole:["hazelnut","hazelnuts"],pistacchio:["pistachio"],mascarpone:["mascarpone"],ricotta:["ricotta"],salsiccia:["sausage"]};
@@ -14,20 +16,45 @@ async function getInventory(base:string,userId:string,familyId:string,authorizat
  const headers:Record<string,string>={"x-user-id":userId,"x-family-id":familyId,accept:"application/json"};if(authorization)headers.authorization=authorization;
  const r=await fetch(u,{headers,signal:AbortSignal.timeout(2500)});if(!r.ok)throw new Error("inventory HTTP "+r.status);const b=await r.json() as {items?:PantryItem[]};return b.items??[];
 }
+
+async function enrichInventoryNames(stock:PantryItem[],catalogBase:string,authorization?:string):Promise<PantryItem[]>{
+ const ids=[...new Set(stock.map(item=>typeof item.productId==="string"?item.productId:"").filter(Boolean))];
+ if(ids.length===0)return stock;
+ const headers:Record<string,string>={"content-type":"application/json",accept:"application/json"};
+ if(authorization)headers.authorization=authorization;
+ const response=await fetch(catalogBase.replace(/\/$/,"")+"/catalog/products/batch",{
+   method:"POST",
+   headers,
+   body:JSON.stringify({ids}),
+   signal:AbortSignal.timeout(2500),
+ });
+ if(!response.ok)throw new Error("catalog HTTP "+response.status);
+ const body=await response.json() as {items?:CatalogProduct[]};
+ const names=new Map((body.items??[]).map(item=>[item.productId,String(item.name??"").trim()]).filter(([,name])=>Boolean(name)));
+ return stock.map(item=>({
+   ...item,
+   ...(item.name?.trim()?{}:(names.get(String(item.productId??""))?{name:names.get(String(item.productId??""))}:{ })),
+ }));
+}
+
+function pantryName(item:PantryItem):string{
+ return typeof item.name==="string"?item.name.trim():"";
+}
 async function hydrate(pool:Pool,rows:any[]){if(!rows.length)return[];const ids=rows.map(x=>x.id);const i=await pool.query("select recipe_id,name,display_name,weight from recipe_catalog.recipe_ingredients where recipe_id=any($1::uuid[]) order by recipe_id,position",[ids]);const s=await pool.query("select recipe_id,instruction from recipe_catalog.recipe_steps where recipe_id=any($1::uuid[]) order by recipe_id,position",[ids]);const im=new Map<string,any[]>(),sm=new Map<string,string[]>();for(const x of i.rows){if(!im.has(x.recipe_id))im.set(x.recipe_id,[]);im.get(x.recipe_id)!.push(x);}for(const x of s.rows){if(!sm.has(x.recipe_id))sm.set(x.recipe_id,[]);sm.get(x.recipe_id)!.push(String(x.instruction));}return rows.map(x=>({...x,ingredients:im.get(x.id)??[],steps:sm.get(x.id)??[]}));}
 
-export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;limit:number;q?:string;authorization?:string}):Promise<Suggestion[]>{
- const stock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
- const stockTerms=[...new Set(stock.flatMap(x=>[...terms(x.name)]))];
+export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string}):Promise<Suggestion[]>{
+ const rawStock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
+ const stock=p.catalogBaseUrl?await enrichInventoryNames(rawStock,p.catalogBaseUrl,p.authorization):rawStock;
+ const stockTerms=[...new Set(stock.flatMap(x=>{const name=pantryName(x);return name?[...terms(name)]:[];}))];
  const candidates=p.q
    ? (await pool.query("select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes where title ilike $1 order by similarity(title,$2) desc limit $3",["%"+norm(p.q)+"%",norm(p.q),Math.min(p.limit*20,100)])).rows
    : (await pool.query("select r.id,r.title,r.category,r.difficulty,r.prep_time_minutes,r.source_url,count(distinct i.id) matched from recipe_catalog.recipes r join recipe_catalog.recipe_ingredients i on i.recipe_id=r.id where i.terms && $1::text[] group by r.id order by matched desc,r.difficulty asc nulls last,r.prep_time_minutes asc nulls last limit $2",[stockTerms,Math.min(Math.max(p.limit*20,50),300)])).rows;
  const full=await hydrate(pool,candidates);
  return full.map((r:any)=>{
-   const matched=r.ingredients.filter((i:any)=>stock.some(s=>matches(String(i.display_name||i.name),s.name)));
+   const matched=r.ingredients.filter((i:any)=>stock.some(s=>{const name=pantryName(s);return name?matches(String(i.display_name||i.name),name):false}));
    const missing=r.ingredients.filter((i:any)=>!stock.some(s=>matches(String(i.display_name||i.name),s.name)));
    let expiry=0;
-   for(const i of matched){const s=stock.find(x=>matches(String(i.display_name||i.name),x.name));if(s?.expiresAt){const days=(new Date(s.expiresAt).getTime()-Date.now())/86400000;expiry+=Math.max(0,Math.min(1,(7-days)/7));}}
+   for(const i of matched){const s=stock.find(x=>{const name=pantryName(x);return name?matches(String(i.display_name||i.name),name):false});if(s?.expiresAt){const days=(new Date(s.expiresAt).getTime()-Date.now())/86400000;expiry+=Math.max(0,Math.min(1,(7-days)/7));}}
    const coverage=r.ingredients.length?matched.length/r.ingredients.length:0;
    const expiryScore=matched.length?expiry/matched.length:0;
    const shopping=1/(1+missing.length);
