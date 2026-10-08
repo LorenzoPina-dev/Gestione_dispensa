@@ -109,17 +109,18 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
  const rawStock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
  const stock=p.catalogBaseUrl?await enrichInventoryNames(rawStock,p.catalogBaseUrl,p.authorization):rawStock;
  const stockTerms=[...new Set(stock.flatMap(x=>{const name=pantryName(x);return name?[...terms(name)]:[];}))];
- const candidates=p.q
-   ? (await pool.query("select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes where title ilike $1 order by similarity(title,$2) desc limit $3",["%"+norm(p.q)+"%",norm(p.q),Math.min(p.limit*20,100)])).rows
-   : (() => {
-     return [];
-   })();
  let fullCandidateRows:any[];
  if(p.q){
-  fullCandidateRows=candidates;
+  fullCandidateRows=(await pool.query(
+   "select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes where title ilike $1 order by similarity(title,$2) desc limit $3",
+   ["%"+norm(p.q)+"%",norm(p.q),Math.min(Math.max(p.limit,1),100)],
+  )).rows;
  }else{
   const candidateLimit=Math.min(Math.max(p.limit*20,50),300);
-  const matchedRows=(await pool.query("select r.id,r.title,r.category,r.difficulty,r.prep_time_minutes,r.source_url,count(distinct i.id) matched from recipe_catalog.recipes r join recipe_catalog.recipe_ingredients i on i.recipe_id=r.id where i.terms && $1::text[] group by r.id order by matched desc,r.difficulty asc nulls last,r.prep_time_minutes asc nulls last limit $2",[stockTerms,candidateLimit])).rows;
+  const matchedRows=(await pool.query(
+   "select r.id,r.title,r.category,r.difficulty,r.prep_time_minutes,r.source_url,count(distinct i.id) matched from recipe_catalog.recipes r join recipe_catalog.recipe_ingredients i on i.recipe_id=r.id where i.terms && $1::text[] group by r.id order by matched desc,r.difficulty asc nulls last,r.prep_time_minutes asc nulls last limit $2",
+   [stockTerms,candidateLimit],
+  )).rows;
   const remaining=candidateLimit-matchedRows.length;
   if(remaining<=0){
    fullCandidateRows=matchedRows;
@@ -128,7 +129,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    const fallbackQuery=excluded.length
      ? "select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes where not (id::text = any($1::text[])) order by difficulty asc nulls last,prep_time_minutes asc nulls last,title asc limit $2"
      : "select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes order by difficulty asc nulls last,prep_time_minutes asc nulls last,title asc limit $1";
-   const fallbackArgs=excluded.length?[excluded,remaining]:[remaining];
+   const fallbackArgs:unknown[] = excluded.length ? [excluded,remaining] : [remaining];
    const fallbackRows=(await pool.query(fallbackQuery,fallbackArgs)).rows;
    fullCandidateRows=[...matchedRows,...fallbackRows];
   }
