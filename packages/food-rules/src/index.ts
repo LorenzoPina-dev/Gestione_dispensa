@@ -166,11 +166,15 @@ function parseNumericQuantity(value:string):number|null {
   return Number.isFinite(number)&&number>0?number:null;
 }
 
+export function foodUnitInfo(unit:string): {dimension:FoodQuantity["dimension"];factor:number;baseUnit:FoodQuantity["baseUnit"]}|null {
+  return QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\\.$/,"")] ?? null;
+}
+
 export function foodQuantity(value:number|string, unit:string):FoodQuantity|null {
   const numeric=typeof value==="number"?value:parseNumericQuantity(value);
   const info=QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\.$/,"")];
   if(numeric===null || !info) return null;
-  return {value:numeric,unit:unit.trim().toLowerCase(),dimension:info.dimension,baseValue:numeric*info.factor,baseUnit:info.baseUnit,sourceRaw:String(value)+" "+unit.trim()};
+  return {value:numeric,unit:normalizedUnit,dimension:info.dimension,baseValue:numeric*info.factor,baseUnit:info.baseUnit,sourceRaw:String(value)+" "+unit.trim()};
 }
 
 export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
