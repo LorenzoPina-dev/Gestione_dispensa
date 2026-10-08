@@ -383,7 +383,7 @@ export function convertFoodQuantityWithDensity(
   value:number,
   unit:string,
   canonicalIngredient:string|null,
-  targetUnit:"g"|"ml",
+  targetUnit:"g"|"ml"|"piece",
 ):FoodQuantity|null{
   const quantity=foodQuantity(value,unit);
   const rule=foodDensityRule(canonicalIngredient);
