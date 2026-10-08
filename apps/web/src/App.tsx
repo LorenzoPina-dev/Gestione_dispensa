@@ -481,6 +481,7 @@ export default function App() {
                 }
               }}
               familyId={familyId}
+              locale={currentUser.locale ?? "it-IT"}
               suggestedRecipes={composite.data?.suggestedRecipes}
             />
           )}
