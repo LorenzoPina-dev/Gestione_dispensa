@@ -298,7 +298,8 @@ export function scoreRecipeAgainstPantry(
             .map(item => functionalSubstitution(ingredient.canonicalIngredient ?? null, item.foodSemantics?.canonicalIngredient ?? null))
             .find(Boolean))
           .find(Boolean);
-        const productIds = substituteCandidates.map(item => item.productId);
+        const firstSubstituteProduct = sortFefo(substituteCandidates)[0];
+        const productIds = firstSubstituteProduct ? [firstSubstituteProduct.productId] : [];
         match = {
           recipeIngredient: representative.displayName || representative.name,
           canonicalIngredient: representative.canonicalIngredient ?? null,
@@ -352,7 +353,7 @@ export function scoreRecipeAgainstPantry(
       const ratio = Math.max(0, Math.min(1, effective / required));
       const allocations=[...exactAllocation.allocations,...substituteAllocation.allocations];
       const ids=[...new Set(allocations.map(item=>item.productId))];
-      const incompatibleSub = substituteCandidates.length > 0 && substituteRawAvailable === 0 && substituteAvailable.length > 0;
+      const incompatibleSub = substituteCandidates.length > 0 && compatibleSub.length === 0;
 
       const subRule = substituteUsed > 0
         ? group
