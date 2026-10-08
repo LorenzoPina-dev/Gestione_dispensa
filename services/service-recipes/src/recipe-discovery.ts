@@ -1,5 +1,6 @@
 import { ingredientTerms, normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
 import { scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
+import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
 
 type FoodSemantics = {
  canonicalIngredient?: string | null;
@@ -239,9 +240,24 @@ async function hydrate(pool:Pool,rows:any[]){
  return rows.map(x=>({...x,ingredients:im.get(x.id)??[],steps:sm.get(x.id)??[]}));
 }
 
-export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string}):Promise<Suggestion[]>{
+async function loadSafetyProfile(base:string,userId:string,authorization?:string):Promise<SafetyProfile>{
+ const headers:Record<string,string>={accept:"application/json","x-user-id":userId};
+ if(authorization)headers.authorization=authorization;
+ const response=await fetch(base.replace(/\/$/,"")+"/identity/preferences",{headers,signal:AbortSignal.timeout(2500)});
+ if(!response.ok) throw new Error("identity preferences HTTP "+response.status);
+ const envelope=await response.json() as {data?:{allergenTags?:unknown;dietaryRestrictions?:unknown;tracePolicy?:unknown}};
+ const data=envelope.data??{};
+ return {
+   allergenTags:Array.isArray(data.allergenTags)?data.allergenTags.map(String):[],
+   dietaryRestrictions:Array.isArray(data.dietaryRestrictions)?data.dietaryRestrictions.map(String):[],
+   tracePolicy:data.tracePolicy==="EXCLUDE"?"EXCLUDE":"WARN",
+ };
+}
+
+export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string;identityBaseUrl?:string}):Promise<Suggestion[]>{
  const rawStock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
  const stock=p.catalogBaseUrl?await enrichInventoryNames(rawStock,p.catalogBaseUrl,p.authorization):rawStock;
+ const safetyProfile=await loadSafetyProfile(p.identityBaseUrl??"http://service-identity:3310/api/v1",p.userId,p.authorization);
  const stockTerms=[...new Set(stock.flatMap(x=>{
    const semanticTerms=x.foodSemantics?.ingredientTerms ?? [];
    const taxonomy=x.foodSemantics?.taxonomyTags ?? [];
@@ -293,6 +309,12 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
  const scored:Suggestion[]=full.map((r:any)=>{
    const coverage=scoreRecipeAgainstPantry(r.ingredients,pantry);
    const matched=coverage.matchedIngredients.filter(item=>item.ratio>0);
+   const usedProductIds=new Set(coverage.matchedProductIds);
+   const safety=evaluateRecipeSafety(
+     r.ingredients.map((x:any)=>({name:String(x.name),canonicalIngredient:x.canonical_ingredient??null,ingredientTerms:Array.isArray(x.ingredient_terms)?x.ingredient_terms.map(String):[]})),
+     pantry.filter(item=>usedProductIds.has(item.productId)).map(item=>({productId:item.productId,name:item.name,foodSemantics:item.foodSemantics??null})),
+     safetyProfile,
+   );
    const missing=coverage.missingIngredients;
    const recipe={
      recipeId:String(r.id),
@@ -319,7 +341,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    return {
      recipeId:String(r.id),
      score:coverage.score,
-     readiness:coverage.readiness,
+     readiness:safety.safe?coverage.readiness:"DISCARD",
      matchedIngredientNames:matched.map(item=>item.recipeIngredient),
      missingIngredients:missing.map(item=>({
        name:item.recipeIngredient,
@@ -341,7 +363,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
        ingredients:coverage.matchedIngredients,
      },
      substitutions:[],
-     safetyWarnings:[],
+     safetyWarnings:safety.warnings,
      recipe,
    };
  });
