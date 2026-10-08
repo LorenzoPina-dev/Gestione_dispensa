@@ -116,6 +116,41 @@ Request:
 
 Tutti i campi sono opzionali; almeno uno deve essere presente. Response 200 come GET.
 
+### GET /identity/preferences
+
+Response 200:
+```json
+{
+  "data": {
+    "userId": "uuid",
+    "allergenTags": ["milk"],
+    "dietaryRestrictions": ["vegetarian"],
+    "tracePolicy": "WARN",
+    "version": 2,
+    "updatedAt": "2026-10-08T15:30:00Z"
+  }
+}
+```
+
+`allergenTags` usa codici canonici (`milk`, `eggs`, `gluten`, `wheat`, `peanuts`, `nuts`, `soybeans`, `fish`, `crustaceans`, `molluscs`, `sesame-seeds`, `mustard`, `lupin`, `celery`, `sulphites`). `dietaryRestrictions` accetta `vegan`, `vegetarian`, `pescatarian`, `gluten-free`, `lactose-free`, `dairy-free`, `nut-free`, `peanut-free`, `soy-free`, `egg-free`, `fish-free`, `shellfish-free`. `tracePolicy` è `WARN` oppure `EXCLUDE`.
+
+### PATCH /identity/preferences
+
+Headers: `If-Match: <version>` e `X-Idempotency-Key` obbligatori.
+
+Request:
+```json
+{
+  "allergenTags": ["milk"],
+  "dietaryRestrictions": ["vegetarian"],
+  "tracePolicy": "WARN"
+}
+```
+
+La richiesta aggiorna il profilo personale con optimistic concurrency e idempotenza. Una preferenza sconosciuta viene rifiutata; una lista vuota significa esplicitamente “nessun vincolo”.
+
+Response 200: stesso oggetto di GET con nuova `version`.
+
 ## 2A. Authentication operations
 
 These endpoints are part of the public application contract because registration, password reset and local logout are required before/after an authenticated Identity profile exists.
