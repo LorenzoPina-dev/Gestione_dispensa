@@ -150,10 +150,42 @@ async function main(): Promise<void> {
   const extractedPath = path.join(WORK_DIR, "dataset");
   rmSync(extractedPath, { recursive: true, force: true });
 
-  const response = await fetch(DATASET_URL, { signal: AbortSignal.timeout(120_000) });
-  if (!response.ok) throw new Error("Recipe dataset download failed with HTTP " + response.status);
+  const downloadUrls = [
+    DATASET_URL,
+    DATASET_URL.includes("?") ? DATASET_URL.split("?")[0] : DATASET_URL,
+  ].filter((value, index, values) => values.indexOf(value) === index);
 
-  const data = Buffer.from(await response.arrayBuffer());
+  let data: Buffer | null = null;
+  let lastStatus: number | null = null;
+
+  for (const downloadUrl of downloadUrls) {
+    const response = await fetch(downloadUrl, {
+      headers: {
+        Accept: "application/zip,application/octet-stream;q=0.9,*/*;q=0.8",
+        "User-Agent": "Gestione-Dispensa/2.0 recipe-catalog-import",
+        Referer: "https://zenodo.org/records/14068000",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (response.ok) {
+      data = Buffer.from(await response.arrayBuffer());
+      break;
+    }
+
+    lastStatus = response.status;
+    console.warn(JSON.stringify({
+      service: "recipe-catalog-import",
+      event: "recipe_dataset_download_attempt_failed",
+      status: response.status,
+      url: downloadUrl,
+    }));
+  }
+
+  if (!data) {
+    throw new Error("Recipe dataset download failed with HTTP " + String(lastStatus ?? "unknown"));
+  }
   const md5 = createHash("md5").update(data).digest("hex");
   if (md5 !== DATASET_MD5) {
     throw new Error("Recipe dataset MD5 mismatch: expected " + DATASET_MD5 + ", got " + md5);
