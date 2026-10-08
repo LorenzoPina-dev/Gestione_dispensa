@@ -481,15 +481,13 @@ const server = createServer(async (req, res) => {
       if (!body.productId || !body.unit || quantity === undefined) return fail(res, 400, "VALIDATION_ERROR", "productId, unit and positive quantity are required.", ctx.requestId);
       if (body.expiresAt !== undefined && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
       if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
-      if (body.remainingContentQuantity !== undefined && body.remainingContentQuantity !== null && (typeof body.remainingContentQuantity !== "number" || !Number.isFinite(body.remainingContentQuantity) || body.remainingContentQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity must be a positive number or null.", ctx.requestId);
-      if (body.remainingContentUnit !== undefined && body.remainingContentUnit !== null && !["g","kg","ml","l","piece"].includes(String(body.remainingContentUnit))) return fail(res, 400, "VALIDATION_ERROR", "remainingContentUnit must be g, kg, ml, l or piece.", ctx.requestId);
       if (Object.hasOwn(body, "remainingContentQuantity") !== Object.hasOwn(body, "remainingContentUnit")) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity and remainingContentUnit must be updated together.", ctx.requestId);
       if (body.remainingContentQuantity !== undefined && body.remainingContentQuantity !== null && (typeof body.remainingContentQuantity !== "number" || !Number.isFinite(body.remainingContentQuantity) || body.remainingContentQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity must be a positive number or null.", ctx.requestId);
       if (body.remainingContentUnit !== undefined && body.remainingContentUnit !== null && !["g","kg","ml","l","piece"].includes(String(body.remainingContentUnit))) return fail(res, 400, "VALIDATION_ERROR", "remainingContentUnit must be g, kg, ml, l or piece.", ctx.requestId);
       const hasRemainingQuantity = Object.hasOwn(body, "remainingContentQuantity") && body.remainingContentQuantity !== null && body.remainingContentQuantity !== undefined;
       const hasRemainingUnit = Object.hasOwn(body, "remainingContentUnit") && body.remainingContentUnit !== null && body.remainingContentUnit !== undefined;
       if (hasRemainingQuantity !== hasRemainingUnit) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity and remainingContentUnit must be provided together.", ctx.requestId);
-      if ((hasRemainingQuantity || hasRemainingUnit) && body.openedAt === undefined) return fail(res, 400, "VALIDATION_ERROR", "openedAt is required when remaining package content is provided.", ctx.requestId);
+      if ((hasRemainingQuantity || hasRemainingUnit) && (body.openedAt === undefined || body.openedAt === null)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is required when remaining package content is provided.", ctx.requestId);
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
       if (body.reorderPoint !== undefined && body.reorderPoint !== null && (typeof body.reorderPoint !== "number" || !Number.isFinite(body.reorderPoint) || body.reorderPoint < 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderPoint must be a non-negative number or null.", ctx.requestId);
@@ -557,6 +555,8 @@ const server = createServer(async (req, res) => {
           actorUserId: ctx.userId,
           location: body.location ?? null,
           openedAt: body.openedAt ?? null,
+          remainingContentQuantity: body.remainingContentQuantity ?? null,
+          remainingContentUnit: body.remainingContentUnit ?? null,
           quantity: String(quantity),
           unit: String(body.unit),
           expiresAt: joined.rows[0].expires_at ? new Date(joined.rows[0].expires_at).toISOString() : null,
@@ -585,6 +585,9 @@ const server = createServer(async (req, res) => {
       if (body.reorderQuantity !== undefined && (typeof body.reorderQuantity !== "number" || !Number.isFinite(body.reorderQuantity) || body.reorderQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "reorderQuantity must be a positive number.", ctx.requestId);
       if (body.expiresAt !== undefined && body.expiresAt !== null && !validIsoDate(body.expiresAt)) return fail(res, 400, "VALIDATION_ERROR", "expiresAt is invalid.", ctx.requestId);
       if (body.openedAt !== undefined && body.openedAt !== null && !validIsoDate(body.openedAt)) return fail(res, 400, "VALIDATION_ERROR", "openedAt is invalid.", ctx.requestId);
+      if (body.remainingContentQuantity !== undefined && body.remainingContentQuantity !== null && (typeof body.remainingContentQuantity !== "number" || !Number.isFinite(body.remainingContentQuantity) || body.remainingContentQuantity <= 0)) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity must be a positive number or null.", ctx.requestId);
+      if (body.remainingContentUnit !== undefined && body.remainingContentUnit !== null && !["g","kg","ml","l","piece"].includes(String(body.remainingContentUnit))) return fail(res, 400, "VALIDATION_ERROR", "remainingContentUnit must be g, kg, ml, l or piece.", ctx.requestId);
+      if (Object.hasOwn(body, "remainingContentQuantity") !== Object.hasOwn(body, "remainingContentUnit")) return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity and remainingContentUnit must be updated together.", ctx.requestId);
       if (body.location !== undefined && !validOptionalText(body.location)) return fail(res, 400, "VALIDATION_ERROR", "location must be a string or null.", ctx.requestId);
       if (body.lotCode !== undefined && !validOptionalText(body.lotCode)) return fail(res, 400, "VALIDATION_ERROR", "lotCode must be a string or null.", ctx.requestId);
       const client = await pool.connect();
@@ -597,6 +600,15 @@ const server = createServer(async (req, res) => {
         if (!current.rowCount) { await client.query("ROLLBACK"); return fail(res, 404, "NOT_FOUND", "Inventory item not found.", ctx.requestId); }
         const row = current.rows[0] as Record<string, unknown>;
         if (String(row.version) !== ifMatch) { await client.query("ROLLBACK"); return fail(res, 412, "PRECONDITION_FAILED", "If-Match does not match current version.", ctx.requestId); }
+        if (Object.hasOwn(body, "remainingContentQuantity") || Object.hasOwn(body, "remainingContentUnit") || Object.hasOwn(body, "openedAt")) {
+          const finalOpenedAt = Object.hasOwn(body, "openedAt") ? body.openedAt : row.opened_at;
+          const finalQuantity = Object.hasOwn(body, "remainingContentQuantity") ? body.remainingContentQuantity : row.remaining_content_quantity;
+          const finalUnit = Object.hasOwn(body, "remainingContentUnit") ? body.remainingContentUnit : row.remaining_content_unit;
+          const hasFinalQuantity = finalQuantity !== undefined && finalQuantity !== null;
+          const hasFinalUnit = finalUnit !== undefined && finalUnit !== null;
+          if (hasFinalQuantity !== hasFinalUnit) { await client.query("ROLLBACK"); return fail(res, 400, "VALIDATION_ERROR", "remainingContentQuantity and remainingContentUnit must be present together.", ctx.requestId); }
+          if ((hasFinalQuantity || hasFinalUnit) && (finalOpenedAt === undefined || finalOpenedAt === null)) { await client.query("ROLLBACK"); return fail(res, 400, "VALIDATION_ERROR", "openedAt cannot be cleared while residual package content is recorded.", ctx.requestId); }
+        }
         if (body.reorderQuantity !== undefined && body.reorderPoint === undefined) {
           const policy = await client.query("SELECT 1 FROM reorder_policies WHERE family_id=$1 AND product_id=$2 AND enabled=true", [ctx.familyId, String(row.product_id)]);
           if (!policy.rowCount) { await client.query("ROLLBACK"); return fail(res, 400, "VALIDATION_ERROR", "reorderPoint is required when setting reorderQuantity.", ctx.requestId); }
