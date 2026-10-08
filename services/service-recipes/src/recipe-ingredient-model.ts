@@ -3,8 +3,6 @@ import {
   classifyCulinaryWeight,
   foodQuantity,
   parseFoodIngredientLine,
-  parseFoodQuantityFromText,
-  parseFoodCountFromText,
   type CulinaryWeight,
   type FoodQuantity,
 } from "@gestione-dispensa/food-rules";
