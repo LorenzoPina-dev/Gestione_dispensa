@@ -5,7 +5,7 @@
 ### COMPLETATO
 
 - [x] Separazione delle responsabilità: Inventory mantiene stock/quantità/scadenze; Catalog mantiene identità e fatti del prodotto; Recipes calcola matching, copertura e sicurezza.
-- [x] Nuovo modello `product_food_semantics` nel database Catalog per materializzare in seguito il profilo semantico.
+- [x] Modello `product_food_semantics` nel database Catalog con materializzazione atomica, versione delle regole e backfill one-shot.
 - [x] Derivatore deterministico `food-semantics.ts` a partire dal dato OFF già curato nel Catalog.
 - [x] Normalizzazione di accenti, maiuscole, separatori e prefissi lingua dei tag OFF.
 - [x] Alias multilingua per gli ingredienti principali italiano/inglese e varianti singolare/plurale.
@@ -14,6 +14,7 @@
 - [x] Conservazione distinta di `ingredientTerms`, `taxonomyTags`, `allergenTags`, `traceTags` e `labelTags`.
 - [x] Correzione del significato dei dati: gli allergeni sono fatti sul prodotto; le etichette dietetiche sono fatti separati e non vengono inferiti automaticamente dagli allergeni.
 - [x] Prima classificazione culinaria `STAPLE`, `SECONDARY`, `CORE`.
+- [x] Stato semantico esplicito `EXACT|INFERRED|UNKNOWN|AMBIGUOUS` e confidenza persistita.
 - [x] Normalizzazione delle quantità di confezione in base comuni `g`, `ml`, `piece`.
 - [x] Parsing di quantità OFF espresse come testo, ad esempio `180 g`, quando il provider non espone già valore/unità separati.
 - [x] Confidenza separata per semantica e quantità.
