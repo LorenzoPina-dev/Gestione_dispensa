@@ -72,17 +72,15 @@ export function combineInventoryQuantity(
   openedAt?:string|null,
   remainingContent?:{value:number;unit:"g"|"kg"|"ml"|"l"|"piece"}|null,
 ):ParsedQuantity|null{
+  const normalized=normalizeUnit(unit);
+  if(openedAt && remainingContent){
+    const remaining=foodQuantity(remainingContent.value,remainingContent.unit);
+    if(remaining) return {...remaining,confidence:0.96,sourceRaw:String(remainingContent.value)+" "+remainingContent.unit};
+    return null;
+  }
   const direct=parseQuantity(quantity,unit);
   if(direct)return direct;
-  const normalized=normalizeUnit(unit);
   if(["pack","packs","conf","confezione","confezioni"].includes(normalized) && packageQuantity){
-    if(openedAt && remainingContent){
-      const remaining=foodQuantity(remainingContent.value,remainingContent.unit);
-      if(remaining){
-        return {...remaining,confidence:0.96,sourceRaw:String(remainingContent.value)+" "+remainingContent.unit};
-      }
-      return null;
-    }
     if(openedAt) return null;
     const total=quantity*packageQuantity.value;
     return {
