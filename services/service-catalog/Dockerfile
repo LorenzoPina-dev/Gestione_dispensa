@@ -5,10 +5,13 @@ COPY packages/runtime-auth/package.json packages/runtime-auth/tsconfig.json ./pa
 COPY packages/runtime-auth/src ./packages/runtime-auth/src
 COPY packages/runtime-db/package.json packages/runtime-db/tsconfig.json ./packages/runtime-db/
 COPY packages/runtime-db/src ./packages/runtime-db/src
+COPY packages/food-rules/package.json packages/food-rules/tsconfig.json ./packages/food-rules/
+COPY packages/food-rules/src ./packages/food-rules/src
 COPY services/service-catalog/package.json services/service-catalog/tsconfig.json ./services/service-catalog/
 RUN npm install
 RUN npm --workspace @gestione-dispensa/runtime-auth run build
 RUN npm --workspace @gestione-dispensa/runtime-db run build
+RUN npm --workspace @gestione-dispensa/food-rules run build
 COPY services/service-catalog/src ./services/service-catalog/src
 COPY services/service-catalog/migrations ./services/service-catalog/migrations
 RUN npm --workspace @gestione-dispensa/service-catalog run build
