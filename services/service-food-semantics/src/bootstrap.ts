@@ -35,10 +35,10 @@ function parseObo(text: string): Term[] {
     if (colon < 0) continue;
     const key = line.slice(0, colon);
     const value = line.slice(colon + 1).trim();
-    if (key === "id" && value.startsWith("FOODON_")) current.id = value;
+    if (key === "id" && /^(FOODON_|FOODON:)/.test(value)) current.id = value.replace(/^FOODON:/, "FOODON_");
     else if (key === "name") current.name = value;
     else if (key === "synonym") current.synonyms!.push(parseSynonym(value));
-    else if (key === "is_a") current.parent = value.split("!")[0]!.trim();
+    else if (key === "is_a") {\n      const parent = value.split("!")[0]!.trim();\n      current.parent = parent.replace(/^FOODON:/, "FOODON_");\n    }
   }
   flush();
   return terms.filter((term) => term.id.startsWith("FOODON_"));
