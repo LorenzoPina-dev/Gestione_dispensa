@@ -95,7 +95,7 @@ export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
   marmellata: ["marmellata","jam","jelly","confiture","mermelada","marmelade"],
   biscotti: ["biscotto","biscotti","biscuit","biscuits","cookie","cookies","galleta","galletas","keks"],
   cracker: ["cracker","crackers"],
-  prosciutto: ["prosciutto","ham","jambon","jamón","schinken"],
+
   salame: ["salame","salami","salami sausage"],
   legumi: ["legume","legumi","pulses","legumes","legumes alimentaires"],
   carne: ["carne","meat","viande","carne"],
