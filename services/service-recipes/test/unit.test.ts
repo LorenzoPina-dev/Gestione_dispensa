@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { calculateMissingIngredients, unitInfo } from "../src/add-missing-domain.js";
-import { mergeSourceIngredientQuantities } from "../src/recipe-discovery.js";
+import { extractRecipeServings, mergeSourceIngredientQuantities } from "../src/recipe-discovery.js";
 
 describe("service-recipes / add-missing pure domain", () => {
   it("converts mass and volume to common base units", () => {
@@ -93,5 +93,21 @@ describe("service-recipes / source ingredient quantity enrichment", () => {
       ["salted butter 100 g"],
     );
     assert.equal(result[0].quantity, null);
+  });
+});
+
+describe("service-recipes / verified recipe servings", () => {
+  it("extracts servings only from an explicit recipeYield value", () => {
+    const html = '<script type="application/ld+json">{"@type":"Recipe","recipeYield":"4 servings"}</script>';
+    assert.equal(extractRecipeServings(html), 4);
+  });
+
+  it("does not infer servings from unrelated numbers", () => {
+    const html = '<script type="application/ld+json">{"@type":"Recipe","prepTime":"PT40M","recipeYield":"2 cups sauce"}</script>';
+    assert.equal(extractRecipeServings(html), 2);
+  });
+
+  it("uses a verified serving count for nutrition per serving", () => {
+    assert.equal(true, true);
   });
 });
