@@ -1,4 +1,4 @@
-import { ALIAS_GROUPS, TAXONOMY_CANONICAL, canonicalizeIngredient, classifyCulinaryWeight, normalizeFoodText as norm, normalizeFoodTag as tagName } from "@gestione-dispensa/food-rules";
+import { canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, type CulinaryWeight } from "@gestione-dispensa/food-rules";
 
 export interface ProductFoodSemantics {
   productId: string;
@@ -45,18 +45,6 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? [...new Set(value.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean))] : [];
 }
 
-function baseQuantity(value: number, unit: string): { value: number; unit: "g" | "ml" | "piece" } | null {
-  const u = unit.toLowerCase();
-  if (u === "kg") return { value: value * 1000, unit: "g" };
-  if (u === "g") return { value, unit: "g" };
-  if (u === "mg") return { value: value / 1000, unit: "g" };
-  if (u === "l") return { value: value * 1000, unit: "ml" };
-  if (u === "cl") return { value: value * 10, unit: "ml" };
-  if (u === "ml") return { value, unit: "ml" };
-  if (["piece", "pieces", "pz", "pcs", "unit", "units"].includes(u)) return { value, unit: "piece" };
-  return null;
-}
-
 export function deriveProductFoodSemantics(productId: string, raw: Record<string, unknown> | null | undefined, canonicalName?: string | null): ProductFoodSemantics {
   const source = raw ?? {};
   const ingredientTags = stringArray(source.ingredientsTags ?? source.ingredients_tags);
@@ -89,11 +77,20 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
 
   const culinaryWeight: CulinaryWeight = classifyCulinaryWeight(canonical.canonicalIngredient);
 
-  const quantityValue = typeof source.quantityValue === "number"
-    ? source.quantityValue
-    : typeof source.quantity_value === "number" ? source.quantity_value : null;
+  const quantityValue =
+    typeof source.quantityValue === "number"
+      ? source.quantityValue
+      : typeof source.quantity_value === "number"
+        ? source.quantity_value
+        : null;
   const quantityUnit = firstNonEmpty(source.quantityUnit, source.quantity_unit);
-  const normalizedQuantity = quantityValue !== null && quantityUnit ? baseQuantity(quantityValue, quantityUnit) : null;
+  const rawQuantity = firstNonEmpty(source.quantity, source.productQuantity, source.product_quantity);
+  const parsedTextQuantity = rawQuantity && quantityValue === null && !quantityUnit
+    ? parseFoodQuantityFromText(rawQuantity)
+    : null;
+  const normalizedQuantity = quantityValue !== null && quantityUnit
+    ? foodQuantity(quantityValue, quantityUnit)
+    : parsedTextQuantity;
 
   return {
     productId,
@@ -105,9 +102,9 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     labelTags: [...new Set(labelTags)],
     dietaryTags: [...dietary],
     culinaryWeight,
-    quantity: quantityValue !== null && quantityUnit ? { value: quantityValue, unit: quantityUnit } : null,
-    quantityBase: normalizedQuantity,
-    quantityConfidence: normalizedQuantity ? 0.98 : 0,
+    quantity: normalizedQuantity ? { value: normalizedQuantity.value, unit: normalizedQuantity.unit } : null,
+    quantityBase: normalizedQuantity ? { value: normalizedQuantity.baseValue, unit: normalizedQuantity.baseUnit } : null,
+    quantityConfidence: normalizedQuantity ? (rawQuantity ? 0.97 : 0.99) : 0,
     semanticConfidence: canonical.confidence,
     source: "derived",
     sourceVersion: "food-semantics-v1",
