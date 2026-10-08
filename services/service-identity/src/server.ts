@@ -130,6 +130,10 @@ async function ensureUser(req: IncomingMessage, id: string): Promise<UserRow> {
      returning *`,
     [id, subject, email, name],
   );
+  await pool.query(
+    "insert into dietary_preferences(user_id) values($1) on conflict (user_id) do nothing",
+    [id],
+  );
   return result.rows[0]!;
 }
 
