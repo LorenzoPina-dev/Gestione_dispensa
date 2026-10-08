@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ProductDto } from "../../api/types";
 import * as api from "../../api/endpoints";
-import { isBackendUnreachable } from "../../api/client";
+import { isBackendUnreachable, isNotFound } from "../../api/client";
 import { colors, fonts } from "../../tokens";
 import { Input } from "../ui/Input";
 import Button from "../ui/Button";
@@ -193,9 +193,10 @@ export default function RecipeShoppingSelector({ familyId, recipeTitle, missingI
       let active;
       try {
         active = await api.getActiveShoppingList(familyId);
-      } catch {
+      } catch (err) {
+        if (!isNotFound(err)) throw err;
         const created = await api.createShoppingList(familyId, "Spesa settimanale");
-        active = { list: { listId: created.id, name: created.name, status: "open", version: created.version }, items: [] };
+        active = { list: { listId: created.id, name: created.name, status: "open" as const, version: created.version }, items: [] };
       }
 
       const listedProducts = new Set(
