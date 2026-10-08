@@ -26,7 +26,7 @@ function parseObo(text: string): Term[] {
     });
     current = null;
   };
-  for (const line of text.split(/\\r?\\n/)) {
+  for (const line of text.split(/\r?\n/)) {
     if (line === "[Term]") { flush(); current = { synonyms: [] }; continue; }
     if (!current || line.startsWith("!")) continue;
     const colon = line.indexOf(":");
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 }
 
 function normalizeText(value: unknown): string {
-  return (typeof value === "string" ? value : "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\\s+/g, " ").trim();
+  return (typeof value === "string" ? value : "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 main().catch((error) => {
