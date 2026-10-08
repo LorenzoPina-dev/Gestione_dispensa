@@ -1,4 +1,4 @@
-import { foodQuantity, functionalSubstitution, normalizeFoodText } from "@gestione-dispensa/food-rules";
+import { foodQuantity, foodSemanticRelation, functionalSubstitution, normalizeFoodText } from "@gestione-dispensa/food-rules";
 import { combineInventoryQuantity, quantityCoverage, type ParsedQuantity } from "./quantity-engine.js";
 
 export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
@@ -84,13 +84,12 @@ function exactSemanticMatch(recipe: RecipeIngredientForMatch, pantry: PantryProd
   const pantryCanonical = normalizeFoodText(pantry.foodSemantics?.canonicalIngredient ?? "");
   const recipeConfidence = recipe.semanticConfidence ?? 1;
   const pantryConfidence = pantry.foodSemantics?.semanticConfidence ?? 1;
-  if (recipeCanonical && pantryCanonical && recipeCanonical === pantryCanonical && recipeConfidence >= 0.8 && pantryConfidence >= 0.8) return true;
+  if (recipeConfidence < 0.8 || pantryConfidence < 0.8) return false;
+  const relation = foodSemanticRelation(recipeCanonical || null, pantryCanonical || null);
+  if (relation === "EXACT" || relation === "SYNONYM" || relation === "RECIPE_GENERALIZES_PRODUCT") return true;
+  if (relation === "UNSAFE_GENERALIZATION") return false;
   const recipeTerms = normalizeTerms([...(recipe.ingredientTerms ?? []), recipe.name, recipe.displayName]);
-  const pantryTerms = normalizeTerms([
-    ...(pantry.foodSemantics?.ingredientTerms ?? []),
-    ...(pantry.foodSemantics?.taxonomyTags ?? []),
-    pantry.name,
-  ]);
+  const pantryTerms = normalizeTerms([...(pantry.foodSemantics?.ingredientTerms ?? []), ...(pantry.foodSemantics?.taxonomyTags ?? []), pantry.name]);
   for (const term of recipeTerms) if (pantryTerms.has(term)) return true;
   return false;
 }
