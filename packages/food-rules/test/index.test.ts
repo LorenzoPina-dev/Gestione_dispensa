@@ -1,13 +1,22 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canonicalAllergenTag, canonicalizeIngredient, convertFoodQuantityWithDensity, foodQuantity, foodSemanticRelation, inferTextAllergens, parseFoodCountFromText, parseFoodQuantityFromText, parseIngredientText } from "../src/index.ts";
+import { canonicalAllergenTag, canonicalizeIngredient, convertFoodQuantityWithDensity, foodQuantity, foodSemanticRelation, inferTextAllergens, parseFoodCountFromText, parseFoodQuantityFromText, parseIngredientText, translateFoodText } from "../src/index.ts";
 
 describe("food-rules",()=>{
   it("does not canonicalize substrings such as salted -> sale",()=>{
     const result=canonicalizeIngredient("salted crackers");
     assert.notEqual(result.canonicalIngredient,"sale");
   });
-  it("treats malformed runtime text as empty instead of throwing",()=>{\n    assert.equal(canonicalizeIngredient(undefined as unknown as string).canonicalIngredient,null);\n  });\n  it("canonicalizes multilingual ingredient names",()=>{
+  it("treats malformed runtime text as empty instead of throwing",()=>{\n    assert.equal(canonicalizeIngredient(undefined as unknown as string).canonicalIngredient,null);\n  });\n  it("translates common recipe ingredient names to Italian by default",()=>{
+    assert.equal(translateFoodText("Blue Cheese"),"formaggio erborinato");
+    assert.equal(translateFoodText("Olives"),"olive");
+    assert.equal(translateFoodText("Cream"),"panna");
+    assert.equal(translateFoodText("Black Pepper"),"pepe nero");
+  });
+  it("keeps source text for non-Italian locales until that locale has translations",()=>{
+    assert.equal(translateFoodText("Blue Cheese","en-US"),"Blue Cheese");
+  });
+  it("canonicalizes multilingual ingredient names",()=>{
     assert.equal(canonicalizeIngredient("farine").canonicalIngredient,"farina");
     assert.equal(canonicalizeIngredient("lait").canonicalIngredient,"latte");
     assert.equal(canonicalizeIngredient("pollo").canonicalIngredient,"pollo");
