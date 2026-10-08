@@ -1087,6 +1087,8 @@ components:
         expiresAt: {type: [string, 'null'], format: date-time}
         location: {type: [string, 'null'], maxLength: 32}
         openedAt: {type: [string, 'null'], format: date-time}
+        remainingContentQuantity: {type: [number, 'null'], exclusiveMinimum: 0}
+        remainingContentUnit: {type: [string, 'null'], enum: [g, kg, ml, l, piece]}
         lotCode: {type: [string, 'null'], maxLength: 100}
     PatchPantryItem:
       type: object
@@ -1097,6 +1099,8 @@ components:
         location: {type: [string, 'null'], maxLength: 32}
         expiresAt: {type: [string, 'null'], format: date-time}
         openedAt: {type: [string, 'null'], format: date-time}
+        remainingContentQuantity: {type: [number, 'null'], exclusiveMinimum: 0}
+        remainingContentUnit: {type: [string, 'null'], enum: [g, kg, ml, l, piece]}
         lotCode: {type: [string, 'null'], maxLength: 100}
     ConsumeRequest:
       type: object
