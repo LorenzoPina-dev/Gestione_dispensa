@@ -16,12 +16,20 @@ async function main(): Promise<void> {
         canonical_name: string;
         product_details_snapshot: string | Record<string, unknown> | null;
         external_source: string | null;
+        source_version: string;
       }>(
         `SELECT
            p.id,
            p.canonical_name,
            p.product_details_snapshot,
-           p.external_source
+           p.external_source,
+           COALESCE((
+             SELECT dp.source_version
+             FROM data_provenance dp
+             WHERE dp.entity_type='product' AND dp.entity_id=p.id
+             ORDER BY dp.observed_at DESC
+             LIMIT 1
+           ), CASE WHEN p.external_source IS NULL THEN 'manual-v1' ELSE 'food-semantics-v2' END) AS source_version
          FROM products p
          WHERE p.status='ACTIVE'
            AND p.id > $1
@@ -45,6 +53,7 @@ async function main(): Promise<void> {
           row.canonical_name,
           snapshot,
           row.external_source ?? "MANUAL",
+          row.source_version,
         );
         processed += 1;
         inserted += 1;
