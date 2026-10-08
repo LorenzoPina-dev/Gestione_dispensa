@@ -39,7 +39,7 @@ export function normalizeRecipeIngredient(
     ingredientTerms:[...new Set([...canonical.ingredientTerms, rawName.toLowerCase()])],
     culinaryWeight:classifyCulinaryWeight(canonical.canonicalIngredient),
     quantity:parsed,
-    quantityConfidence:parsed ? (explicit ? 1 : embedded ? 0.9 : 0.82) : 0,
+    quantityConfidence:parsed ? (explicit ? 1 : parsedLine.quantity ? parsedLine.quantityConfidence : 0.82) : 0,
     sourceQuantityRaw:parsed?.sourceRaw ?? null,
     prepState:parsedLine.prepState,
   };
