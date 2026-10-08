@@ -1033,6 +1033,9 @@ components:
         tracePolicy:
           type: string
           enum: [WARN, EXCLUDE]
+        uncertaintyPolicy:
+          type: string
+          enum: [WARN, EXCLUDE]
     DietaryPreferencesResponse:
       allOf:
         - {$ref: '#/components/schemas/DataResponse'}
