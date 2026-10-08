@@ -259,7 +259,6 @@ export function scoreRecipeAgainstPantry(
     );
 
     const exactAvailable = inventoryQuantities(exactCandidates);
-    const substituteAvailable = inventoryQuantities(substituteCandidates);
 
     let match: IngredientMatch;
 
