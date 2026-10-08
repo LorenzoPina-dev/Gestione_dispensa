@@ -23,9 +23,9 @@ export async function upsertProductFoodSemantics(
     `INSERT INTO product_food_semantics
       (product_id,canonical_ingredient,ingredient_terms,taxonomy_tags,allergen_tags,trace_tags,label_tags,dietary_tags,
        culinary_weight,quantity_value,quantity_unit,quantity_base_value,quantity_base_unit,quantity_confidence,
-       semantic_confidence,semantic_status,source,source_version,observed_at,updated_at,components_json,composition_confidence,rules_version)
+       semantic_confidence,semantic_status,source,source_version,observed_at,updated_at,components_json,composition_confidence,rules_version,nutriscore_grade)
      VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19,$20::jsonb,$21,$22)
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19,$20::jsonb,$21,$22,$23)
      ON CONFLICT(product_id) DO UPDATE SET
        canonical_ingredient=excluded.canonical_ingredient,
        ingredient_terms=excluded.ingredient_terms,
@@ -72,6 +72,7 @@ export async function upsertProductFoodSemantics(
       JSON.stringify(semantics.components),
       semantics.compositionConfidence,
       semantics.rulesVersion,
+      semantics.nutriScoreGrade,
     ],
   );
   return semantics;
