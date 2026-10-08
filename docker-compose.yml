@@ -388,7 +388,7 @@ services:
     networks: [backend, egress]
   service-food-semantics-schema-migrate:
     build: { context: ., dockerfile: services/service-food-semantics/Dockerfile }
-    environment: { DATABASE_URL: "postgres://food_semantics:food_semantics@postgres:5432/food_semantics_db" }
+    environment: { DATABASE_URL: "postgres://food_semantics_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/food_semantics_db" }
     command: ["node","dist/migrate.js"]
     depends_on:
       service-food-semantics: { condition: service_healthy }
