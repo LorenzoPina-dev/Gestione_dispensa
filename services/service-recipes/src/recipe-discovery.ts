@@ -387,6 +387,17 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
        current.usedFor.add(match.recipeIngredient);
        usedByProduct.set(allocation.productId,current);
      }
+     if(match.allocations.length===0){
+       for(const productId of match.productIds){
+         const current=usedByProduct.get(productId)??{
+           baseUnit:"piece" as const,
+           usedBaseQuantity:0,
+           usedFor:new Set<string>(),
+         };
+         current.usedFor.add(match.recipeIngredient);
+         usedByProduct.set(productId,current);
+       }
+     }
    }
    const pantryProductsUsed=pantry
      .filter(item=>usedByProduct.has(item.productId))
