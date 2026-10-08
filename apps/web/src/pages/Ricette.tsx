@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ShoppingList, Recipe, RecipeMatch } from "../types";
 import type { RecipeMatchDto } from "../api/types";
-import { translateFoodText } from "@gestione-dispensa/food-rules";
+import { translateFoodText } from "../utils/foodTranslations";
 import * as api from "../api/endpoints";
 import { colors, fonts } from "../tokens";
 import Toggle from "../components/ui/Toggle";
