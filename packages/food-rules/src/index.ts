@@ -102,6 +102,7 @@ export function canonicalizeIngredient(value:string, taxonomyTags:readonly strin
   canonicalIngredient:string|null;
   ingredientTerms:string[];
   confidence:number;
+  status:SemanticStatus;
 } {
   const text=normalizeFoodText(value);
   const hasPhrase=(candidate:string):boolean=>{
@@ -112,18 +113,18 @@ export function canonicalizeIngredient(value:string, taxonomyTags:readonly strin
     const tag=normalizeFoodTag(rawTag);
     const canonical=TAXONOMY_CANONICAL[tag];
     if(canonical){
-      return {canonicalIngredient:canonical,ingredientTerms:ingredientTerms(canonical),confidence:0.97};
+      return {canonicalIngredient:canonical,ingredientTerms:ingredientTerms(canonical),confidence:0.97,status:"EXACT"};
     }
   }
   for(const [canonical,variants] of Object.entries(ALIAS_GROUPS)){
     const canonicalNorm=normalizeFoodText(canonical);
     if(text===canonicalNorm || variants.some(variant=>text===normalizeFoodText(variant) || hasPhrase(variant))){
-      return {canonicalIngredient:canonical,ingredientTerms:ingredientTerms(canonical),confidence:0.93};
+      return {canonicalIngredient:canonical,ingredientTerms:ingredientTerms(canonical),confidence:0.93,status:"EXACT"};
     }
   }
-  if(!text) return {canonicalIngredient:null,ingredientTerms:[],confidence:0};
+  if(!text) return {canonicalIngredient:null,ingredientTerms:[],confidence:0,status:"UNKNOWN"};
   const fallback=text.split(" ").filter(token=>token.length>2).slice(0,4).join(" ");
-  return {canonicalIngredient:fallback||null,ingredientTerms:ingredientTerms(value),confidence:fallback?0.55:0};
+  return {canonicalIngredient:fallback||null,ingredientTerms:ingredientTerms(value),confidence:fallback?0.55:0,status:fallback?"AMBIGUOUS":"UNKNOWN"};
 }
 
 const STAPLES=new Set(["sale","acqua","aceto","olio","olio extravergine"]);
@@ -195,6 +196,39 @@ export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
   return numeric===null ? null : foodQuantity(numeric,match[5]);
 }
 
+
+export type SemanticStatus = "EXACT" | "INFERRED" | "UNKNOWN" | "AMBIGUOUS";
+export type SemanticRelation = "EXACT" | "SYNONYM" | "RECIPE_GENERALIZES_PRODUCT" | "UNSAFE_GENERALIZATION" | "NONE";
+
+const FOOD_PARENT: Readonly<Record<string,string>> = {
+  rigatoni:"pasta",penne:"pasta",fusilli:"pasta",farfalle:"pasta",spaghetti:"pasta",
+  spaghettini:"pasta",linguine:"pasta",bucatini:"pasta",tagliatelle:"pasta",
+  fettuccine:"pasta",maccheroni:"pasta",maccheroncini:"pasta",orecchiette:"pasta",
+  paccheri:"pasta",cannelloni:"pasta",lasagne:"pasta",lasagna:"pasta",
+  mozzarella:"formaggio",parmigiano:"formaggio",pecorino:"formaggio",fiordilatte:"formaggio",
+  mascarpone:"formaggio",ricotta:"formaggio",
+  mandorle:"frutta secca",noci:"frutta secca",nocciole:"frutta secca",pistacchio:"frutta secca",
+  ceci:"legumi",fagioli:"legumi",piselli:"legumi",
+  pollo:"carne",manzo:"carne",maiale:"carne",pancetta:"carne",prosciutto:"carne",salsiccia:"carne",
+  tonno:"pesce",salmone:"pesce",
+  pomodoro:"ortaggi",cipolla:"ortaggi",aglio:"ortaggi",patata:"ortaggi",carota:"ortaggi",
+  zucchina:"ortaggi",melanzana:"ortaggi",peperone:"ortaggi",
+};
+
+const SAFE_GENERIC_RECIPE_PARENTS = new Set([
+  "pasta","formaggio","frutta secca","legumi","carne","pesce","ortaggi"
+]);
+
+export function foodSemanticRelation(recipeCanonical:string|null, productCanonical:string|null):SemanticRelation {
+  if(!recipeCanonical||!productCanonical)return "NONE";
+  const recipe=normalizeFoodText(recipeCanonical);
+  const product=normalizeFoodText(productCanonical);
+  if(recipe===product)return "EXACT";
+  if(FOOD_PARENT[product]===recipe && SAFE_GENERIC_RECIPE_PARENTS.has(recipe))return "RECIPE_GENERALIZES_PRODUCT";
+  const recipeParent=FOOD_PARENT[recipe];
+  if(recipeParent===product)return "UNSAFE_GENERALIZATION";
+  return "NONE";
+}
 
 export interface FunctionalSubstitution {
   fromCanonical:string;
