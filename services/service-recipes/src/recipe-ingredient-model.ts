@@ -61,7 +61,7 @@ export async function resolveRecipeIngredient(name: string, quantity?: number | 
       foodEntityId: resolved.foodEntityId ?? null,
       semanticConfidence: Number(resolved.semanticConfidence ?? 0),
       semanticStatus: resolved.status === "RESOLVED" ? "EXACT" : "UNKNOWN",
-      ingredientTerms: [...new Set([...local.ingredientTerms, semanticText.toLowerCase(), resolved.displayName?.toLowerCase() ?? ""])].filter(Boolean),
+      ingredientTerms: [...new Set([...local.ingredientTerms, semanticText.toLowerCase(), resolved.displayName?.toLowerCase() ?? "", ...(resolved.foodEntityAncestors ?? []), ...(resolved.foodEntityId ? [resolved.foodEntityId] : [])])].filter(Boolean),
       culinaryWeight: classifyCulinaryWeight(canonical),
       semanticProvenance: resolved.provenance ?? "food-semantics",
     };
