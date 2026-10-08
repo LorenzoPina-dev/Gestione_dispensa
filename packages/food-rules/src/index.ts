@@ -88,7 +88,22 @@ export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
   pistacchio: ["pistacchio","pistachio"],
   mascarpone: ["mascarpone"],
   ricotta: ["ricotta"],
-  salsiccia: ["salsiccia","sausage"]
+  salsiccia: ["salsiccia","sausage"],
+  mayonnaise: ["mayonnaise","maionese","mayonesa","mayonnaise sauce"],
+  ketchup: ["ketchup","catsup"],
+  senape: ["senape","mustard","moutarde","mostaza","senf"],
+  marmellata: ["marmellata","jam","jelly","confiture","mermelada","marmelade"],
+  yogurt: ["yogurt","yoghurt","yaourt","yogur","joghurt"],
+  biscotti: ["biscotto","biscotti","biscuit","biscuits","cookie","cookies","galleta","galletas","keks"],
+  cracker: ["cracker","crackers"],
+  prosciutto: ["prosciutto","ham","jambon","jamón","schinken"],
+  salame: ["salame","salami","salami sausage"],
+  tofu: ["tofu"],
+  seitan: ["seitan"],
+  legumi: ["legume","legumi","pulses","legumes","legumes alimentaires"],
+  carne: ["carne","meat","viande","carne"],
+  pesce: ["pesce","fish","poisson","pescado","fisch"],
+  ortaggi: ["ortaggio","ortaggi","vegetable","vegetables","légume","legumbres","gemüse"]
 };
 
 export const TAXONOMY_CANONICAL: Readonly<Record<string,string>> = {
@@ -243,6 +258,7 @@ export type SemanticStatus = "EXACT" | "INFERRED" | "UNKNOWN" | "AMBIGUOUS";
 export type SemanticRelation = "EXACT" | "SYNONYM" | "RECIPE_GENERALIZES_PRODUCT" | "UNSAFE_GENERALIZATION" | "NONE";
 
 const FOOD_PARENT: Readonly<Record<string,string>> = {
+  mayonnaise:"salse",ketchup:"salse",senape:"salse",marmellata:"conserve",biscotti:"prodotti da forno",cracker:"prodotti da forno",salame:"carne",yogurt:"latticini",tofu:"proteine vegetali",seitan:"proteine vegetali",legumi:"legumi",carne:"proteine animali",pesce:"proteine animali",ortaggi:"vegetali",
   rigatoni:"pasta",penne:"pasta",fusilli:"pasta",farfalle:"pasta",spaghetti:"pasta",
   spaghettini:"pasta",linguine:"pasta",bucatini:"pasta",tagliatelle:"pasta",
   fettuccine:"pasta",maccheroni:"pasta",maccheroncini:"pasta",orecchiette:"pasta",
@@ -258,6 +274,7 @@ const FOOD_PARENT: Readonly<Record<string,string>> = {
 };
 
 const SAFE_GENERIC_RECIPE_PARENTS = new Set([
+  "salse","conserve","prodotti da forno","latticini","proteine vegetali","proteine animali","vegetali",
   "pasta","formaggio","frutta secca","legumi","carne","pesce","ortaggi"
 ]);
 
