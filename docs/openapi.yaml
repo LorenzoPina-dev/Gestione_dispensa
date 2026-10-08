@@ -62,6 +62,32 @@ paths:
       responses:
         '204': {description: Logout accepted}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /identity/preferences:
+    get:
+      operationId: getIdentityPreferences
+      tags: [Identity]
+      responses:
+        '200': {description: Personal dietary preferences, content: {application/json: {schema: {$ref: '#/components/schemas/DietaryPreferencesResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    patch:
+      operationId: patchIdentityPreferences
+      tags: [Identity]
+      parameters:
+        - {$ref: '#/components/parameters/IfMatch'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DietaryPreferencesPatch'}
+      responses:
+        '200': {description: Updated dietary preferences, content: {application/json: {schema: {$ref: '#/components/schemas/DietaryPreferencesResponse'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '412': {$ref: '#/components/responses/PreconditionFailed'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
   /identity/me:
     get:
       operationId: getIdentityMe
@@ -987,6 +1013,30 @@ components:
     ProfileResponse:
       allOf:
         - {$ref: '#/components/schemas/DataResponse'}
+    DietaryPreferencesPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        allergenTags:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [milk, eggs, gluten, wheat, peanuts, nuts, soybeans, fish, crustaceans, molluscs, sesame-seeds, mustard, lupin, celery, sulphites]
+        dietaryRestrictions:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [vegan, vegetarian, pescatarian, gluten-free, lactose-free, dairy-free, nut-free, peanut-free, soy-free, egg-free, fish-free, shellfish-free]
+        tracePolicy:
+          type: string
+          enum: [WARN, EXCLUDE]
+    DietaryPreferencesResponse:
+      allOf:
+        - {$ref: '#/components/schemas/DataResponse'}
+
     CreateFamily:
       type: object
       required: [name]
