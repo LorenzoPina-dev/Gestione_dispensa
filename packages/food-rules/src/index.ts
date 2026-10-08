@@ -332,6 +332,33 @@ export function canonicalAllergenTag(value:string):AllergenCode|null {
   return aliases[normalized] ?? null;
 }
 
+export function inferTextAllergens(raw:string):AllergenCode[] {
+  const text=normalizeFoodText(raw);
+  if(!text)return [];
+  const out=new Set<AllergenCode>();
+  const phrases:ReadonlyArray<[RegExp,AllergenCode]> = [
+    [/\\bmilk\\b|\\blatte\\b|\\blait\\b|\\bleche\\b|\\bmilch\\b/, "milk"],
+    [/\\bbutter\\b|\\bburro\\b|\\bbeurre\\b|\\bmantequilla\\b/, "milk"],
+    [/\\bcream\\b|\\bpanna\\b|\\bcreme\\b|\\bcrème\\b|\\bnata\\b|\\bsahne\\b/, "milk"],
+    [/\\begg(s)?\\b|\\buov(a|o)?\\b|\\boeuf\\b|\\bœuf\\b|\\bhuevo(s)?\\b/, "eggs"],
+    [/\\bgluten\\b|\\bwheat\\b|\\bflour\\b|\\bfarina\\b|\\bfarine\\b|\\bharina\\b|\\bmehl\\b/, "gluten"],
+    [/\\bpeanut(s)?\\b|\\barachid(e|i)?,?\\b/, "peanuts"],
+    [/\\balmond(s)?\\b|\\bmandorl(e|a)\\b|\\bamande(s)?\\b|\\balmendra(s)?\\b/, "nuts"],
+    [/\\bwalnut(s)?\\b|\\bnoci\\b|\\bnoix\\b|\\bnuez(es)?\\b/, "nuts"],
+    [/\\bhazelnut(s)?\\b|\\bnocciole?\\b|\\bnoisette(s)?\\b|\\bavellana(s)?\\b/, "nuts"],
+    [/\\bpistachio(s)?\\b|\\bpistacchio\\b|\\bpistache\\b|\\bpistacho(s)?\\b/, "nuts"],
+    [/\\bsoy(a)?\\b|\\bsoia\\b|\\bsoja\\b|\\bsojabohne(n)?\\b/, "soybeans"],
+    [/\\bfish\\b|\\bpesce\\b|\\bpoisson\\b|\\bpescado\\b|\\bfisch\\b/, "fish"],
+    [/\\bcrustacean(s)?\\b|\\bcrostacei\\b|\\bcrustacé(s)?\\b|\\bcrustáceo(s)?\\b/, "crustaceans"],
+    [/\\bmollusc(s)?\\b|\\bmolluschi\\b|\\bmollusque(s)?\\b|\\bmolusco(s)?\\b/, "molluscs"],
+    [/\\bsesame\\b|\\bsesamo\\b|\\bsésame\\b|\\bsesamo\\b/, "sesame-seeds"],
+    [/\\bmustard\\b|\\bsenape\\b|\\bmoutarde\\b|\\bmostaza\\b|\\bsenf\\b/, "mustard"],
+    [/\\bcelery\\b|\\bsedano\\b|\\bcéleri\\b|\\bapio\\b|\\bapio(s)?\\b/, "celery"],
+  ];
+  for(const [pattern,code] of phrases) if(pattern.test(text))out.add(code);
+  return [...out];
+}
+
 export function inferIngredientAllergens(canonicalIngredient:string|null, terms:readonly string[]=[]):AllergenCode[] {
   const values=new Set<AllergenCode>();
   if(canonicalIngredient){
@@ -340,6 +367,8 @@ export function inferIngredientAllergens(canonicalIngredient:string|null, terms:
   for(const term of terms){
     const canonical=canonicalizeIngredient(term).canonicalIngredient;
     for(const code of INGREDIENT_ALLERGENS[normalizeFoodText(canonical ?? "")] ?? []) values.add(code);
+    for(const code of inferTextAllergens(term)) values.add(code);
   }
+  for(const code of inferTextAllergens(canonicalIngredient ?? "")) values.add(code);
   return [...values];
 }
