@@ -9,6 +9,7 @@ export interface SafetyPantryProduct { productId:string; name:string; foodSemant
 
 const MEAT=new Set(["pollo","manzo","maiale","pancetta","prosciutto","salsiccia"]);
 const ANIMAL=new Set(["pollo","manzo","maiale","pancetta","prosciutto","salsiccia","tonno","salmone","uovo","latte","burro","panna","formaggio","mozzarella","parmigiano","pecorino","mascarpone","ricotta","miele"]);
+function uncertaintySeverity(policy:"WARN"|"EXCLUDE"):SafetySeverity { return policy==="EXCLUDE" ? "BLOCK" : "WARN"; }
 
 function dietConflicts(restrictions:ReadonlySet<string>,canonical:string|null,allergens:readonly string[]):string[]{
   const conflicts:string[]=[]; const c=canonical?normalizeFoodText(canonical):""; const known=new Set(allergens.map(normalizeFoodText));
@@ -59,7 +60,7 @@ export function evaluateRecipeSafety(
         if(!semantics){
           warnings.push({
             code:"UNKNOWN_COMPOSITION",
-            severity:profile.uncertaintyPolicy,
+            severity:uncertaintySeverity(profile.uncertaintyPolicy),
             ingredient:product.name,
             details:"Matched pantry product has no semantic safety profile.",
           });
@@ -93,7 +94,7 @@ export function evaluateRecipeSafety(
         if((profile.allergenTags.length||profile.dietaryRestrictions.length)&&semantics.compositionConfidence!==undefined&&semantics.compositionConfidence<0.8){
           warnings.push({
             code:"UNKNOWN_COMPOSITION",
-            severity:profile.uncertaintyPolicy,
+            severity:uncertaintySeverity(profile.uncertaintyPolicy),
             ingredient:product.name,
             details:"Only part of the matched pantry product composition could be normalized under an active safety profile.",
           });
@@ -120,7 +121,7 @@ export function evaluateRecipeSafety(
     if(!ingredient.canonicalIngredient&&(profile.allergenTags.length||profile.dietaryRestrictions.length)){
       warnings.push({
         code:"UNKNOWN_COMPOSITION",
-        severity:profile.uncertaintyPolicy,
+        severity:uncertaintySeverity(profile.uncertaintyPolicy),
         ingredient:ingredient.name,
         details:"Recipe ingredient composition could not be normalized safely for the active safety profile.",
       });
@@ -135,7 +136,7 @@ export function evaluateRecipeSafety(
       if(profile.allergenTags.length||profile.dietaryRestrictions.length){
         warnings.push({
           code:"UNKNOWN_COMPOSITION",
-          severity:profile.uncertaintyPolicy,
+          severity:uncertaintySeverity(profile.uncertaintyPolicy),
           ingredient:product.name,
           details:"Pantry product has no semantic safety profile.",
         });
