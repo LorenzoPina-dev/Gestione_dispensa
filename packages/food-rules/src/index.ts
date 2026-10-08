@@ -205,7 +205,7 @@ const INGREDIENT_ALLERGENS: Readonly<Record<string, readonly AllergenCode[]>> = 
 };
 
 export function canonicalAllergenTag(value:string):AllergenCode|null {
-  const normalized=normalizeFoodText(value).replace(/ /g,"-");
+  const normalized=normalizeFoodText(value).replace(/^([a-z]{2})-/,"").replace(/ /g,"-");
   const aliases:Readonly<Record<string,AllergenCode>>={
     milk:"milk",latte:"milk",dairy:"milk",
     eggs:"eggs",egg:"eggs",uovo:"eggs",uova:"eggs",
