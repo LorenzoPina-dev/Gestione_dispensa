@@ -374,7 +374,7 @@ services:
 
   service-recipes:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
-    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1", MIGRATION_DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
+    environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1", MIGRATION_DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
     depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
     healthcheck: *node-healthcheck
     restart: unless-stopped
