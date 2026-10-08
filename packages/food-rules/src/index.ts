@@ -200,6 +200,8 @@ export function foodQuantity(value:number|string, unit:string):FoodQuantity|null
 }
 
 export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
+  if(/\b\d+(?:[.,]\d+)?\s*[-–—]\s*\d+(?:[.,]\d+)?\s*(?:kg|mg|g|lb|oz|dl|cl|ml|l|tbsp\.?|tsp\.?|tablespoons?|teaspoons?|cups?|pieces?|pcs?|pc|pz|pezzi?|units?|u)\b/i.test(raw)) return null;
+  if(/\b\d+(?:[.,]\d+)?\s*(?:to|a)\s*\d+(?:[.,]\d+)?\s*(?:kg|mg|g|lb|oz|dl|cl|ml|l|tbsp\.?|tsp\.?|tablespoons?|teaspoons?|cups?|pieces?|pcs?|pc|pz|pezzi?|units?|u)\b/i.test(raw)) return null;
   const unitAlternatives="kg|mg|g|lb|oz|dl|cl|ml|l|tbsp\\.?|tsp\\.?|tablespoons?|teaspoons?|cups?|pieces?|pcs?|pc|pz|pezzi?|units?|u";
   const match=raw.trim().match(new RegExp("(?:(\\d+\\s+)?(\\d+\\s*\\/\\s*\\d+)|(\\d+\\s*\\/\\s*\\d+)|(\\d+(?:[.,]\\d+)?))\\s*("+unitAlternatives+")\\b","i"));
   if(!match) return null;
