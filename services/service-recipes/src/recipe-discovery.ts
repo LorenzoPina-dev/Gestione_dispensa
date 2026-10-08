@@ -1,6 +1,6 @@
 import type { Pool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { ingredientTerms, normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
-import { scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
+import { averageNutriScore, scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
 import { aggregateFamilySafetyProfiles, type FamilySafetyProfile } from "./family-safety-profile.js";
 import type { RecipeMatch } from "./recipe-match.js";
@@ -351,6 +351,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      safetyProfile,
    );
    const missing=coverage.missingIngredients;
+   const nutri=averageNutriScore(pantry,coverage.matchedProductIds);
    const recipe={
      recipeId:String(r.id),
      title:String(r.title),
@@ -395,7 +396,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      missingIngredients:coverage.missingIngredients,
      substitutions:coverage.substitutions,
      instructions:Array.isArray(r.steps)?r.steps.map(String):[],
-     nutrition:{status:"UNAVAILABLE",perServing:null,note:"Recipe dataset does not provide reliable per-ingredient nutritional quantities."},
+     nutrition:{status:"UNAVAILABLE",perServing:null,nutriScoreAverage:nutri.average,nutriScoreCoverage:nutri.coverage,nutriScoreScope:nutri.average===null?"UNAVAILABLE":"MATCHED_PANTRY_PRODUCTS",note:nutri.average===null?"Recipe dataset does not provide reliable recipe-level nutrition.":"Nutri-Score average uses only matched pantry products; it is not a recipe-level Nutri-Score."},
      safety:{safe:safety.safe,warnings:safety.warnings},
      coverage:{
        matched:matched.length,
@@ -411,7 +412,16 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      recipe,
    };
  });
- const result=scored.filter(item=>item.safety.safe).sort((a,b)=>b.score-a.score || a.coverage.missingCoreCount-b.coverage.missingCoreCount || (Number(a.timeMinutes??999)-Number(b.timeMinutes??999))).slice(0,p.limit);
+ const result=scored.filter(item=>item.safety.safe).sort((a,b)=>{
+   const scoreDiff=b.score-a.score;
+   if(scoreDiff!==0)return scoreDiff;
+   const coreDiff=a.coverage.missingCoreCount-b.coverage.missingCoreCount;
+   if(coreDiff!==0)return coreDiff;
+   const aNutri=a.nutrition.nutriScoreAverage;
+   const bNutri=b.nutrition.nutriScoreAverage;
+   if(aNutri!==null&&bNutri!==null&&aNutri!==bNutri)return aNutri-bNutri;
+   return Number(a.timeMinutes??999)-Number(b.timeMinutes??999);
+ }).slice(0,p.limit);
  await resolveRecipeImages(result);
  return result;
 }
