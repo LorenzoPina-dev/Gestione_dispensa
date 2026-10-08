@@ -1,13 +1,11 @@
 export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
 
-export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
-
 export const normalizeFoodText = (value: unknown): string =>
   (typeof value === "string" ? value : "").normalize("NFD")
-    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 
 export const normalizeFoodTag = (value: unknown): string =>
