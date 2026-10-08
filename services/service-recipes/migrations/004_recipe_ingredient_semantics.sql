@@ -37,6 +37,7 @@ CREATE INDEX IF NOT EXISTS recipe_catalog_ingredient_terms_v2_idx
 
 ALTER TABLE recipes_domain.recipe_ingredients
   ADD COLUMN IF NOT EXISTS canonical_ingredient varchar(200),
+  ADD COLUMN IF NOT EXISTS semantic_confidence numeric(5,4) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS ingredient_terms text[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS quantity_dimension varchar(16),
   ADD COLUMN IF NOT EXISTS quantity_base_value numeric(18,6),
