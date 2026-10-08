@@ -615,11 +615,18 @@ Response 200:
 ### GET /recipes/suggestions
 
 Query: `familyId`, `limit`.
-Response 200:
-```json
-{"items":[{"recipeId":"uuid","score":0.87,"missingIngredients":[{"productId":"uuid","name":"Basilico"}]}]}
-```
-Lo `score` è un valore tecnico del ranking, non una garanzia.
+
+Ogni elemento è un `RecipeMatch` con identità ricetta, score ponderato, copertura ingredienti, prodotti/quantità realmente usati, allocazioni FEFO, sostituzioni, istruzioni, sicurezza famigliare e nutrizione stimata.
+
+La nutrizione ha:
+`status=ESTIMATED` quando esistono nutrienti affidabili per 100 g e quantità realmente allocate in grammi;
+`total` per la parte effettivamente coperta dalla dispensa;
+`perServing=null` finché il numero di porzioni non è verificabile;
+`coverage` per la quota della quantità allocata che possiede dati nutrizionali affidabili.
+
+Ingredienti mancanti, quantità in ml/pezzi senza conversione affidabile e prodotti senza dati nutrizionali non vengono trasformati in valori inventati.
+
+Lo `score` è un valore tecnico del ranking, non una garanzia. Un risultato con un allergene incompatibile viene escluso prima del ranking.
 
 ## 8. Nutrition
 
