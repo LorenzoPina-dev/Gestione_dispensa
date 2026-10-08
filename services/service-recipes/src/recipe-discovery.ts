@@ -235,7 +235,7 @@ async function hydrate(pool:Pool,rows:any[]){
  if(!rows.length)return[];
  const ids=rows.map(x=>x.id);
  const i=await pool.query(
-  "select recipe_id,name,display_name,weight,canonical_ingredient,semantic_confidence,ingredient_terms,quantity_value,quantity_unit,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipe_catalog.recipe_ingredients where recipe_id=any($1::uuid[]) order by recipe_id,position",
+  "select recipe_id,name,display_name,weight,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_value,quantity_unit,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipe_catalog.recipe_ingredients where recipe_id=any($1::uuid[]) order by recipe_id,position",
   [ids],
  );
  const s=await pool.query("select recipe_id,instruction from recipe_catalog.recipe_steps where recipe_id=any($1::uuid[]) order by recipe_id,position",[ids]);
