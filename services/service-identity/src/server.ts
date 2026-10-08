@@ -215,20 +215,21 @@ const server = createServer(async (req, res) => {
         return fail(res, 400, "VALIDATION_ERROR", "userIds must contain at least one valid UUID.", requestId);
       }
       const result = await pool.query(
-        "select user_id,allergen_tags,dietary_restrictions,trace_policy,version,updated_at from dietary_preferences where user_id = any($1::uuid[])",
+        "select user_id,allergen_tags,dietary_restrictions,trace_policy,uncertainty_policy,version,updated_at from dietary_preferences where user_id = any($1::uuid[])",
         [userIds],
       );
       const rows = new Map(result.rows.map((row) => [String(row.user_id), row]));
       return send(res, 200, {
         data: {
           items: userIds.map((userId) => {
-            const row = rows.get(userId) as { allergen_tags?: unknown; dietary_restrictions?: unknown; trace_policy?: unknown; version?: unknown; updated_at?: unknown } | undefined;
+            const row = rows.get(userId) as { allergen_tags?: unknown; dietary_restrictions?: unknown; trace_policy?: unknown; uncertainty_policy?: unknown; version?: unknown; updated_at?: unknown } | undefined;
             return {
               userId,
               exists: Boolean(row),
               allergenTags: Array.isArray(row?.allergen_tags) ? row.allergen_tags.map(String) : [],
               dietaryRestrictions: Array.isArray(row?.dietary_restrictions) ? row.dietary_restrictions.map(String) : [],
               tracePolicy: row?.trace_policy === "EXCLUDE" ? "EXCLUDE" : "WARN",
+              uncertaintyPolicy: row?.uncertainty_policy === "WARN" ? "WARN" : "EXCLUDE",
               version: row ? Number(row.version ?? 1) : 1,
               updatedAt: row?.updated_at ?? null,
             };
@@ -249,7 +250,7 @@ const server = createServer(async (req, res) => {
 
       if (method === "GET") {
         const current = await pool.query(
-          "select allergen_tags,dietary_restrictions,trace_policy,version,updated_at from dietary_preferences where user_id=$1",
+          "select allergen_tags,dietary_restrictions,trace_policy,uncertainty_policy,version,updated_at from dietary_preferences where user_id=$1",
           [id],
         );
         const row = current.rows[0] as Record<string, unknown> | undefined;
@@ -269,7 +270,7 @@ const server = createServer(async (req, res) => {
         const key = String(req.headers["x-idempotency-key"] ?? "").trim();
         const ifMatch = String(req.headers["if-match"] ?? "").trim();
         const b = await readJson(req);
-        const allowed = ["allergenTags", "dietaryRestrictions", "tracePolicy"];
+        const allowed = ["allergenTags", "dietaryRestrictions", "tracePolicy", "uncertaintyPolicy"];
         const keys = Object.keys(b);
         if (!key || key.length < 8 || !ifMatch || keys.length === 0 || keys.some((name) => !allowed.includes(name))) {
           return fail(res, 400, "VALIDATION_ERROR", "allergenTags, dietaryRestrictions or tracePolicy, X-Idempotency-Key and If-Match are required.", requestId);
@@ -290,6 +291,7 @@ const server = createServer(async (req, res) => {
           allergenTags: Object.hasOwn(b, "allergenTags") ? b.allergenTags : (Array.isArray(row?.allergen_tags) ? row!.allergen_tags : []),
           dietaryRestrictions: Object.hasOwn(b, "dietaryRestrictions") ? b.dietaryRestrictions : (Array.isArray(row?.dietary_restrictions) ? row!.dietary_restrictions : []),
           tracePolicy: Object.hasOwn(b, "tracePolicy") ? b.tracePolicy : (row?.trace_policy ?? "WARN"),
+          uncertaintyPolicy: Object.hasOwn(b, "uncertaintyPolicy") ? b.uncertaintyPolicy : (row?.uncertainty_policy ?? "EXCLUDE"),
         };
         const parsed = normalizeDietaryPreferences(merged);
         if (!parsed.value) return fail(res, 400, "VALIDATION_ERROR", parsed.issues.join(" "), requestId);
@@ -300,8 +302,8 @@ const server = createServer(async (req, res) => {
         if (idem.processing) return fail(res, 409, "CONFLICT", "The same operation is already processing.", requestId);
 
         const result = await pool.query(
-          `insert into dietary_preferences(user_id,allergen_tags,dietary_restrictions,trace_policy,version,created_at,updated_at)
-           values($1,$2,$3,$4,2,now(),now())
+          `insert into dietary_preferences(user_id,allergen_tags,dietary_restrictions,trace_policy,uncertainty_policy,version,created_at,updated_at)
+           values($1,$2,$3,$4,$5,2,now(),now())
            on conflict(user_id) do update set
              allergen_tags=excluded.allergen_tags,
              dietary_restrictions=excluded.dietary_restrictions,
@@ -309,7 +311,7 @@ const server = createServer(async (req, res) => {
              version=dietary_preferences.version+1,
              updated_at=now()
            returning allergen_tags,dietary_restrictions,trace_policy,version,updated_at`,
-          [id, parsed.value.allergenTags, parsed.value.dietaryRestrictions, parsed.value.tracePolicy],
+          [id, parsed.value.allergenTags, parsed.value.dietaryRestrictions, parsed.value.tracePolicy, parsed.value.uncertaintyPolicy],
         );
         const updated = result.rows[0] as { allergen_tags: unknown; dietary_restrictions: unknown; trace_policy: unknown; version: unknown; updated_at: unknown };
         const response = {
