@@ -237,6 +237,9 @@ app.post("/api/v1/recipes", async (req, res) => {
           id,
           item.productId ?? null,
           name,
+          semantic.displayName,
+          semantic.foodEntityId,
+          semantic.semanticProvenance,
           quantity,
           unit,
           semantic.canonicalIngredient,
@@ -338,10 +341,10 @@ app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
           await client.query("rollback");
           return res.status(400).json(errorBody("VALIDATION_ERROR","Invalid ingredient."));
         }
-        const semantic=normalizeRecipeIngredient(name,q,unit);
+        const semantic=await resolveRecipeIngredient(name,q,unit,String(body.locale ?? "it-IT"));
         await client.query(
-          "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
-          [crypto.randomUUID(),req.params.recipeId,item.productId??null,name,q,unit,semantic.canonicalIngredient,semantic.semanticConfidence,semantic.semanticStatus,semantic.ingredientTerms,semantic.quantity?.dimension??null,semantic.quantity?.baseValue??null,semantic.quantity?.baseUnit??null,semantic.quantityConfidence,semantic.culinaryWeight,semantic.prepState],
+          "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,display_name,food_entity_id,semantic_provenance,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",
+          [crypto.randomUUID(),req.params.recipeId,item.productId??null,name,semantic.displayName,semantic.foodEntityId,semantic.semanticProvenance,q,unit,semantic.canonicalIngredient,semantic.semanticConfidence,semantic.semanticStatus,semantic.ingredientTerms,semantic.quantity?.dimension??null,semantic.quantity?.baseValue??null,semantic.quantity?.baseUnit??null,semantic.quantityConfidence,semantic.culinaryWeight,semantic.prepState],
         );
       }
     }
@@ -393,7 +396,7 @@ async function loadRecipe(id: string, familyId: string): Promise<Recipe | null> 
   const recipe = result.rows[0];
   if (!recipe) return null;
   const [ingredients, steps] = await Promise.all([
-    pool.query("select product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at", [id]),
+    pool.query("select product_id,name,display_name,food_entity_id,semantic_provenance,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at", [id]),
     pool.query("select position,instruction from recipes_domain.recipe_steps where recipe_id=$1 order by position", [id]),
   ]);
   return {
@@ -403,6 +406,9 @@ async function loadRecipe(id: string, familyId: string): Promise<Recipe | null> 
     ingredients: ingredients.rows.map((row) => ({
       productId: row.product_id === null ? null : String(row.product_id),
       name: String(row.name),
+      displayName: row.display_name === null ? String(row.name) : String(row.display_name),
+      foodEntityId: row.food_entity_id === null ? null : String(row.food_entity_id),
+      semanticProvenance: row.semantic_provenance === null ? "legacy" : String(row.semantic_provenance),
       quantity: Number(row.quantity),
       unit: String(row.unit),
       canonicalIngredient: row.canonical_ingredient === null ? null : String(row.canonical_ingredient),
@@ -425,12 +431,15 @@ async function loadRecipeFromClient(client: PoolClient,id:string,familyId:string
   const recipeResult=await client.query("select id,title,servings,version from recipes_domain.recipes where id=$1 and family_id=$2",[id,familyId]);
   const recipe=recipeResult.rows[0]; if(!recipe) throw new Error("Recipe not found.");
   const [ingredients,steps]=await Promise.all([
-    client.query("select product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",[id]),
+    client.query("select product_id,name,display_name,food_entity_id,semantic_provenance,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",[id]),
     client.query("select position,instruction from recipes_domain.recipe_steps where recipe_id=$1 order by position",[id]),
   ]);
   return {recipeId:recipe.id,title:recipe.title,servings:Number(recipe.servings),ingredients:ingredients.rows.map(x=>({
     productId:x.product_id,
     name:x.name,
+    displayName:x.display_name===null?x.name:x.display_name,
+    foodEntityId:x.food_entity_id,
+    semanticProvenance:x.semantic_provenance??"legacy",
     quantity:Number(x.quantity),
     unit:x.unit,
     canonicalIngredient:x.canonical_ingredient,
