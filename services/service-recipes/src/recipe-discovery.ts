@@ -1,4 +1,5 @@
-import type { Pool } from "pg";
+import { normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
+import { scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 
 type FoodSemantics = {
  canonicalIngredient?: string | null;
@@ -17,81 +18,10 @@ type FoodSemantics = {
 type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null;foodSemantics?:FoodSemantics|null};
 
 type CatalogProduct={productId:string;name?:string|null;foodSemantics?:FoodSemantics|null};
-type Suggestion={recipeId:string;score:number;matchedIngredientNames:string[];missingIngredients:Array<{name:string;quantity:number;unit:string}>;recipe:any};
+type Suggestion={recipeId:string;score:number;readiness:"READY"|"MINIMAL_SHOPPING"|"DISCARD";matchedIngredientNames:string[];missingIngredients:Array<Record<string,unknown>>;matchedProducts:string[];coverage:Record<string,unknown>;substitutions:unknown[];safetyWarnings:unknown[];recipe:any};
 
 const IMAGE_CACHE = new Map<string, string | null>();
 const STEPS_CACHE = new Map<string, string[] | null>();
-
-const ALIASES:Record<string,string[]>={
- pomodoro:["pomodoro","pomodori","tomato","tomatoes"],
- cipolla:["cipolla","cipolle","onion","onions"],
- aglio:["aglio","garlic"],
- patata:["patata","patate","potato","potatoes"],
- carota:["carota","carote","carrot","carrots"],
- zucchina:["zucchina","zucchine","zucchini"],
- melanzana:["melanzana","melanzane","eggplant","eggplants"],
- peperone:["peperone","peperoni","bell pepper","bell peppers"],
- pollo:["pollo","chicken"],
- manzo:["manzo","beef"],
- pancetta:["pancetta","bacon"],
- tonno:["tonno","tuna"],
- salmone:["salmone","salmon"],
- uovo:["uovo","uova","egg","eggs"],
- latte:["latte","milk"],
- burro:["burro","butter"],
- panna:["panna","cream"],
- formaggio:["formaggio","formaggi","cheese","cheeses"],
- mozzarella:["mozzarella"],
- parmigiano:["parmigiano","parmesan"],
- farina:["farina","flour"],
- pane:["pane","bread"],
- pangrattato:["pangrattato","breadcrumbs"],
- pasta:["pasta","rigatoni","penne","fusilli","farfalle","spaghetti","spaghettini","linguine","bucatini","tagliatelle","fettuccine","maccheroni","maccheroncini","orecchiette","paccheri","cannelloni","lasagne","lasagna"],
- riso:["riso","rice"],
- ceci:["cece","ceci","chickpea","chickpeas"],
- fagioli:["fagiolo","fagioli","bean","beans"],
- piselli:["pisello","piselli","pea","peas"],
- mais:["mais","corn"],
- olive:["oliva","olive","olives"],
- "olio extravergine":["olio extravergine","extra virgin olive oil","extra-virgin olive oil"],
- olio:["olio","oil"],
- sale:["sale","salt"],
- acqua:["acqua","water"],
- basilico:["basilico","basil"],
- prezzemolo:["prezzemolo","parsley"],
- rosmarino:["rosmarino","rosemary"],
- limone:["limone","limoni","lemon","lemons"],
- zucchero:["zucchero","sugar"],
- cacao:["cacao","cocoa"],
- cioccolato:["cioccolato","chocolate"],
- miele:["miele","honey"],
- mandorle:["mandorla","mandorle","almond","almonds"],
- noci:["noce","noci","walnut","walnuts"],
- nocciole:["nocciola","nocciole","hazelnut","hazelnuts"],
- pistacchio:["pistacchio","pistachio"],
- mascarpone:["mascarpone"],
- ricotta:["ricotta"],
- salsiccia:["salsiccia","sausage"],
-};
-
-function norm(v:string){return v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim();}
-function terms(v:string){
- const n=norm(v);
- const out=new Set<string>([n]);
- for(const token of n.split(" "))if(token.length>=3)out.add(token);
- for(const [canonical,variants] of Object.entries(ALIASES)){
-  if(n===canonical||variants.some(variant=>norm(variant)===n)){
-   out.add(canonical);
-   for(const variant of variants)out.add(norm(variant));
-  }
- }
- return out;
-}
-function matches(a:string,b:string){
- const x=terms(a),y=terms(b);
- for(const t of x)if(y.has(t))return true;
- return false;
-}
 
 async function getInventory(base:string,userId:string,familyId:string,authorization?:string):Promise<PantryItem[]>{
  const u=new URL(base.replace(/\/$/,"")+"/inventory");u.searchParams.set("familyId",familyId);u.searchParams.set("status","current");u.searchParams.set("limit","100");
@@ -295,7 +225,19 @@ async function resolveRecipeImages(items:Suggestion[]):Promise<void>{
  });
  await Promise.all(workers);
 }
-async function hydrate(pool:Pool,rows:any[]){if(!rows.length)return[];const ids=rows.map(x=>x.id);const i=await pool.query("select recipe_id,name,display_name,weight from recipe_catalog.recipe_ingredients where recipe_id=any($1::uuid[]) order by recipe_id,position",[ids]);const s=await pool.query("select recipe_id,instruction from recipe_catalog.recipe_steps where recipe_id=any($1::uuid[]) order by recipe_id,position",[ids]);const im=new Map<string,any[]>(),sm=new Map<string,string[]>();for(const x of i.rows){if(!im.has(x.recipe_id))im.set(x.recipe_id,[]);im.get(x.recipe_id)!.push(x);}for(const x of s.rows){if(!sm.has(x.recipe_id))sm.set(x.recipe_id,[]);sm.get(x.recipe_id)!.push(String(x.instruction));}return rows.map(x=>({...x,ingredients:im.get(x.id)??[],steps:sm.get(x.id)??[]}));}
+async function hydrate(pool:Pool,rows:any[]){
+ if(!rows.length)return[];
+ const ids=rows.map(x=>x.id);
+ const i=await pool.query(
+  "select recipe_id,name,display_name,weight,canonical_ingredient,ingredient_terms,quantity_value,quantity_unit,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipe_catalog.recipe_ingredients where recipe_id=any($1::uuid[]) order by recipe_id,position",
+  [ids],
+ );
+ const s=await pool.query("select recipe_id,instruction from recipe_catalog.recipe_steps where recipe_id=any($1::uuid[]) order by recipe_id,position",[ids]);
+ const im=new Map<string,any[]>(),sm=new Map<string,string[]>();
+ for(const x of i.rows){if(!im.has(x.recipe_id))im.set(x.recipe_id,[]);im.get(x.recipe_id)!.push(x);}
+ for(const x of s.rows){if(!sm.has(x.recipe_id))sm.set(x.recipe_id,[]);sm.get(x.recipe_id)!.push(String(x.instruction));}
+ return rows.map(x=>({...x,ingredients:im.get(x.id)??[],steps:sm.get(x.id)??[]}));
+}
 
 export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string}):Promise<Suggestion[]>{
  const rawStock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
@@ -315,7 +257,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
  }else{
   const candidateLimit=Math.min(Math.max(p.limit*20,50),300);
   const matchedRows=(await pool.query(
-   "select r.id,r.title,r.category,r.difficulty,r.prep_time_minutes,r.source_url,count(distinct i.id) matched from recipe_catalog.recipes r join recipe_catalog.recipe_ingredients i on i.recipe_id=r.id where i.terms && $1::text[] group by r.id order by matched desc,r.difficulty asc nulls last,r.prep_time_minutes asc nulls last limit $2",
+   "select r.id,r.title,r.category,r.difficulty,r.prep_time_minutes,r.source_url,count(distinct i.id) matched from recipe_catalog.recipes r join recipe_catalog.recipe_ingredients i on i.recipe_id=r.id where i.ingredient_terms && $1::text[] group by r.id order by matched desc,r.difficulty asc nulls last,r.prep_time_minutes asc nulls last limit $2",
    [stockTerms,candidateLimit],
   )).rows;
   const remaining=candidateLimit-matchedRows.length;
@@ -332,24 +274,72 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
   }
  }
  const full=await hydrate(pool,fullCandidateRows);
+ const pantry=stock
+   .filter((item): item is PantryItem & {productId:string;quantity:number;unit:string} =>
+     typeof item.productId==="string" && Number.isFinite(item.quantity) && Number(item.quantity)>0 && typeof item.unit==="string" && item.unit.trim().length>0
+   )
+   .map(item=>({
+     productId:String(item.productId),
+     name:pantryName(item),
+     quantity:Number(item.quantity),
+     unit:String(item.unit),
+     expiresAt:item.expiresAt??null,
+     foodSemantics:item.foodSemantics??null,
+   }));
  const scored:Suggestion[]=full.map((r:any)=>{
-   const matched=r.ingredients.filter((i:any)=>stock.some(s=>{const name=pantryName(s);return name
-          ? matches(String(i.display_name||i.name),name)
-            || (s.foodSemantics?.canonicalIngredient ? matches(String(i.display_name||i.name), s.foodSemantics.canonicalIngredient) : false)
-            || (s.foodSemantics?.ingredientTerms ?? []).some(term => matches(String(i.display_name||i.name), term))
-          : false}));
-   const missing=r.ingredients.filter((i:any)=>!stock.some(s=>{const name=pantryName(s);return name
-          ? matches(String(i.display_name||i.name),name)
-            || (s.foodSemantics?.canonicalIngredient ? matches(String(i.display_name||i.name), s.foodSemantics.canonicalIngredient) : false)
-            || (s.foodSemantics?.ingredientTerms ?? []).some(term => matches(String(i.display_name||i.name), term))
-          : false}));
-   let expiry=0;
-   for(const i of matched){const s=stock.find(x=>{const name=pantryName(x);return name?matches(String(i.display_name||i.name),name):false});if(s?.expiresAt){const days=(new Date(s.expiresAt).getTime()-Date.now())/86400000;expiry+=Math.max(0,Math.min(1,(7-days)/7));}}
-   const coverage=r.ingredients.length?matched.length/r.ingredients.length:0;
-   const expiryScore=matched.length?expiry/matched.length:0;
-   const shopping=1/(1+missing.length);
-   const score=p.q?Number((0.70+0.30*coverage).toFixed(4)):Number((0.72*coverage+0.18*expiryScore+0.10*shopping).toFixed(4));
-   return {recipeId:String(r.id),score,matchedIngredientNames:matched.map((x:any)=>String(x.display_name||x.name)),missingIngredients:missing.map((x:any)=>({name:String(x.display_name||x.name),quantity:1,unit:"piece"})),recipe:{recipeId:String(r.id),title:String(r.title),servings:1,timeMinutes:r.prep_time_minutes==null?undefined:Number(r.prep_time_minutes),difficulty:r.difficulty==null?undefined:Number(r.difficulty)<=2?"Facile":Number(r.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl:r.source_url??undefined,tags:r.category?[String(r.category)]:[],steps:r.steps,ingredients:r.ingredients.map((x:any)=>({name:String(x.name),displayName:String(x.display_name||x.name),quantity:1,unit:"piece"}))}};
+   const coverage=scoreRecipeAgainstPantry(r.ingredients,pantry);
+   const matched=coverage.matchedIngredients.filter(item=>item.ratio>0);
+   const missing=coverage.missingIngredients;
+   const recipe={
+     recipeId:String(r.id),
+     title:String(r.title),
+     servings:1,
+     timeMinutes:r.prep_time_minutes==null?undefined:Number(r.prep_time_minutes),
+     difficulty:r.difficulty==null?undefined:Number(r.difficulty)<=2?"Facile":Number(r.difficulty)===3?"Medio":"Difficile",
+     quality:"IMPORTED",
+     source:"italian-gastronomic-recipes",
+     sourceUrl:r.source_url??undefined,
+     tags:r.category?[String(r.category)]:[],
+     steps:r.steps,
+     ingredients:r.ingredients.map((x:any)=>({
+       name:String(x.name),
+       displayName:String(x.display_name||x.name),
+       canonicalIngredient:x.canonical_ingredient??null,
+       culinaryWeight:String(x.culinary_weight??"CORE"),
+       quantity:x.quantity_base_value==null?null:Number(x.quantity_base_value),
+       unit:x.quantity_base_unit??null,
+       quantityConfidence:Number(x.quantity_confidence??0),
+       sourceWeight:x.weight==null?null:Number(x.weight),
+     })),
+   };
+   return {
+     recipeId:String(r.id),
+     score:coverage.score,
+     readiness:coverage.readiness,
+     matchedIngredientNames:matched.map(item=>item.recipeIngredient),
+     missingIngredients:missing.map(item=>({
+       name:item.recipeIngredient,
+       quantity:item.missingQuantity?.value??0,
+       unit:item.missingQuantity?.unit??"unknown",
+       status:item.status,
+       requiredQuantity:item.requiredQuantity,
+       canonicalIngredient:item.canonicalIngredient,
+       culinaryWeight:item.culinaryWeight,
+       productIds:item.productIds,
+     })),
+     matchedProducts:coverage.matchedProductIds,
+     coverage:{
+       matched:matched.length,
+       total:coverage.matchedIngredients.length,
+       weightedScore:coverage.score,
+       missingCoreCount:coverage.missingCoreCount,
+       missingCoreWeight:coverage.missingCoreWeight,
+       ingredients:coverage.matchedIngredients,
+     },
+     substitutions:[],
+     safetyWarnings:[],
+     recipe,
+   };
  });
  const result=scored.sort((a,b)=>b.score-a.score).slice(0,p.limit);
  await resolveRecipeImages(result);
