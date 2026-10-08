@@ -29,7 +29,6 @@ AS $$
     'source', p.source,
     'sourceVersion', p.source_version,
     'rulesVersion', p.rules_version,
-    'nutriScoreGrade', p.nutriscore_grade,
     'observedAt', p.observed_at
   )
   FROM public.product_food_semantics p
