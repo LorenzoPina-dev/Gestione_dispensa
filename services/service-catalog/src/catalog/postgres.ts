@@ -265,12 +265,16 @@ export class PostgresCatalogRepository implements CatalogRepository {
       );
       if (fresh.rows[0]) {
         const currentSnapshot = parseJsonObject(fresh.rows[0].product_details_snapshot);
-        await upsertProductFoodSemantics(
+        const materializedSemantics = await upsertProductFoodSemantics(
           transaction,
           input.productId,
           fresh.rows[0].canonical_name,
           currentSnapshot,
+          fresh.rows[0].external_source ?? "MANUAL",
+          undefined,
+          new Date(),
         );
+        fresh.rows[0].food_semantics_json = JSON.stringify(materializedSemantics);
       }
 
       await insertOutbox(transaction, input.event);
