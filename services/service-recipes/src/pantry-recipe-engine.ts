@@ -32,6 +32,7 @@ export interface PantryProductForMatch {
     ingredientTerms?: string[];
     taxonomyTags?: string[];
     quantityBase?: { value: number; unit: "g" | "ml" | "piece" } | null;
+    nutriScoreGrade?: string | null;
   } | null;
 }
 
@@ -62,6 +63,22 @@ export interface RecipeSubstitution {
   factor: number;
   reason: string;
   productIds: string[];
+}
+
+export function averageNutriScore(
+  pantry: readonly PantryProductForMatch[],
+  productIds: readonly string[],
+): { average:number|null; coverage:number } {
+  const used=new Set(productIds);
+  const values=pantry
+    .filter(item=>used.has(item.productId))
+    .map(item=>item.foodSemantics?.nutriScoreGrade?.toLowerCase() ?? "")
+    .map(grade=>({a:1,b:2,c:3,d:4,e:5}[grade] ?? null))
+    .filter((value): value is number => value !== null);
+  return {
+    average:values.length ? Number((values.reduce((sum,value)=>sum+value,0)/values.length).toFixed(3)) : null,
+    coverage:used.size ? Number((values.length/used.size).toFixed(3)) : 0,
+  };
 }
 
 export interface PantryRecipeScore {
