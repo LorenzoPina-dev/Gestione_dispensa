@@ -57,7 +57,7 @@ async function resolveText(input: string, sourceLocale: string, targetLocale: st
     };
   }
 
-  const direct = await pool.query(
+  const direct = sourceLocale === "auto" ? { rowCount: 0, rows: [] as any[] } : await pool.query(
     "SELECT e.id,e.source_id,l.label,l.locale,l.label_type FROM food_semantics.labels l JOIN food_semantics.entities e ON e.id=l.entity_id WHERE l.locale=$1 AND l.normalized=$2 LIMIT 5",
     [sourceLocale, normalized],
   );
@@ -189,7 +189,7 @@ app.post("/api/v1/resolve/product", async (req, res) => {
   try {
     const candidates: Candidate[] = [];
     for (const text of [...texts, ...taxonomyTags]) {
-      const result = await resolveText(text, localeCode(req.body?.locale), "it");
+      const result = await resolveText(text, "auto", "it");
       if (result) candidates.push(result);
     }
     candidates.sort((a,b) => b.confidence - a.confidence);
