@@ -1,4 +1,4 @@
-import { canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, type CulinaryWeight } from "@gestione-dispensa/food-rules";
+import { canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, parseIngredientText, type CulinaryWeight, type FoodComponent } from "@gestione-dispensa/food-rules";
 
 export interface ProductFoodSemantics {
   productId: string;
@@ -14,6 +14,8 @@ export interface ProductFoodSemantics {
   quantityBase: { value: number; unit: "g" | "ml" | "piece" } | null;
   quantityConfidence: number;
   semanticConfidence: number;
+  components: FoodComponent[];
+  compositionConfidence: number;
   source: string;
   sourceVersion: string;
   observedAt: string;
@@ -35,16 +37,23 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
   const traceTags = stringArray(source.tracesTags ?? source.traces_tags).map(tagName);
   const labelTags = stringArray(source.labelsTags ?? source.labels_tags).map(tagName);
   const productText = firstNonEmpty(
-    source.ingredientsTextIt,
-    source.ingredients_text_it,
-    source.ingredientsText,
-    source.ingredients_text,
     canonicalName,
     source.productName,
     source.product_name,
   ) ?? "";
+  const ingredientText = firstNonEmpty(
+    source.ingredientsTextIt,
+    source.ingredients_text_it,
+    source.ingredientsText,
+    source.ingredients_text,
+  ) ?? "";
 
   const canonical = canonicalizeIngredient(productText, [...ingredientTags, ...categoryTags]);
+  const components = ingredientText ? parseIngredientText(ingredientText) : [];
+  const recognizedComponents = components.filter(component => component.canonicalIngredient);
+  const compositionConfidence = components.length > 0
+    ? Number((recognizedComponents.length / components.length).toFixed(4))
+    : 0;
   const aliases = new Set<string>(canonical.ingredientTerms);
   for (const value of [...ingredientTags, ...categoryTags]) {
     const clean = tagName(value);
@@ -87,6 +96,8 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     quantityBase: normalizedQuantity ? { value: normalizedQuantity.baseValue, unit: normalizedQuantity.baseUnit } : null,
     quantityConfidence: normalizedQuantity ? (rawQuantity ? 0.97 : 0.99) : 0,
     semanticConfidence: canonical.confidence,
+    components,
+    compositionConfidence,
     source: "derived",
     sourceVersion: "food-semantics-v1",
     observedAt: new Date().toISOString()
