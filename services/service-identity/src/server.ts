@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createContextAwarePool, setDbRequestContextFromHeaders } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { createHash, randomUUID } from "node:crypto";
+import { normalizeDietaryPreferences } from "./dietary-preferences.js";
 import {
   RegistrationError,
   parseRegisterUserInput,
@@ -269,12 +270,12 @@ const server = createServer(async (req, res) => {
            returning allergen_tags,dietary_restrictions,trace_policy,version,updated_at`,
           [id, parsed.value.allergenTags, parsed.value.dietaryRestrictions, parsed.value.tracePolicy],
         );
-        const updated = result.rows[0] as Record<string, unknown>;
+        const updated = result.rows[0] as { allergen_tags: unknown; dietary_restrictions: unknown; trace_policy: unknown; version: unknown; updated_at: unknown };
         const response = {
           data: {
             userId: id,
-            allergenTags: updated.allergen_tags.map(String),
-            dietaryRestrictions: updated.dietary_restrictions.map(String),
+            allergenTags: Array.isArray(updated.allergen_tags) ? updated.allergen_tags.map(String) : [],
+            dietaryRestrictions: Array.isArray(updated.dietary_restrictions) ? updated.dietary_restrictions.map(String) : [],
             tracePolicy: String(updated.trace_policy),
             version: Number(updated.version),
             updatedAt: updated.updated_at,
