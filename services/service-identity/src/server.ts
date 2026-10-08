@@ -148,6 +148,7 @@ function toUserDto(_req: IncomingMessage, u: UserRow) {
 }
 
 const PROFILE_PATHS = new Set(["/api/v1/identity/me"]);
+const DIETARY_PREFERENCES_PATH = "/api/v1/identity/preferences";
 
 const server = createServer(async (req, res) => {
   const requestId = String(req.headers["x-request-id"] ?? randomUUID());
@@ -199,6 +200,92 @@ const server = createServer(async (req, res) => {
     const id = String(req.headers["x-user-id"] ?? "");
     if (!id || !UUID.test(id)) {
       return fail(res, 401, "UNAUTHENTICATED", "Missing authenticated user context.", requestId);
+    }
+
+    if (path === DIETARY_PREFERENCES_PATH) {
+      const user = await ensureUser(req, id);
+
+      if (method === "GET") {
+        const current = await pool.query(
+          "select allergen_tags,dietary_restrictions,trace_policy,version,updated_at from dietary_preferences where user_id=$1",
+          [id],
+        );
+        const row = current.rows[0] as Record<string, unknown> | undefined;
+        return send(res, 200, {
+          data: {
+            userId: id,
+            allergenTags: Array.isArray(row?.allergen_tags) ? row.allergen_tags.map(String) : [],
+            dietaryRestrictions: Array.isArray(row?.dietary_restrictions) ? row.dietary_restrictions.map(String) : [],
+            tracePolicy: row?.trace_policy === "EXCLUDE" ? "EXCLUDE" : "WARN",
+            version: row ? Number(row.version) : 1,
+            updatedAt: row?.updated_at ?? user.updated_at,
+          },
+        }, requestId);
+      }
+
+      if (method === "PATCH") {
+        const key = String(req.headers["x-idempotency-key"] ?? "").trim();
+        const ifMatch = String(req.headers["if-match"] ?? "").trim();
+        const b = await readJson(req);
+        const allowed = ["allergenTags", "dietaryRestrictions", "tracePolicy"];
+        const keys = Object.keys(b);
+        if (!key || key.length < 8 || !ifMatch || keys.length === 0 || keys.some((name) => !allowed.includes(name))) {
+          return fail(res, 400, "VALIDATION_ERROR", "allergenTags, dietaryRestrictions or tracePolicy, X-Idempotency-Key and If-Match are required.", requestId);
+        }
+
+        const current = await pool.query(
+          "select allergen_tags,dietary_restrictions,trace_policy,version from dietary_preferences where user_id=$1",
+          [id],
+        );
+        const row = current.rows[0] as Record<string, unknown> | undefined;
+        const currentVersion = row ? Number(row.version) : 1;
+        const normalizedIfMatch = ifMatch.replace(/^W\//i, "").replace(/^"|"$/g, "").replace(/^version-/i, "");
+        if (!/^\d+$/.test(normalizedIfMatch) || Number(normalizedIfMatch) !== currentVersion) {
+          return fail(res, 412, "PRECONDITION_FAILED", "Dietary preference version changed.", requestId);
+        }
+
+        const merged = {
+          allergenTags: Object.hasOwn(b, "allergenTags") ? b.allergenTags : (Array.isArray(row?.allergen_tags) ? row!.allergen_tags : []),
+          dietaryRestrictions: Object.hasOwn(b, "dietaryRestrictions") ? b.dietaryRestrictions : (Array.isArray(row?.dietary_restrictions) ? row!.dietary_restrictions : []),
+          tracePolicy: Object.hasOwn(b, "tracePolicy") ? b.tracePolicy : (row?.trace_policy ?? "WARN"),
+        };
+        const parsed = normalizeDietaryPreferences(merged);
+        if (!parsed.value) return fail(res, 400, "VALIDATION_ERROR", parsed.issues.join(" "), requestId);
+
+        const idem = await beginIdempotency(id, key, b);
+        if (idem.conflict) return fail(res, 409, "CONFLICT", "Idempotency key conflict.", requestId);
+        if (idem.replay) return send(res, idem.status, idem.body, requestId);
+        if (idem.processing) return fail(res, 409, "CONFLICT", "The same operation is already processing.", requestId);
+
+        const result = await pool.query(
+          `insert into dietary_preferences(user_id,allergen_tags,dietary_restrictions,trace_policy,version,created_at,updated_at)
+           values($1,$2,$3,$4,2,now(),now())
+           on conflict(user_id) do update set
+             allergen_tags=excluded.allergen_tags,
+             dietary_restrictions=excluded.dietary_restrictions,
+             trace_policy=excluded.trace_policy,
+             version=dietary_preferences.version+1,
+             updated_at=now()
+           returning allergen_tags,dietary_restrictions,trace_policy,version,updated_at`,
+          [id, parsed.value.allergenTags, parsed.value.dietaryRestrictions, parsed.value.tracePolicy],
+        );
+        const updated = result.rows[0] as Record<string, unknown>;
+        const response = {
+          data: {
+            userId: id,
+            allergenTags: updated.allergen_tags.map(String),
+            dietaryRestrictions: updated.dietary_restrictions.map(String),
+            tracePolicy: String(updated.trace_policy),
+            version: Number(updated.version),
+            updatedAt: updated.updated_at,
+          },
+          version: Number(updated.version),
+        };
+        await completeIdempotency(key, 200, response);
+        return send(res, 200, response, requestId);
+      }
+
+      return fail(res, 405, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed.", requestId);
     }
 
     if (PROFILE_PATHS.has(path)) {
