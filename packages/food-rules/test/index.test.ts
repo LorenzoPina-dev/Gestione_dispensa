@@ -1,0 +1,29 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { canonicalAllergenTag, canonicalizeIngredient, foodQuantity, parseIngredientText } from "../src/index.ts";
+
+describe("food-rules",()=>{
+  it("does not canonicalize substrings such as salted -> sale",()=>{
+    const result=canonicalizeIngredient("salted crackers");
+    assert.notEqual(result.canonicalIngredient,"sale");
+  });
+  it("canonicalizes multilingual ingredient names",()=>{
+    assert.equal(canonicalizeIngredient("farine").canonicalIngredient,"farina");
+    assert.equal(canonicalizeIngredient("lait").canonicalIngredient,"latte");
+    assert.equal(canonicalizeIngredient("pollo").canonicalIngredient,"pollo");
+  });
+  it("canonicalizes language-prefixed allergen tags",()=>{
+    assert.equal(canonicalAllergenTag("en:tree-nuts"),"nuts");
+    assert.equal(canonicalAllergenTag("it:latte"),"milk");
+  });
+  it("parses compound ingredients without losing unknown components",()=>{
+    const result=parseIngredientText("pomodoro 30%, basilico, ingrediente non riconosciuto");
+    assert.equal(result[0]?.canonicalIngredient,"pomodoro");
+    assert.equal(result[0]?.percentage,30);
+    assert.equal(result[2]?.canonicalIngredient,null);
+  });
+  it("keeps mass and volume as distinct dimensions",()=>{
+    assert.equal(foodQuantity(1,"kg")?.baseUnit,"g");
+    assert.equal(foodQuantity(1,"l")?.baseUnit,"ml");
+  });
+});
