@@ -1,4 +1,4 @@
-import { canonicalAllergenTag, canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, parseIngredientText, type CulinaryWeight, type FoodComponent, type SemanticStatus } from "@gestione-dispensa/food-rules";
+import { canonicalAllergenTag, canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, inferTextSafetyFacts, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, parseIngredientText, type CulinaryWeight, type FoodComponent, type SemanticStatus } from "@gestione-dispensa/food-rules";
 
 export interface ProductFoodSemantics {
   productId: string;
@@ -37,8 +37,8 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
   const ingredientTags = stringArray(source.ingredientsTags ?? source.ingredients_tags);
   const categoryTags = stringArray(source.categoriesTags ?? source.categories_tags ?? source.categories_hierarchy);
   const normalizeSafetyTag = (value:string):string => canonicalAllergenTag(value) ?? tagName(value);
-  const allergenTags = stringArray(source.allergensTags ?? source.allergens_tags).map(normalizeSafetyTag);
-  const traceTags = stringArray(source.tracesTags ?? source.traces_tags).map(normalizeSafetyTag);
+  const declaredAllergenTags = stringArray(source.allergensTags ?? source.allergens_tags).map(normalizeSafetyTag);
+  const declaredTraceTags = stringArray(source.tracesTags ?? source.traces_tags).map(normalizeSafetyTag);
   const labelTags = stringArray(source.labelsTags ?? source.labels_tags).map(tagName);
   const rawNutriScore = firstNonEmpty(source.nutriScoreGrade, source.nutriscore_grade, source.nutriscoreGrade);
   const nutriScoreGrade = rawNutriScore && /^[a-e]$/i.test(rawNutriScore) ? rawNutriScore.toLowerCase() : null;
@@ -71,6 +71,10 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     source.ingredientsText,
     source.ingredients_text,
   ) ?? "";
+
+  const textSafety = inferTextSafetyFacts(ingredientText);
+  const allergenTags = [...new Set([...declaredAllergenTags, ...textSafety.allergens.map(String)])];
+  const traceTags = [...new Set([...declaredTraceTags, ...textSafety.traceAllergens.map(String)])];
 
   const components = ingredientText ? parseIngredientText(ingredientText) : [];
   const recognizedComponents = components.filter(component => component.canonicalIngredient);
