@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canonicalAllergenTag, canonicalizeIngredient, convertFoodQuantityWithDensity, foodQuantity, foodSemanticRelation, inferTextAllergens, parseFoodCountFromText, parseFoodQuantityFromText, parseIngredientText } from "../src/index.ts";
+import { canonicalAllergenTag, canonicalizeIngredient, convertFoodQuantityWithDensity, foodQuantity, inferTextAllergens, parseFoodCountFromText, parseFoodQuantityFromText, parseIngredientText } from "../src/index.ts";
 
 describe("food-rules",()=>{
   it("does not canonicalize substrings such as salted -> sale",()=>{
