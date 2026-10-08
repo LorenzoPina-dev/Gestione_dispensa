@@ -314,6 +314,7 @@ quantity_base_value numeric NULL
 quantity_base_unit varchar(16) NULL -- g|ml|piece
 quantity_confidence numeric(5,4)
 semantic_confidence numeric(5,4)
+semantic_status varchar(16) NOT NULL -- EXACT|INFERRED|UNKNOWN|AMBIGUOUS
 source varchar(64) NOT NULL
 source_version varchar(64) NOT NULL
 observed_at timestamptz NOT NULL
@@ -321,6 +322,8 @@ updated_at timestamptz NOT NULL
 components_json JSONB NOT NULL DEFAULT []
 composition_confidence numeric(5,4) NOT NULL DEFAULT 0
 rules_version varchar(32) NOT NULL DEFAULT 'food-semantics-v2'
+
+La proiezione è materializzata atomicamente con il ciclo di vita del prodotto; per i prodotti storici è disponibile `npm run backfill:food-semantics` nel workspace Catalog. La lettura applicativa usa la proiezione materializzata quando `rules_version` è compatibile e ricalcola come fallback quando non lo è.
 ```
 
 È una proiezione/cache derivata da Catalog/OFF. Non è la fonte dell'identità commerciale del prodotto. I componenti derivati da `ingredients_text` servono per sicurezza e semantica dei prodotti composti; la materializzazione persistente è prevista, mentre Recipes oggi consuma la proiezione esposta dal Catalog.
