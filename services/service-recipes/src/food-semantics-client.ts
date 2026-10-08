@@ -3,6 +3,7 @@ type ResolverResponse = {
   recipeIngredient?: string;
   displayName?: string;
   foodEntityId?: string | null;
+  foodEntityAncestors?: string[];
   canonicalIngredient?: string | null;
   semanticConfidence?: number;
   provenance?: string;
