@@ -18,7 +18,19 @@ Tutti i database PostgreSQL applicativi usano UTC e `timestamptz`. Le tabelle pr
 |---|---|---|---|
 | identity_db | Identity | PostgreSQL | users, dietary_preferences, outbox_events, idempotency_keys |
 | family_db | Family | PostgreSQL | families, members, invites, outbox_events, idempotency_keys |
-| inventory_db | Inventory | PostgreSQL | pantry_items, pantry_lots, reorder_policies, movements, outbox_events, idempotency_keys |
+| inventory_db | Inventory | PostgreSQL | ### opened package residual content
+
+Inventory mantiene due concetti distinti:
+
+```text
+quantity + unit
+opened_at
+remaining_content_quantity + remaining_content_unit
+```
+
+`quantity/unit` rappresentano la giacenza registrata. Quando una confezione viene aperta, il contenuto residuo reale può essere registrato esplicitamente in `remaining_content_quantity/unit`; questo valore deve essere presente insieme a `opened_at`. Recipes usa il residuo misurato per la copertura quantitativa e non assume che una confezione aperta contenga ancora il suo contenuto originale.
+
+pantry_items, pantry_lots, reorder_policies, movements, outbox_events, idempotency_keys |
 | shopping_db | Shopping | PostgreSQL | shopping_domain.lists, shopping_domain.items, shopping_domain.reorder_suggestions, shopping_domain.processed_events, shopping_domain.outbox_events, shopping_domain.idempotency_keys |
 | catalog_db | Catalog | PostgreSQL | products, product_identifiers, data_sources, data_provenance, product_food_semantics, outbox_events, idempotency_keys |
 | notifications_db | Notifications | PostgreSQL | notifications_domain.notifications, notifications_domain.preferences, notifications_domain.outbox_events, notifications_domain.idempotency_keys |
