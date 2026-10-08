@@ -26,6 +26,7 @@ export interface PantryProductForMatch {
   quantity: number;
   unit: string;
   expiresAt?: string | null;
+  addedAt?: string | null;
   foodSemantics?: {
     canonicalIngredient?: string | null;
     semanticConfidence?: number;
@@ -46,6 +47,14 @@ export interface IngredientMatch {
   availableQuantity: { value: number; unit: string } | null;
   missingQuantity: { value: number; unit: string } | null;
   productIds: string[];
+  allocations: Array<{
+    productId: string;
+    usedBaseValue: number;
+    baseUnit: "g" | "ml" | "piece";
+    effectiveBaseValue: number;
+    factor: number;
+    expiresAt: string | null;
+  }>;
   confidence: number;
   substitution?: {
     fromIngredient: string;
@@ -143,6 +152,65 @@ function toRequiredQuantity(ingredient: RecipeIngredientForMatch): ParsedQuantit
   return null;
 }
 
+function sortFefo(items: readonly PantryProductForMatch[]): PantryProductForMatch[] {
+  return [...items].sort((a,b)=>{
+    const ae=a.expiresAt ? Date.parse(a.expiresAt) : Number.POSITIVE_INFINITY;
+    const be=b.expiresAt ? Date.parse(b.expiresAt) : Number.POSITIVE_INFINITY;
+    if(ae!==be)return ae-be;
+    const aa=a.addedAt ? Date.parse(a.addedAt) : Number.POSITIVE_INFINITY;
+    const ba=b.addedAt ? Date.parse(b.addedAt) : Number.POSITIVE_INFINITY;
+    return aa-ba;
+  });
+}
+
+function allocateBaseQuantity(
+  candidates: readonly PantryProductForMatch[],
+  requiredBaseValue: number,
+  dimension: ParsedQuantity["dimension"],
+  factor: number,
+): {
+  allocations:Array<{
+    productId:string;
+    usedBaseValue:number;
+    baseUnit:"g"|"ml"|"piece";
+    effectiveBaseValue:number;
+    factor:number;
+    expiresAt:string|null;
+  }>;
+  rawUsed:number;
+  effectiveUsed:number;
+} {
+  let remaining=Math.max(0,requiredBaseValue);
+  const allocations:Array<{
+    productId:string;
+    usedBaseValue:number;
+    baseUnit:"g"|"ml"|"piece";
+    effectiveBaseValue:number;
+    factor:number;
+    expiresAt:string|null;
+  }>=[];
+  for(const item of sortFefo(candidates)){
+    if(remaining<=0)break;
+    const parsed=combineInventoryQuantity(item.quantity,item.unit,item.foodSemantics?.quantityBase??null);
+    if(!parsed||parsed.dimension!==dimension||parsed.baseValue<=0)continue;
+    const neededRaw=remaining/Math.max(factor,0.000001);
+    const used=Math.min(parsed.baseValue,neededRaw);
+    if(used<=0)continue;
+    allocations.push({
+      productId:item.productId,
+      usedBaseValue:Number(used.toFixed(6)),
+      baseUnit:parsed.baseUnit,
+      effectiveBaseValue:Number((used*factor).toFixed(6)),
+      factor,
+      expiresAt:item.expiresAt??null,
+    });
+    remaining=Math.max(0,remaining-used*factor);
+  }
+  const rawUsed=allocations.reduce((sum,item)=>sum+item.usedBaseValue,0);
+  const effectiveUsed=allocations.reduce((sum,item)=>sum+item.effectiveBaseValue,0);
+  return {allocations,rawUsed,effectiveUsed};
+}
+
 function inventoryQuantities(pantry: readonly PantryProductForMatch[]): ParsedQuantity[] {
   return pantry
     .map(item => combineInventoryQuantity(item.quantity, item.unit, item.foodSemantics?.quantityBase ?? null))
@@ -206,6 +274,7 @@ export function scoreRecipeAgainstPantry(
         availableQuantity: null,
         missingQuantity: required !== null ? { value: required, unit: firstQuantity!.baseUnit } : null,
         productIds: [],
+        allocations: [],
         confidence: Math.min(...group.map(item => item.quantityConfidence ?? 0.5)),
       };
     } else if (required === null) {
@@ -219,7 +288,8 @@ export function scoreRecipeAgainstPantry(
           requiredQuantity: null,
           availableQuantity: null,
           missingQuantity: null,
-          productIds: exactCandidates.map(item => item.productId),
+          productIds: exactCandidates.length ? [sortFefo(exactCandidates)[0]!.productId] : [],
+          allocations: [],
           confidence: Math.min(1, Math.max(0.5, ...exactCandidates.map(item => item.foodSemantics ? 1 : 0.7))),
         };
       } else {
@@ -239,6 +309,7 @@ export function scoreRecipeAgainstPantry(
           availableQuantity: null,
           missingQuantity: null,
           productIds,
+          allocations: [],
           confidence: Math.min(0.9, Math.max(0.5, ...substituteCandidates.map(item => item.foodSemantics ? 0.9 : 0.7))),
           substitution: firstSub ? {
             fromIngredient: firstSub.fromCanonical,
@@ -268,17 +339,19 @@ export function scoreRecipeAgainstPantry(
         sourceRaw: String(required) + " " + firstQuantity!.baseUnit,
       };
       const exactCoverage = quantityCoverage(requiredQuantity, exactAvailable);
-      let exactUsed = Math.min(required, exactCoverage.availableBase ?? 0);
-      let remaining = Math.max(0, required - exactUsed);
-      const compatibleSub = substituteAvailable.filter(item => item.dimension === requiredQuantity.dimension);
-      const substituteRawAvailable = compatibleSub.reduce((sum, item) => sum + item.baseValue, 0);
-      const substituteUsed = Math.min(remaining, substituteRawAvailable);
-      const effective = exactUsed + substituteUsed * 0.8;
+      const exactAllocation = allocateBaseQuantity(exactCandidates, required, requiredQuantity.dimension, 1);
+      const exactUsed = exactAllocation.effectiveUsed;
+      const remaining = Math.max(0, required - exactUsed);
+      const compatibleSub = substituteCandidates.filter(item => {
+        const parsed=combineInventoryQuantity(item.quantity,item.unit,item.foodSemantics?.quantityBase??null);
+        return Boolean(parsed && parsed.dimension===requiredQuantity.dimension);
+      });
+      const substituteAllocation = allocateBaseQuantity(compatibleSub, remaining, requiredQuantity.dimension, 0.8);
+      const substituteUsed = substituteAllocation.effectiveUsed;
+      const effective = exactUsed + substituteUsed;
       const ratio = Math.max(0, Math.min(1, effective / required));
-      const ids = [
-        ...exactCandidates.map(item => item.productId),
-        ...(substituteUsed > 0 ? substituteCandidates.map(item => item.productId) : []),
-      ];
+      const allocations=[...exactAllocation.allocations,...substituteAllocation.allocations];
+      const ids=[...new Set(allocations.map(item=>item.productId))];
       const incompatibleSub = substituteCandidates.length > 0 && substituteRawAvailable === 0 && substituteAvailable.length > 0;
 
       const subRule = substituteUsed > 0
@@ -310,6 +383,7 @@ export function scoreRecipeAgainstPantry(
           unit: requiredQuantity.baseUnit,
         },
         productIds: ids,
+        allocations,
         confidence: requiredQuantity.confidence,
         substitution: subRule ? {
           fromIngredient: subRule.fromCanonical,
