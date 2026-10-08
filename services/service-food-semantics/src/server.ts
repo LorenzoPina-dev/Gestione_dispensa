@@ -19,13 +19,6 @@ type Candidate = {
   confidence: number;
 };
 
-function scoreCandidate(input: string, row: any): number {
-  const normalized = normalizeText(input);
-  if (row.normalized === normalized) return row.label_type === "label" ? 1 : 0.98;
-  if (String(row.normalized).startsWith(normalized + " ") || normalized.startsWith(String(row.normalized) + " ")) return 0.88;
-  return 0.65;
-}
-
 async function translate(text: string, source: string, target: string): Promise<{ text: string; provider: string } | null> {
   if (!translationUrl || source === target) return source === target ? { text, provider: "identity" } : null;
   const response = await fetch(translationUrl + "/translate", {
