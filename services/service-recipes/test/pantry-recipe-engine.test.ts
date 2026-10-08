@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { scoreRecipeAgainstPantry } from "../src/pantry-recipe-engine.js";
+import { averageNutriScore, scoreRecipeAgainstPantry } from "../src/pantry-recipe-engine.js";
 import { foodQuantity } from "@gestione-dispensa/food-rules";
 import { combineInventoryQuantity, parseQuantityFromText, quantityCoverage } from "../src/quantity-engine.js";
 
@@ -59,6 +59,19 @@ describe("pantry-recipe-engine", () => {
     assert.equal(result.score,0.4);
     assert.equal(result.readiness,"DISCARD");
     assert.equal(result.missingIngredients[0]?.status,"PARTIAL");
+  });
+
+  it("calculates an ingredient-level Nutri-Score average only from matched pantry products",()=>{
+    const result=averageNutriScore(
+      [
+        {productId:"a",name:"A",quantity:1,unit:"piece",foodSemantics:{canonicalIngredient:"pasta",nutriScoreGrade:"a"}},
+        {productId:"b",name:"B",quantity:1,unit:"piece",foodSemantics:{canonicalIngredient:"formaggio",nutriScoreGrade:"e"}},
+        {productId:"c",name:"C",quantity:1,unit:"piece",foodSemantics:{canonicalIngredient:"sale",nutriScoreGrade:null}},
+      ],
+      ["a","b","c"],
+    );
+    assert.equal(result.average,3);
+    assert.equal(result.coverage,0.667);
   });
 
   it("uses a curated functional substitute with an 0.8 score factor", () => {
