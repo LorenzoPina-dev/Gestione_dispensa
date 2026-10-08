@@ -19,6 +19,7 @@ export interface ProductFoodSemantics {
   compositionConfidence: number;
   source: string;
   sourceVersion: string;
+  rulesVersion: string;
   observedAt: string;
 }
 
@@ -30,7 +31,7 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? [...new Set(value.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean))] : [];
 }
 
-export function deriveProductFoodSemantics(productId: string, raw: Record<string, unknown> | null | undefined, canonicalName?: string | null): ProductFoodSemantics {
+export function deriveProductFoodSemantics(productId: string, raw: Record<string, unknown> | null | undefined, canonicalName?: string | null, sourceVersion = "food-semantics-v2"): ProductFoodSemantics {
   const source = raw ?? {};
   const ingredientTags = stringArray(source.ingredientsTags ?? source.ingredients_tags);
   const categoryTags = stringArray(source.categoriesTags ?? source.categories_tags ?? source.categories_hierarchy);
@@ -102,11 +103,12 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     components,
     compositionConfidence,
     source: "derived",
-    sourceVersion: "food-semantics-v2",
+    sourceVersion,
+    rulesVersion: "food-semantics-v2",
     observedAt: new Date().toISOString()
   };
 }
 
-export function semanticsFromProductSnapshot(productId: string, snapshot: Record<string, unknown> | null | undefined, canonicalName?: string | null): ProductFoodSemantics {
-  return deriveProductFoodSemantics(productId, snapshot, canonicalName);
+export function semanticsFromProductSnapshot(productId: string, snapshot: Record<string, unknown> | null | undefined, canonicalName?: string | null, sourceVersion?: string): ProductFoodSemantics {
+  return deriveProductFoodSemantics(productId, snapshot, canonicalName, sourceVersion);
 }
