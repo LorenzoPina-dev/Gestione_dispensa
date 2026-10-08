@@ -48,6 +48,21 @@ describe("food-rules",()=>{
     assert.equal(parseFoodCountFromText("3 onions","cipolla")?.baseValue,3);
     assert.equal(parseFoodCountFromText("2 pasta","pasta"),null);
   });
+  it("separates direct allergen text from trace statements",()=>{
+    const direct=inferTextSafetyFacts("Ingredients: milk, flour");
+    assert.ok(direct.allergens.includes("milk"));
+    const trace=inferTextSafetyFacts("May contain milk and nuts");
+    assert.ok(trace.traceAllergens.includes("milk"));
+    assert.ok(trace.traceAllergens.includes("nuts"));
+    assert.equal(trace.allergens.includes("milk"),false);
+  });
+  it("does not turn explicit allergen absence into a positive allergen fact",()=>{
+    const result=inferTextSafetyFacts("Senza latte e senza arachidi");
+    assert.ok(result.explicitlyAbsent.includes("milk"));
+    assert.ok(result.explicitlyAbsent.includes("peanuts"));
+    assert.equal(result.allergens.length,0);
+  });
+
   it("keeps mass and volume as distinct dimensions",()=>{
     assert.equal(foodQuantity(1,"kg")?.baseUnit,"g");
     assert.equal(foodQuantity(1,"l")?.baseUnit,"ml");
