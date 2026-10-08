@@ -391,7 +391,6 @@ services:
     environment: { DATABASE_URL: "postgres://food_semantics_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/food_semantics_db" }
     command: ["node","dist/migrate.js"]
     depends_on:
-      service-food-semantics: { condition: service_healthy }
       postgres-app-role-init: { condition: service_completed_successfully }
     restart: "no"
     networks: [backend, data]
@@ -399,7 +398,7 @@ services:
   service-food-semantics-bootstrap:
     build: { context: ., dockerfile: services/service-food-semantics/Dockerfile }
     environment:
-      DATABASE_URL: "postgres://food_semantics:food_semantics@postgres:5432/food_semantics_db"
+      DATABASE_URL: "postgres://food_semantics_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/food_semantics_db"
       FOOD_ONTOLOGY_SOURCE_KEY: foodon
       FOOD_ONTOLOGY_VERSION: master
       FOOD_ONTOLOGY_URL: "https://raw.githubusercontent.com/FoodOntology/foodon/master/foodon_old.obo"
