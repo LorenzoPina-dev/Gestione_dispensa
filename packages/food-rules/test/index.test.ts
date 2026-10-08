@@ -74,3 +74,25 @@ describe("food-rules",()=>{
     assert.equal(foodQuantity(1,"l")?.baseUnit,"ml");
   });
 });
+
+describe("food-rules / structured ingredient lines",()=>{
+  it("extracts explicit quantity and preparation state",()=>{
+    const parsed=parseFoodIngredientLine("2 large eggs, beaten");
+    assert.equal(parsed.quantity?.baseValue,2);
+    assert.equal(parsed.quantity?.baseUnit,"piece");
+    assert.equal(parsed.ingredientText.includes("eggs"),true);
+    assert.equal(parsed.prepState,"beaten");
+  });
+
+  it("extracts multilingual preparation state",()=>{
+    const parsed=parseFoodIngredientLine("250 g farina, setacciata");
+    assert.equal(parsed.quantity?.baseValue,250);
+    assert.equal(parsed.quantity?.baseUnit,"g");
+    assert.equal(parsed.prepState,"setacciata");
+  });
+
+  it("does not invent a quantity from an ambiguous range",()=>{
+    const parsed=parseFoodIngredientLine("200-250 g flour");
+    assert.equal(parsed.quantity,null);
+  });
+});
