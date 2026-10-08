@@ -14,7 +14,7 @@ function mapRecipeDto(r:RecipeMatchDto["recipe"], locale="it-IT"):Recipe{return{
 function mapMatch(m:RecipeMatchDto, locale="it-IT"):RecipeMatch{return{recipe:mapRecipeDto(m.recipe,locale),score:m.score,matchedIngredients:(m.matchedIngredientNames??[]).map(name=>translateFoodText(name,locale)),missingIngredients:m.missingIngredients.map(i=>translateFoodText(i.displayName??i.name??i.recipeIngredient??i.canonicalIngredient??"Ingrediente",locale)).filter((name):name is string=>Boolean(name.trim()))};}
 export default function Ricette({onShoppingChanged,onNavigateToShopping,familyId,locale="it-IT",suggestedRecipes=[]}:Props){
 const[onlyFeasible,setOnlyFeasible]=useState(false),[detail,setDetail]=useState<RecipeMatch|null>(null),[shoppingSelection,setShoppingSelection]=useState(false),[matches,setMatches]=useState<RecipeMatch[]>([]),[loading,setLoading]=useState(true),[query,setQuery]=useState("");
-const openRecipe=async(m:RecipeMatch)=>{setDetail(m);if(!familyId)return;try{const result=await api.getRecipe(familyId,m.recipe.id);setDetail(current=>current?.recipe.id===m.recipe.id?{...current,recipe:mapRecipeDto(result.recipe)}:current);}catch{/* Keep the already available suggestion as fallback. */}};
+const openRecipe=async(m:RecipeMatch)=>{setDetail(m);if(!familyId)return;try{const result=await api.getRecipe(familyId,m.recipe.id);setDetail(current=>current?.recipe.id===m.recipe.id?{...current,recipe:mapRecipeDto(result.recipe,locale)}:current);}catch{/* Keep the already available suggestion as fallback. */}};
 useEffect(() => {
   if (!query.trim()) {
     setMatches(suggestedRecipes.map((recipe)=>mapMatch(recipe,locale)));
@@ -51,7 +51,7 @@ useEffect(() => {
     cancelled = true;
     window.clearTimeout(timer);
   };
-}, [query, familyId, suggestedRecipes]);
+}, [query, familyId, locale, suggestedRecipes]);
 
 const visible = useMemo(
   () => (onlyFeasible ? matches.filter((m) => m.score === 1) : matches),
