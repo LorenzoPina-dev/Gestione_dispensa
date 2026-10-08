@@ -40,6 +40,8 @@ describe("catalog food semantics",()=>{
     assert.equal(result.semanticStatus,"EXACT");
     assert.equal(result.components.length,3);
     assert.equal(result.compositionConfidence,1);
+    assert.equal(result.components[0]?.provenance,"ingredients_text");
+    assert.equal(result.components[0]?.role,"PRIMARY");
   });
 
   it("falls back to taxonomy only after name and ingredient text remain unresolved",()=>{
