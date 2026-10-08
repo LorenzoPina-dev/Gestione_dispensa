@@ -23,6 +23,8 @@ export interface ProductFoodSemantics {
   rulesVersion: string;
   nutriScoreGrade: string | null;
   observedAt: string;
+  foodEntityId: string | null;
+  semanticProvenance: string;
 }
 
 function firstNonEmpty(...values: unknown[]): string | null {
@@ -162,7 +164,9 @@ export function deriveProductFoodSemantics(
     sourceVersion,
     rulesVersion: "food-semantics-v2",
     nutriScoreGrade,
-    observedAt: new Date().toISOString(),\n    foodEntityId: identity?.foodEntityId ?? null,\n    semanticProvenance: identity?.provenance ?? "legacy"
+    observedAt: new Date().toISOString(),
+    foodEntityId: identity?.foodEntityId ?? null,
+    semanticProvenance: identity?.provenance ?? "legacy",
   };
 }
 
