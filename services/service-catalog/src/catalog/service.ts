@@ -1,5 +1,6 @@
 export type ProductUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";
 export type ProductQuality = "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+export type { ProductFoodSemantics } from "./food-semantics.js";
 
 export interface ProductImages {
   front?: string;
@@ -58,6 +59,8 @@ export interface Product {
   servingUnit?: string;
   images?: ProductImages;
   openFoodFacts?: Record<string, unknown>;
+  /** Deterministic food identity derived from OFF/local product data. */
+  foodSemantics?: import("./food-semantics.js").ProductFoodSemantics;
   createdAt: Date;
   updatedAt: Date;
   barcodes: string[];
