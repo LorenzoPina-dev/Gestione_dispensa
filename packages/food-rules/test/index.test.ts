@@ -48,6 +48,12 @@ describe("food-rules",()=>{
     assert.equal(parseFoodCountFromText("3 onions","cipolla")?.baseValue,3);
     assert.equal(parseFoodCountFromText("2 pasta","pasta"),null);
   });
+  it("allows only safe recipe generalization in one direction",()=>{
+    assert.equal(foodSemanticRelation("pasta","rigatoni"),"RECIPE_GENERALIZES_PRODUCT");
+    assert.equal(foodSemanticRelation("rigatoni","pasta"),"UNSAFE_GENERALIZATION");
+    assert.equal(foodSemanticRelation("parmigiano","formaggio"),"UNSAFE_GENERALIZATION");
+  });
+
   it("separates direct allergen text from trace statements",()=>{
     const direct=inferTextSafetyFacts("Ingredients: milk, flour");
     assert.ok(direct.allergens.includes("milk"));
