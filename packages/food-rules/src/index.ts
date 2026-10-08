@@ -253,7 +253,7 @@ export function parseIngredientText(raw:string,limit=64):FoodComponent[] {
     const canonical=canonicalizeIngredient(name);
     components.push({
       raw:name,
-      canonicalIngredient:canonical.canonicalIngredient,
+      canonicalIngredient:canonical.confidence >= 0.8 ? canonical.canonicalIngredient : null,
       ingredientTerms:canonical.ingredientTerms,
       percentage:Number.isFinite(percentage??0)?percentage:null,
       confidence:canonical.confidence,
@@ -279,7 +279,8 @@ const INGREDIENT_ALLERGENS: Readonly<Record<string, readonly AllergenCode[]>> = 
 };
 
 export function canonicalAllergenTag(value:string):AllergenCode|null {
-  const normalized=normalizeFoodText(value).replace(/^([a-z]{2})-/,"").replace(/ /g,"-");
+  const stripped=value.trim().replace(/^([a-z]{2}):/i,"");
+  const normalized=normalizeFoodText(stripped).replace(/ /g,"-");
   const aliases:Readonly<Record<string,AllergenCode>>={
     milk:"milk",latte:"milk",dairy:"milk",
     eggs:"eggs",egg:"eggs",uovo:"eggs",uova:"eggs",
