@@ -143,7 +143,7 @@ services:
       - |
         sql_escape() { printf "%s" "$$1" | sed "s/\x27/\x27\x27/g"; }
         app_password=$$(sql_escape "$$POSTGRES_APP_PASSWORD")
-        for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
+        for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app food_semantics_app; do
           if psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$$role'" | grep -q 1; then
             psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -c "ALTER ROLE \"$$role\" LOGIN PASSWORD '$$app_password';"
           else
@@ -152,6 +152,11 @@ services:
         done
         if ! psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'keycloak'" | grep -q 1; then
           psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -c "CREATE ROLE keycloak LOGIN PASSWORD '$$KEYCLOAK_DB_PASSWORD';"
+        fi
+        if ! psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'food_semantics_db'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -c "CREATE DATABASE food_semantics_db OWNER food_semantics_app;"
+        else
+          psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -c "ALTER DATABASE food_semantics_db OWNER TO food_semantics_app;"
         fi
         if ! psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'keycloak_db'" | grep -q 1; then
           psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -c "CREATE DATABASE keycloak_db OWNER keycloak;"
@@ -373,6 +378,42 @@ services:
     restart: unless-stopped
     networks: [backend, data]
 
+  service-food-semantics-schema-migrate:
+    build: { context: ., dockerfile: services/service-food-semantics/Dockerfile }
+    environment: { DATABASE_URL: "postgres://food_semantics:food_semantics@postgres:5432/food_semantics_db" }
+    command: ["node","dist/migrate.js"]
+    depends_on:
+      postgres-app-role-init: { condition: service_completed_successfully }
+    restart: "no"
+    networks: [backend, data]
+
+  service-food-semantics-bootstrap:
+    build: { context: ., dockerfile: services/service-food-semantics/Dockerfile }
+    environment:
+      DATABASE_URL: "postgres://food_semantics:food_semantics@postgres:5432/food_semantics_db"
+      FOOD_ONTOLOGY_SOURCE_KEY: foodon
+      FOOD_ONTOLOGY_VERSION: master
+      FOOD_ONTOLOGY_URL: "https://raw.githubusercontent.com/FoodOntology/foodon/master/foodon_old.obo"
+    command: ["node","dist/bootstrap.js"]
+    depends_on:
+      service-food-semantics-schema-migrate: { condition: service_completed_successfully }
+    restart: "no"
+    networks: [backend, data, egress]
+
+  service-food-semantics:
+    build: { context: ., dockerfile: services/service-food-semantics/Dockerfile }
+    environment:
+      PORT: 3410
+      SERVICE_NAME: service-food-semantics
+      DATABASE_URL: "postgres://food_semantics_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/food_semantics_db"
+      TRANSLATION_BASE_URL: "${TRANSLATION_BASE_URL:-http://libretranslate:5000}"
+      TRANSLATION_TIMEOUT_MS: "8000"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
+    depends_on:
+      service-food-semantics-bootstrap: { condition: service_completed_successfully }
+    healthcheck: *node-healthcheck
+    restart: unless-stopped
+    networks: [backend, data, egress]
   service-recipes-schema-migrate:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
     environment: { DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
@@ -386,6 +427,7 @@ services:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
     environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", IDENTITY_SERVICE_BASE_URL: "http://service-identity:3310/api/v1", IDENTITY_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1", MIGRATION_DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
     depends_on:
+      service-food-semantics: { condition: service_healthy }
       service-recipes-schema-migrate: { condition: service_completed_successfully }
       service-identity: { condition: service_healthy }
     healthcheck: *node-healthcheck
