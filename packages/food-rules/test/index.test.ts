@@ -7,7 +7,7 @@ describe("food-rules",()=>{
     const result=canonicalizeIngredient("salted crackers");
     assert.notEqual(result.canonicalIngredient,"sale");
   });
-  it("canonicalizes multilingual ingredient names",()=>{
+  it("treats malformed runtime text as empty instead of throwing",()=>{\n    assert.equal(canonicalizeIngredient(undefined as unknown as string).canonicalIngredient,null);\n  });\n  it("canonicalizes multilingual ingredient names",()=>{
     assert.equal(canonicalizeIngredient("farine").canonicalIngredient,"farina");
     assert.equal(canonicalizeIngredient("lait").canonicalIngredient,"latte");
     assert.equal(canonicalizeIngredient("pollo").canonicalIngredient,"pollo");
