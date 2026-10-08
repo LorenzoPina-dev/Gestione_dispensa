@@ -29,7 +29,8 @@ async function enrichInventoryNames(stock:PantryItem[],catalogBase:string,author
    signal:AbortSignal.timeout(2500),
  });
  if(!response.ok)throw new Error("catalog HTTP "+response.status);
- const body=await response.json() as {items?:CatalogProduct[]};
+ const envelope=await response.json() as {data?:{items?:CatalogProduct[]};items?:CatalogProduct[]};
+ const body=envelope.data??envelope;
  const names=new Map((body.items??[]).map(item=>[item.productId,String(item.name??"").trim()]).filter(([,name])=>Boolean(name)));
  return stock.map(item=>({
    ...item,
