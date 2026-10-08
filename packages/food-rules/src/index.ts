@@ -125,3 +125,58 @@ export function classifyCulinaryWeight(canonicalIngredient:string|null):Culinary
   if(canonicalIngredient && SECONDARY.has(canonicalIngredient)) return "SECONDARY";
   return "CORE";
 }
+
+
+export interface FoodQuantity {
+  value: number;
+  unit: string;
+  dimension: "mass" | "volume" | "count";
+  baseValue: number;
+  baseUnit: "g" | "ml" | "piece";
+}
+
+const QUANTITY_UNITS: Readonly<Record<string,{dimension:FoodQuantity["dimension"];factor:number;baseUnit:FoodQuantity["baseUnit"]}>> = {
+  mg:{dimension:"mass",factor:0.001,baseUnit:"g"}, g:{dimension:"mass",factor:1,baseUnit:"g"}, kg:{dimension:"mass",factor:1000,baseUnit:"g"},
+  oz:{dimension:"mass",factor:28.349523125,baseUnit:"g"}, lb:{dimension:"mass",factor:453.59237,baseUnit:"g"},
+  ml:{dimension:"volume",factor:1,baseUnit:"ml"}, cl:{dimension:"volume",factor:10,baseUnit:"ml"}, dl:{dimension:"volume",factor:100,baseUnit:"ml"}, l:{dimension:"volume",factor:1000,baseUnit:"ml"},
+  tsp:{dimension:"volume",factor:5,baseUnit:"ml"}, teaspoon:{dimension:"volume",factor:5,baseUnit:"ml"}, teaspoons:{dimension:"volume",factor:5,baseUnit:"ml"},
+  tbsp:{dimension:"volume",factor:15,baseUnit:"ml"}, tablespoon:{dimension:"volume",factor:15,baseUnit:"ml"}, tablespoons:{dimension:"volume",factor:15,baseUnit:"ml"},
+  cup:{dimension:"volume",factor:240,baseUnit:"ml"}, cups:{dimension:"volume",factor:240,baseUnit:"ml"},
+  piece:{dimension:"count",factor:1,baseUnit:"piece"}, pieces:{dimension:"count",factor:1,baseUnit:"piece"}, pc:{dimension:"count",factor:1,baseUnit:"piece"},
+  pcs:{dimension:"count",factor:1,baseUnit:"piece"}, pz:{dimension:"count",factor:1,baseUnit:"piece"}, pezzo:{dimension:"count",factor:1,baseUnit:"piece"}, pezzi:{dimension:"count",factor:1,baseUnit:"piece"},
+  unit:{dimension:"count",factor:1,baseUnit:"piece"}, units:{dimension:"count",factor:1,baseUnit:"piece"}, u:{dimension:"count",factor:1,baseUnit:"piece"}
+};
+
+function parseNumericQuantity(value:string):number|null {
+  const normalized=value.trim().replace(",", ".");
+  const mixed=normalized.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if(mixed){
+    const denominator=Number(mixed[3]);
+    if(denominator<=0) return null;
+    return Number(mixed[1])+Number(mixed[2])/denominator;
+  }
+  const fraction=normalized.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if(fraction){
+    const denominator=Number(fraction[2]);
+    if(denominator<=0) return null;
+    return Number(fraction[1])/denominator;
+  }
+  const number=Number(normalized);
+  return Number.isFinite(number)&&number>0?number:null;
+}
+
+export function foodQuantity(value:number|string, unit:string):FoodQuantity|null {
+  const numeric=typeof value==="number"?value:parseNumericQuantity(value);
+  const info=QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\.$/,"")];
+  if(numeric===null || !info) return null;
+  return {value:numeric,unit:unit.trim().toLowerCase(),dimension:info.dimension,baseValue:numeric*info.factor,baseUnit:info.baseUnit};
+}
+
+export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
+  const unitAlternatives="kg|mg|g|lb|oz|dl|cl|ml|l|tbsp\\.?|tsp\\.?|tablespoons?|teaspoons?|cups?|pieces?|pcs?|pc|pz|pezzi?|units?|u";
+  const match=raw.trim().match(new RegExp("(?:(\\d+\\s+)?(\\d+\\s*\\/\\s*\\d+)|(\\d+\\s*\\/\\s*\\d+)|(\\d+(?:[.,]\\d+)?))\\s*("+unitAlternatives+")\\b","i"));
+  if(!match) return null;
+  const valueText=match[1] ? String(match[1]).trim() : match[2] ?? match[3] ?? match[4] ?? "";
+  const numeric=parseNumericQuantity(valueText);
+  return numeric===null ? null : foodQuantity(numeric,match[5]);
+}
