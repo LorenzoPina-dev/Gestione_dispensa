@@ -128,6 +128,41 @@ describe("service-inventory / real cross-service integration", () => {
     assert.equal(db.rows[0].location, "pantry");
   });
 
+  it("stores measurable residual content for an opened package", async () => {
+    assert.ok(familyId);
+    const packageProductId = randomUUID();
+    const created = await request(inventoryUrl, "/api/v1/inventory/items", {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+        "x-idempotency-key": `opened-package-${randomUUID()}`,
+      },
+      body: JSON.stringify({
+        productId: packageProductId,
+        quantity: 1,
+        unit: "pack",
+        openedAt: "2026-10-08T10:00:00.000Z",
+        remainingContentQuantity: 350,
+        remainingContentUnit: "g",
+        location: "pantry",
+      }),
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body?.data?.remainingContentQuantity,350);
+    assert.equal(created.body?.data?.remainingContentUnit,"g");
+
+    const db=await pool.query(
+      "SELECT quantity,unit,opened_at,remaining_content_quantity,remaining_content_unit FROM pantry_items WHERE id=$1",
+      [created.body?.data?.itemId],
+    );
+    assert.equal(db.rowCount,1);
+    assert.equal(Number(db.rows[0].quantity),1);
+    assert.equal(db.rows[0].unit,"pack");
+    assert.equal(db.rows[0].remaining_content_unit,"g");
+    assert.equal(Number(db.rows[0].remaining_content_quantity),350);
+  });
+
   it("keeps separate stock receipts as independent batches", async () => {
     assert.ok(familyId);
     const batchProductId = randomUUID();
