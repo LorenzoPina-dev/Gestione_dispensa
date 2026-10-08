@@ -17,6 +17,7 @@ type Candidate = {
   label: string;
   locale: string;
   confidence: number;
+  ancestors?: string[];
 };
 
 async function translate(text: string, source: string, target: string): Promise<{ text: string; provider: string } | null> {
@@ -32,6 +33,27 @@ async function translate(text: string, source: string, target: string): Promise<
   return typeof payload.translatedText === "string" && payload.translatedText.trim()
     ? { text: payload.translatedText.trim(), provider: "translation-service" }
     : null;
+}
+
+async function ancestorIds(entityId: string): Promise<string[]> {
+  const result = await pool.query(
+    `WITH RECURSIVE ancestors(source_key,source_id) AS (
+       SELECT source_key,source_id FROM food_semantics.entities WHERE id=$1
+       UNION
+       SELECT r.target_source_key,r.target_source_id
+         FROM food_semantics.relations r
+         JOIN food_semantics.entities child
+           ON child.source_key=r.target_source_key
+          AND child.source_id=r.target_source_id
+         JOIN ancestors a
+           ON a.source_key=child.source_key
+          AND a.source_id=child.source_id
+        WHERE r.relation='IS_A'
+     )
+     SELECT source_key,source_id FROM ancestors OFFSET 1`,
+    [entityId],
+  );
+  return result.rows.map((row) => String(row.source_key) + ":" + String(row.source_id));
 }
 
 async function resolveText(input: string, sourceLocale: string, targetLocale: string): Promise<Candidate | null> {
@@ -54,6 +76,7 @@ async function resolveText(input: string, sourceLocale: string, targetLocale: st
       label: String(cached.rows[0].translated_text),
       locale: targetLocale,
       confidence: Number(cached.rows[0].confidence),
+      ancestors: await ancestorIds(String(cached.rows[0].id)),
     };
   }
 
@@ -68,6 +91,7 @@ async function resolveText(input: string, sourceLocale: string, targetLocale: st
       label: String(direct.rows[0].label),
       locale: String(direct.rows[0].locale),
       confidence: String(direct.rows[0].label_type) === "label" ? 1 : 0.98,
+      ancestors: await ancestorIds(String(direct.rows[0].id)),
     };
     const display = targetLocale === sourceLocale
       ? result.label
@@ -174,6 +198,7 @@ app.post("/api/v1/resolve/ingredient", async (req, res) => {
       foodEntityId: "foodon:" + result.sourceId,
       canonicalIngredient: "foodon:" + result.sourceId,
       semanticConfidence: result.confidence,
+      foodEntityAncestors: result.ancestors ?? [],
       provenance: "foodon",
     });
   } catch (error) {
@@ -199,7 +224,7 @@ app.post("/api/v1/resolve/product", async (req, res) => {
       "INSERT INTO food_semantics.product_mappings(product_id,entity_id,source,confidence,evidence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(product_id) DO UPDATE SET entity_id=excluded.entity_id,source=excluded.source,confidence=excluded.confidence,evidence=excluded.evidence,resolved_at=now()",
       [productId, best.id, "catalog", best.confidence, JSON.stringify({ texts, taxonomyTags })],
     );
-    return res.json({ status: "RESOLVED", foodEntityId: "foodon:" + best.sourceId, displayName: best.label, semanticConfidence: best.confidence, provenance: "foodon" });
+    return res.json({ status: "RESOLVED", foodEntityId: "foodon:" + best.sourceId, foodEntityAncestors: best.ancestors ?? [], displayName: best.label, semanticConfidence: best.confidence, provenance: "foodon" });
   } catch (error) {
     return res.status(503).json({ error: { code: "SEMANTIC_RESOLVER_UNAVAILABLE", message: error instanceof Error ? error.message : "Resolver unavailable" } });
   }
