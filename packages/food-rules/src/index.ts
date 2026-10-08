@@ -39,70 +39,6 @@ export function classifyCulinaryWeight(_canonicalIngredient: string | null): Cul
   return "CORE";
 }
 
-export const normalizeFoodText = (value:unknown):string =>
-  (typeof value==="string" ? value : "").normalize("NFD")
-    .replace(/[\u0300-\u036f]/g,"")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g," ")
-    .replace(/\s+/g," ")
-    .trim();
-
-export const normalizeFoodTag = (value:unknown):string =>
-  (typeof value==="string" ? value : "").trim().toLowerCase().replace(/^\w+:/,"").replace(/_/g,"-");
-
-export function ingredientTerms(value:string):string[] {
-  const normalized=normalizeFoodText(value);
-  if(!normalized) return [];
-  const out=new Set<string>([normalized,...normalized.split(" ").filter(token=>token.length>=3)]);
-  for(const [canonical,variants] of Object.entries(ALIAS_GROUPS)){
-    const canonicalNorm=normalizeFoodText(canonical);
-    const normalizedVariants=variants.map(normalizeFoodText);
-    if(normalized===canonicalNorm || normalizedVariants.includes(normalized)){
-      out.add(canonicalNorm);
-      for(const variant of normalizedVariants) out.add(variant);
-    }
-  }
-  return [...out];
-}
-
-export function canonicalizeIngredient(value:string, taxonomyTags:readonly string[]=[]):{
-  canonicalIngredient:string|null;
-  ingredientTerms:string[];
-  confidence:number;
-  status:SemanticStatus;
-} {
-  const text=normalizeFoodText(value);
-  const hasPhrase=(candidate:string):boolean=>{
-    const normalized=normalizeFoodText(candidate);
-    return normalized.length>=4 && (" "+text+" ").includes(" "+normalized+" ");
-  };
-  for(const rawTag of taxonomyTags){
-    const tag=normalizeFoodTag(rawTag);
-    const canonical=TAXONOMY_CANONICAL[tag];
-    if(canonical){
-      return {canonicalIngredient:canonical,ingredientTerms:ingredientTerms(canonical),confidence:0.97,status:"EXACT"};
-    }
-  }
-  for(const [canonical,variants] of Object.entries(ALIAS_GROUPS)){
-    const canonicalNorm=normalizeFoodText(canonical);
-    if(text===canonicalNorm || variants.some(variant=>text===normalizeFoodText(variant) || hasPhrase(variant))){
-      return {canonicalIngredient:canonical,ingredientTerms:ingredientTerms(canonical),confidence:0.93,status:"EXACT"};
-    }
-  }
-  if(!text) return {canonicalIngredient:null,ingredientTerms:[],confidence:0,status:"UNKNOWN"};
-  const fallback=text.split(" ").filter(token=>token.length>2).slice(0,4).join(" ");
-  return {canonicalIngredient:fallback||null,ingredientTerms:ingredientTerms(value),confidence:fallback?0.55:0,status:fallback?"AMBIGUOUS":"UNKNOWN"};
-}
-
-const STAPLES=new Set(["sale","acqua","aceto","olio","olio extravergine","pepe"]);
-const SECONDARY=new Set(["basilico","prezzemolo","rosmarino","salvia","timo","origano","peperoncino","curry","paprika","noce moscata","cannella","curcuma","zafferano","capperi","lievito","lievito per dolci","zucchero","miele","gelatina"]);
-export function classifyCulinaryWeight(canonicalIngredient:string|null):CulinaryWeight {
-  if(canonicalIngredient && STAPLES.has(canonicalIngredient)) return "STAPLE";
-  if(canonicalIngredient && SECONDARY.has(canonicalIngredient)) return "SECONDARY";
-  return "CORE";
-}
-
-
 export interface FoodQuantity {
   value: number;
   unit: string;
@@ -146,13 +82,8 @@ export function foodUnitInfo(unit:string): {dimension:FoodQuantity["dimension"];
   return QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\.$/,"")] ?? null;
 }
 
-const COUNTABLE_INGREDIENTS = new Set([
-  "uovo","cipolla","aglio","patata","carota","zucchina","melanzana","peperone",
-  "limone","pomodoro","pollo","salsiccia","pane","mozzarella","formaggio"
-]);
-
 export function parseFoodCountFromText(raw:string,canonicalIngredient:string|null):FoodQuantity|null {
-  if(!canonicalIngredient||!COUNTABLE_INGREDIENTS.has(normalizeFoodText(canonicalIngredient)))return null;
+  if(!canonicalIngredient||!normalizeFoodText(canonicalIngredient))return null;
   const match=raw.trim().match(/^(?:\s*)(\d+(?:[.,]\d+)?)\s+.+$/i);
   if(!match)return null;
   return foodQuantity(match[1],"piece");
