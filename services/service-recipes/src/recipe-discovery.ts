@@ -374,7 +374,7 @@ async function loadFamilySafetyProfile(
  );
  if(!identityResponse.ok)throw new Error("identity family preferences HTTP "+identityResponse.status);
  const identityEnvelope=await identityResponse.json() as {
-   data?:{items?:Array<{userId:string;exists:boolean;allergenTags?:unknown;dietaryRestrictions?:unknown;tracePolicy?:unknown}>;complete?:boolean};
+   data?:{items?:Array<{userId:string;exists:boolean;allergenTags?:unknown;dietaryRestrictions?:unknown;tracePolicy?:unknown;uncertaintyPolicy?:unknown}>;complete?:boolean};
  };
  const items=identityEnvelope.data?.items??[];
  const profiles=items.map(item=>({
@@ -383,6 +383,7 @@ async function loadFamilySafetyProfile(
    allergenTags:Array.isArray(item.allergenTags)?item.allergenTags.map(String):[],
    dietaryRestrictions:Array.isArray(item.dietaryRestrictions)?item.dietaryRestrictions.map(String):[],
    tracePolicy:item.tracePolicy==="EXCLUDE"?"EXCLUDE" as const:"WARN" as const,
+   uncertaintyPolicy:item.uncertaintyPolicy==="WARN"?"WARN" as const:"EXCLUDE" as const,
  }));
  const aggregate=aggregateFamilySafetyProfiles(memberUserIds,profiles);
  if(!aggregate.complete){
