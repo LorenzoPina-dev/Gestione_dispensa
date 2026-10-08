@@ -241,7 +241,7 @@ export function foodQuantity(value:number|string, unit:string):FoodQuantity|null
 
 export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
   const compact=raw.trim();
-  const multiPack=compact.match(/(?:^|\\b)(\\d+(?:[.,]\\d+)?)\\s*[x×]\\s*(\\d+(?:[.,]\\d+)?)\\s*(kg|mg|g|lb|oz|dl|cl|ml|l|tbsp\\.?|tsp\\.?|tablespoons?|teaspoons?|cups?|pieces?|pcs?|pc|pz|pezzi?|units?|u)\\b/i);
+  const multiPack=compact.match(/(?:^|\\b)(\\d+(?:[.,]\\d+)?)\\s*[x×]\\s*(\\d+(?:[.,]\\d+)?)\\s*(kg|mg|g|lb|oz|dl|cl|ml|l|tbsp\\.?|tsp\\.?|tablespoons?|teaspoons?|cups?|pieces?|pcs?|pc|pz|pezzi?|units?|u)\b/i);
   if(multiPack){
     const packs=parseNumericQuantity(multiPack[1]!);
     const each=parseNumericQuantity(multiPack[2]!);
