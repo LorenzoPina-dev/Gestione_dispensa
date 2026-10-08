@@ -57,6 +57,7 @@ export interface PublicProductSummary {
     fatGPer100g: number | null;
     fiberGPer100g: number | null;
   };
+  foodSemantics: Product["foodSemantics"] | null;
 }
 
 export interface PublicProduct {
@@ -270,6 +271,7 @@ function toPublicProductSummary(product: Product): PublicProductSummary {
       fatGPer100g: product.fat ?? null,
       fiberGPer100g: product.fiber ?? null,
     },
+    foodSemantics: product.foodSemantics ?? null,
   };
 }
 
