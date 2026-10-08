@@ -514,6 +514,7 @@ export default function App() {
               onShoppingChanged={shopping.refresh}
               onNavigateToShopping={() => setTab("spesa")}
               familyId={familyId}
+              locale={currentUser.locale ?? "it-IT"}
               suggestedRecipes={composite.data?.suggestedRecipes}
             />
           )}
