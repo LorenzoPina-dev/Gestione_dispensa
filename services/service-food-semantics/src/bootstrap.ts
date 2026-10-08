@@ -3,7 +3,7 @@ import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-c
 
 const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 const sourceKey = process.env.FOOD_ONTOLOGY_SOURCE_KEY ?? "foodon";
-const sourceUrl = process.env.FOOD_ONTOLOGY_URL ?? "https://raw.githubusercontent.com/FoodOntology/foodon/master/foodon_old.obo";
+const sourceUrl = process.env.FOOD_ONTOLOGY_URL ?? "https://purl.obolibrary.org/obo/foodon.owl";
 const sourceVersion = process.env.FOOD_ONTOLOGY_VERSION ?? "master";
 const license = "CC BY 4.0";
 
@@ -17,6 +17,11 @@ function parseSynonym(value: string): { text: string; locale: string } {
 }
 
 function parseObo(text: string): Term[] {
+  if (text.includes("[Term]")) return parseOboFormat(text);
+  return parseOwlFunctionalFormat(text);
+}
+
+function parseOboFormat(text: string): Term[] {
   const terms: Term[] = [];
   let current: Partial<Term> | null = null;
   const flush = () => {
@@ -44,14 +49,14 @@ function parseObo(text: string): Term[] {
     const value = line.slice(colon + 1).trim();
 
     if (key === "id" && /^(FOODON_|FOODON:)/.test(value)) {
-      current.id = value.replace(/^FOODON:/, "FOODON_");
+      current.id = normalizeFoodOnId(value);
     } else if (key === "name") {
       current.name = value;
     } else if (key === "synonym") {
       current.synonyms!.push(parseSynonym(value));
     } else if (key === "is_a") {
       const parent = value.split("!")[0]!.trim();
-      current.parent = parent.replace(/^FOODON:/, "FOODON_");
+      current.parent = normalizeFoodOnId(parent);
     }
   }
 
@@ -59,107 +64,59 @@ function parseObo(text: string): Term[] {
   return terms.filter((term) => term.id.startsWith("FOODON_"));
 }
 
-async function main(): Promise<void> {
-  const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(120_000) });
-  if (!response.ok) throw new Error("FoodOn download failed: HTTP " + response.status);
-  const body = await response.text();
-  const checksum = createHash("sha256").update(body).digest("hex");
-  const terms = parseObo(body);
-  if (!terms.length) throw new Error("FoodOn source contained no FOODON terms.");
+function parseOwlFunctionalFormat(text: string): Term[] {
+  const terms = new Map<string, Term>();
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const existing = await client.query(
-      "SELECT checksum FROM food_semantics.ontology_sources WHERE source_key=$1",
-      [sourceKey],
-    );
-    if (existing.rowCount && existing.rows[0].checksum === checksum && process.env.FOOD_ONTOLOGY_FORCE_REIMPORT !== "1") {
-      await client.query("COMMIT");
-      console.log(JSON.stringify({ service: "service-food-semantics", event: "ontology_ready", sourceKey, checksum }));
-      return;
-    }
+  const ensure = (sourceId: string): Term => {
+    const existing = terms.get(sourceId);
+    if (existing) return existing;
+    const created: Term = { id: sourceId, name: "", synonyms: [], parent: null };
+    terms.set(sourceId, created);
+    return created;
+  };
 
-    await client.query(
-      "DELETE FROM food_semantics.relations WHERE source_entity_id IN (SELECT id FROM food_semantics.entities WHERE source_key=$1)",
-      [sourceKey],
-    );
-    await client.query(
-      "DELETE FROM food_semantics.labels WHERE entity_id IN (SELECT id FROM food_semantics.entities WHERE source_key=$1)",
-      [sourceKey],
-    );
+  const iriToFoodOnId = (iri: string): string | null => {
+    const match = iri.match(/(?:https?:\/\/purl\.obolibrary\.org\/obo\/|https?:\/\/www\.ebi\.ac\.uk\/ols\/ontologies\/foodon\/)[^\s>]+/);
+    if (!match) return null;
+    const local = match[0].split("/").pop() ?? "";
+    return /^(?:FOODON_|FOODON:)/.test(local) ? normalizeFoodOnId(local) : null;
+  };
 
-    const ids = new Map<string,string>();
-    for (const term of terms) {
-      const existing = await client.query(
-        "SELECT id FROM food_semantics.entities WHERE source_key=$1 AND source_id=$2",
-        [sourceKey, term.id],
-      );
-      if (existing.rowCount) {
-        const entityId = String(existing.rows[0].id);
-        await client.query(
-          "UPDATE food_semantics.entities SET parent_source_id=$3,entity_type='FOOD' WHERE source_key=$1 AND source_id=$2",
-          [sourceKey, term.id, term.parent],
-        );
-        ids.set(term.id, entityId);
-      } else {
-        const result = await client.query(
-          "INSERT INTO food_semantics.entities(id,source_key,source_id,parent_source_id,entity_type) VALUES(gen_random_uuid(),$1,$2,$3,'FOOD') RETURNING id",
-          [sourceKey, term.id, term.parent],
-        );
-        ids.set(term.id, String(result.rows[0].id));
-      }
-    }
+  const literalPattern = /"((?:[^"\\]|\\.)*)"(?:@([A-Za-z][A-Za-z0-9-]*))?/;
 
-    let labelCount = 0;
-    for (const term of terms) {
-      const entityId = ids.get(term.id)!;
-      await client.query(
-        "INSERT INTO food_semantics.labels(entity_id,locale,label,normalized,label_type) VALUES($1,'en',$2,$3,'label') ON CONFLICT DO NOTHING",
-        [entityId, term.name, normalizeText(term.name)],
-      );
-      labelCount += 1;
-      for (const synonym of term.synonyms) {
-        const normalized = normalizeText(synonym.text);
-        if (!normalized) continue;
-        await client.query(
-          "INSERT INTO food_semantics.labels(entity_id,locale,label,normalized,label_type) VALUES($1,$2,$3,$4,'synonym') ON CONFLICT DO NOTHING",
-          [entityId, synonym.locale, synonym.text, normalized],
-        );
-        labelCount += 1;
-      }
-    }
-
-    for (const term of terms) {
-      if (!term.parent) continue;
-      const entityId = ids.get(term.id);
-      if (!entityId || !ids.has(term.parent)) continue;
-      await client.query(
-        "INSERT INTO food_semantics.relations(source_entity_id,relation,target_source_key,target_source_id) VALUES($1,'IS_A',$2,$3) ON CONFLICT DO NOTHING",
-        [entityId, sourceKey, term.parent],
-      );
-    }
-
-    await client.query(
-      "INSERT INTO food_semantics.ontology_sources(id,source_key,version,source_url,license,checksum,entity_count,label_count) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7) ON CONFLICT(source_key) DO UPDATE SET version=excluded.version,source_url=excluded.source_url,license=excluded.license,checksum=excluded.checksum,entity_count=excluded.entity_count,label_count=excluded.label_count,imported_at=now()",
-      [sourceKey, sourceVersion, sourceUrl, license, checksum, terms.length, labelCount],
-    );
-    await client.query("COMMIT");
-    console.log(JSON.stringify({ service: "service-food-semantics", event: "ontology_imported", sourceKey, entities: terms.length, labels: labelCount, checksum }));
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-    await pool.end();
+  const labelRe = /AnnotationAssertion\\(rdfs:label\\s+<([^>]+)>\\s+((?:"(?:[^"\\\\]|\\\\.)*"(?:@[A-Za-z][A-Za-z0-9-]*)?))\\)/g;
+  for (const match of text.matchAll(labelRe)) {
+    const sourceId = iriToFoodOnId(match[1]!);
+    if (!sourceId) continue;
+    const literal = match[2]!.match(literalPattern);
+    const label = literal?.[1]?.trim();
+    if (label) ensure(sourceId).name = label;
   }
+
+  const synonymRe = /AnnotationAssertion\\((?:<[^>]*hasExactSynonym>|<[^>]*hasRelatedSynonym>|oboInOwl:hasExactSynonym|oboInOwl:hasRelatedSynonym)\\s+<([^>]+)>\\s+((?:"(?:[^"\\\\]|\\\\.)*"(?:@[A-Za-z][A-Za-z0-9-]*)?))\\)/g;
+  for (const match of text.matchAll(synonymRe)) {
+    const sourceId = iriToFoodOnId(match[1]!);
+    if (!sourceId) continue;
+    const literal = match[2]!.match(literalPattern);
+    const synonym = literal?.[1]?.trim();
+    if (!synonym) continue;
+    const locale = literal?.[2]?.toLowerCase() ?? "en";
+    ensure(sourceId).synonyms.push({ text: synonym, locale });
+  }
+
+  const subclassRe = /SubClassOf\\(<([^>]+)>\\s+<([^>]+)>\\)/g;
+  for (const match of text.matchAll(subclassRe)) {
+    const child = iriToFoodOnId(match[1]!);
+    const parent = iriToFoodOnId(match[2]!);
+    if (!child || !parent) continue;
+    ensure(child).parent = parent;
+  }
+
+  return [...terms.values()].filter((term) => term.name && term.id.startsWith("FOODON_"));
 }
 
-function normalizeText(value: unknown): string {
-  return (typeof value === "string" ? value : "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+function normalizeFoodOnId(value: string): string {
+  const trimmed = value.trim();
+  const local = trimmed.split("/").pop() ?? trimmed;
+  return local.replace(/^FOODON:/, "FOODON_");
 }
-
-main().catch((error) => {
-  console.error(JSON.stringify({ service: "service-food-semantics", event: "ontology_import_failed", error: error instanceof Error ? error.message : String(error) }));
-  process.exit(1);
-});
