@@ -31,11 +31,16 @@ async function enrichInventoryNames(stock:PantryItem[],catalogBase:string,author
  if(!response.ok)throw new Error("catalog HTTP "+response.status);
  const envelope=await response.json() as {data?:{items?:CatalogProduct[]};items?:CatalogProduct[]};
  const body=envelope.data??envelope;
- const names=new Map((body.items??[]).map(item=>[item.productId,String(item.name??"").trim()]).filter(([,name])=>Boolean(name)));
- return stock.map(item=>({
-   ...item,
-   ...(item.name?.trim()?{}:(names.get(String(item.productId??""))?{name:names.get(String(item.productId??""))}:{ })),
- }));
+ const names = new Map<string, string>();
+ for (const item of body.items ?? []) {
+  const name = typeof item.name === "string" ? item.name.trim() : "";
+  if (item.productId && name) names.set(item.productId, name);
+ }
+ return stock.map((item): PantryItem => {
+  if (item.name?.trim()) return item;
+  const resolvedName = names.get(String(item.productId ?? ""));
+  return resolvedName ? { ...item, name: resolvedName } : item;
+ });
 }
 
 function pantryName(item:PantryItem):string{
