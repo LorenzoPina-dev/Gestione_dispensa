@@ -8,13 +8,13 @@ export interface SafetyIngredient { name:string; canonicalIngredient?:string|nul
 export interface SafetyPantryProduct { productId:string; name:string; foodSemantics?:{ allergenTags?:string[]; traceTags?:string[]; canonicalIngredient?:string|null; }|null; }
 
 const MEAT=new Set(["pollo","manzo","maiale","pancetta","prosciutto","salsiccia"]);
-const ANIMAL=new Set(["pollo","manzo","maiale","pancetta","prosciutto","salsiccia","tonno","salmone"]);
+const ANIMAL=new Set(["pollo","manzo","maiale","pancetta","prosciutto","salsiccia","tonno","salmone","uovo","latte","burro","panna","formaggio","mozzarella","parmigiano","pecorino","mascarpone","ricotta","miele"]);
 
 function dietConflicts(restrictions:ReadonlySet<string>,canonical:string|null,allergens:readonly string[]):string[]{
   const conflicts:string[]=[]; const c=canonical?normalizeFoodText(canonical):""; const known=new Set(allergens.map(normalizeFoodText));
   const animal=ANIMAL.has(c), meat=MEAT.has(c);
   if(restrictions.has("vegan")&&animal) conflicts.push("vegan");
-  if(restrictions.has("vegetarian")&&meat) conflicts.push("vegetarian");
+  if(restrictions.has("vegetarian")&&(meat||c==="tonno"||c==="salmone")) conflicts.push("vegetarian");
   if(restrictions.has("pescatarian")&&meat) conflicts.push("pescatarian");
   if(restrictions.has("gluten-free")&&(known.has("gluten")||known.has("wheat"))) conflicts.push("gluten-free");
   if((restrictions.has("dairy-free")||restrictions.has("lactose-free"))&&known.has("milk")) conflicts.push(restrictions.has("dairy-free")?"dairy-free":"lactose-free");
