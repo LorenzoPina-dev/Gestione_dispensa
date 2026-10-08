@@ -251,6 +251,15 @@ export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
 }
 
 
+export const AMBIGUOUS_COMPOUND_INGREDIENTS = new Set([
+  "pesto","ragu","brodo","gelatina","formaggio","pane","pasta","salsa"
+]);
+
+export function isAmbiguousCompoundIngredient(canonicalIngredient:string|null):boolean {
+  return canonicalIngredient !== null
+    && AMBIGUOUS_COMPOUND_INGREDIENTS.has(normalizeFoodText(canonicalIngredient));
+}
+
 export type SemanticStatus = "EXACT" | "INFERRED" | "UNKNOWN" | "AMBIGUOUS";
 export type SemanticRelation = "EXACT" | "SYNONYM" | "RECIPE_GENERALIZES_PRODUCT" | "UNSAFE_GENERALIZATION" | "NONE";
 
