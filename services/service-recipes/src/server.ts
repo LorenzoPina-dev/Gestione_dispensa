@@ -3,7 +3,7 @@ import { createContextAwarePool, setDbRequestContextFromHeaders, type PoolClient
 import crypto from "node:crypto";
 import { registerAddMissingIngredientsRoute } from "./add-missing.js";
 import { discover, getCatalogRecipe } from "./recipe-discovery.js";
-import { normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
+import { resolveRecipeIngredient, normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -229,9 +229,9 @@ app.post("/api/v1/recipes", async (req, res) => {
         await client.query("rollback");
         return res.status(400).json(errorBody("VALIDATION_ERROR", `ingredients[${index}] is invalid.`));
       }
-      const semantic = normalizeRecipeIngredient(name, quantity, unit);
+      const semantic = await resolveRecipeIngredient(name, quantity, unit, String(req.body?.locale ?? "it-IT"));
       await client.query(
-        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,display_name,food_entity_id,semantic_provenance,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",
         [
           crypto.randomUUID(),
           id,
