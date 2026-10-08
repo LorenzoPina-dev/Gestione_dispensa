@@ -16,15 +16,15 @@ Tutti i database PostgreSQL applicativi usano UTC e `timestamptz`. Le tabelle pr
 
 | DB | Owner | Tecnologia | Tabelle authoritative |
 |---|---|---|---|
-| identity_db | Identity | PostgreSQL | users, outbox_events, idempotency_keys |
+| identity_db | Identity | PostgreSQL | users, dietary_preferences, outbox_events, idempotency_keys |
 | family_db | Family | PostgreSQL | families, members, invites, outbox_events, idempotency_keys |
 | inventory_db | Inventory | PostgreSQL | pantry_items, pantry_lots, reorder_policies, movements, outbox_events, idempotency_keys |
 | shopping_db | Shopping | PostgreSQL | shopping_domain.lists, shopping_domain.items, shopping_domain.reorder_suggestions, shopping_domain.processed_events, shopping_domain.outbox_events, shopping_domain.idempotency_keys |
-| catalog_db | Catalog | PostgreSQL | products, product_identifiers, data_sources, data_provenance, outbox_events, idempotency_keys |
+| catalog_db | Catalog | PostgreSQL | products, product_identifiers, data_sources, data_provenance, product_food_semantics, outbox_events, idempotency_keys |
 | notifications_db | Notifications | PostgreSQL | notifications_domain.notifications, notifications_domain.preferences, notifications_domain.outbox_events, notifications_domain.idempotency_keys |
 | privacy_db | Privacy | PostgreSQL | privacy_consents, privacy_erasure_requests, privacy_export_jobs, export_artifacts, audit_events, outbox_events, idempotency_keys |
 | jobs_db | Jobs | PostgreSQL | jobs, job_attempts, dead_letter_jobs, audit_events, inbox_events |
-| recipes_db | Recipes | PostgreSQL | recipes_domain.recipes, recipes_domain.recipe_ingredients, recipes_domain.recipe_steps, recipes_domain.outbox_events, recipes_domain.idempotency_keys |
+| recipes_db | Recipes | PostgreSQL | recipes_domain.recipes, recipes_domain.recipe_ingredients, recipes_domain.recipe_steps, recipe_catalog.datasets, recipe_catalog.recipes, recipe_catalog.recipe_ingredients, recipe_catalog.recipe_steps, recipes_domain.outbox_events, recipes_domain.idempotency_keys |
 | nutrition_db | Nutrition | PostgreSQL | nutrition_domain.targets, nutrition_domain.diary_entries, nutrition_domain.outbox_events, nutrition_domain.idempotency_keys |
 | stores_db | Stores | PostgreSQL | stores_domain.stores, stores_domain.prices, stores_domain.offers, stores_domain.outbox_events, stores_domain.idempotency_keys |
 | shelf_life_db | Shelf-Life | PostgreSQL | shelf_life_domain.rules, shelf_life_domain.predictions, shelf_life_domain.outbox_events, shelf_life_domain.idempotency_keys |
@@ -105,6 +105,20 @@ version integer NOT NULL
 ```
 
 `subject` è l'identificatore OIDC. Identity non possiede password/credential OIDC.
+
+### dietary_preferences
+
+```text
+user_id UUID PK -- remote Identity user, local in identity_db
+allergen_tags text[] NOT NULL
+dietary_restrictions text[] NOT NULL
+trace_policy varchar(16) NOT NULL -- WARN|EXCLUDE
+version integer NOT NULL
+created_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+```
+
+È la fonte personale delle preferenze di sicurezza alimentare. Catalog non la replica: Recipes la legge tramite Identity. `version` viene usata per optimistic concurrency/If-Match.
 
 ## 5. family_db
 
@@ -281,6 +295,35 @@ external_synced_at timestamptz NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 ```
+
+### product_food_semantics
+
+```text
+product_id UUID PK -- local FK to products.id
+canonical_ingredient varchar(200) NULL
+ingredient_terms text[]
+taxonomy_tags text[]
+allergen_tags text[]
+trace_tags text[]
+label_tags text[]
+dietary_tags text[] -- explicit product labels only
+culinary_weight varchar(16) NOT NULL -- STAPLE|SECONDARY|CORE
+quantity_value numeric NULL
+quantity_unit varchar(16) NULL
+quantity_base_value numeric NULL
+quantity_base_unit varchar(16) NULL -- g|ml|piece
+quantity_confidence numeric(5,4)
+semantic_confidence numeric(5,4)
+source varchar(64) NOT NULL
+source_version varchar(64) NOT NULL
+observed_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+components_json JSONB NOT NULL DEFAULT []
+composition_confidence numeric(5,4) NOT NULL DEFAULT 0
+rules_version varchar(32) NOT NULL DEFAULT 'food-semantics-v2'
+```
+
+È una proiezione/cache derivata da Catalog/OFF. Non è la fonte dell'identità commerciale del prodotto. I componenti derivati da `ingredients_text` servono per sicurezza e semantica dei prodotti composti; la materializzazione persistente è prevista, mentre Recipes oggi consuma la proiezione esposta dal Catalog.
 
 ### product_identifiers
 
@@ -600,6 +643,49 @@ recipe_id UUID NOT NULL
 position integer NOT NULL
 instruction text NOT NULL
 UNIQUE(recipe_id,position)
+```
+
+### recipe_catalog.datasets
+
+```text
+dataset_key varchar(128) PK
+source_url varchar(1000) NOT NULL
+source_md5 varchar(32) NOT NULL
+recipe_count integer NOT NULL DEFAULT 0
+imported_at timestamptz NOT NULL
+```
+
+### recipe_catalog.recipes
+
+Catalogo globale importato; ownership non familiare.
+
+### recipe_catalog.recipe_ingredients
+
+Oltre ai campi originali del dataset:
+```text
+canonical_ingredient varchar(200) NULL
+semantic_confidence numeric(5,4)
+ingredient_terms text[]
+quantity_value numeric NULL
+quantity_unit varchar(16) NULL
+quantity_dimension varchar(16) NULL -- mass|volume|count
+quantity_base_value numeric NULL
+quantity_base_unit varchar(16) NULL -- g|ml|piece
+quantity_confidence numeric(5,4)
+culinary_weight varchar(16) -- STAPLE|SECONDARY|CORE
+prep_state varchar(64) NULL
+source_quantity_raw varchar(128) NULL
+```
+
+Il campo `weight` originale del dataset rimane il peso compositivo dell'ingrediente e non rappresenta una quantità fisica disponibile in dispensa.
+
+### recipe_catalog.recipe_steps
+
+```text
+id UUID PK
+recipe_id UUID NOT NULL REFERENCES recipe_catalog.recipes(id) ON DELETE CASCADE
+position smallint NOT NULL
+instruction text NOT NULL
 ```
 
 ## 13. nutrition_db
