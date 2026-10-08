@@ -41,7 +41,7 @@ export function evaluateRecipeSafety(ingredients:readonly SafetyIngredient[],pan
   for(const product of pantryProducts){
     const semantics=product.foodSemantics;
     if(!semantics){
-      if(profile.allergenTags.length||profile.dietaryRestrictions.length) warnings.push({code:"UNKNOWN_COMPOSITION",severity:"WARN",ingredient:product.name,details:"Pantry product has no semantic safety profile."});
+      if(profile.allergenTags.length||profile.dietaryRestrictions.length) warnings.push({code:"UNKNOWN_COMPOSITION",severity:"BLOCK",ingredient:product.name,details:"Pantry product has no semantic safety profile."});
       continue;
     }
     const allergens=semantics.allergenTags??[];
@@ -53,7 +53,7 @@ export function evaluateRecipeSafety(ingredients:readonly SafetyIngredient[],pan
     if(traceMatches.length) warnings.push({code:"TRACE",severity:profile.tracePolicy==="EXCLUDE"?"BLOCK":"WARN",ingredient:product.name,details:"Pantry product declares an allergen trace.",allergenTags:traceMatches});
     for(const diet of dietConflicts(restrictions,semantics.canonicalIngredient??null,effectiveAllergens)) warnings.push({code:"DIETARY_RESTRICTION",severity:"BLOCK",ingredient:product.name,details:"Pantry product conflicts with dietary restriction "+diet+". "});
     if((profile.allergenTags.length||profile.dietaryRestrictions.length)&&semantics.compositionConfidence!==undefined&&semantics.compositionConfidence<0.8){
-      warnings.push({code:"UNKNOWN_COMPOSITION",severity:"WARN",ingredient:product.name,details:"Only part of the product composition could be normalized."});
+      warnings.push({code:"UNKNOWN_COMPOSITION",severity:"BLOCK",ingredient:product.name,details:"Only part of the product composition could be normalized under an active safety profile."});
     }
   }
   const deduped=warnings.filter((warning,index,array)=>array.findIndex(other=>other.code===warning.code&&other.ingredient===warning.ingredient&&other.details===warning.details)===index);
