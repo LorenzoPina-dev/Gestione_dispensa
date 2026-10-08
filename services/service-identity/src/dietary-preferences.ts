@@ -5,6 +5,7 @@ export const DIETARY_RESTRICTIONS = [
 ] as const;
 export type DietaryRestriction = typeof DIETARY_RESTRICTIONS[number];
 export type TracePolicy = "WARN" | "EXCLUDE";
+export type UncertaintyPolicy = "WARN" | "EXCLUDE";
 
 const DIET_ALIASES: Readonly<Record<string,DietaryRestriction>> = {
   vegano:"vegan",vegan:"vegan",vegetariano:"vegetarian",vegetarian:"vegetarian",
@@ -24,12 +25,14 @@ export interface DietaryPreferencesInput {
   allergenTags?: unknown;
   dietaryRestrictions?: unknown;
   tracePolicy?: unknown;
+  uncertaintyPolicy?: unknown;
 }
 
 export interface NormalizedDietaryPreferences {
   allergenTags: string[];
   dietaryRestrictions: DietaryRestriction[];
   tracePolicy: TracePolicy;
+  uncertaintyPolicy: UncertaintyPolicy;
 }
 
 export function normalizeDietaryPreferences(input: DietaryPreferencesInput): { value?: NormalizedDietaryPreferences; issues: string[] } {
@@ -39,7 +42,9 @@ export function normalizeDietaryPreferences(input: DietaryPreferencesInput): { v
   if(!Array.isArray(rawAllergens)||!rawAllergens.every(x=>typeof x==="string")) issues.push("allergenTags must be an array of strings.");
   if(!Array.isArray(rawDiet)||!rawDiet.every(x=>typeof x==="string")) issues.push("dietaryRestrictions must be an array of strings.");
   const rawTrace=input.tracePolicy===undefined ? "WARN" : input.tracePolicy;
+  const rawUncertainty=input.uncertaintyPolicy===undefined ? "EXCLUDE" : input.uncertaintyPolicy;
   if(rawTrace!=="WARN"&&rawTrace!=="EXCLUDE") issues.push("tracePolicy must be WARN or EXCLUDE.");
+  if(rawUncertainty!=="WARN"&&rawUncertainty!=="EXCLUDE") issues.push("uncertaintyPolicy must be WARN or EXCLUDE.");
   if(issues.length)return {issues};
 
   const allergens:string[]=[];
@@ -57,5 +62,5 @@ export function normalizeDietaryPreferences(input: DietaryPreferencesInput): { v
     else if(!restrictions.includes(restriction)) restrictions.push(restriction);
   }
   if(issues.length)return {issues};
-  return {value:{allergenTags:allergens,dietaryRestrictions:restrictions,tracePolicy:rawTrace as TracePolicy},issues:[]};
+  return {value:{allergenTags:allergens,dietaryRestrictions:restrictions,tracePolicy:rawTrace as TracePolicy,uncertaintyPolicy:rawUncertainty as UncertaintyPolicy},issues:[]};
 }
