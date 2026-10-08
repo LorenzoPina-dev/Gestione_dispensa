@@ -38,7 +38,7 @@ export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
   origano: ["origano","oregano","origan","orégano"],
   curry: ["curry"],
   paprika: ["paprika","paprica"],
-  noce moscata: ["noce moscata","nutmeg","muscade","nuez moscada"],
+  "noce moscata": ["noce moscata","nutmeg","muscade","nuez moscada"],
   cannella: ["cannella","cinnamon","cannelle","canela"],
   curcuma: ["curcuma","turmeric","curcuma","cúrcuma"],
   zafferano: ["zafferano","saffron","safran","azafrán"],
