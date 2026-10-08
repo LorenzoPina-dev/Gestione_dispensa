@@ -146,16 +146,40 @@ async function resolveRecipeIngredientTexts(sourceUrl:string|undefined):Promise<
  INGREDIENTS_CACHE.set(sourceUrl,null); return[];
 }
 
-function mergeSourceIngredientQuantities(fallback:any[],sourceTexts:string[]):any[]{
+function containsIngredientPhrase(haystack:string,needle:string):boolean{
+ const h=" "+norm(haystack)+" ";
+ const n=norm(needle);
+ return Boolean(n) && h.includes(" "+n+" ");
+}
+
+export function mergeSourceIngredientQuantities(fallback:any[],sourceTexts:string[]):any[]{
  if(!sourceTexts.length)return fallback;
  const normalizedSource=sourceTexts.map((raw,index)=>({raw,index,semantic:normalizeRecipeIngredient(raw)}));
  const used=new Set<number>();
  return fallback.map((item:any,index:number)=>{
   if(item.quantity!=null || item.quantityConfidence>0.5)return item;
   const wanted=normalizeRecipeIngredient(String(item.displayName||item.name));
-  let candidate=normalizedSource.find((source)=>!used.has(source.index)&&source.semantic.canonicalIngredient===wanted.canonicalIngredient&&source.semantic.quantity);
-  if(!candidate)candidate=normalizedSource.find((source)=>!used.has(source.index)&&source.semantic.quantity&&norm(source.raw).includes(norm(String(item.name))));
-  if(!candidate)candidate=normalizedSource[index] && normalizedSource[index].semantic.quantity ? normalizedSource[index] : undefined;
+
+  let candidate=normalizedSource.find(source =>
+    !used.has(source.index) &&
+    source.semantic.quantity &&
+    wanted.canonicalIngredient &&
+    source.semantic.canonicalIngredient===wanted.canonicalIngredient,
+  );
+
+  if(!candidate){
+   candidate=normalizedSource.find(source =>
+     !used.has(source.index) &&
+     source.semantic.quantity &&
+     containsIngredientPhrase(source.raw,String(item.name)),
+   );
+  }
+
+  if(!candidate){
+   const indexed=normalizedSource[index];
+   candidate=indexed?.semantic.quantity ? indexed : undefined;
+  }
+
   if(!candidate?.semantic.quantity)return item;
   used.add(candidate.index);
   const quantity=candidate.semantic.quantity;
@@ -164,10 +188,30 @@ function mergeSourceIngredientQuantities(fallback:any[],sourceTexts:string[]):an
    canonicalIngredient:item.canonicalIngredient??candidate.semantic.canonicalIngredient,
    quantity:Number(quantity.baseValue),
    unit:quantity.baseUnit,
-   quantityConfidence:Math.max(Number(item.quantityConfidence??0),0.9),
+   quantityConfidence:Math.max(Number(item.quantityConfidence??0),candidate.semantic.quantityConfidence),
    sourceQuantityRaw:candidate.raw,
   };
  });
+}
+
+async function enrichSuggestionIngredientQuantities(rows:any[],maxSources=64):Promise<any[]>{
+ const candidates=rows.slice(0,maxSources).filter(row =>
+   typeof row.source_url==="string" &&
+   Array.isArray(row.ingredients) &&
+   row.ingredients.some((ingredient:any)=>ingredient.quantity_base_value==null && Number(ingredient.quantity_confidence??0)<=0.5),
+ );
+ let cursor=0;
+ const workers=Array.from({length:Math.min(6,candidates.length)},async()=>{
+  while(true){
+   const index=cursor++;
+   if(index>=candidates.length)return;
+   const row=candidates[index];
+   const sourceTexts=await resolveRecipeIngredientTexts(typeof row.source_url==="string"?row.source_url:undefined);
+   row.ingredients=mergeSourceIngredientQuantities(row.ingredients,sourceTexts);
+  }
+ });
+ await Promise.all(workers);
+ return rows;
 }
 function cleanInstruction(value:string):string{
  let text=value
@@ -387,6 +431,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
   }
  }
  const full=await hydrate(pool,fullCandidateRows);
+ const enrichedFull=await enrichSuggestionIngredientQuantities(full);
  const pantry=stock
    .filter((item): item is PantryItem & {productId:string;quantity:number;unit:string} =>
      typeof item.productId==="string" && Number.isFinite(item.quantity) && Number(item.quantity)>0 && typeof item.unit==="string" && item.unit.trim().length>0
@@ -403,7 +448,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      remainingContentUnit:item.remainingContentUnit??null,
      foodSemantics:item.foodSemantics??null,
    }));
- const scored:Suggestion[]=full.map((r:any)=>{
+ const scored:Suggestion[]=enrichedFull.map((r:any)=>{
    const coverage=scoreRecipeAgainstPantry(r.ingredients,pantry);
    const matched=coverage.matchedIngredients.filter(item=>item.ratio>0);
    const usedProductIds=new Set(coverage.matchedProductIds);
