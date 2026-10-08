@@ -9,6 +9,7 @@ export interface RecipeIngredientForMatch {
   name: string;
   displayName: string;
   canonicalIngredient?: string | null;
+  semanticConfidence?: number;
   ingredientTerms?: string[];
   culinaryWeight?: CulinaryWeight;
   quantityValue?: number | null;
@@ -27,6 +28,7 @@ export interface PantryProductForMatch {
   expiresAt?: string | null;
   foodSemantics?: {
     canonicalIngredient?: string | null;
+    semanticConfidence?: number;
     ingredientTerms?: string[];
     taxonomyTags?: string[];
     quantityBase?: { value: number; unit: "g" | "ml" | "piece" } | null;
@@ -80,7 +82,9 @@ function normalizeTerms(values: readonly string[]): Set<string> {
 function exactSemanticMatch(recipe: RecipeIngredientForMatch, pantry: PantryProductForMatch): boolean {
   const recipeCanonical = normalizeFoodText(recipe.canonicalIngredient ?? "");
   const pantryCanonical = normalizeFoodText(pantry.foodSemantics?.canonicalIngredient ?? "");
-  if (recipeCanonical && pantryCanonical && recipeCanonical === pantryCanonical) return true;
+  const recipeConfidence = recipe.semanticConfidence ?? 1;
+  const pantryConfidence = pantry.foodSemantics?.semanticConfidence ?? 1;
+  if (recipeCanonical && pantryCanonical && recipeCanonical === pantryCanonical && recipeConfidence >= 0.8 && pantryConfidence >= 0.8) return true;
   const recipeTerms = normalizeTerms([...(recipe.ingredientTerms ?? []), recipe.name, recipe.displayName]);
   const pantryTerms = normalizeTerms([
     ...(pantry.foodSemantics?.ingredientTerms ?? []),
