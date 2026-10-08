@@ -357,6 +357,46 @@ export function foodSemanticRelation(recipeCanonical:string|null, productCanonic
   return "NONE";
 }
 
+export const FOOD_DENSITY_RULES_VERSION="density-v1";
+
+export interface FoodDensityRule {
+  canonicalIngredient:string;
+  gramsPerMl:number;
+  confidence:number;
+  source:string;
+}
+
+export const FOOD_DENSITY_RULES:readonly FoodDensityRule[]=[
+  {canonicalIngredient:"acqua",gramsPerMl:1,confidence:1,source:"standard-water-density"},
+  {canonicalIngredient:"latte",gramsPerMl:1.03,confidence:0.9,source:"standard-milk-density"},
+  {canonicalIngredient:"olio",gramsPerMl:0.92,confidence:0.9,source:"standard-edible-oil-density"},
+  {canonicalIngredient:"olio extravergine",gramsPerMl:0.92,confidence:0.9,source:"standard-edible-oil-density"},
+];
+
+export function foodDensityRule(canonicalIngredient:string|null):FoodDensityRule|null{
+  if(!canonicalIngredient)return null;
+  const canonical=normalizeFoodText(canonicalIngredient);
+  return FOOD_DENSITY_RULES.find(rule=>normalizeFoodText(rule.canonicalIngredient)===canonical)??null;
+}
+
+export function convertFoodQuantityWithDensity(
+  value:number,
+  unit:string,
+  canonicalIngredient:string|null,
+  targetUnit:"g"|"ml",
+):FoodQuantity|null{
+  const quantity=foodQuantity(value,unit);
+  const rule=foodDensityRule(canonicalIngredient);
+  if(!quantity||!rule||rule.confidence<0.9)return null;
+  if(targetUnit==="g"&&quantity.dimension==="volume"){
+    return foodQuantity(quantity.baseValue*rule.gramsPerMl,"g");
+  }
+  if(targetUnit==="ml"&&quantity.dimension==="mass"){
+    return foodQuantity(quantity.baseValue/rule.gramsPerMl,"ml");
+  }
+  return quantity.baseUnit===targetUnit?quantity:null;
+}
+
 export interface FunctionalSubstitution {
   fromCanonical:string;
   toCanonical:string;
@@ -378,6 +418,8 @@ export function functionalSubstitution(target:string|null,candidate:string|null)
   return FUNCTIONAL_SUBSTITUTIONS.find(rule=>normalizeFoodText(rule.fromCanonical)===from&&normalizeFoodText(rule.toCanonical)===to)??null;
 }
 
+export const FOOD_COMPONENTS_RULES_VERSION="food-components-v2";
+
 export interface FoodComponent {
   raw:string;
   canonicalIngredient:string|null;
@@ -388,6 +430,7 @@ export interface FoodComponent {
   depth:number;
   path:string;
   parentCanonicalIngredient:string|null;
+  provenance:"ingredients_text";
 }
 
 function splitTopLevel(text:string):string[] {
@@ -449,6 +492,7 @@ function parseIngredientSegments(raw:string,limit:number,parentCanonical:string|
       depth,
       path:componentPath,
       parentCanonicalIngredient:parentCanonical,
+      provenance:"ingredients_text",
     });
     const currentCanonical=canonical.confidence>=0.8?canonical.canonicalIngredient:null;
     for(let groupIndex=0;groupIndex<groups.length&&out.length<limit;groupIndex++){
