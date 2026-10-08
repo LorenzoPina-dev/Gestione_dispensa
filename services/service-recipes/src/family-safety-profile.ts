@@ -14,6 +14,7 @@ export function aggregateFamilySafetyProfiles(
     allergenTags:string[];
     dietaryRestrictions:string[];
     tracePolicy:"WARN"|"EXCLUDE";
+    uncertaintyPolicy:"WARN"|"EXCLUDE";
   }>,
 ): FamilySafetyProfile {
   const uniqueMembers=[...new Set(memberUserIds)];
@@ -21,11 +22,13 @@ export function aggregateFamilySafetyProfiles(
   const allergenTags=[...new Set(profiles.flatMap(profile=>profile.allergenTags))];
   const dietaryRestrictions=[...new Set(profiles.flatMap(profile=>profile.dietaryRestrictions))];
   const tracePolicy=profiles.some(profile=>profile.tracePolicy==="EXCLUDE")?"EXCLUDE":"WARN";
+  const uncertaintyPolicy=profiles.some(profile=>profile.uncertaintyPolicy==="EXCLUDE")?"EXCLUDE":"WARN";
   const missingPreferenceUserIds=uniqueMembers.filter(userId=>!byUser.has(userId)||!byUser.get(userId)!.exists);
   return {
     allergenTags,
     dietaryRestrictions,
     tracePolicy,
+    uncertaintyPolicy,
     memberCount:uniqueMembers.length,
     complete:missingPreferenceUserIds.length===0 && profiles.length===uniqueMembers.length,
     missingPreferenceUserIds,
