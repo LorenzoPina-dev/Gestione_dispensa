@@ -229,7 +229,7 @@ app.post("/api/v1/recipes", async (req, res) => {
       }
       const semantic = normalizeRecipeIngredient(name, quantity, unit);
       await client.query(
-        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         [
           crypto.randomUUID(),
           id,
@@ -335,7 +335,7 @@ app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
         const semantic=normalizeRecipeIngredient(name,q,unit);
         await client.query(
           "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
-          [crypto.randomUUID(),req.params.recipeId,item.productId??null,name,q,unit,semantic.canonicalIngredient,semantic.semanticConfidence,semantic.ingredientTerms,semantic.quantity?.dimension??null,semantic.quantity?.baseValue??null,semantic.quantity?.baseUnit??null,semantic.quantityConfidence,semantic.culinaryWeight,semantic.prepState],
+          [crypto.randomUUID(),req.params.recipeId,item.productId??null,name,q,unit,semantic.canonicalIngredient,semantic.semanticConfidence,semantic.semanticStatus,semantic.ingredientTerms,semantic.quantity?.dimension??null,semantic.quantity?.baseValue??null,semantic.quantity?.baseUnit??null,semantic.quantityConfidence,semantic.culinaryWeight,semantic.prepState],
         );
       }
     }
@@ -387,7 +387,7 @@ async function loadRecipe(id: string, familyId: string): Promise<Recipe | null> 
   const recipe = result.rows[0];
   if (!recipe) return null;
   const [ingredients, steps] = await Promise.all([
-    pool.query("select product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at", [id]),
+    pool.query("select product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at", [id]),
     pool.query("select position,instruction from recipes_domain.recipe_steps where recipe_id=$1 order by position", [id]),
   ]);
   return {
@@ -401,6 +401,7 @@ async function loadRecipe(id: string, familyId: string): Promise<Recipe | null> 
       unit: String(row.unit),
       canonicalIngredient: row.canonical_ingredient === null ? null : String(row.canonical_ingredient),
       semanticConfidence: Number(row.semantic_confidence ?? 0),
+      semanticStatus: row.semantic_status === null ? "UNKNOWN" : String(row.semantic_status),
       ingredientTerms: Array.isArray(row.ingredient_terms) ? row.ingredient_terms.map(String) : [],
       quantityDimension: row.quantity_dimension === null ? null : String(row.quantity_dimension),
       quantityBaseValue: row.quantity_base_value === null ? null : Number(row.quantity_base_value),
@@ -418,7 +419,7 @@ async function loadRecipeFromClient(client: PoolClient,id:string,familyId:string
   const recipeResult=await client.query("select id,title,servings,version from recipes_domain.recipes where id=$1 and family_id=$2",[id,familyId]);
   const recipe=recipeResult.rows[0]; if(!recipe) throw new Error("Recipe not found.");
   const [ingredients,steps]=await Promise.all([
-    client.query("select product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",[id]),
+    client.query("select product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",[id]),
     client.query("select position,instruction from recipes_domain.recipe_steps where recipe_id=$1 order by position",[id]),
   ]);
   return {recipeId:recipe.id,title:recipe.title,servings:Number(recipe.servings),ingredients:ingredients.rows.map(x=>({
