@@ -37,5 +37,6 @@ export interface RecipeMatch {
   nutrition:RecipeNutrition;
   safety:{safe:boolean;warnings:SafetyWarning[]};
   coverage:{matched:number;total:number;weightedScore:number;missingCoreCount:number;missingCoreWeight:number};
+  availability:{excludedExpiredProductIds:string[]};
   explanation:{ruleVersion:string;quantityAware:boolean;familySafetyApplied:boolean};
 }
