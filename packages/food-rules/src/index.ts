@@ -104,6 +104,10 @@ export function canonicalizeIngredient(value:string, taxonomyTags:readonly strin
   confidence:number;
 } {
   const text=normalizeFoodText(value);
+  const hasPhrase=(candidate:string):boolean=>{
+    const normalized=normalizeFoodText(candidate);
+    return normalized.length>=4 && (" "+text+" ").includes(" "+normalized+" ");
+  };
   for(const rawTag of taxonomyTags){
     const tag=normalizeFoodTag(rawTag);
     const canonical=TAXONOMY_CANONICAL[tag];
@@ -113,10 +117,7 @@ export function canonicalizeIngredient(value:string, taxonomyTags:readonly strin
   }
   for(const [canonical,variants] of Object.entries(ALIAS_GROUPS)){
     const canonicalNorm=normalizeFoodText(canonical);
-    if(text===canonicalNorm || variants.some(variant=>{
-      const candidate=normalizeFoodText(variant);
-      return text===candidate || text.includes(candidate) && candidate.length>=4;
-    })){
+    if(text===canonicalNorm || variants.some(variant=>text===normalizeFoodText(variant) || hasPhrase(variant))){
       return {canonicalIngredient:canonical,ingredientTerms:ingredientTerms(canonical),confidence:0.93};
     }
   }
