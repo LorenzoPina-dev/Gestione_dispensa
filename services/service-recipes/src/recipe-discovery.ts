@@ -52,7 +52,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
  const full=await hydrate(pool,candidates);
  return full.map((r:any)=>{
    const matched=r.ingredients.filter((i:any)=>stock.some(s=>{const name=pantryName(s);return name?matches(String(i.display_name||i.name),name):false}));
-   const missing=r.ingredients.filter((i:any)=>!stock.some(s=>matches(String(i.display_name||i.name),s.name)));
+   const missing=r.ingredients.filter((i:any)=>!stock.some(s=>{const name=pantryName(s);return name?matches(String(i.display_name||i.name),name):false}));
    let expiry=0;
    for(const i of matched){const s=stock.find(x=>{const name=pantryName(x);return name?matches(String(i.display_name||i.name),name):false});if(s?.expiresAt){const days=(new Date(s.expiresAt).getTime()-Date.now())/86400000;expiry+=Math.max(0,Math.min(1,(7-days)/7));}}
    const coverage=r.ingredients.length?matched.length/r.ingredients.length:0;
