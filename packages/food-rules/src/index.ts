@@ -112,16 +112,16 @@ export const TAXONOMY_CANONICAL: Readonly<Record<string,string>> = {
   "bread":"pane","sugar":"zucchero","salt":"sale","vinegar":"aceto","pepper":"pepe","black-pepper":"pepe","chili-pepper":"peperoncino","sage":"salvia","thyme":"timo","oregano":"origano","curry":"curry","paprika":"paprika","nutmeg":"noce moscata","cinnamon":"cannella","turmeric":"curcuma","saffron":"zafferano","caper":"capperi","anchovy":"acciuga","shrimp":"gambero","mussels":"cozza","mussel":"cozza","clams":"vongola","clam":"vongola","squid":"calamaro","lentils":"lenticchia","polenta":"polenta","semolina":"semola","corn-starch":"amido di mais","baking-powder":"lievito per dolci","yeast":"lievito","gelatin":"gelatina","gorgonzola":"gorgonzola","taleggio":"taleggio"
 };
 
-export const normalizeFoodText = (value:string):string =>
-  value.normalize("NFD")
+export const normalizeFoodText = (value:unknown):string =>
+  (typeof value==="string" ? value : "").normalize("NFD")
     .replace(/[\u0300-\u036f]/g,"")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g," ")
     .replace(/\s+/g," ")
     .trim();
 
-export const normalizeFoodTag = (value:string):string =>
-  value.trim().toLowerCase().replace(/^\w+:/,"").replace(/_/g,"-");
+export const normalizeFoodTag = (value:unknown):string =>
+  (typeof value==="string" ? value : "").trim().toLowerCase().replace(/^\w+:/,"").replace(/_/g,"-");
 
 export function ingredientTerms(value:string):string[] {
   const normalized=normalizeFoodText(value);
