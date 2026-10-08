@@ -22,6 +22,16 @@ describe("recipe safety engine",()=>{
     assert.equal(warn.warnings[0]?.code,"TRACE");
     assert.equal(exclude.safe,false);
   });
+  it("uses concrete product safety facts instead of a generic recipe ingredient inference",()=>{
+    const result=evaluateRecipeSafety(
+      [{name:"Formaggio",canonicalIngredient:"formaggio",ingredientTerms:["formaggio","cheese"],matchedProductIds:["p1"]}],
+      [{productId:"p1",name:"Formaggio vegetale",foodSemantics:{canonicalIngredient:"formaggio",allergenTags:[],traceTags:[],components:[],compositionConfidence:1}}],
+      {allergenTags:["milk"],dietaryRestrictions:["vegan"],tracePolicy:"WARN"},
+    );
+    assert.equal(result.safe,true);
+    assert.equal(result.warnings.length,0);
+  });
+
   it("blocks allergens inferred from a compound pantry product composition",()=>{
     const result=evaluateRecipeSafety([], [{productId:"p1",name:"Pesto",foodSemantics:{allergenTags:[],traceTags:[],canonicalIngredient:"pesto",components:[{canonicalIngredient:"formaggio",ingredientTerms:["formaggio","cheese"]}],compositionConfidence:1}}], {allergenTags:["milk"],dietaryRestrictions:[],tracePolicy:"WARN"});
     assert.equal(result.safe,false);
