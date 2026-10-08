@@ -18,6 +18,9 @@
 - [x] Parsing di quantità OFF espresse come testo, ad esempio `180 g`, quando il provider non espone già valore/unità separati.
 - [x] Confidenza separata per semantica e quantità.
 - [x] Esposizione del profilo semantico nel batch Catalog usato da Recipes.
+- [x] Separazione tra identità commerciale del prodotto e composizione: ingredients_text non può cambiare arbitrariamente l'ingrediente canonico principale.
+- [x] Parsing iniziale dei componenti di prodotti composti da ingredients_text, con percentuali, canonicalizzazione e compositionConfidence.
+- [x] Canonicalizzazione degli allergeni/tracce OFF verso codici stabili.
 - [x] Matching Recipes basato su nome + identità canonica + termini semantici + tassonomia, invece del solo nome commerciale.
 - [x] Nuovo modello semantico per `recipe_catalog.recipe_ingredients` e `recipes_domain.recipe_ingredients`.
 - [x] Canonicalizzazione degli ingredienti delle ricette con quantità normalizzate, dimensione fisica, unità base, confidenza e stato di preparazione.
@@ -30,6 +33,8 @@
 - [x] Score ponderato secondo `STAPLE=0.1`, `SECONDARY=0.5`, `CORE=1.0`.
 - [x] Soglie di readiness: `>=0.80 READY`, `0.50-0.79 MINIMAL_SHOPPING`, `<0.50 DISCARD`.
 - [x] Conteggio separato dei CORE mancanti per il ranking.
+- [x] Sostituzioni funzionali curate con fattore 0.8: lo stock esatto viene utilizzato prima, il sostituto copre solo l'eventuale residuo.
+- [x] Confidenza semantica persistita sugli ingredienti di ricetta; un canonical match debole non viene considerato identità certa.
 - [x] Ranking secondario per numero di CORE mancanti e tempo di preparazione.
 - [x] Profilo alimentare personale in Identity con allergeni, restrizioni dietetiche e policy sulle tracce, versionato con ETag.
 - [x] Filtro di sicurezza Recipes: allergene noto -> `BLOCK`; traccia -> `WARN` o `BLOCK` secondo policy; restrizione dietetica incompatibile -> `BLOCK`.
@@ -57,6 +62,7 @@
 - [ ] Test matrix ampia con prodotti multilingua, quantità senza unità, confezioni, duplicati, dati OFF parziali, ingredienti composti e collisioni semantiche.
 - [ ] Validazione/build completa in ambiente Docker. In questa sessione il repository non era clonabile dal runtime per un errore DNS verso GitHub, quindi i test aggiunti non sono stati dichiarati come eseguiti.
 - [ ] Fallback controllati quando mancano dati: nessuna invenzione di ingredienti, ma stato `UNKNOWN`/`AMBIGUOUS` dove necessario.
+- [ ] Promuovere UNKNOWN_COMPOSITION a policy configurabile fail-closed per profili con allergie assolute.
 
 ## Contratto concettuale
 
@@ -99,4 +105,4 @@ La sicurezza viene valutata prima del ranking finale: un risultato con allergene
 
 ## Prossimo incremento
 
-Il blocco successivo deve rendere affidabile la semantica quando i dati OFF sono incompleti o descrivono prodotti composti: parser di `ingredients_text`, componenti alimentari, gerarchie e sostituzioni. Solo dopo questi passaggi va chiuso il RecipeMatch definitivo e aggiunto il ranking nutrizionale.
+Il blocco successivo deve completare la semantica dei dati incompleti: parsing più ricco di `ingredients_text`, componenti annidati, stati `UNKNOWN/AMBIGUOUS` e gerarchie ingredientali. Subito dopo va chiuso il RecipeMatch definitivo, l'aggregazione famigliare delle policy di sicurezza e il ranking nutrizionale.
