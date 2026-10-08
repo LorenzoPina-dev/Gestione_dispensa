@@ -9,7 +9,14 @@ type ResolverResponse = {
   provenance?: string;
 };
 
-const baseUrl = () => String(process.env.FOOD_SEMANTICS_SERVICE_BASE_URL ?? "http://service-food-semantics:3410/api/v1").replace(/\//$/, "");
+const baseUrl = () => {
+  let value = String(
+    process.env.FOOD_SEMANTICS_SERVICE_BASE_URL ??
+      "http://service-food-semantics:3410/api/v1",
+  );
+  while (value.endsWith("/")) value = value.slice(0, -1);
+  return value;
+};
 
 export async function resolveFoodIngredient(
   text: string,
