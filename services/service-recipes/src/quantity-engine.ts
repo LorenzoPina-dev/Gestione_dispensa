@@ -1,4 +1,4 @@
-import { foodQuantity, foodUnitInfo, parseFoodQuantityFromText } from "@gestione-dispensa/food-rules";
+import { convertFoodQuantityWithDensity, foodQuantity, foodUnitInfo, parseFoodQuantityFromText } from "@gestione-dispensa/food-rules";
 
 export type QuantityDimension = "mass" | "volume" | "count";
 
@@ -105,13 +105,21 @@ export interface QuantityCoverage {
   dimension:QuantityDimension|null;
 }
 
-export function quantityCoverage(required:ParsedQuantity|null,available:ParsedQuantity[]):QuantityCoverage{
+export function quantityCoverage(required:ParsedQuantity|null,available:ParsedQuantity[],canonicalIngredient:string|null=null):QuantityCoverage{
+  const normalizedAvailable=required && canonicalIngredient
+    ? available.map(item=>{
+        if(item.dimension===required.dimension)return item;
+        const converted=convertFoodQuantityWithDensity(item.value,item.unit,canonicalIngredient,required.baseUnit==="g"?"g":required.baseUnit==="ml"?"ml":"piece");
+        if(!converted)return item;
+        return {...converted,confidence:Math.min(item.confidence,0.9)};
+      })
+    : available;
   if(!required){
     return available.length>0
       ? {status:"PRESENCE_ONLY",ratio:1,availableBase:null,requiredBase:null,missingBase:null,dimension:null}
       : {status:"MISSING",ratio:0,availableBase:null,requiredBase:null,missingBase:null,dimension:null};
   }
-  const compatible=available.filter(item=>item.dimension===required.dimension);
+  const compatible=normalizedAvailable.filter(item=>item.dimension===required.dimension);
   if(compatible.length===0){
     return available.length>0
       ? {status:"INCOMPATIBLE",ratio:0,availableBase:0,requiredBase:required.baseValue,missingBase:required.baseValue,dimension:required.dimension}
