@@ -16,6 +16,8 @@ const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://ser
 const inventoryServiceBaseUrl = (process.env.INVENTORY_SERVICE_BASE_URL ?? "http://service-inventory:3312/api/v1").replace(/\/$/, "");
 const catalogServiceBaseUrl = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
 const identityServiceBaseUrl = (process.env.IDENTITY_SERVICE_BASE_URL ?? "http://service-identity:3310/api/v1").replace(/\/$/, "");
+const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
+const identityInternalToken = String(process.env.IDENTITY_INTERNAL_TOKEN ?? "").trim();
 
 type Body = Record<string, unknown>;
 
@@ -283,6 +285,8 @@ app.get("/api/v1/recipes/suggestions", async (req, res) => {
       inventoryBaseUrl: inventoryServiceBaseUrl,
       catalogBaseUrl: catalogServiceBaseUrl,
       identityBaseUrl: identityServiceBaseUrl,
+      identityInternalToken,
+      familyBaseUrl: familyServiceBaseUrl,
       limit,
       q,
       authorization: req.header("authorization") ?? undefined,
