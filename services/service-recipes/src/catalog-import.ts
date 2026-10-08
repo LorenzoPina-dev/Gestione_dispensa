@@ -5,7 +5,7 @@ import path from "node:path";
 import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 
 const DATASET_URL = process.env.RECIPE_DATASET_URL ??
-  "https://zenodo.org/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip?download=1";
+  "https://zenodo.org/api/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip/content";
 const DATASET_MD5 = "b90427179a4304270fd5b7b7490b565d";
 const DATASET_KEY = "italian-gastronomic-recipes-v4";
 const SOURCE = "italian-gastronomic-recipes-v4";
