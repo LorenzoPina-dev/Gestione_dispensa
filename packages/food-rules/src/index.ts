@@ -1,52 +1,52 @@
 export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
 
 export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
-  pomodoro: ["pomodoro","pomodori","tomato","tomatoes","tomate","tomates","tomato puree","passata","passata di pomodoro"],
-  cipolla: ["cipolla","cipolle","onion","onions"],
-  aglio: ["aglio","garlic"],
-  patata: ["patata","patate","potato","potatoes"],
-  carota: ["carota","carote","carrot","carrots"],
-  zucchina: ["zucchina","zucchine","zucchini","courgette","courgettes"],
-  melanzana: ["melanzana","melanzane","eggplant","eggplants","aubergine"],
-  peperone: ["peperone","peperoni","bell pepper","bell peppers"],
-  pollo: ["pollo","chicken"],
-  manzo: ["manzo","beef","boeuf"],
-  maiale: ["maiale","pork"],
+  pomodoro: ["pomodoro","pomodori","tomato","tomatoes","tomate","tomates","tomato puree","passata","passata di pomodoro","tomate frito"],
+  cipolla: ["cipolla","cipolle","onion","onions","oignon","oignons","cebolla","cebollas","zwiebel"],
+  aglio: ["aglio","garlic","ail","ajo","knoblauch"],
+  patata: ["patata","patate","potato","potatoes","pomme de terre","pommes de terre","patatas","kartoffel","kartoffeln"],
+  carota: ["carota","carote","carrot","carrots","carotte","carottes","zanahoria","karotte","karotten"],
+  zucchina: ["zucchina","zucchine","zucchini","courgette","courgettes","calabacin","calabacines"],
+  melanzana: ["melanzana","melanzane","eggplant","eggplants","aubergine","aubergines","berenjena","berenjenas"],
+  peperone: ["peperone","peperoni","bell pepper","bell peppers","poivron","poivrons","pimiento","pimientos"],
+  pollo: ["pollo","chicken","poulet","hähnchen","huhn"],
+  manzo: ["manzo","beef","boeuf","bœuf","rindfleisch"],
+  maiale: ["maiale","pork","porc","cerdo","schweinefleisch"],
   pancetta: ["pancetta","bacon"],
   prosciutto: ["prosciutto","ham"],
-  tonno: ["tonno","tuna"],
-  salmone: ["salmone","salmon"],
-  uovo: ["uovo","uova","egg","eggs"],
-  latte: ["latte","milk"],
-  burro: ["burro","butter"],
-  panna: ["panna","cream"],
-  formaggio: ["formaggio","formaggi","cheese","cheeses"],
+  tonno: ["tonno","tuna","thon","atún"],
+  salmone: ["salmone","salmon","saumon","salmón","lachs"],
+  uovo: ["uovo","uova","egg","eggs","œuf","oeuf","oeufs","huevo","huevos","ei","eier"],
+  latte: ["latte","milk","lait","leche","milch"],
+  burro: ["burro","butter","beurre","mantequilla"],
+  panna: ["panna","cream","crème","creme","nata","sahne"],
+  formaggio: ["formaggio","formaggi","cheese","cheeses","fromage","fromages","queso","quesos","käse"],
   mozzarella: ["mozzarella"],
   parmigiano: ["parmigiano","parmesan"],
   pecorino: ["pecorino","pecorino cheese"],
-  farina: ["farina","flour"],
-  pane: ["pane","bread"],
-  pangrattato: ["pangrattato","breadcrumbs","bread crumbs"],
+  farina: ["farina","flour","farine","harina","mehl"],
+  pane: ["pane","bread","pain","pan","brot"],
+  pangrattato: ["pangrattato","breadcrumbs","bread crumbs","chapelure","pan rallado"],
   pasta: ["pasta","rigatoni","penne","fusilli","farfalle","spaghetti","spaghettini","linguine","bucatini","tagliatelle","fettuccine","maccheroni","maccheroncini","orecchiette","paccheri","cannelloni","lasagne","lasagna"],
-  riso: ["riso","rice"],
-  ceci: ["cece","ceci","chickpea","chickpeas"],
-  fagioli: ["fagiolo","fagioli","bean","beans"],
-  piselli: ["pisello","piselli","pea","peas"],
+  riso: ["riso","rice","riz","arroz","reis"],
+  ceci: ["cece","ceci","chickpea","chickpeas","pois chiches","garbanzos","kichererbsen"],
+  fagioli: ["fagiolo","fagioli","bean","beans","haricot","haricots","frijol","frijoles","bohne","bohnen"],
+  piselli: ["pisello","piselli","pea","peas","petit pois","petits pois","guisante","guisantes","erbse","erbsen"],
   mais: ["mais","corn"],
   olive: ["oliva","olive","olives"],
   "olio extravergine": ["olio extravergine","olio evo","extra virgin olive oil","extra-virgin olive oil","evo oil"],
   olio: ["olio","oil"],
-  sale: ["sale","salt"],
-  acqua: ["acqua","water"],
-  aceto: ["aceto","vinegar"],
-  basilico: ["basilico","basil"],
-  prezzemolo: ["prezzemolo","parsley"],
-  rosmarino: ["rosmarino","rosemary"],
-  limone: ["limone","limoni","lemon","lemons"],
-  zucchero: ["zucchero","sugar"],
+  sale: ["sale","salt","sel","sal","salz"],
+  acqua: ["acqua","water","eau","agua","wasser"],
+  aceto: ["aceto","vinegar","vinaigre","vinagre","essig"],
+  basilico: ["basilico","basil","basilic","albahaca"],
+  prezzemolo: ["prezzemolo","parsley","persil","perejil"],
+  rosmarino: ["rosmarino","rosemary","romarin","romero"],
+  limone: ["limone","limoni","lemon","lemons","citron","citrons","limón","zitrone"],
+  zucchero: ["zucchero","sugar","sucre","azúcar","zucker"],
   cacao: ["cacao","cocoa"],
   cioccolato: ["cioccolato","chocolate"],
-  miele: ["miele","honey"],
+  miele: ["miele","honey","miel","honig"],
   mandorle: ["mandorla","mandorle","almond","almonds"],
   noci: ["noce","noci","walnut","walnuts"],
   nocciole: ["nocciola","nocciole","hazelnut","hazelnuts"],
@@ -187,6 +187,51 @@ export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
   return numeric===null ? null : foodQuantity(numeric,match[5]);
 }
 
+
+export interface FoodComponent {
+  raw:string;
+  canonicalIngredient:string|null;
+  ingredientTerms:string[];
+  percentage:number|null;
+  confidence:number;
+}
+
+function splitIngredientSegments(raw:string):string[] {
+  const result:string[]=[]; let buffer=""; let depth=0;
+  for(const char of raw){
+    if(char==="("||char==="["||char==="{") depth++;
+    if(char===")"||char==="]"||char==="}") depth=Math.max(0,depth-1);
+    if(depth===0&&(char===","||char===";")){
+      if(buffer.trim()) result.push(buffer.trim());
+      buffer="";
+    } else buffer+=char;
+  }
+  if(buffer.trim()) result.push(buffer.trim());
+  return result;
+}
+
+export function parseIngredientText(raw:string,limit=64):FoodComponent[] {
+  const text=raw.trim();
+  if(!text)return [];
+  const segments=splitIngredientSegments(text);
+  const components:FoodComponent[]=[];
+  for(const segment of segments.slice(0,limit)){
+    const cleaned=segment.replace(/^ingredients?\s*:\s*/i,"").replace(/^ingredients?\s*[-–]\s*/i,"").replace(/^[-*•]+\s*/,"").trim();
+    if(!cleaned)continue;
+    const percentageMatch=cleaned.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*%/);
+    const percentage=percentageMatch?Number(percentageMatch[1].replace(",", ".")):null;
+    const name=cleaned.replace(/(?:^|\s)\d+(?:[.,]\d+)?\s*%/g," ").replace(/\s+/g," ").trim();
+    const canonical=canonicalizeIngredient(name);
+    components.push({
+      raw:name,
+      canonicalIngredient:canonical.canonicalIngredient,
+      ingredientTerms:canonical.ingredientTerms,
+      percentage:Number.isFinite(percentage??0)?percentage:null,
+      confidence:canonical.confidence,
+    });
+  }
+  return components;
+}
 
 export type AllergenCode =
   | "milk" | "eggs" | "gluten" | "wheat" | "peanuts" | "nuts"
