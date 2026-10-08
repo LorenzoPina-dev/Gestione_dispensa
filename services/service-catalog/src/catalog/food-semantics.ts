@@ -19,24 +19,6 @@ export interface ProductFoodSemantics {
   observedAt: string;
 }
 
-const ALLERGEN_TO_DIET: Record<string, string[]> = {
-  "en:milk": ["contains-dairy"],
-  "en:eggs": ["contains-eggs"],
-  "en:gluten": ["contains-gluten"],
-  "en:wheat": ["contains-gluten"],
-  "en:peanuts": ["contains-peanuts"],
-  "en:nuts": ["contains-tree-nuts"],
-  "en:soybeans": ["contains-soy"],
-  "en:fish": ["contains-fish"],
-  "en:crustaceans": ["contains-crustaceans"],
-  "en:molluscs": ["contains-molluscs"],
-  "en:sesame-seeds": ["contains-sesame"],
-  "en:mustard": ["contains-mustard"],
-  "en:lupin": ["contains-lupin"],
-  "en:celery": ["contains-celery"],
-  "en:sulphur-dioxide-and-sulphites": ["contains-sulphites"]
-};
-
 function firstNonEmpty(...values: unknown[]): string | null {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? null;
 }
@@ -70,7 +52,6 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
   }
 
   const dietary = new Set<string>();
-  for (const allergen of allergenTags) for (const flag of ALLERGEN_TO_DIET[allergen] ?? []) dietary.add(flag);
   if (labelTags.some((tag) => /vegan/.test(tag))) dietary.add("vegan");
   if (labelTags.some((tag) => /vegetarian/.test(tag))) dietary.add("vegetarian");
   if (labelTags.some((tag) => /gluten[- ]free/.test(tag))) dietary.add("gluten-free");
