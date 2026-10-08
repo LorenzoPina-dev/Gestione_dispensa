@@ -420,6 +420,7 @@ services:
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on:
       service-food-semantics-bootstrap: { condition: service_completed_successfully }
+      libretranslate: { condition: service_healthy, required: false }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data, egress]
