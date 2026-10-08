@@ -436,9 +436,16 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
  }))];
  let fullCandidateRows:any[];
  if(p.q){
+  const queryText=norm(p.q);
+  const queryTerms=[...new Set(ingredientTerms(p.q).map(norm).filter(Boolean))];
+  const limit=Math.min(Math.max(p.limit,1),100);
   fullCandidateRows=(await pool.query(
-   "select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes where title ilike $1 order by similarity(title,$2) desc limit $3",
-   ["%"+norm(p.q)+"%",norm(p.q),Math.min(Math.max(p.limit,1),100)],
+   queryTerms.length
+     ? "select r.id,r.title,r.category,r.difficulty,r.prep_time_minutes,r.source_url,case when r.title ilike $1 then 2 else 0 end + case when r.ingredient_terms && $2::text[] then 1 else 0 end as match_boost from recipe_catalog.recipes r where r.title ilike $1 or r.ingredient_terms && $2::text[] order by match_boost desc,similarity(r.title,$3) desc,r.title asc limit $4"
+     : "select r.id,r.title,r.category,r.difficulty,r.prep_time_minutes,r.source_url,case when r.title ilike $1 then 2 else 0 end as match_boost from recipe_catalog.recipes r where r.title ilike $1 order by match_boost desc,similarity(r.title,$2) desc,r.title asc limit $3",
+   queryTerms.length
+     ? ["%"+queryText+"%",queryTerms,queryText,limit]
+     : ["%"+queryText+"%",queryText,limit],
   )).rows;
  }else{
   const candidateLimit=Math.min(Math.max(p.limit*20,50),300);
