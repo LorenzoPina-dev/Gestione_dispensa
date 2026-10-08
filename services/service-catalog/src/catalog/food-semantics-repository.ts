@@ -4,6 +4,7 @@ import type { SqlClient } from "./postgres.js";
 type ResolverResponse = {
   status: "RESOLVED" | "UNRESOLVED";
   foodEntityId?: string | null;
+  foodEntityAncestors?: string[];
   displayName?: string;
   semanticConfidence?: number;
   provenance?: string;
