@@ -126,13 +126,14 @@ Response 200:
     "allergenTags": ["milk"],
     "dietaryRestrictions": ["vegetarian"],
     "tracePolicy": "WARN",
+    "uncertaintyPolicy": "EXCLUDE",
     "version": 2,
     "updatedAt": "2026-10-08T15:30:00Z"
   }
 }
 ```
 
-`allergenTags` usa codici canonici (`milk`, `eggs`, `gluten`, `wheat`, `peanuts`, `nuts`, `soybeans`, `fish`, `crustaceans`, `molluscs`, `sesame-seeds`, `mustard`, `lupin`, `celery`, `sulphites`). `dietaryRestrictions` accetta `vegan`, `vegetarian`, `pescatarian`, `gluten-free`, `lactose-free`, `dairy-free`, `nut-free`, `peanut-free`, `soy-free`, `egg-free`, `fish-free`, `shellfish-free`. `tracePolicy` è `WARN` oppure `EXCLUDE`.
+`allergenTags` usa codici canonici (`milk`, `eggs`, `gluten`, `wheat`, `peanuts`, `nuts`, `soybeans`, `fish`, `crustaceans`, `molluscs`, `sesame-seeds`, `mustard`, `lupin`, `celery`, `sulphites`). `dietaryRestrictions` accetta `vegan`, `vegetarian`, `pescatarian`, `gluten-free`, `lactose-free`, `dairy-free`, `nut-free`, `peanut-free`, `soy-free`, `egg-free`, `fish-free`, `shellfish-free`. `tracePolicy` è `WARN` oppure `EXCLUDE`. `uncertaintyPolicy` è `WARN` oppure `EXCLUDE` e per default è `EXCLUDE`: quando la composizione non è verificabile, `Recipes` può bloccare il suggerimento invece di dichiararlo sicuro.
 
 ### PATCH /identity/preferences
 
@@ -143,7 +144,8 @@ Request:
 {
   "allergenTags": ["milk"],
   "dietaryRestrictions": ["vegetarian"],
-  "tracePolicy": "WARN"
+  "tracePolicy": "WARN",
+  "uncertaintyPolicy": "EXCLUDE"
 }
 ```
 
