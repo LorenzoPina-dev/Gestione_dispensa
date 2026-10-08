@@ -341,7 +341,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      recipe,
    };
  });
- const result=scored.sort((a,b)=>b.score-a.score).slice(0,p.limit);
+ const result=scored.sort((a,b)=>b.score-a.score || Number(a.coverage.missingCoreCount??0)-Number(b.coverage.missingCoreCount??0) || (Number(a.recipe.timeMinutes??999)-Number(b.recipe.timeMinutes??999))).slice(0,p.limit);
  await resolveRecipeImages(result);
  return result;
 }
@@ -351,7 +351,7 @@ export async function getCatalogRecipe(pool:Pool,id:string){
  const full=await hydrate(pool,[r.rows[0]]);const x=full[0];
  const sourceUrl=typeof x.source_url==="string"?x.source_url:undefined;
  const steps=await resolveRecipeSteps(sourceUrl,x.steps);
- const recipe={recipeId:String(x.id),title:String(x.title),servings:1,timeMinutes:x.prep_time_minutes==null?undefined:Number(x.prep_time_minutes),difficulty:x.difficulty==null?undefined:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl,tags:x.category?[String(x.category)]:[],steps,ingredients:x.ingredients.map((i:any)=>({name:String(i.name),displayName:String(i.display_name||i.name),quantity:1,unit:"piece"}))};
+ const recipe={recipeId:String(x.id),title:String(x.title),servings:1,timeMinutes:x.prep_time_minutes==null?undefined:Number(x.prep_time_minutes),difficulty:x.difficulty==null?undefined:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl,tags:x.category?[String(x.category)]:[],steps,ingredients:x.ingredients.map((i:any)=>({name:String(i.name),displayName:String(i.display_name||i.name),canonicalIngredient:i.canonical_ingredient??null,culinaryWeight:String(i.culinary_weight??"CORE"),quantity:i.quantity_base_value==null?null:Number(i.quantity_base_value),unit:i.quantity_base_unit??null,quantityConfidence:Number(i.quantity_confidence??0),sourceWeight:i.weight==null?null:Number(i.weight)}))};
  const image=await resolveRecipeImage(typeof recipe.sourceUrl==="string"?recipe.sourceUrl:undefined);
  return image?{...recipe,image}:recipe;
 }
