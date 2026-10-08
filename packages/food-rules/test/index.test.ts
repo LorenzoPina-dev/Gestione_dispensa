@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canonicalAllergenTag, canonicalizeIngredient, foodQuantity, foodSemanticRelation, inferTextAllergens, parseIngredientText } from "../src/index.ts";
+import { canonicalAllergenTag, canonicalizeIngredient, foodQuantity, foodSemanticRelation, inferTextAllergens, parseFoodCountFromText, parseIngredientText } from "../src/index.ts";
 
 describe("food-rules",()=>{
   it("does not canonicalize substrings such as salted -> sale",()=>{
@@ -34,6 +34,11 @@ describe("food-rules",()=>{
     assert.ok(inferTextAllergens("soy sauce").includes("soybeans"));
     assert.ok(inferTextAllergens("beurre et lait").includes("milk"));
     assert.ok(inferTextAllergens("crevettes").includes("crustaceans"));
+  });
+  it("parses countable ingredients with no explicit unit",()=>{
+    assert.equal(parseFoodCountFromText("2 uova","uovo")?.baseValue,2);
+    assert.equal(parseFoodCountFromText("3 onions","cipolla")?.baseValue,3);
+    assert.equal(parseFoodCountFromText("2 pasta","pasta"),null);
   });
   it("keeps mass and volume as distinct dimensions",()=>{
     assert.equal(foodQuantity(1,"kg")?.baseUnit,"g");
