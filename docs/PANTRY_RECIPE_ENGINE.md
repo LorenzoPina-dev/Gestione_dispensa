@@ -56,6 +56,7 @@
 - [x] Mapping recipe ingredient -> canonical ingredient con una prima gerarchia alimentare direzionale: specifico -> generico è ammesso solo quando richiesto dalla ricetta.
 - [ ] Densità e conversioni massa<->volume solo quando esiste una regola/dato affidabile e versionato per quello specifico ingrediente.
 - [x] Modello iniziale di quantità usabile per confezioni aperte: `remainingContentQuantity/unit` esplicito in Inventory; una confezione aperta senza residuo misurato non contribuisce alla copertura quantitativa.
+- [x] Priorità del residuo misurato sul contenuto commerciale originale quando una confezione è aperta.
 - [ ] Estendere quantità usabile a porzioni, sfridi, resa post-apertura, densità e residui non misurati.
 - [x] Sostituzioni semantiche/funzionali curate con fattore `0.8 * peso originale`, motivazione e tracciamento dei prodotti usati.
 - [x] Profilo famigliare: Recipes legge i membri da Family e aggrega i profili personali da Identity; allergeni/restrizioni si uniscono e una policy tracce `EXCLUDE` prevale.
@@ -68,7 +69,8 @@
 - [ ] Import del catalogo ricette spostato da startup di `service-recipes` a job/worker one-shot: il servizio applicativo non deve dipendere dalla disponibilità di Zenodo.
 - [ ] Test matrix ampia con prodotti multilingua, quantità senza unità, confezioni, duplicati, dati OFF parziali, ingredienti composti e collisioni semantiche.
 - [ ] Validazione/build completa in ambiente Docker. In questa sessione il repository non era clonabile dal runtime per un errore DNS verso GitHub, quindi i test aggiunti non sono stati dichiarati come eseguiti.
-- [ ] Fallback controllati quando mancano dati: nessuna invenzione di ingredienti, ma stato `UNKNOWN`/`AMBIGUOUS` dove necessario.
+- [x] Fallback controllati quando mancano dati: nessuna invenzione di ingredienti; il matcher evita generalizzazioni non sicure e usa stati `UNKNOWN`/`AMBIGUOUS` dove appropriato.
+- [ ] Ampliare i fallback su ingredienti testuali multi-frase e composizioni annidate.
 - [x] Comportamento fail-closed per `UNKNOWN_COMPOSITION` quando esistono allergeni o restrizioni attive; la policy configurabile per singolo profilo è ancora aperta.
 
 ## Contratto concettuale
