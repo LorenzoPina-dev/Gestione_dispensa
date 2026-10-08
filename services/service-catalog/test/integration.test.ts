@@ -78,6 +78,17 @@ describe("service-catalog / real PostgreSQL flow", () => {
     assert.equal(row.rows[0].normalized_value, "8001234567890");
     assert.equal(row.rows[0].source_version, "manual-v1");
     assert.equal(row.rows[0].event_type, "ProductCreated");
+
+    const semanticsRow = await db.query(
+      "SELECT canonical_ingredient,semantic_confidence,semantic_status,source,source_version,rules_version FROM product_food_semantics WHERE product_id=$1",
+      [productId],
+    );
+    assert.equal(semanticsRow.rows.length, 1);
+    assert.equal(semanticsRow.rows[0].canonical_ingredient, "latte");
+    assert.equal(semanticsRow.rows[0].semantic_status, "EXACT");
+    assert.equal(semanticsRow.rows[0].source, "MANUAL");
+    assert.equal(semanticsRow.rows[0].source_version, "manual-v1");
+    assert.equal(semanticsRow.rows[0].rules_version, "food-semantics-v2");
   });
 
   it("reads the product back through the real repository mapping", async () => {
@@ -88,6 +99,9 @@ describe("service-catalog / real PostgreSQL flow", () => {
     assert.deepEqual(read.barcodes, ["8001234567890"]);
     assert.equal(read.calories, 62);
     assert.equal(read.defaultUnit, "l");
+    assert.equal(read.foodSemantics?.canonicalIngredient, "latte");
+    assert.equal(read.foodSemantics?.source, "MANUAL");
+    assert.equal(read.foodSemantics?.rulesVersion, "food-semantics-v2");
   });
 
   it("persists a real provider barcode match and records a null system actor in the outbox", async () => {
