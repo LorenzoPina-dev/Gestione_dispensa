@@ -186,3 +186,51 @@ export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
   const numeric=parseNumericQuantity(valueText);
   return numeric===null ? null : foodQuantity(numeric,match[5]);
 }
+
+
+export type AllergenCode =
+  | "milk" | "eggs" | "gluten" | "wheat" | "peanuts" | "nuts"
+  | "soybeans" | "fish" | "crustaceans" | "molluscs" | "sesame-seeds"
+  | "mustard" | "lupin" | "celery" | "sulphites";
+
+const INGREDIENT_ALLERGENS: Readonly<Record<string, readonly AllergenCode[]>> = {
+  latte:["milk"], burro:["milk"], panna:["milk"], formaggio:["milk"], mozzarella:["milk"],
+  parmigiano:["milk"], pecorino:["milk"], mascarpone:["milk"], ricotta:["milk"],
+  uovo:["eggs"], farina:["gluten","wheat"], pane:["gluten","wheat"], pangrattato:["gluten","wheat"],
+  pasta:["gluten","wheat"], couscous:["gluten","wheat"],
+  mandorle:["nuts"], noci:["nuts"], nocciole:["nuts"], pistacchio:["nuts"],
+  arachidi:["peanuts"], soia:["soybeans"], tonno:["fish"], salmone:["fish"],
+  pesce:["fish"], gamberi:["crustaceans"], crostacei:["crustaceans"],
+  molluschi:["molluscs"], sesamo:["sesame-seeds"], senape:["mustard"], sedano:["celery"],
+};
+
+export function canonicalAllergenTag(value:string):AllergenCode|null {
+  const normalized=normalizeFoodText(value).replace(/ /g,"-");
+  const aliases:Readonly<Record<string,AllergenCode>>={
+    milk:"milk",latte:"milk",dairy:"milk",
+    eggs:"eggs",egg:"eggs",uovo:"eggs",uova:"eggs",
+    gluten:"gluten",wheat:"wheat",grano:"wheat",frumento:"wheat",
+    peanuts:"peanuts",peanut:"peanuts",arachidi:"peanuts",
+    nuts:"nuts","tree-nuts":"nuts","frutta-secca":"nuts",
+    soy:"soybeans",soya:"soybeans",soybeans:"soybeans",
+    fish:"fish",pesce:"fish",
+    crustaceans:"crustaceans",crustacei:"crustaceans",shellfish:"crustaceans",
+    molluscs:"molluscs",mollusks:"molluscs",molluschi:"molluscs",
+    sesame:"sesame-seeds","sesame-seeds":"sesame-seeds",sesamo:"sesame-seeds",
+    mustard:"mustard",senape:"mustard",lupin:"lupin",lupino:"lupin",
+    celery:"celery",sedano:"celery",sulphites:"sulphites",sulfites:"sulphites",solfiti:"sulphites"
+  };
+  return aliases[normalized] ?? null;
+}
+
+export function inferIngredientAllergens(canonicalIngredient:string|null, terms:readonly string[]=[]):AllergenCode[] {
+  const values=new Set<AllergenCode>();
+  if(canonicalIngredient){
+    for(const code of INGREDIENT_ALLERGENS[normalizeFoodText(canonicalIngredient)] ?? []) values.add(code);
+  }
+  for(const term of terms){
+    const canonical=canonicalizeIngredient(term).canonicalIngredient;
+    for(const code of INGREDIENT_ALLERGENS[normalizeFoodText(canonical ?? "")] ?? []) values.add(code);
+  }
+  return [...values];
+}
