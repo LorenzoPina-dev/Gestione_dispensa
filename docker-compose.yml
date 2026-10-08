@@ -379,6 +379,13 @@ services:
     restart: unless-stopped
     networks: [backend, data]
 
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    command: ["--load-only","en,it,fr,es,de","--disable-web-ui"]
+    volumes: [translation_models:/home/libretranslate/.local]
+    healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:5000/languages"], interval: 15s, timeout: 5s, retries: 20, start_period: 30s }
+    restart: unless-stopped
+    networks: [backend, egress]
   service-food-semantics-schema-migrate:
     build: { context: ., dockerfile: services/service-food-semantics/Dockerfile }
     environment: { DATABASE_URL: "postgres://food_semantics:food_semantics@postgres:5432/food_semantics_db" }
@@ -817,6 +824,7 @@ volumes:
   tempo_data:
   opensearch_data:
   redis_data:
+  translation_models:
 
 networks:
   edge:
