@@ -43,14 +43,13 @@ async function ancestorIds(entityId: string): Promise<string[]> {
        SELECT r.target_source_key,r.target_source_id
          FROM food_semantics.relations r
          JOIN food_semantics.entities child
-           ON child.source_key=r.target_source_key
-          AND child.source_id=r.target_source_id
+           ON child.id=r.source_entity_id
          JOIN ancestors a
            ON a.source_key=child.source_key
           AND a.source_id=child.source_id
         WHERE r.relation='IS_A'
      )
-     SELECT source_key,source_id FROM ancestors OFFSET 1`,
+     SELECT source_key,source_id FROM ancestors`,
     [entityId],
   );
   return result.rows.map((row) => String(row.source_key) + ":" + String(row.source_id));
