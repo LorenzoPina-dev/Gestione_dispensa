@@ -3,6 +3,7 @@ import { ingredientTerms, normalizeFoodText as norm } from "@gestione-dispensa/f
 import { scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
 import { aggregateFamilySafetyProfiles, type FamilySafetyProfile } from "./family-safety-profile.js";
+import type { RecipeMatch } from "./recipe-match.js";
 
 type FoodSemantics = {
  canonicalIngredient?: string | null;
@@ -23,7 +24,7 @@ type FoodSemantics = {
 type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null;foodSemantics?:FoodSemantics|null};
 
 type CatalogProduct={productId:string;name?:string|null;foodSemantics?:FoodSemantics|null};
-type Suggestion={recipeId:string;score:number;readiness:"READY"|"MINIMAL_SHOPPING"|"DISCARD";matchedIngredientNames:string[];missingIngredients:Array<Record<string,unknown>>;matchedProducts:string[];coverage:Record<string,unknown>;substitutions:unknown[];safetyWarnings:unknown[];recipe:any};
+type Suggestion=RecipeMatch & { matchedIngredientNames:string[]; matchedProducts:string[]; safetyWarnings:RecipeMatch["safety"]["warnings"]; recipe:Record<string,unknown> };
 
 const IMAGE_CACHE = new Map<string, string | null>();
 const STEPS_CACHE = new Map<string, string[] | null>();
@@ -353,9 +354,9 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    const recipe={
      recipeId:String(r.id),
      title:String(r.title),
-     servings:1,
-     timeMinutes:r.prep_time_minutes==null?undefined:Number(r.prep_time_minutes),
-     difficulty:r.difficulty==null?undefined:Number(r.difficulty)<=2?"Facile":Number(r.difficulty)===3?"Medio":"Difficile",
+     servings:null,
+     timeMinutes:r.prep_time_minutes==null?null:Number(r.prep_time_minutes),
+     difficulty:r.difficulty==null?null:Number(r.difficulty)<=2?"Facile":Number(r.difficulty)===3?"Medio":"Difficile",
      quality:"IMPORTED",
      source:"italian-gastronomic-recipes",
      sourceUrl:r.source_url??undefined,
@@ -372,37 +373,45 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
        sourceWeight:x.weight==null?null:Number(x.weight),
      })),
    };
+   const pantryProductsUsed=pantry
+     .filter(item=>coverage.matchedProductIds.includes(item.productId))
+     .map(item=>({
+       productId:item.productId,
+       name:item.name,
+       quantity:item.quantity,
+       unit:item.unit,
+       expiresAt:item.expiresAt??null,
+     }));
    return {
      recipeId:String(r.id),
+     title:String(r.title),
      score:coverage.score,
      readiness:safety.safe?coverage.readiness:"DISCARD",
-     matchedIngredientNames:matched.map(item=>item.recipeIngredient),
-     missingIngredients:missing.map(item=>({
-       name:item.recipeIngredient,
-       quantity:item.missingQuantity?.value??0,
-       unit:item.missingQuantity?.unit??"unknown",
-       status:item.status,
-       requiredQuantity:item.requiredQuantity,
-       canonicalIngredient:item.canonicalIngredient,
-       culinaryWeight:item.culinaryWeight,
-       productIds:item.productIds,
-     })),
-     matchedProducts:coverage.matchedProductIds,
+     timeMinutes:r.prep_time_minutes==null?null:Number(r.prep_time_minutes),
+     difficulty:r.difficulty==null?null:Number(r.difficulty)<=2?"Facile":Number(r.difficulty)===3?"Medio":"Difficile",
+     servings:null,
+     pantryProductsUsed,
+     matchedIngredients:coverage.matchedIngredients,
+     missingIngredients:coverage.missingIngredients,
+     substitutions:coverage.substitutions,
+     instructions:Array.isArray(r.steps)?r.steps.map(String):[],
+     nutrition:{status:"UNAVAILABLE",perServing:null,note:"Recipe dataset does not provide reliable per-ingredient nutritional quantities."},
+     safety:{safe:safety.safe,warnings:safety.warnings},
      coverage:{
        matched:matched.length,
        total:coverage.matchedIngredients.length,
        weightedScore:coverage.score,
        missingCoreCount:coverage.missingCoreCount,
        missingCoreWeight:coverage.missingCoreWeight,
-       ingredients:coverage.matchedIngredients,
-       substitutions:coverage.substitutions,
      },
-     substitutions:coverage.substitutions,
+     explanation:{ruleVersion:"pantry-recipe-engine-v2",quantityAware:coverage.matchedIngredients.some(item=>item.requiredQuantity!==null),familySafetyApplied:true},
+     matchedIngredientNames:matched.map(item=>item.recipeIngredient),
+     matchedProducts:coverage.matchedProductIds,
      safetyWarnings:safety.warnings,
      recipe,
    };
  });
- const result=scored.sort((a,b)=>b.score-a.score || Number(a.coverage.missingCoreCount??0)-Number(b.coverage.missingCoreCount??0) || (Number(a.recipe.timeMinutes??999)-Number(b.recipe.timeMinutes??999))).slice(0,p.limit);
+ const result=scored.filter(item=>item.safety.safe).sort((a,b)=>b.score-a.score || a.coverage.missingCoreCount-b.coverage.missingCoreCount || (Number(a.timeMinutes??999)-Number(b.timeMinutes??999))).slice(0,p.limit);
  await resolveRecipeImages(result);
  return result;
 }
