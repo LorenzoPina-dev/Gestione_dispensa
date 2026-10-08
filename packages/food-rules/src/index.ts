@@ -374,42 +374,84 @@ export interface FoodComponent {
   ingredientTerms:string[];
   percentage:number|null;
   confidence:number;
+  role:"PRIMARY"|"SUBCOMPONENT";
+  depth:number;
+  path:string;
+  parentCanonicalIngredient:string|null;
 }
 
-function splitIngredientSegments(raw:string):string[] {
+function splitTopLevel(text:string):string[] {
   const result:string[]=[]; let buffer=""; let depth=0;
-  for(const char of raw){
-    if(char==="("||char==="["||char==="{") depth++;
-    if(char===")"||char==="]"||char==="}") depth=Math.max(0,depth-1);
+  for(const char of text){
+    if(char==="("||char==="["||char==="{")depth++;
+    if(char===")"||char==="]"||char==="}")depth=Math.max(0,depth-1);
     if(depth===0&&(char===","||char===";")){
-      if(buffer.trim()) result.push(buffer.trim());
+      if(buffer.trim())result.push(buffer.trim());
       buffer="";
-    } else buffer+=char;
+    }else buffer+=char;
   }
-  if(buffer.trim()) result.push(buffer.trim());
+  if(buffer.trim())result.push(buffer.trim());
   return result;
+}
+
+function extractNestedGroups(text:string):{outer:string;groups:string[]} {
+  const groups:string[]=[]; let outer=""; let depth=0; let nested="";
+  for(let i=0;i<text.length;i++){
+    const char=text[i]!;
+    if(char==="("||char==="["||char==="{"){
+      if(depth===0){depth=1;nested="";continue;}
+      depth++; nested+=char; continue;
+    }
+    if(char===")"||char==="]"||char==="}"){
+      if(depth>1){depth--;nested+=char;continue;}
+      if(depth===1){depth=0;if(nested.trim())groups.push(nested.trim());continue;}
+    }
+    if(depth===0)outer+=char; else nested+=char;
+  }
+  return {outer:outer.trim(),groups};
+}
+
+function parseIngredientSegments(raw:string,limit:number,parentCanonical:string|null,depth:number,pathPrefix:string,role:"PRIMARY"|"SUBCOMPONENT",out:FoodComponent[]):void {
+  if(depth>3||out.length>=limit)return;
+  const segments=splitTopLevel(raw);
+  for(let index=0;index<segments.length&&out.length<limit;index++){
+    const segment=segments[index]!.trim();
+    if(!segment)continue;
+    const {outer,groups}=extractNestedGroups(segment);
+    const cleaned=outer
+      .replace(/^ingredients?\s*:\s*/i,"")
+      .replace(/^ingredients?\s*[-–—]\s*/i,"")
+      .replace(/^[-*•]+\s*/,"")
+      .trim();
+    if(!cleaned)continue;
+    const percentageMatch=cleaned.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*%/);
+    const percentage=percentageMatch?Number(percentageMatch[1]!.replace(",",".")):null;
+    const name=cleaned.replace(/(?:^|\s)\d+(?:[.,]\d+)?\s*%/g," ").replace(/\s+/g," ").trim();
+    const canonical=canonicalizeIngredient(name);
+    const componentPath=pathPrefix ? pathPrefix+"."+index : String(index);
+    out.push({
+      raw:name,
+      canonicalIngredient:canonical.confidence>=0.8?canonical.canonicalIngredient:null,
+      ingredientTerms:canonical.ingredientTerms,
+      percentage:Number.isFinite(percentage??0)?percentage:null,
+      confidence:canonical.confidence,
+      role,
+      depth,
+      path:componentPath,
+      parentCanonicalIngredient:parentCanonical,
+    });
+    const currentCanonical=canonical.confidence>=0.8?canonical.canonicalIngredient:null;
+    for(let groupIndex=0;groupIndex<groups.length&&out.length<limit;groupIndex++){
+      parseIngredientSegments(groups[groupIndex]!,limit,currentCanonical,depth+1,componentPath+"."+groupIndex,"SUBCOMPONENT",out);
+    }
+  }
 }
 
 export function parseIngredientText(raw:string,limit=64):FoodComponent[] {
   const text=raw.trim();
   if(!text)return [];
-  const segments=splitIngredientSegments(text);
   const components:FoodComponent[]=[];
-  for(const segment of segments.slice(0,limit)){
-    const cleaned=segment.replace(/^ingredients?\s*:\s*/i,"").replace(/^ingredients?\s*[-–]\s*/i,"").replace(/^[-*•]+\s*/,"").trim();
-    if(!cleaned)continue;
-    const percentageMatch=cleaned.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*%/);
-    const percentage=percentageMatch?Number(percentageMatch[1].replace(",", ".")):null;
-    const name=cleaned.replace(/(?:^|\s)\d+(?:[.,]\d+)?\s*%/g," ").replace(/\s+/g," ").trim();
-    const canonical=canonicalizeIngredient(name);
-    components.push({
-      raw:name,
-      canonicalIngredient:canonical.confidence >= 0.8 ? canonical.canonicalIngredient : null,
-      ingredientTerms:canonical.ingredientTerms,
-      percentage:Number.isFinite(percentage??0)?percentage:null,
-      confidence:canonical.confidence,
-    });
-  }
+  parseIngredientSegments(text,limit,null,0,"","PRIMARY",components);
   return components;
 }
 
