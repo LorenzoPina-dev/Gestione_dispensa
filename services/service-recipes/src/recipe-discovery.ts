@@ -3,7 +3,7 @@ import { ingredientTerms, normalizeFoodText as norm, parseFoodQuantityFromText }
 import { averageNutriScore, estimateRecipeNutrition, scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
 import { aggregateFamilySafetyProfiles, type FamilySafetyProfile } from "./family-safety-profile.js";
-import type { RecipeMatch } from "./recipe-match.js";
+import { RECIPE_MATCH_RULES_VERSION, type RecipeMatch } from "./recipe-match.js";
 import { normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 type FoodSemantics = {
@@ -555,6 +555,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    return {
      recipeId:String(r.id),
      title:String(r.title),
+     rulesVersion:RECIPE_MATCH_RULES_VERSION,
      score:coverage.score,
      readiness:safety.safe?coverage.readiness:"DISCARD",
      timeMinutes:r.prep_time_minutes==null?null:Number(r.prep_time_minutes),
@@ -575,7 +576,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
        missingCoreCount:coverage.missingCoreCount,
        missingCoreWeight:coverage.missingCoreWeight,
      },
-     explanation:{ruleVersion:"pantry-recipe-engine-v2",quantityAware:coverage.matchedIngredients.some(item=>item.requiredQuantity!==null),familySafetyApplied:true},
+     explanation:{ruleVersion:RECIPE_MATCH_RULES_VERSION,quantityAware:coverage.matchedIngredients.some(item=>item.requiredQuantity!==null),familySafetyApplied:true},
      matchedIngredientNames:matched.map(item=>item.recipeIngredient),
      matchedProducts:coverage.matchedProductIds,
      safetyWarnings:safety.warnings,
@@ -587,9 +588,14 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    if(scoreDiff!==0)return scoreDiff;
    const coreDiff=a.coverage.missingCoreCount-b.coverage.missingCoreCount;
    if(coreDiff!==0)return coreDiff;
+   const aCoverage=a.nutrition.coverage;
+   const bCoverage=b.nutrition.coverage;
+   if(aCoverage!==bCoverage)return bCoverage-aCoverage;
    const aNutri=a.nutrition.nutriScoreAverage;
    const bNutri=b.nutrition.nutriScoreAverage;
    if(aNutri!==null&&bNutri!==null&&aNutri!==bNutri)return aNutri-bNutri;
+   if(aNutri===null&&bNutri!==null)return 1;
+   if(aNutri!==null&&bNutri===null)return -1;
    return Number(a.timeMinutes??999)-Number(b.timeMinutes??999);
  }).slice(0,p.limit);
  await resolveRecipeImages(result);
