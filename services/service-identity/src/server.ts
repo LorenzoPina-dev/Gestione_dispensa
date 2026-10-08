@@ -150,6 +150,8 @@ function toUserDto(_req: IncomingMessage, u: UserRow) {
 
 const PROFILE_PATHS = new Set(["/api/v1/identity/me"]);
 const DIETARY_PREFERENCES_PATH = "/api/v1/identity/preferences";
+const INTERNAL_DIETARY_PATH = "/api/v1/internal/dietary-preferences";
+const INTERNAL_SERVICE_TOKEN = String(process.env.INTERNAL_SERVICE_TOKEN ?? "").trim();
 
 const server = createServer(async (req, res) => {
   const requestId = String(req.headers["x-request-id"] ?? randomUUID());
@@ -195,6 +197,41 @@ const server = createServer(async (req, res) => {
       res.statusCode = 204;
       res.setHeader("x-request-id", requestId);
       return void res.end();
+    }
+
+    if (path === INTERNAL_DIETARY_PATH) {
+      if (method !== "GET") return fail(res, 405, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed.", requestId);
+      const token = String(req.headers["x-internal-service-token"] ?? "").trim();
+      if (!INTERNAL_SERVICE_TOKEN || token !== INTERNAL_SERVICE_TOKEN) {
+        return fail(res, 401, "UNAUTHENTICATED", "Invalid internal service credentials.", requestId);
+      }
+      const rawIds = new URL(req.url ?? "/", "http://service-identity").searchParams.get("userIds") ?? "";
+      const userIds = [...new Set(rawIds.split(",").map(value => value.trim()).filter(value => UUID.test(value)))].slice(0, 32);
+      if (userIds.length === 0) {
+        return fail(res, 400, "VALIDATION_ERROR", "userIds must contain at least one valid UUID.", requestId);
+      }
+      const result = await pool.query(
+        "select user_id,allergen_tags,dietary_restrictions,trace_policy,version,updated_at from dietary_preferences where user_id = any($1::uuid[])",
+        [userIds],
+      );
+      const rows = new Map(result.rows.map((row) => [String(row.user_id), row]));
+      return send(res, 200, {
+        data: {
+          items: userIds.map((userId) => {
+            const row = rows.get(userId) as { allergen_tags?: unknown; dietary_restrictions?: unknown; trace_policy?: unknown; version?: unknown; updated_at?: unknown } | undefined;
+            return {
+              userId,
+              exists: Boolean(row),
+              allergenTags: Array.isArray(row?.allergen_tags) ? row.allergen_tags.map(String) : [],
+              dietaryRestrictions: Array.isArray(row?.dietary_restrictions) ? row.dietary_restrictions.map(String) : [],
+              tracePolicy: row?.trace_policy === "EXCLUDE" ? "EXCLUDE" : "WARN",
+              version: row ? Number(row.version ?? 1) : 1,
+              updatedAt: row?.updated_at ?? null,
+            };
+          }),
+          complete: userIds.every((userId) => rows.has(userId)),
+        },
+      }, requestId);
     }
 
     // ── Rotte autenticate (identità verificata dal gateway) ──────────────────
