@@ -7,7 +7,9 @@ describe("food-rules",()=>{
     const result=canonicalizeIngredient("salted crackers");
     assert.notEqual(result.canonicalIngredient,"sale");
   });
-  it("treats malformed runtime text as empty instead of throwing",()=>{\n    assert.equal(canonicalizeIngredient(undefined as unknown as string).canonicalIngredient,null);\n  });\n  it("keeps food identity unresolved without the semantic resolver",()=>{
+  it("treats malformed runtime text as empty instead of throwing",()=>{
+    assert.equal(canonicalizeIngredient(undefined as unknown as string).canonicalIngredient,null);\n  });
+  it("keeps food identity unresolved without the semantic resolver",()=>{
     const result=canonicalizeIngredient("Blue Cheese");
     assert.equal(result.canonicalIngredient,"blue cheese");
     assert.equal(result.status,"AMBIGUOUS");
