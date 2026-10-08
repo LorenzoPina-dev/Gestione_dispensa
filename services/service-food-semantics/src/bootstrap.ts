@@ -12,7 +12,7 @@ type Term = { id: string; name: string; synonyms: Array<{ text: string; locale: 
 function parseSynonym(value: string): { text: string; locale: string } {
   const quoted = value.match(/"([^"]+)"/);
   const text = quoted?.[1]?.trim() ?? value.trim();
-  const locale = value.match(/@([a-z]{2,3})(?:\\b|$)/i)?.[1]?.toLowerCase() ?? "en";
+  const locale = value.match(/@([a-z]{2,3})(?:\b|$)/i)?.[1]?.toLowerCase() ?? "en";
   return { text, locale };
 }
 
