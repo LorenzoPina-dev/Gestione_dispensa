@@ -92,12 +92,14 @@ export interface RecipeNutritionEstimate {
   ingredientsWithoutNutrition:number;
   gramsWithNutrition:number;
   gramsWithoutNutrition:number;
+  perServing:Record<string,number>|null;
   note:string;
 }
 
 export function estimateRecipeNutrition(
   matches:readonly IngredientMatch[],
   pantry:readonly PantryProductForMatch[],
+  servings:number|null=null,
 ): RecipeNutritionEstimate {
   const byProduct=new Map(pantry.map(item=>[item.productId,item]));
   const totals={caloriesKcal:0,proteinG:0,carbsG:0,fatG:0,fiberG:0};
@@ -161,10 +163,14 @@ export function estimateRecipeNutrition(
       ingredientsWithoutNutrition,
       gramsWithNutrition:0,
       gramsWithoutNutrition,
+      perServing:null,
       note:"No matched pantry allocation has reliable nutrition on a gram basis.",
     };
   }
   const total=Object.fromEntries(Object.entries(totals).map(([key,value])=>[key,Number(value.toFixed(2))]));
+  const perServing=typeof servings==="number"&&Number.isFinite(servings)&&servings>0
+    ? Object.fromEntries(Object.entries(total).map(([key,value])=>[key,Number((value/servings).toFixed(2))]))
+    : null;
   return {
     status:"ESTIMATED",
     total,
@@ -173,6 +179,7 @@ export function estimateRecipeNutrition(
     ingredientsWithoutNutrition,
     gramsWithNutrition:Number(gramsWithNutrition.toFixed(3)),
     gramsWithoutNutrition:Number(gramsWithoutNutrition.toFixed(3)),
+    perServing,
     note:coverage<0.999
       ?"Estimated only from matched pantry products with reliable per-100 g nutrition; missing or non-gram ingredients are excluded."
       :"Estimated from matched pantry products with reliable per-100 g nutrition. This is not a source-provided recipe nutrition profile.",
