@@ -15,6 +15,7 @@ const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL
 const familyServiceBaseUrl = (process.env.FAMILY_SERVICE_BASE_URL ?? "http://service-family:3311/api/v1").replace(/\/$/, "");
 const inventoryServiceBaseUrl = (process.env.INVENTORY_SERVICE_BASE_URL ?? "http://service-inventory:3312/api/v1").replace(/\/$/, "");
 const catalogServiceBaseUrl = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
+const identityServiceBaseUrl = (process.env.IDENTITY_SERVICE_BASE_URL ?? "http://service-identity:3310/api/v1").replace(/\/$/, "");
 
 type Body = Record<string, unknown>;
 
@@ -279,6 +280,7 @@ app.get("/api/v1/recipes/suggestions", async (req, res) => {
       familyId: ctx.familyId,
       inventoryBaseUrl: inventoryServiceBaseUrl,
       catalogBaseUrl: catalogServiceBaseUrl,
+      identityBaseUrl: identityServiceBaseUrl,
       limit,
       q,
       authorization: req.header("authorization") ?? undefined,
