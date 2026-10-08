@@ -233,10 +233,13 @@ function exactSemanticMatch(recipe: RecipeIngredientForMatch, pantry: PantryProd
   const relation = foodSemanticRelation(recipeCanonical || null, pantryCanonical || null);
   if (relation === "EXACT" || relation === "SYNONYM" || relation === "RECIPE_GENERALIZES_PRODUCT") return true;
   if (relation === "UNSAFE_GENERALIZATION") return false;
-  if (recipeCanonical && pantryCanonical) return false;
+  // A catalog product can carry a stale, generic, or differently derived canonical
+  // value. Do not discard a safe exact textual ingredient identity just because
+  // the two canonical values disagree.
   const recipeTerms = normalizeTerms([...(recipe.ingredientTerms ?? []), recipe.name, recipe.displayName]);
   const pantryTerms = normalizeTerms([...(pantry.foodSemantics?.ingredientTerms ?? []), ...(pantry.foodSemantics?.taxonomyTags ?? []), pantry.name]);
   for (const term of recipeTerms) if (pantryTerms.has(term)) return true;
+  if (recipeCanonical && pantryCanonical) return false;
   return false;
 }
 
