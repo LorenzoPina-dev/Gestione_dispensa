@@ -33,7 +33,18 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? [...new Set(value.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean))] : [];
 }
 
-export function deriveProductFoodSemantics(productId: string, raw: Record<string, unknown> | null | undefined, canonicalName?: string | null, sourceVersion = "food-semantics-v2"): ProductFoodSemantics {
+export function deriveProductFoodSemantics(
+  productId: string,
+  raw: Record<string, unknown> | null | undefined,
+  canonicalName?: string | null,
+  sourceVersion = "food-semantics-v2",
+  identity?: {
+    foodEntityId?: string | null;
+    semanticConfidence?: number;
+    semanticStatus?: SemanticStatus;
+    provenance?: string;
+  },
+): ProductFoodSemantics {
   const source = raw ?? {};
   const ingredientTags = stringArray(source.ingredientsTags ?? source.ingredients_tags);
   const categoryTags = stringArray(source.categoriesTags ?? source.categories_tags ?? source.categories_hierarchy);
@@ -131,7 +142,7 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
 
   return {
     productId,
-    canonicalIngredient: canonical.canonicalIngredient,
+    canonicalIngredient: identity?.foodEntityId ?? canonical.canonicalIngredient,
     ingredientTerms: [...aliases],
     taxonomyTags: [...new Set([...ingredientTags, ...categoryTags].map(tagName).filter(Boolean))],
     allergenTags: [...new Set(allergenTags)],
@@ -142,8 +153,8 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     quantity: normalizedQuantity ? { value: normalizedQuantity.value, unit: normalizedQuantity.unit } : null,
     quantityBase: normalizedQuantity ? { value: normalizedQuantity.baseValue, unit: normalizedQuantity.baseUnit } : null,
     quantityConfidence: normalizedQuantity ? (rawQuantity ? 0.97 : 0.99) : 0,
-    semanticConfidence: canonical.confidence,
-    semanticStatus: canonical.status,
+    semanticConfidence: identity?.semanticConfidence && identity.semanticConfidence > 0 ? identity.semanticConfidence : canonical.confidence,
+    semanticStatus: identity?.semanticStatus ?? canonical.status,
     components,
     compositionConfidence,
     componentsRulesVersion: FOOD_COMPONENTS_RULES_VERSION,
@@ -151,7 +162,7 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     sourceVersion,
     rulesVersion: "food-semantics-v2",
     nutriScoreGrade,
-    observedAt: new Date().toISOString()
+    observedAt: new Date().toISOString(),\n    foodEntityId: identity?.foodEntityId ?? null,\n    semanticProvenance: identity?.provenance ?? "legacy"
   };
 }
 
