@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { averageNutriScore, scoreRecipeAgainstPantry } from "../src/pantry-recipe-engine.js";
+import { averageNutriScore, estimateRecipeNutrition, scoreRecipeAgainstPantry } from "../src/pantry-recipe-engine.js";
 import { foodQuantity } from "@gestione-dispensa/food-rules";
 import { combineInventoryQuantity, parseQuantityFromText, quantityCoverage } from "../src/quantity-engine.js";
 
@@ -168,5 +168,40 @@ describe("pantry-recipe-engine", () => {
     const parsed=parseQuantityFromText("1/2 kg");
     assert.ok(parsed);
     assert.equal(parsed.baseValue,500);
+  });
+});
+
+describe("pantry-recipe-engine / recipe nutrition estimation",()=>{
+  it("computes nutrients from the quantities actually allocated",()=>{
+    const result=scoreRecipeAgainstPantry(
+      [{
+        name:"farina",displayName:"farina",canonicalIngredient:"farina",semanticConfidence:1,culinaryWeight:"CORE",
+        quantityValue:150,quantityUnit:"g",quantityDimension:"mass",quantityBaseValue:150,quantityBaseUnit:"g",quantityConfidence:1,
+      }],
+      [{
+        productId:"p1",name:"Farina",quantity:100,unit:"g",expiresAt:"2026-10-20T00:00:00Z",foodSemantics:{canonicalIngredient:"farina",semanticConfidence:1,ingredientTerms:["farina"],quantityBase:{value:100,unit:"g"}},
+        nutrition:{kcalPer100g:350,proteinGPer100g:12,carbsGPer100g:70,fatGPer100g:2,fiberGPer100g:3},
+      },{
+        productId:"p2",name:"Farina",quantity:100,unit:"g",expiresAt:"2026-11-20T00:00:00Z",foodSemantics:{canonicalIngredient:"farina",semanticConfidence:1,ingredientTerms:["farina"],quantityBase:{value:100,unit:"g"}},
+        nutrition:{kcalPer100g:360,proteinGPer100g:13,carbsGPer100g:72,fatGPer100g:1,fiberGPer100g:4},
+      }],
+    );
+    const nutrition=estimateRecipeNutrition(result.matchedIngredients,[
+      {productId:"p1",name:"Farina",quantity:100,unit:"g",nutrition:{kcalPer100g:350,proteinGPer100g:12,carbsGPer100g:70,fatGPer100g:2,fiberGPer100g:3}},
+      {productId:"p2",name:"Farina",quantity:100,unit:"g",nutrition:{kcalPer100g:360,proteinGPer100g:13,carbsGPer100g:72,fatGPer100g:1,fiberGPer100g:4}},
+    ]);
+    assert.equal(nutrition.status,"ESTIMATED");
+    assert.equal(nutrition.total?.caloriesKcal,5.35e2);
+    assert.equal(nutrition.coverage,1);
+  });
+
+  it("does not convert volume or piece quantities into per-100g nutrition",()=>{
+    const result=scoreRecipeAgainstPantry(
+      [{name:"latte",displayName:"latte",canonicalIngredient:"latte",semanticConfidence:1,culinaryWeight:"CORE",quantityValue:1,quantityUnit:"l",quantityDimension:"volume",quantityBaseValue:1000,quantityBaseUnit:"ml",quantityConfidence:1}],
+      [{productId:"milk",name:"Milk",quantity:1,unit:"l",foodSemantics:{canonicalIngredient:"latte",semanticConfidence:1,ingredientTerms:["latte"]},nutrition:{kcalPer100g:60,proteinGPer100g:3.2,carbsGPer100g:4.8,fatGPer100g:3.2,fiberGPer100g:0}}],
+    );
+    const nutrition=estimateRecipeNutrition(result.matchedIngredients,[{productId:"milk",name:"Milk",quantity:1,unit:"l",nutrition:{kcalPer100g:60,proteinGPer100g:3.2,carbsGPer100g:4.8,fatGPer100g:3.2,fiberGPer100g:0}}]);
+    assert.equal(nutrition.status,"UNAVAILABLE");
+    assert.equal(nutrition.coverage,0);
   });
 });
