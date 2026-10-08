@@ -61,6 +61,34 @@ describe("pantry-recipe-engine", () => {
     assert.equal(result.missingIngredients[0]?.status,"PARTIAL");
   });
 
+  it("allocates stock using FEFO by expiry date",()=>{
+    const result=scoreRecipeAgainstPantry(
+      [{
+        name:"pasta",
+        displayName:"pasta",
+        canonicalIngredient:"pasta",
+        semanticConfidence:1,
+        culinaryWeight:"CORE",
+        quantityValue:150,
+        quantityUnit:"g",
+        quantityDimension:"mass",
+        quantityBaseValue:150,
+        quantityBaseUnit:"g",
+        quantityConfidence:1,
+      }],
+      [
+        {productId:"older",name:"Pasta old",quantity:100,unit:"g",expiresAt:"2026-10-20T00:00:00Z",addedAt:"2026-09-01T00:00:00Z",foodSemantics:{canonicalIngredient:"pasta",semanticConfidence:1,ingredientTerms:["pasta"],quantityBase:{value:100,unit:"g"}}},
+        {productId:"newer",name:"Pasta new",quantity:100,unit:"g",expiresAt:"2026-11-20T00:00:00Z",addedAt:"2026-10-01T00:00:00Z",foodSemantics:{canonicalIngredient:"pasta",semanticConfidence:1,ingredientTerms:["pasta"],quantityBase:{value:100,unit:"g"}}},
+      ],
+    );
+    assert.equal(result.score,1);
+    assert.deepEqual(result.matchedIngredients[0]?.productIds,["older","newer"]);
+    assert.equal(result.matchedIngredients[0]?.allocations[0]?.productId,"older");
+    assert.equal(result.matchedIngredients[0]?.allocations[0]?.usedBaseValue,100);
+    assert.equal(result.matchedIngredients[0]?.allocations[1]?.productId,"newer");
+    assert.equal(result.matchedIngredients[0]?.allocations[1]?.usedBaseValue,50);
+  });
+
   it("calculates an ingredient-level Nutri-Score average only from matched pantry products",()=>{
     const result=averageNutriScore(
       [
