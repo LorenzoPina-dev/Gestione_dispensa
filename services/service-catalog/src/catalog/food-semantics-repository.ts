@@ -15,7 +15,11 @@ async function resolveProductIdentity(
   canonicalName: string,
   snapshot: Record<string, unknown> | null | undefined,
 ): Promise<ResolverResponse | null> {
-  const baseUrl = String(process.env.FOOD_SEMANTICS_SERVICE_BASE_URL ?? "http://service-food-semantics:3410/api/v1").replace(/\//$/, "");
+  let baseUrl = String(
+    process.env.FOOD_SEMANTICS_SERVICE_BASE_URL ??
+      "http://service-food-semantics:3410/api/v1",
+  );
+  while (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
   const source = snapshot ?? {};
   const texts = [
     canonicalName,
