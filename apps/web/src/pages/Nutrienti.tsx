@@ -7,6 +7,39 @@ import { Input } from "../components/ui/Input";
 import SectionHeading from "../components/ui/SectionHeading";
 import { RowList, Row } from "../components/ui/ListRow";
 
+const DIETARY_OPTIONS: Array<{ value: api.DietaryRestriction; label: string }> = [
+  { value: "vegan", label: "Vegano" },
+  { value: "vegetarian", label: "Vegetariano" },
+  { value: "pescatarian", label: "Pescetariano" },
+  { value: "gluten-free", label: "Senza glutine" },
+  { value: "lactose-free", label: "Senza lattosio" },
+  { value: "dairy-free", label: "Senza latticini" },
+  { value: "nut-free", label: "Senza frutta a guscio" },
+  { value: "peanut-free", label: "Senza arachidi" },
+  { value: "soy-free", label: "Senza soia" },
+  { value: "egg-free", label: "Senza uova" },
+  { value: "fish-free", label: "Senza pesce" },
+  { value: "shellfish-free", label: "Senza crostacei/molluschi" },
+];
+
+const ALLERGEN_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "milk", label: "Latte" },
+  { value: "eggs", label: "Uova" },
+  { value: "gluten", label: "Glutine" },
+  { value: "wheat", label: "Frumento" },
+  { value: "peanuts", label: "Arachidi" },
+  { value: "nuts", label: "Frutta a guscio" },
+  { value: "soybeans", label: "Soia" },
+  { value: "fish", label: "Pesce" },
+  { value: "crustaceans", label: "Crostacei" },
+  { value: "molluscs", label: "Molluschi" },
+  { value: "sesame-seeds", label: "Sesamo" },
+  { value: "mustard", label: "Senape" },
+  { value: "celery", label: "Sedano" },
+  { value: "lupin", label: "Lupino" },
+  { value: "sulphites", label: "Solfiti" },
+];
+
 const CONFIDENCE_META: Record<ConfidenceLabel, { label: string; color: string; bg: string }> = {
   CONFIRMED: { label: "confermato", color: colors.sageDark, bg: colors.sageLight },
   ESTIMATED: { label: "stimato", color: colors.amberDark, bg: colors.amberLight },
@@ -35,6 +68,27 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
   const [scaleItem, setScaleItem] = useState<StockItem | null>(null);
   const [scaleQty, setScaleQty] = useState(100);
   const [search, setSearch] = useState("");
+  const [dietaryPreferences, setDietaryPreferences] = useState<api.DietaryPreferencesDto | null>(null);
+  const [dietaryLoading, setDietaryLoading] = useState(false);
+  const [dietarySaving, setDietarySaving] = useState(false);
+  const [dietaryError, setDietaryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!familyId) {
+      setDietaryPreferences(null);
+      return;
+    }
+    let cancelled = false;
+    setDietaryLoading(true);
+    setDietaryError(null);
+    api.getDietaryPreferences()
+      .then(value => { if (!cancelled) setDietaryPreferences(value); })
+      .catch(error => {
+        if (!cancelled) setDietaryError(error instanceof Error ? error.message : "Impossibile leggere il profilo alimentare.");
+      })
+      .finally(() => { if (!cancelled) setDietaryLoading(false); });
+    return () => { cancelled = true; };
+  }, [familyId]);
 
   useEffect(() => {
     if (initialSummary !== undefined && period === "oggi") {
@@ -249,6 +303,156 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl p-5 space-y-5" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+        <div>
+          <SectionHeading>Profilo alimentare personale</SectionHeading>
+          <p className="text-xs mt-1" style={{ color: colors.inkMuted }}>
+            Queste preferenze vengono usate dal motore Ricette per filtrare allergeni e restrizioni. Non modificano la dispensa della famiglia.
+          </p>
+        </div>
+
+        {dietaryLoading ? (
+          <p className="text-sm" style={{ color: colors.inkMuted }}>Caricamento profilo…</p>
+        ) : dietaryPreferences ? (
+          <>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold" style={{ color: colors.ink }}>Allergeni</p>
+              <div className="flex flex-wrap gap-2">
+                {ALLERGEN_OPTIONS.map(option => {
+                  const active = dietaryPreferences.allergenTags.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setDietaryPreferences(current => current ? {
+                        ...current,
+                        allergenTags: active
+                          ? current.allergenTags.filter(tag => tag !== option.value)
+                          : [...current.allergenTags, option.value],
+                      } : current)}
+                      className="rounded-full px-3 py-1.5 text-xs font-medium transition-all"
+                      style={{
+                        backgroundColor: active ? colors.terracottaLight : colors.creamDark,
+                        color: active ? colors.terracotta : colors.inkMuted,
+                        border: `1px solid ${active ? colors.terracotta : colors.border}`,
+                      }}
+                      aria-pressed={active}
+                    >
+                      {active ? "✓ " : ""}{option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold" style={{ color: colors.ink }}>Preferenze dietetiche</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {DIETARY_OPTIONS.map(option => {
+                  const active = dietaryPreferences.dietaryRestrictions.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setDietaryPreferences(current => current ? {
+                        ...current,
+                        dietaryRestrictions: active
+                          ? current.dietaryRestrictions.filter(tag => tag !== option.value)
+                          : [...current.dietaryRestrictions, option.value],
+                      } : current)}
+                      className="rounded-xl px-3 py-2.5 text-left text-xs font-medium transition-all"
+                      style={{
+                        backgroundColor: active ? colors.sageLight : colors.cream,
+                        color: active ? colors.sageDark : colors.inkMuted,
+                        border: `1px solid ${active ? colors.sage : colors.border}`,
+                      }}
+                      aria-pressed={active}
+                    >
+                      {active ? "✓ " : ""}{option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-xl p-3" style={{ backgroundColor: colors.cream }}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold" style={{ color: colors.ink }}>Tracce da allergeni</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>
+                    “Avvisa” mantiene la ricetta visibile con un warning; “Escludi” la blocca.
+                  </p>
+                </div>
+                <div className="flex rounded-lg overflow-hidden shrink-0" style={{ border: `1px solid ${colors.border}` }}>
+                  {(["WARN", "EXCLUDE"] as const).map(policy => (
+                    <button
+                      key={policy}
+                      type="button"
+                      onClick={() => setDietaryPreferences(current => current ? { ...current, tracePolicy: policy } : current)}
+                      className="px-2.5 py-1.5 text-[10px] font-semibold"
+                      style={{
+                        backgroundColor: dietaryPreferences.tracePolicy === policy ? colors.ink : colors.white,
+                        color: dietaryPreferences.tracePolicy === policy ? colors.cream : colors.inkMuted,
+                      }}
+                      aria-pressed={dietaryPreferences.tracePolicy === policy}
+                    >
+                      {policy === "WARN" ? "Avvisa" : "Escludi"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {dietaryError && (
+              <div className="rounded-xl px-3 py-2 text-xs" style={{ backgroundColor: colors.terracottaLight, color: colors.terracotta }}>
+                {dietaryError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px]" style={{ color: colors.inkMuted }}>
+                Profilo v{dietaryPreferences.version}
+              </p>
+              <button
+                type="button"
+                disabled={dietarySaving}
+                onClick={async () => {
+                  setDietarySaving(true);
+                  setDietaryError(null);
+                  try {
+                    const updated = await api.updateDietaryPreferences(dietaryPreferences.version, {
+                      allergenTags: dietaryPreferences.allergenTags,
+                      dietaryRestrictions: dietaryPreferences.dietaryRestrictions,
+                      tracePolicy: dietaryPreferences.tracePolicy,
+                    });
+                    setDietaryPreferences(updated);
+                  } catch (error) {
+                    setDietaryError(error instanceof Error ? error.message : "Salvataggio del profilo non riuscito.");
+                    try {
+                      const refreshed = await api.getDietaryPreferences();
+                      setDietaryPreferences(refreshed);
+                    } catch {
+                      // keep local state so the user can retry once backend recovers
+                    }
+                  } finally {
+                    setDietarySaving(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+                style={{ backgroundColor: dietarySaving ? colors.creamDark : colors.terracotta, color: dietarySaving ? colors.inkMuted : colors.white }}
+              >
+                {dietarySaving ? "Salvataggio…" : "Salva profilo"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-xl p-3" style={{ backgroundColor: colors.creamDark }}>
+            <p className="text-sm font-medium" style={{ color: colors.ink }}>Profilo non disponibile</p>
+            <p className="text-xs mt-1" style={{ color: colors.inkMuted }}>Riprova quando il servizio account è raggiungibile.</p>
           </div>
         )}
       </div>
