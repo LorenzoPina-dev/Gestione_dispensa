@@ -251,6 +251,58 @@ export function parseFoodQuantityFromText(raw:string):FoodQuantity|null {
 }
 
 
+export interface ParsedFoodIngredientLine {
+  raw:string;
+  ingredientText:string;
+  quantity:FoodQuantity|null;
+  quantityConfidence:number;
+  prepState:string|null;
+}
+
+const PREPARATION_PATTERNS:readonly RegExp[] = [
+  /\b(?:beaten|whisked|separated|chopped|diced|minced|sliced|grated|peeled|crushed|melted|softened|drained|rinsed|cooked|boiled|roasted|dried|finely|roughly|thinly)\b/gi,
+  /\b(?:sbattut[oaie]?|montat[oaie]?|separat[oaie]?|tritat[oaie]?|tagliat[oaie]?|affettat[oaie]?|grattugiat[oaie]?|pelat[oaie]?|schiacciat[oaie]?|fuso|fusa|ammorbidit[oaie]?|scolat[oaie]?|sciacquat[oaie]?|cotto|cotta|lessat[oaie]?|arrostit[oaie]?|finemente|grossolanamente)\b/gi,
+  /\b(?:haché|hachée|émincé|émincée|tranché|tranchée|râpé|râpée|pelé|pelée|écrasé|écrasée|fondu|fondue|égoutté|égouttée|cuit|cuite|finement)\b/gi,
+  /\b(?:batid[oa]s?|picad[oa]s?|trocead[oa]s?|cortad[oa]s?|rallad[oa]s?|pelad[oa]s?|machacad[oa]s?|derretid[oa]s?|escurrid[oa]s?|cocid[oa]s?|finamente)\b/gi,
+  /\b(?:gehackt|gewürfelt|geschnitten|gerieben|geschält|zerdrückt|geschmolzen|abgetropft|gekocht|fein)\b/gi,
+];
+
+function detectPreparationState(raw:string):string|null {
+  for(const pattern of PREPARATION_PATTERNS){
+    const match=raw.match(pattern);
+    if(match?.[0])return normalizeFoodText(match[0]);
+  }
+  return null;
+}
+
+export function parseFoodIngredientLine(raw:string):ParsedFoodIngredientLine {
+  const text=raw.trim().replace(/^ingredients?\s*[:\-–—]\s*/i,"").trim();
+  if(!text)return {raw,ingredientText:"",quantity:null,quantityConfidence:0,prepState:null};
+  const quantity=parseFoodQuantityFromText(text);
+  let ingredientText=text;
+  if(quantity){
+    const escaped=quantity.sourceRaw.trim().replace(/[.*+?^{}()|[\]\\]/g,"\\export const AMBIGUOUS_COMPOUND_INGREDIENTS = new Set([");
+    ingredientText=ingredientText.replace(new RegExp("\\b"+escaped.replace(/\\s+/g,"\\s+")+"\\b","i")," ").replace(/\s+/g," ").trim();
+  } else {
+    const countMatch=text.match(/^\s*\d+(?:[.,]\d+)?\s+/);
+    if(countMatch){
+      const canonicalProbe=canonicalizeIngredient(text);
+      const inferred=parseFoodCountFromText(text,canonicalProbe.canonicalIngredient);
+      if(inferred){
+        ingredientText=text.slice(countMatch[0].length).trim();
+        return {raw,ingredientText,quantity:inferred,quantityConfidence:0.82,prepState:detectPreparationState(text)};
+      }
+    }
+  }
+  return {
+    raw,
+    ingredientText,
+    quantity,
+    quantityConfidence:quantity?0.9:0,
+    prepState:detectPreparationState(text),
+  };
+}
+
 export const AMBIGUOUS_COMPOUND_INGREDIENTS = new Set([
   "pesto","ragu","brodo","gelatina","formaggio","pane","pasta","salsa"
 ]);
