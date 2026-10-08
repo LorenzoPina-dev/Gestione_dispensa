@@ -1,6 +1,56 @@
 import { deriveProductFoodSemantics, type ProductFoodSemantics } from "./food-semantics.js";
 import type { SqlClient } from "./postgres.js";
 
+type ResolverResponse = {
+  status: "RESOLVED" | "UNRESOLVED";
+  foodEntityId?: string | null;
+  displayName?: string;
+  semanticConfidence?: number;
+  provenance?: string;
+};
+
+async function resolveProductIdentity(
+  productId: string,
+  canonicalName: string,
+  snapshot: Record<string, unknown> | null | undefined,
+): Promise<ResolverResponse | null> {
+  const baseUrl = String(process.env.FOOD_SEMANTICS_SERVICE_BASE_URL ?? "http://service-food-semantics:3410/api/v1").replace(/\\/$/, "");
+  const source = snapshot ?? {};
+  const texts = [
+    canonicalName,
+    source.productName,
+    source.productNameIt,
+    source.productNameEn,
+    source.productNameFr,
+    source.productNameEs,
+    source.productNameDe,
+    source.ingredientsTextIt,
+    source.ingredientsTextEn,
+    source.ingredientsTextFr,
+    source.ingredientsTextEs,
+    source.ingredientsTextDe,
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const taxonomyTags = [
+    ...(Array.isArray(source.ingredientsTags) ? source.ingredientsTags : []),
+    ...(Array.isArray(source.categoriesTags) ? source.categoriesTags : []),
+    ...(Array.isArray(source.categoriesHierarchy) ? source.categoriesHierarchy : []),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (!texts.length && !taxonomyTags.length) return null;
+
+  try {
+    const response = await fetch(baseUrl + "/resolve/product", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ productId, texts, taxonomyTags, locale: "it-IT" }),
+      signal: AbortSignal.timeout(Number(process.env.FOOD_SEMANTICS_TIMEOUT_MS ?? 4000)),
+    });
+    if (!response.ok) return null;
+    return await response.json() as ResolverResponse;
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertProductFoodSemantics(
   database: SqlClient,
   productId: string,
@@ -18,7 +68,14 @@ export async function upsertProductFoodSemantics(
     : null;
   const effectiveSource = source ?? current?.rows[0]?.source ?? "derived";
   const effectiveSourceVersion = sourceVersion ?? current?.rows[0]?.source_version ?? "food-semantics-v2";
-  const semantics = deriveProductFoodSemantics(productId, snapshot, canonicalName, effectiveSourceVersion);
+  const resolved = await resolveProductIdentity(productId, canonicalName, snapshot);
+  const semantics = deriveProductFoodSemantics(productId, snapshot, canonicalName, effectiveSourceVersion, {
+    foodEntityId: resolved?.foodEntityId ?? null,
+    semanticConfidence: Number(resolved?.semanticConfidence ?? 0),
+    semanticStatus: resolved?.status === "RESOLVED" ? "EXACT" : undefined,
+    provenance: resolved?.provenance ?? "food-semantics",
+  });
+
   await database.query(
     `INSERT INTO product_food_semantics
       (product_id,canonical_ingredient,ingredient_terms,taxonomy_tags,allergen_tags,trace_tags,label_tags,dietary_tags,
