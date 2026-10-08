@@ -1,4 +1,4 @@
-import { inferIngredientAllergens, normalizeFoodText } from "@gestione-dispensa/food-rules";
+import { inferIngredientAllergens, isAmbiguousCompoundIngredient, normalizeFoodText } from "@gestione-dispensa/food-rules";
 
 export type SafetySeverity = "BLOCK" | "WARN";
 export type SafetyWarningCode = "ALLERGEN" | "TRACE" | "DIETARY_RESTRICTION" | "UNKNOWN_COMPOSITION";
