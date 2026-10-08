@@ -12,7 +12,8 @@
     "test:unit": "node --import tsx --test test/unit.test.ts test/pantry-recipe-engine.test.ts test/safety-engine.test.ts",
     "test:http": "node --import tsx --test test/http.test.ts",
     "test:migration": "npm run build && node --import tsx --test test/migration.test.ts",
-    "test:integration": "node --import tsx --test test/integration.test.ts"
+    "test:integration": "node --import tsx --test test/integration.test.ts",
+    "import:catalog": "node dist/catalog-import.js"
   },
   "dependencies": {
     "express": "^4.21.2",
