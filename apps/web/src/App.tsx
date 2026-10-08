@@ -113,6 +113,7 @@ export default function App() {
           avatar: (apiUser.displayName || apiUser.email || "U").slice(0, 2).toUpperCase(),
           role: normalizeFamilyRole(active?.role),
           hasFamilyId: active?.familyId || null,
+          locale: apiUser.locale || "it-IT",
         };
 
         if (!cancelled) {
