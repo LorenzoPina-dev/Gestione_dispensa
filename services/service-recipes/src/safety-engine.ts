@@ -118,7 +118,7 @@ export function evaluateRecipeSafety(
       });
     }
     pushDietConflicts(ingredient.name,ingredient.canonicalIngredient??null,inferred);
-    if(!ingredient.canonicalIngredient&&(profile.allergenTags.length||profile.dietaryRestrictions.length)){
+    if((!ingredient.canonicalIngredient||isAmbiguousCompoundIngredient(ingredient.canonicalIngredient))&&(profile.allergenTags.length||profile.dietaryRestrictions.length)){
       warnings.push({
         code:"UNKNOWN_COMPOSITION",
         severity:uncertaintySeverity(profile.uncertaintyPolicy),
