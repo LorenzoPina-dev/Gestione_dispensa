@@ -62,7 +62,8 @@
 - [x] Profilo famigliare: Recipes legge i membri da Family e aggrega i profili personali da Identity; allergeni/restrizioni si uniscono e una policy tracce `EXCLUDE` prevale.
 - [x] Policy separate per allergeni dichiarati e tracce; le frasi testuali di contaminazione vengono classificate distintamente.
 - [x] Rendere configurabile la policy per incertezza a livello di profilo: `uncertaintyPolicy=WARN|EXCLUDE`, con default `EXCLUDE`.
-- [ ] Calcolo nutrizionale reale per porzione e ranking recipe-level; è presente solo il tie-breaker ingredient-level basato sui Nutri-Score dei prodotti di dispensa.
+- [x] Stima nutrizionale recipe-level dalla quantità realmente allocata dei prodotti di dispensa, limitata ai nutrienti affidabili per 100 g.
+- [ ] Calcolo verificato per porzione e ranking recipe-level: manca ancora una fonte affidabile e completa del numero di porzioni.
 - [x] `RecipeMatch` stabile con prodotti usati, quantità, mancanti, sostituzioni, istruzioni, sicurezza, copertura e spiegazione dello score. La nutrizione recipe-level resta separata perché il dataset non fornisce dati sufficienti.
 - [x] Cache/materializzazione del profilo semantico nel Catalog con upsert atomico su create/update/import/refresh, funzione SQL di lettura, backfill one-shot e fallback quando la `rulesVersion` cambia.
 - [x] Versionamento esplicito di `rulesVersion` nella proiezione semantica; resta da propagare la versione delle regole nel risultato storico completo di `RecipeMatch`.
