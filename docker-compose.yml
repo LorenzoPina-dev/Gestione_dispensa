@@ -377,10 +377,19 @@ services:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
     environment: { PORT: 3401, SERVICE_NAME: service-recipes, DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", IDENTITY_SERVICE_BASE_URL: "http://service-identity:3310/api/v1", IDENTITY_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", INVENTORY_SERVICE_BASE_URL: "http://service-inventory:3312/api/v1", CATALOG_SERVICE_BASE_URL: "http://service-catalog:3314/api/v1", MIGRATION_DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
     depends_on:
-      postgres-app-role-init: { condition: service_completed_successfully }
+      recipes-catalog-import: { condition: service_completed_successfully }
       service-identity: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
+    networks: [backend, data, egress]
+
+  recipes-catalog-import:
+    build: { context: ., dockerfile: services/service-recipes/Dockerfile }
+    environment: { DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db", MIGRATION_DATABASE_URL: "postgres://recipes:recipes@postgres:5432/recipes_db" }
+    command: ["sh","-c","DATABASE_URL=\"${MIGRATION_DATABASE_URL:-${DATABASE_URL}}\" node dist/migrate.js && node dist/catalog-import.js"]
+    depends_on:
+      postgres-app-role-init: { condition: service_completed_successfully }
+    restart: "no"
     networks: [backend, data, egress]
 
   service-nutrition:
