@@ -446,9 +446,12 @@ services:
 
   recipes-catalog-import:
     build: { context: ., dockerfile: services/service-recipes/Dockerfile }
-    environment: { DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db" }
+    environment:
+      DATABASE_URL: "postgres://recipes_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/recipes_db"
+      FOOD_SEMANTICS_SERVICE_BASE_URL: "http://service-food-semantics:3410/api/v1"
     command: ["node","dist/catalog-import.js"]
     depends_on:
+      service-food-semantics: { condition: service_healthy }
       service-recipes-schema-migrate: { condition: service_completed_successfully }
     restart: "no"
     networks: [backend, data, egress]
