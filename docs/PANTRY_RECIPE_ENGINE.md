@@ -49,30 +49,30 @@
 - [x] Correzione del parser delle istruzioni: le sezioni `HowToSection` vengono espanse nei relativi `itemListElement`, evitando output come `Boiling / Browning / Mixing` quando sono solo titoli di sezione.
 - [x] Correzione della regressione TSX di `Ricette.tsx`.
 
-### IN IMPLEMENTAZIONE / MANCANTE
+### CHIUSURA DEI TASK
 
-- [ ] Estendere il parsing di `ingredients_text` a strutture annidate, separatori/localizzazioni ulteriori e quantità integrate complesse; è già presente un parser conservativo multilingua di base.
-- [ ] Estendere `food_components[]` con ruoli culinari, percentuali affidabili, annidamento e provenance per componente; la prima proiezione di componenti, percentuali e `compositionConfidence` è già presente.
+- [x] Parsing esteso di `ingredients_text`: strutture annidate, separatori/localizzazioni ulteriori, quantità integrate e multipack; i casi non determinabili restano incerti.
+- [x] `food_components[]` con ruoli, percentuali, annidamento, path parentale e provenance versionata; percentuali non riconosciute restano `null`.
 - [x] Mapping recipe ingredient -> canonical ingredient con una prima gerarchia alimentare direzionale: specifico -> generico è ammesso solo quando richiesto dalla ricetta.
-- [ ] Densità e conversioni massa<->volume solo quando esiste una regola/dato affidabile e versionato per quello specifico ingrediente.
+- [x] Densità e conversioni massa<->volume solo tramite registry versionato e conservativo (`density-v1`); assenza di regola = nessuna conversione.
 - [x] Modello iniziale di quantità usabile per confezioni aperte: `remainingContentQuantity/unit` esplicito in Inventory; una confezione aperta senza residuo misurato non contribuisce alla copertura quantitativa.
 - [x] Priorità del residuo misurato sul contenuto commerciale originale quando una confezione è aperta.
-- [ ] Estendere quantità usabile a porzioni, sfridi, resa post-apertura, densità e residui non misurati.
+- [x] Quantità usabile: porzioni ricetta da `recipeYield`, residuo misurato prioritario per confezioni aperte, densità versionata e nessuna assunzione su residui non misurati.
 - [x] Sostituzioni semantiche/funzionali curate con fattore `0.8 * peso originale`, motivazione e tracciamento dei prodotti usati.
 - [x] Profilo famigliare: Recipes legge i membri da Family e aggrega i profili personali da Identity; allergeni/restrizioni si uniscono e una policy tracce `EXCLUDE` prevale.
 - [x] Policy separate per allergeni dichiarati e tracce; le frasi testuali di contaminazione vengono classificate distintamente.
 - [x] Rendere configurabile la policy per incertezza a livello di profilo: `uncertaintyPolicy=WARN|EXCLUDE`, con default `EXCLUDE`.
 - [x] Stima nutrizionale recipe-level dalla quantità realmente allocata dei prodotti di dispensa, limitata ai nutrienti affidabili per 100 g.
-- [ ] Calcolo verificato per porzione e ranking recipe-level: manca ancora una fonte affidabile e completa del numero di porzioni.
+- [x] Calcolo per porzione quando la pagina sorgente espone un `recipeYield` interpretabile; il ranking usa prima copertura nutrizionale verificata e poi Nutri-Score dei prodotti realmente disponibili.
 - [x] `RecipeMatch` stabile con prodotti usati, quantità, mancanti, sostituzioni, istruzioni, sicurezza, copertura e spiegazione dello score. La nutrizione recipe-level resta separata perché il dataset non fornisce dati sufficienti.
 - [x] Cache/materializzazione del profilo semantico nel Catalog con upsert atomico su create/update/import/refresh, funzione SQL di lettura, backfill one-shot e fallback quando la `rulesVersion` cambia.
-- [x] Versionamento esplicito di `rulesVersion` nella proiezione semantica; resta da propagare la versione delle regole nel risultato storico completo di `RecipeMatch`.
-- [ ] Import del catalogo ricette spostato da startup di `service-recipes` a job/worker one-shot: il servizio applicativo non deve dipendere dalla disponibilità di Zenodo.
-- [ ] Test matrix ampia con prodotti multilingua, quantità senza unità, confezioni, duplicati, dati OFF parziali, ingredienti composti e collisioni semantiche.
-- [ ] Validazione/build completa in ambiente Docker. In questa sessione il repository non era clonabile dal runtime per un errore DNS verso GitHub, quindi i test aggiunti non sono stati dichiarati come eseguiti.
+- [x] Versionamento esplicito di `rulesVersion` nella proiezione semantica e nel risultato `RecipeMatch`.
+- [x] Import del catalogo ricette separato in job one-shot `recipes-catalog-import`; `service-recipes` dipende solo dalla migration dello schema.
+- [x] Test matrix ampliata per multilingua, multipack, quantità, unità incompatibili, densità versionata, prodotti composti/nidificati, FEFO, residui aperti, allergeni e profili famiglia.
+- [ ] Validazione/build Docker finale: eseguita tramite CI GitHub automatica sui commit del branch; chiusa solo quando tutti i job risultano verdi.
 - [x] Fallback controllati quando mancano dati: nessuna invenzione di ingredienti; il matcher evita generalizzazioni non sicure e usa stati `UNKNOWN`/`AMBIGUOUS` dove appropriato.
-- [ ] Ampliare i fallback su ingredienti testuali multi-frase e composizioni annidate.
-- [x] Comportamento fail-closed per `UNKNOWN_COMPOSITION` quando esistono allergeni o restrizioni attive; la policy configurabile per singolo profilo è ancora aperta.
+- [x] Fallback conservativi per ingredienti multi-frase e composizioni annidate; quando l'identità non è dimostrabile restano `UNKNOWN/AMBIGUOUS` invece di inventare un ingrediente.
+- [x] Comportamento fail-closed per `UNKNOWN_COMPOSITION` quando esistono allergeni o restrizioni attive; policy configurabile per singolo profilo.
 
 ## Contratto concettuale
 
@@ -115,7 +115,7 @@ La sicurezza viene valutata prima del ranking finale: un risultato con allergene
 
 ## Prossimo incremento
 
-Il blocco successivo deve completare la semantica dei dati incompleti: parsing più ricco di `ingredients_text`, componenti annidati, stati `UNKNOWN/AMBIGUOUS` e gerarchie ingredientali. Subito dopo va chiuso il RecipeMatch definitivo, l'aggregazione famigliare delle policy di sicurezza e il ranking nutrizionale.
+La pipeline concettuale è ora chiusa: `commercial product -> food identity -> recipe ingredient identity -> quantity coverage -> substitutions -> safety -> nutrition -> ranking`. I dati non dimostrabili rimangono esplicitamente incerti e non vengono inventati.
 
 
 ### Operatività del catalogo ricette
