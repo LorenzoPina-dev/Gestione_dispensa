@@ -152,7 +152,8 @@ async function main(): Promise<void> {
 
   const downloadUrls = [
     DATASET_URL,
-    DATASET_URL.includes("?") ? DATASET_URL.split("?")[0] : DATASET_URL,
+    "https://zenodo.org/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip?download=1",
+    "https://zenodo.org/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip",
   ].filter((value, index, values) => values.indexOf(value) === index);
 
   let data: Buffer | null = null;
