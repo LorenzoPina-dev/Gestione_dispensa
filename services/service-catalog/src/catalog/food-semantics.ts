@@ -1,4 +1,4 @@
-import { canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, parseIngredientText, type CulinaryWeight, type FoodComponent } from "@gestione-dispensa/food-rules";
+import { canonicalAllergenTag, canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, parseIngredientText, type CulinaryWeight, type FoodComponent } from "@gestione-dispensa/food-rules";
 
 export interface ProductFoodSemantics {
   productId: string;
@@ -33,8 +33,9 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
   const source = raw ?? {};
   const ingredientTags = stringArray(source.ingredientsTags ?? source.ingredients_tags);
   const categoryTags = stringArray(source.categoriesTags ?? source.categories_tags ?? source.categories_hierarchy);
-  const allergenTags = stringArray(source.allergensTags ?? source.allergens_tags).map(tagName);
-  const traceTags = stringArray(source.tracesTags ?? source.traces_tags).map(tagName);
+  const normalizeSafetyTag = (value:string):string => canonicalAllergenTag(value) ?? tagName(value);
+  const allergenTags = stringArray(source.allergensTags ?? source.allergens_tags).map(normalizeSafetyTag);
+  const traceTags = stringArray(source.tracesTags ?? source.traces_tags).map(normalizeSafetyTag);
   const labelTags = stringArray(source.labelsTags ?? source.labels_tags).map(tagName);
   const productText = firstNonEmpty(
     canonicalName,
