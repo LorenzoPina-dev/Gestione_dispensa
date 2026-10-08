@@ -1,172 +1,43 @@
 export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
 
-export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
-  pomodoro: ["pomodoro","pomodori","tomato","tomatoes","tomate","tomates","tomato puree","passata","passata di pomodoro","tomate frito"],
-  cipolla: ["cipolla","cipolle","onion","onions","oignon","oignons","cebolla","cebollas","zwiebel"],
-  aglio: ["aglio","garlic","ail","ajo","knoblauch"],
-  patata: ["patata","patate","potato","potatoes","pomme de terre","pommes de terre","patatas","kartoffel","kartoffeln"],
-  carota: ["carota","carote","carrot","carrots","carotte","carottes","zanahoria","karotte","karotten"],
-  zucchina: ["zucchina","zucchine","zucchini","courgette","courgettes","calabacin","calabacines"],
-  melanzana: ["melanzana","melanzane","eggplant","eggplants","aubergine","aubergines","berenjena","berenjenas"],
-  peperone: ["peperone","peperoni","bell pepper","bell peppers","poivron","poivrons","pimiento","pimientos"],
-  pollo: ["pollo","chicken","poulet","hähnchen","huhn"],
-  manzo: ["manzo","beef","boeuf","bœuf","rindfleisch"],
-  maiale: ["maiale","pork","porc","cerdo","schweinefleisch"],
-  pancetta: ["pancetta","bacon"],
-  prosciutto: ["prosciutto","ham"],
-  tonno: ["tonno","tuna","thon","atún"],
-  salmone: ["salmone","salmon","saumon","salmón","lachs"],
-  uovo: ["uovo","uova","egg","eggs","œuf","oeuf","oeufs","huevo","huevos","ei","eier"],
-  latte: ["latte","milk","lait","leche","milch"],
-  burro: ["burro","butter","beurre","mantequilla"],
-  panna: ["panna","cream","crème","creme","nata","sahne"],
-  formaggio: ["formaggio","formaggi","cheese","cheeses","fromage","fromages","queso","quesos","käse"],
-  mozzarella: ["mozzarella"],
-  parmigiano: ["parmigiano","parmesan"],
-  pecorino: ["pecorino","pecorino cheese"],
-  fiordilatte: ["fiordilatte","fior di latte"],
-  pesto: ["pesto","pesto genovese","genovese pesto"],
-  yogurt: ["yogurt","yoghurt","yaourt","yogur","joghurt"],
-  tofu: ["tofu"],
-  seitan: ["seitan"],
-  brodo: ["brodo","broth","bouillon"],
-  ragu: ["ragù","ragu","ragout"],
-  pepe: ["pepe","pepe nero","pepe bianco","black pepper","white pepper","poivre","pimienta","pfeffer"],
-  peperoncino: ["peperoncino","peperoncini","chili","chilli","chili pepper","poivre rouge","guindilla"],
-  salvia: ["salvia","sage","sauge","salvia"],
-  timo: ["timo","thyme","thym","tomillo"],
-  origano: ["origano","oregano","origan","orégano"],
-  curry: ["curry"],
-  paprika: ["paprika","paprica"],
-  "noce moscata": ["noce moscata","nutmeg","muscade","nuez moscada"],
-  cannella: ["cannella","cinnamon","cannelle","canela"],
-  curcuma: ["curcuma","turmeric","curcuma","cúrcuma"],
-  zafferano: ["zafferano","saffron","safran","azafrán"],
-  capperi: ["cappero","capperi","caper","capers","câpre","alcaparra"],
-  acciuga: ["acciuga","acciughe","anchovy","anchovies","anchois","anchoa"],
-  gambero: ["gambero","gamberi","shrimp","prawn","prawns","crevette","crevettes","gamba"],
-  cozza: ["cozza","cozze","mussel","mussels","moule","moules","mejillón","mejillones"],
-  vongola: ["vongola","vongole","clam","clams","palourde","palourdes","almeja","almejas"],
-  calamaro: ["calamaro","calamari","squid","calmar","calamares"],
-  lenticchia: ["lenticchia","lenticchie","lentil","lentils","lentille","lentilles","lenteja","lentejas"],
-  polenta: ["polenta","cornmeal","farina di mais","semoule de maïs","harina de maíz"],
-  semola: ["semola","semolina","semoule","sémolina","sémola"],
-  "amido di mais": ["amido di mais","maizena","cornstarch","corn starch","fécule de maïs","almidón de maíz"],
-  "lievito per dolci": ["lievito per dolci","baking powder","levure chimique","levadura química","backpulver"],
-  lievito: ["lievito","yeast","levure","levadura","hefe"],
-  gelatina: ["gelatina","gelatine","gelatin","gélatine","gelatina"],
-  gorgonzola: ["gorgonzola"],
-  taleggio: ["taleggio"],
-  mortadella: ["mortadella"],
+export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
 
-  farina: ["farina","flour","farine","harina","mehl"],
-  pane: ["pane","bread","pain","pan","brot"],
-  pangrattato: ["pangrattato","breadcrumbs","bread crumbs","chapelure","pan rallado"],
-  pasta: ["pasta","rigatoni","penne","fusilli","farfalle","spaghetti","spaghettini","linguine","bucatini","tagliatelle","fettuccine","maccheroni","maccheroncini","orecchiette","paccheri","cannelloni","lasagne","lasagna"],
-  riso: ["riso","rice","riz","arroz","reis"],
-  ceci: ["cece","ceci","chickpea","chickpeas","pois chiches","garbanzos","kichererbsen"],
-  fagioli: ["fagiolo","fagioli","bean","beans","haricot","haricots","frijol","frijoles","bohne","bohnen"],
-  piselli: ["pisello","piselli","pea","peas","petit pois","petits pois","guisante","guisantes","erbse","erbsen"],
-  mais: ["mais","corn"],
-  olive: ["oliva","olive","olives"],
-  "olio extravergine": ["olio extravergine","olio evo","extra virgin olive oil","extra-virgin olive oil","evo oil"],
-  olio: ["olio","oil"],
-  sale: ["sale","salt","sel","sal","salz"],
-  acqua: ["acqua","water","eau","agua","wasser"],
-  aceto: ["aceto","vinegar","vinaigre","vinagre","essig"],
-  basilico: ["basilico","basil","basilic","albahaca"],
-  prezzemolo: ["prezzemolo","parsley","persil","perejil"],
-  rosmarino: ["rosmarino","rosemary","romarin","romero"],
-  limone: ["limone","limoni","lemon","lemons","citron","citrons","limón","zitrone"],
-  zucchero: ["zucchero","sugar","sucre","azúcar","zucker"],
-  cacao: ["cacao","cocoa"],
-  cioccolato: ["cioccolato","chocolate"],
-  miele: ["miele","honey","miel","honig"],
-  mandorle: ["mandorla","mandorle","almond","almonds"],
-  noci: ["noce","noci","walnut","walnuts"],
-  nocciole: ["nocciola","nocciole","hazelnut","hazelnuts"],
-  pistacchio: ["pistacchio","pistachio"],
-  mascarpone: ["mascarpone"],
-  ricotta: ["ricotta"],
-  salsiccia: ["salsiccia","sausage"],
-  mayonnaise: ["mayonnaise","maionese","mayonesa","mayonnaise sauce"],
-  ketchup: ["ketchup","catsup"],
-  senape: ["senape","mustard","moutarde","mostaza","senf"],
-  marmellata: ["marmellata","jam","jelly","confiture","mermelada","marmelade"],
-  biscotti: ["biscotto","biscotti","biscuit","biscuits","cookie","cookies","galleta","galletas","keks"],
-  cracker: ["cracker","crackers"],
+export const normalizeFoodText = (value: unknown): string =>
+  (typeof value === "string" ? value : "").normalize("NFD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\\s+/g, " ")
+    .trim();
 
-  salame: ["salame","salami","salami sausage"],
-  legumi: ["legume","legumi","pulses","legumes","legumes alimentaires"],
-  carne: ["carne","meat","viande","carne"],
-  pesce: ["pesce","fish","poisson","pescado","fisch"],
-  ortaggi: ["ortaggio","ortaggi","vegetable","vegetables","légume","legumbres","gemüse"]
-};
+export const normalizeFoodTag = (value: unknown): string =>
+  (typeof value === "string" ? value : "").trim().toLowerCase().replace(/^\\w+:/, "").replace(/_/g, "-");
 
-export const FOOD_TRANSLATIONS_IT: Readonly<Record<string,string>> = {
-  "blue cheese":"formaggio erborinato",
-  "blue cheeses":"formaggi erborinati",
-  "black pepper":"pepe nero",
-  "white pepper":"pepe bianco",
-  "bell pepper":"peperone",
-  "bell peppers":"peperoni",
-  "green onion":"cipollotto",
-  "green onions":"cipollotti",
-  "spring onion":"cipollotto",
-  "spring onions":"cipollotti",
-  "heavy cream":"panna",
-  "whipping cream":"panna da montare",
-  "sour cream":"panna acida",
-  "cream cheese":"formaggio spalmabile",
-  "olive oil":"olio d'oliva",
-  "extra virgin olive oil":"olio extravergine d'oliva",
-  "extra-virgin olive oil":"olio extravergine d'oliva",
-  "breadcrumbs":"pangrattato",
-  "bread crumbs":"pangrattato",
-  "baking powder":"lievito per dolci",
-  "all-purpose flour":"farina 00",
-  "plain flour":"farina",
-  "powdered sugar":"zucchero a velo",
-  "icing sugar":"zucchero a velo",
-  "brown sugar":"zucchero di canna",
-  "chicken breast":"petto di pollo",
-  "chicken breasts":"petti di pollo",
-  "chicken thigh":"coscia di pollo",
-  "chicken thighs":"cosce di pollo",
-  "beef mince":"carne macinata di manzo",
-  "ground beef":"carne macinata di manzo",
-  "ground pork":"carne macinata di maiale",
-  "tinned tomatoes":"pomodori pelati",
-  "canned tomatoes":"pomodori pelati",
-  "tomato paste":"concentrato di pomodoro",
-  "tomato sauce":"passata di pomodoro",
-  "heavy whipping cream":"panna da montare",
-};
-
-export function translateFoodText(value: unknown, locale = "it-IT"): string {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) return "";
-  if (!/^it(?:-|$)/i.test(locale)) return raw;
-  const normalized = normalizeFoodText(raw);
-  if (!normalized) return raw;
-  const exact = FOOD_TRANSLATIONS_IT[normalized];
-  if (exact) return exact;
-  const canonical = canonicalizeIngredient(raw);
-  if (canonical.canonicalIngredient && canonical.confidence >= 0.93) {
-    const canonicalItalian = canonical.canonicalIngredient.trim();
-    if (canonicalItalian) return canonicalItalian;
-  }
-  return raw;
+export function ingredientTerms(value: string): string[] {
+  const normalized = normalizeFoodText(value);
+  if (!normalized) return [];
+  return [...new Set([normalized, ...normalized.split(" ").filter(token => token.length >= 3)])];
 }
 
-export const TAXONOMY_CANONICAL: Readonly<Record<string,string>> = {
-  "canned-tomatoes":"pomodoro","tomatoes":"pomodoro","tomato":"pomodoro",
-  "pasta":"pasta","rice":"riso","milk":"latte","butter":"burro","cream":"panna",
-  "cheese":"formaggio","mozzarella":"mozzarella","eggs":"uovo","egg":"uovo",
-  "chicken":"pollo","beef":"manzo","pork":"maiale","tuna":"tonno","salmon":"salmone",
-  "olive-oil":"olio","extra-virgin-olive-oil":"olio extravergine","flour":"farina",
-  "bread":"pane","sugar":"zucchero","salt":"sale","vinegar":"aceto","pepper":"pepe","black-pepper":"pepe","chili-pepper":"peperoncino","sage":"salvia","thyme":"timo","oregano":"origano","curry":"curry","paprika":"paprika","nutmeg":"noce moscata","cinnamon":"cannella","turmeric":"curcuma","saffron":"zafferano","caper":"capperi","anchovy":"acciuga","shrimp":"gambero","mussels":"cozza","mussel":"cozza","clams":"vongola","clam":"vongola","squid":"calamaro","lentils":"lenticchia","polenta":"polenta","semolina":"semola","corn-starch":"amido di mais","baking-powder":"lievito per dolci","yeast":"lievito","gelatin":"gelatina","gorgonzola":"gorgonzola","taleggio":"taleggio"
-};
+export function canonicalizeIngredient(value: string, _taxonomyTags: readonly string[] = []): {
+  canonicalIngredient: string | null;
+  ingredientTerms: string[];
+  confidence: number;
+  status: SemanticStatus;
+} {
+  const text = normalizeFoodText(value);
+  if (!text) return { canonicalIngredient: null, ingredientTerms: [], confidence: 0, status: "UNKNOWN" };
+  return {
+    canonicalIngredient: text,
+    ingredientTerms: ingredientTerms(value),
+    confidence: 0.25,
+    status: "AMBIGUOUS",
+  };
+}
+
+export function classifyCulinaryWeight(_canonicalIngredient: string | null): CulinaryWeight {
+  return "CORE";
+}
 
 export const normalizeFoodText = (value:unknown):string =>
   (typeof value==="string" ? value : "").normalize("NFD")
@@ -381,36 +252,13 @@ export function isAmbiguousCompoundIngredient(canonicalIngredient:string|null):b
 export type SemanticStatus = "EXACT" | "INFERRED" | "UNKNOWN" | "AMBIGUOUS";
 export type SemanticRelation = "EXACT" | "SYNONYM" | "RECIPE_GENERALIZES_PRODUCT" | "UNSAFE_GENERALIZATION" | "NONE";
 
-const FOOD_PARENT: Readonly<Record<string,string>> = {
-  mayonnaise:"salse",ketchup:"salse",senape:"salse",marmellata:"conserve",biscotti:"prodotti da forno",cracker:"prodotti da forno",salame:"carne",yogurt:"latticini",tofu:"proteine vegetali",seitan:"proteine vegetali",legumi:"legumi",carne:"proteine animali",pesce:"proteine animali",ortaggi:"vegetali",
-  rigatoni:"pasta",penne:"pasta",fusilli:"pasta",farfalle:"pasta",spaghetti:"pasta",
-  spaghettini:"pasta",linguine:"pasta",bucatini:"pasta",tagliatelle:"pasta",
-  fettuccine:"pasta",maccheroni:"pasta",maccheroncini:"pasta",orecchiette:"pasta",
-  paccheri:"pasta",cannelloni:"pasta",lasagne:"pasta",lasagna:"pasta",
-  mozzarella:"formaggio",parmigiano:"formaggio",pecorino:"formaggio",fiordilatte:"formaggio",
-  mascarpone:"formaggio",ricotta:"formaggio",
-  mandorle:"frutta secca",noci:"frutta secca",nocciole:"frutta secca",pistacchio:"frutta secca",
-  ceci:"legumi",fagioli:"legumi",piselli:"legumi",
-  pollo:"carne",manzo:"carne",maiale:"carne",pancetta:"carne",prosciutto:"carne",salsiccia:"carne",
-  tonno:"pesce",salmone:"pesce",
-  pomodoro:"ortaggi",cipolla:"ortaggi",aglio:"ortaggi",patata:"ortaggi",carota:"ortaggi",
-  zucchina:"ortaggi",melanzana:"ortaggi",peperone:"ortaggi",
-};
+export function isAmbiguousCompoundIngredient(canonicalIngredient: string | null): boolean {
+  return !canonicalIngredient || !normalizeFoodText(canonicalIngredient);
+}
 
-const SAFE_GENERIC_RECIPE_PARENTS = new Set([
-  "salse","conserve","prodotti da forno","latticini","proteine vegetali","proteine animali","vegetali",
-  "pasta","formaggio","frutta secca","legumi","carne","pesce","ortaggi"
-]);
-
-export function foodSemanticRelation(recipeCanonical:string|null, productCanonical:string|null):SemanticRelation {
-  if(!recipeCanonical||!productCanonical)return "NONE";
-  const recipe=normalizeFoodText(recipeCanonical);
-  const product=normalizeFoodText(productCanonical);
-  if(recipe===product)return "EXACT";
-  if(FOOD_PARENT[product]===recipe && SAFE_GENERIC_RECIPE_PARENTS.has(recipe))return "RECIPE_GENERALIZES_PRODUCT";
-  const recipeParent=FOOD_PARENT[recipe];
-  if(recipeParent===product)return "UNSAFE_GENERALIZATION";
-  return "NONE";
+export function foodSemanticRelation(recipeCanonical: string | null, productCanonical: string | null): SemanticRelation {
+  if (!recipeCanonical || !productCanonical) return "NONE";
+  return normalizeFoodText(recipeCanonical) === normalizeFoodText(productCanonical) ? "EXACT" : "NONE";
 }
 
 export const FOOD_DENSITY_RULES_VERSION="density-v1";
@@ -454,24 +302,14 @@ export function convertFoodQuantityWithDensity(
 }
 
 export interface FunctionalSubstitution {
-  fromCanonical:string;
-  toCanonical:string;
-  factor:number;
-  reason:string;
+  fromCanonical: string;
+  toCanonical: string;
+  factor: number;
+  reason: string;
 }
 
-export const FUNCTIONAL_SUBSTITUTIONS:readonly FunctionalSubstitution[] = [
-  {fromCanonical:"parmigiano",toCanonical:"pecorino",factor:0.8,reason:"Hard aged sheep cheese can fulfill the grating/savoury-cheese function."},
-  {fromCanonical:"pecorino",toCanonical:"parmigiano",factor:0.8,reason:"Hard aged grating cheese can fulfill the same savoury-cheese function."},
-  {fromCanonical:"mozzarella",toCanonical:"fiordilatte",factor:0.8,reason:"Fiordilatte is a direct fresh-milk-cheese functional substitute for mozzarella."},
-  {fromCanonical:"fiordilatte",toCanonical:"mozzarella",factor:0.8,reason:"Mozzarella is a direct fresh-cheese functional substitute for fiordilatte."}
-];
-
-export function functionalSubstitution(target:string|null,candidate:string|null):FunctionalSubstitution|null {
-  if(!target||!candidate)return null;
-  const from=normalizeFoodText(target);
-  const to=normalizeFoodText(candidate);
-  return FUNCTIONAL_SUBSTITUTIONS.find(rule=>normalizeFoodText(rule.fromCanonical)===from&&normalizeFoodText(rule.toCanonical)===to)??null;
+export function functionalSubstitution(_target: string | null, _candidate: string | null): FunctionalSubstitution | null {
+  return null;
 }
 
 export const FOOD_COMPONENTS_RULES_VERSION="food-components-v2";
