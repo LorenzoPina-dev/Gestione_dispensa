@@ -62,6 +62,8 @@ describe("pantry-recipe-engine", () => {
   });
 
   it("parses common kitchen quantities without turning unknown text into a fact", () => {
-    assert.equal(parseQuantityFromText("1/2 kg"),true as unknown as boolean);
+    const parsed=parseQuantityFromText("1/2 kg");
+    assert.ok(parsed);
+    assert.equal(parsed.baseValue,500);
   });
 });
