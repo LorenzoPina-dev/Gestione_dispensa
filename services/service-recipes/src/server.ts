@@ -255,7 +255,7 @@ app.get("/api/v1/recipes/suggestions", async (req, res) => {
   const access = await authorizeFamily(ctx, false);
   if (!access.ok) return res.status(access.status).json(errorBody(access.code, access.message));
   try {
-    const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 24), 1), 100);
     const q = String(req.query.q ?? "").trim() || undefined;
     const items = await discover(pool, {
       userId: ctx.userId,
