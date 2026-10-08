@@ -7,6 +7,9 @@ export interface RecipePantryProduct {
   quantity:number;
   unit:string;
   expiresAt:string|null;
+  usedBaseQuantity:number;
+  usedBaseUnit:"g"|"ml"|"piece";
+  usedFor:string[];
 }
 
 export interface RecipeNutrition {
