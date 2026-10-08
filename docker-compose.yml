@@ -383,7 +383,7 @@ services:
     image: libretranslate/libretranslate:latest
     command: ["--load-only","en,it,fr,es,de","--disable-web-ui"]
     volumes: [translation_models:/home/libretranslate/.local]
-    healthcheck: { test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:5000/languages"], interval: 15s, timeout: 5s, retries: 20, start_period: 30s }
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:5000/languages\", timeout=3)"], interval: 15s, timeout: 5s, retries: 20, start_period: 30s }
     restart: unless-stopped
     networks: [backend, egress]
   service-food-semantics-schema-migrate:
