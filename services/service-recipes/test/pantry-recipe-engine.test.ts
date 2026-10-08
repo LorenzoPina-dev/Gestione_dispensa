@@ -102,6 +102,21 @@ describe("pantry-recipe-engine", () => {
     assert.equal(result.coverage,0.667);
   });
 
+  it("does not count expired stock as usable pantry quantity", () => {
+    const now = new Date("2026-10-08T12:00:00.000Z");
+    const result = scoreRecipeAgainstPantry(
+      [{ name:"farina", displayName:"farina", canonicalIngredient:"farina", semanticConfidence:1, culinaryWeight:"CORE", quantityValue:500, quantityUnit:"g", quantityDimension:"mass", quantityBaseValue:500, quantityBaseUnit:"g", quantityConfidence:1 }],
+      [
+        { productId:"expired", name:"Farina", quantity:500, unit:"g", expiresAt:"2026-10-07T12:00:00.000Z", addedAt:"2026-10-01T12:00:00.000Z", foodSemantics:{canonicalIngredient:"farina",semanticConfidence:1,ingredientTerms:["farina"],taxonomyTags:[],quantityBase:{value:500,unit:"g"}} },
+        { productId:"valid", name:"Farina", quantity:200, unit:"g", expiresAt:"2026-10-20T12:00:00.000Z", addedAt:"2026-10-02T12:00:00.000Z", foodSemantics:{canonicalIngredient:"farina",semanticConfidence:1,ingredientTerms:["farina"],taxonomyTags:[],quantityBase:{value:200,unit:"g"}} },
+      ],
+      { now },
+    );
+    assert.equal(result.score,0.4);
+    assert.deepEqual(result.excludedExpiredProductIds,["expired"]);
+    assert.deepEqual(result.matchedProductIds,["valid"]);
+  });
+
   it("uses a curated functional substitute with an 0.8 score factor", () => {
     const result = scoreRecipeAgainstPantry(
       [{ name:"parmigiano", displayName:"parmigiano", canonicalIngredient:"parmigiano", culinaryWeight:"CORE", quantityValue:100, quantityUnit:"g", quantityDimension:"mass", quantityBaseValue:100, quantityBaseUnit:"g", quantityConfidence:1 }],
