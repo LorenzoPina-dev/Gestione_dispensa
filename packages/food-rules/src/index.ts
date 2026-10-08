@@ -31,6 +31,34 @@ export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
   seitan: ["seitan"],
   brodo: ["brodo","broth","bouillon"],
   ragu: ["ragù","ragu","ragout"],
+  pepe: ["pepe","pepe nero","pepe bianco","black pepper","white pepper","poivre","pimienta","pfeffer"],
+  peperoncino: ["peperoncino","peperoncini","chili","chilli","chili pepper","poivre rouge","guindilla"],
+  salvia: ["salvia","sage","sauge","salvia"],
+  timo: ["timo","thyme","thym","tomillo"],
+  origano: ["origano","oregano","origan","orégano"],
+  curry: ["curry"],
+  paprika: ["paprika","paprica"],
+  noce moscata: ["noce moscata","nutmeg","muscade","nuez moscada"],
+  cannella: ["cannella","cinnamon","cannelle","canela"],
+  curcuma: ["curcuma","turmeric","curcuma","cúrcuma"],
+  zafferano: ["zafferano","saffron","safran","azafrán"],
+  capperi: ["cappero","capperi","caper","capers","câpre","alcaparra"],
+  acciuga: ["acciuga","acciughe","anchovy","anchovies","anchois","anchoa"],
+  gambero: ["gambero","gamberi","shrimp","prawn","prawns","crevette","crevettes","gamba"],
+  cozza: ["cozza","cozze","mussel","mussels","moule","moules","mejillón","mejillones"],
+  vongola: ["vongola","vongole","clam","clams","palourde","palourdes","almeja","almejas"],
+  calamaro: ["calamaro","calamari","squid","calmar","calamares"],
+  lenticchia: ["lenticchia","lenticchie","lentil","lentils","lentille","lentilles","lenteja","lentejas"],
+  polenta: ["polenta","cornmeal","farina di mais","semoule de maïs","harina de maíz"],
+  semola: ["semola","semolina","semoule","sémolina","sémola"],
+  "amido di mais": ["amido di mais","maizena","cornstarch","corn starch","fécule de maïs","almidón de maíz"],
+  "lievito per dolci": ["lievito per dolci","baking powder","levure chimique","levadura química","backpulver"],
+  lievito: ["lievito","yeast","levure","levadura","hefe"],
+  gelatina: ["gelatina","gelatine","gelatin","gélatine","gelatina"],
+  gorgonzola: ["gorgonzola"],
+  taleggio: ["taleggio"],
+  mortadella: ["mortadella"],
+
   farina: ["farina","flour","farine","harina","mehl"],
   pane: ["pane","bread","pain","pan","brot"],
   pangrattato: ["pangrattato","breadcrumbs","bread crumbs","chapelure","pan rallado"],
@@ -69,7 +97,7 @@ export const TAXONOMY_CANONICAL: Readonly<Record<string,string>> = {
   "cheese":"formaggio","mozzarella":"mozzarella","eggs":"uovo","egg":"uovo",
   "chicken":"pollo","beef":"manzo","pork":"maiale","tuna":"tonno","salmon":"salmone",
   "olive-oil":"olio","extra-virgin-olive-oil":"olio extravergine","flour":"farina",
-  "bread":"pane","sugar":"zucchero","salt":"sale","vinegar":"aceto"
+  "bread":"pane","sugar":"zucchero","salt":"sale","vinegar":"aceto","pepper":"pepe","black-pepper":"pepe","chili-pepper":"peperoncino","sage":"salvia","thyme":"timo","oregano":"origano","curry":"curry","paprika":"paprika","nutmeg":"noce moscata","cinnamon":"cannella","turmeric":"curcuma","saffron":"zafferano","caper":"capperi","anchovy":"acciuga","shrimp":"gambero","mussels":"cozza","mussel":"cozza","clams":"vongola","clam":"vongola","squid":"calamaro","lentils":"lenticchia","polenta":"polenta","semolina":"semola","corn-starch":"amido di mais","baking-powder":"lievito per dolci","yeast":"lievito","gelatin":"gelatina","gorgonzola":"gorgonzola","taleggio":"taleggio"
 };
 
 export const normalizeFoodText = (value:string):string =>
@@ -127,8 +155,8 @@ export function canonicalizeIngredient(value:string, taxonomyTags:readonly strin
   return {canonicalIngredient:fallback||null,ingredientTerms:ingredientTerms(value),confidence:fallback?0.55:0,status:fallback?"AMBIGUOUS":"UNKNOWN"};
 }
 
-const STAPLES=new Set(["sale","acqua","aceto","olio","olio extravergine"]);
-const SECONDARY=new Set(["basilico","prezzemolo","rosmarino","zucchero","miele"]);
+const STAPLES=new Set(["sale","acqua","aceto","olio","olio extravergine","pepe"]);
+const SECONDARY=new Set(["basilico","prezzemolo","rosmarino","salvia","timo","origano","peperoncino","curry","paprika","noce moscata","cannella","curcuma","zafferano","capperi","lievito","lievito per dolci","zucchero","miele","gelatina"]);
 export function classifyCulinaryWeight(canonicalIngredient:string|null):CulinaryWeight {
   if(canonicalIngredient && STAPLES.has(canonicalIngredient)) return "STAPLE";
   if(canonicalIngredient && SECONDARY.has(canonicalIngredient)) return "SECONDARY";
