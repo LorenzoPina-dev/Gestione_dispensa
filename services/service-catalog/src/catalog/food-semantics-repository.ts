@@ -6,11 +6,19 @@ export async function upsertProductFoodSemantics(
   productId: string,
   canonicalName: string,
   snapshot: Record<string, unknown> | null | undefined,
-  source: string,
-  sourceVersion: string,
+  source?: string,
+  sourceVersion?: string,
   observedAt = new Date(),
 ): Promise<ProductFoodSemantics> {
-  const semantics = deriveProductFoodSemantics(productId, snapshot, canonicalName, sourceVersion);
+  const current = (!source || !sourceVersion)
+    ? await database.query<{ source: string; source_version: string }>(
+        "SELECT source,source_version FROM product_food_semantics WHERE product_id=$1",
+        [productId],
+      )
+    : null;
+  const effectiveSource = source ?? current?.rows[0]?.source ?? "derived";
+  const effectiveSourceVersion = sourceVersion ?? current?.rows[0]?.source_version ?? "food-semantics-v2";
+  const semantics = deriveProductFoodSemantics(productId, snapshot, canonicalName, effectiveSourceVersion);
   await database.query(
     `INSERT INTO product_food_semantics
       (product_id,canonical_ingredient,ingredient_terms,taxonomy_tags,allergen_tags,trace_tags,label_tags,dietary_tags,
@@ -58,7 +66,7 @@ export async function upsertProductFoodSemantics(
       semantics.quantityConfidence,
       semantics.semanticConfidence,
       semantics.semanticStatus,
-      source,
+      effectiveSource,
       semantics.sourceVersion,
       observedAt,
       JSON.stringify(semantics.components),
