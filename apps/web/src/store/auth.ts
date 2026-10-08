@@ -13,6 +13,8 @@ export interface AuthUser {
   avatar: string;
   role: Role;
   hasFamilyId: string | null;
+  /** User-selected/default locale. Italian is the application fallback. */
+  locale?: string;
 }
 
 interface AuthState {
