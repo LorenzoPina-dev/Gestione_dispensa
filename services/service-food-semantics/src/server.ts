@@ -8,7 +8,8 @@ app.use(express.json({ limit: "1mb" }));
 
 const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 const port = Number(process.env.PORT ?? 3410);
-const translationUrl = String(process.env.TRANSLATION_BASE_URL ?? "").replace(/\\/+$/, "");
+let translationUrl = String(process.env.TRANSLATION_BASE_URL ?? "");
+while (translationUrl.endsWith("/")) translationUrl = translationUrl.slice(0, -1);
 const internalToken = String(process.env.INTERNAL_SERVICE_TOKEN ?? "");
 
 type Candidate = {
