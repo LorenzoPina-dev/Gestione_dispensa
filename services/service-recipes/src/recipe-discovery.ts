@@ -375,15 +375,34 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
        sourceWeight:x.weight==null?null:Number(x.weight),
      })),
    };
+   const usedByProduct=new Map<string,{baseUnit:"g"|"ml"|"piece";usedBaseQuantity:number;usedFor:Set<string>}>();
+   for(const match of coverage.matchedIngredients){
+     for(const allocation of match.allocations){
+       const current=usedByProduct.get(allocation.productId)??{
+         baseUnit:allocation.baseUnit,
+         usedBaseQuantity:0,
+         usedFor:new Set<string>(),
+       };
+       current.usedBaseQuantity+=allocation.usedBaseValue;
+       current.usedFor.add(match.recipeIngredient);
+       usedByProduct.set(allocation.productId,current);
+     }
+   }
    const pantryProductsUsed=pantry
-     .filter(item=>coverage.matchedProductIds.includes(item.productId))
-     .map(item=>({
-       productId:item.productId,
-       name:item.name,
-       quantity:item.quantity,
-       unit:item.unit,
-       expiresAt:item.expiresAt??null,
-     }));
+     .filter(item=>usedByProduct.has(item.productId))
+     .map(item=>{
+       const used=usedByProduct.get(item.productId)!;
+       return {
+         productId:item.productId,
+         name:item.name,
+         quantity:item.quantity,
+         unit:item.unit,
+         expiresAt:item.expiresAt??null,
+         usedBaseQuantity:Number(used.usedBaseQuantity.toFixed(6)),
+         usedBaseUnit:used.baseUnit,
+         usedFor:[...used.usedFor],
+       };
+     });
    return {
      recipeId:String(r.id),
      title:String(r.title),
