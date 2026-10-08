@@ -1,4 +1,4 @@
-import { canonicalAllergenTag, canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, parseIngredientText, type CulinaryWeight, type FoodComponent } from "@gestione-dispensa/food-rules";
+import { canonicalAllergenTag, canonicalizeIngredient, classifyCulinaryWeight, foodQuantity, normalizeFoodText as norm, normalizeFoodTag as tagName, parseFoodQuantityFromText, parseIngredientText, type CulinaryWeight, type FoodComponent, type SemanticStatus } from "@gestione-dispensa/food-rules";
 
 export interface ProductFoodSemantics {
   productId: string;
@@ -14,6 +14,7 @@ export interface ProductFoodSemantics {
   quantityBase: { value: number; unit: "g" | "ml" | "piece" } | null;
   quantityConfidence: number;
   semanticConfidence: number;
+  semanticStatus: SemanticStatus;
   components: FoodComponent[];
   compositionConfidence: number;
   source: string;
@@ -97,6 +98,7 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     quantityBase: normalizedQuantity ? { value: normalizedQuantity.baseValue, unit: normalizedQuantity.baseUnit } : null,
     quantityConfidence: normalizedQuantity ? (rawQuantity ? 0.97 : 0.99) : 0,
     semanticConfidence: canonical.confidence,
+    semanticStatus: canonical.status,
     components,
     compositionConfidence,
     source: "derived",
