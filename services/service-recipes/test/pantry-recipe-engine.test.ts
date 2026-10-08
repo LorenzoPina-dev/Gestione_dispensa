@@ -163,14 +163,13 @@ describe("pantry-recipe-engine", () => {
     assert.deepEqual(result.matchedProductIds,["valid"]);
   });
 
-  it("uses a curated functional substitute with an 0.8 score factor", () => {
+  it("does not apply an undocumented functional substitution", () => {
     const result = scoreRecipeAgainstPantry(
       [{ name:"parmigiano", displayName:"parmigiano", canonicalIngredient:"parmigiano", culinaryWeight:"CORE", quantityValue:100, quantityUnit:"g", quantityDimension:"mass", quantityBaseValue:100, quantityBaseUnit:"g", quantityConfidence:1 }],
       [{ productId:"p1", name:"Pecorino", quantity:100, unit:"g", foodSemantics:{ canonicalIngredient:"pecorino", ingredientTerms:["pecorino"], taxonomyTags:[], quantityBase:{value:100,unit:"g"} } }],
     );
-    assert.equal(result.score,0.8);
-    assert.equal(result.readiness,"READY");
-    assert.equal(result.substitutions[0]?.factor,0.8);
+    assert.equal(result.score,0);
+    assert.equal(result.substitutions.length,0);
   });
 
   it("parses common kitchen quantities without turning unknown text into a fact", () => {
