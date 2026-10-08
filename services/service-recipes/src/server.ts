@@ -229,7 +229,7 @@ app.post("/api/v1/recipes", async (req, res) => {
       }
       const semantic = normalizeRecipeIngredient(name, quantity, unit);
       await client.query(
-        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
         [
           crypto.randomUUID(),
           id,
@@ -238,6 +238,8 @@ app.post("/api/v1/recipes", async (req, res) => {
           quantity,
           unit,
           semantic.canonicalIngredient,
+          semantic.semanticConfidence,
+          semantic.semanticStatus,
           semantic.ingredientTerms,
           semantic.quantity?.dimension ?? null,
           semantic.quantity?.baseValue ?? null,
