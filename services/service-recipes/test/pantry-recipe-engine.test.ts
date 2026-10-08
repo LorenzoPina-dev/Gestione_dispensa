@@ -61,6 +61,16 @@ describe("pantry-recipe-engine", () => {
     assert.equal(result.missingIngredients[0]?.status,"PARTIAL");
   });
 
+  it("uses a curated functional substitute with an 0.8 score factor", () => {
+    const result = scoreRecipeAgainstPantry(
+      [{ name:"parmigiano", displayName:"parmigiano", canonicalIngredient:"parmigiano", culinaryWeight:"CORE", quantityValue:100, quantityUnit:"g", quantityDimension:"mass", quantityBaseValue:100, quantityBaseUnit:"g", quantityConfidence:1 }],
+      [{ productId:"p1", name:"Pecorino", quantity:100, unit:"g", foodSemantics:{ canonicalIngredient:"pecorino", ingredientTerms:["pecorino"], taxonomyTags:[], quantityBase:{value:100,unit:"g"} } }],
+    );
+    assert.equal(result.score,0.8);
+    assert.equal(result.readiness,"READY");
+    assert.equal(result.substitutions[0]?.factor,0.8);
+  });
+
   it("parses common kitchen quantities without turning unknown text into a fact", () => {
     const parsed=parseQuantityFromText("1/2 kg");
     assert.ok(parsed);
