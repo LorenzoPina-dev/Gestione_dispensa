@@ -23,6 +23,41 @@ export async function getCurrentUser(): Promise<CurrentUserDto> {
   };
 }
 export function logoutSession(): Promise<void> { return apiRequest<void>("/auth/logout", { method: "POST" }); }
+export type DietaryRestriction =
+  | "vegan" | "vegetarian" | "pescatarian" | "gluten-free" | "lactose-free"
+  | "dairy-free" | "nut-free" | "peanut-free" | "soy-free" | "egg-free"
+  | "fish-free" | "shellfish-free";
+
+export type TracePolicy = "WARN" | "EXCLUDE";
+
+export interface DietaryPreferencesDto {
+  userId: string;
+  allergenTags: string[];
+  dietaryRestrictions: DietaryRestriction[];
+  tracePolicy: TracePolicy;
+  version: number;
+  updatedAt?: string;
+}
+
+export async function getDietaryPreferences(): Promise<DietaryPreferencesDto> {
+  return apiRequest<DietaryPreferencesDto>("/identity/preferences");
+}
+
+export async function updateDietaryPreferences(
+  currentVersion: number,
+  input: {
+    allergenTags: string[];
+    dietaryRestrictions: DietaryRestriction[];
+    tracePolicy: TracePolicy;
+  },
+): Promise<DietaryPreferencesDto> {
+  return apiRequest<DietaryPreferencesDto>("/identity/preferences", {
+    method: "PATCH",
+    ifMatch: currentVersion,
+    idempotencyKey: newIdempotencyKey(),
+    body: input,
+  });
+}
 export async function getFamily(): Promise<{ id: string; displayName: string } | null> { const f = (await listFamilies()).families[0]; return f ? { id: f.familyId, displayName: f.displayName ?? f.name } : null; }
 export interface RegisterPayload { name: string; email: string; password: string; }
 export function registerUser(payload: RegisterPayload): Promise<{ success: boolean; message: string }> { return apiRequest("/auth/register", { method: "POST", body: payload }); }
