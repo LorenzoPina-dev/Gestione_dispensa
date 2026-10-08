@@ -40,7 +40,8 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
   const allergenTags = stringArray(source.allergensTags ?? source.allergens_tags).map(normalizeSafetyTag);
   const traceTags = stringArray(source.tracesTags ?? source.traces_tags).map(normalizeSafetyTag);
   const labelTags = stringArray(source.labelsTags ?? source.labels_tags).map(tagName);
-  const rawNutriScore = firstNonEmpty(source.nutriScoreGrade, source.nutriscore_grade, source.nutriscoreGrade);\n  const nutriScoreGrade = rawNutriScore && /^[a-e]$/i.test(rawNutriScore) ? rawNutriScore.toLowerCase() : null;
+  const rawNutriScore = firstNonEmpty(source.nutriScoreGrade, source.nutriscore_grade, source.nutriscoreGrade);
+  const nutriScoreGrade = rawNutriScore && /^[a-e]$/i.test(rawNutriScore) ? rawNutriScore.toLowerCase() : null;
   const productText = firstNonEmpty(
     canonicalName,
     source.productName,
