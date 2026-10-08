@@ -7,11 +7,76 @@ type Suggestion={recipeId:string;score:number;matchedIngredientNames:string[];mi
 
 const IMAGE_CACHE = new Map<string, string | null>();
 
-const ALIASES:Record<string,string[]>={pomodoro:["tomato","tomatoes"],cipolla:["onion","onions"],aglio:["garlic"],patata:["potato","potatoes"],carota:["carrot","carrots"],zucchina:["zucchini"],melanzana:["eggplant"],peperone:["bell pepper"],pollo:["chicken"],manzo:["beef"],pancetta:["bacon"],tonno:["tuna"],salmone:["salmon"],uovo:["egg","eggs"],latte:["milk"],burro:["butter"],panna:["cream"],formaggio:["cheese"],mozzarella:["mozzarella"],parmigiano:["parmesan"],farina:["flour"],pane:["bread"],pangrattato:["breadcrumbs"],pasta:["pasta"],spaghetti:["spaghetti"],riso:["rice"],ceci:["chickpea","chickpeas"],fagioli:["bean","beans"],piselli:["pea","peas"],mais:["corn"],olive:["olive"],"olio extravergine":["olive oil"],olio:["oil"],sale:["salt"],acqua:["water"],basilico:["basil"],prezzemolo:["parsley"],rosmarino:["rosemary"],limone:["lemon"],zucchero:["sugar"],cacao:["cocoa"],cioccolato:["chocolate"],miele:["honey"],mandorle:["almond","almonds"],noci:["walnut","walnuts"],nocciole:["hazelnut","hazelnuts"],pistacchio:["pistachio"],mascarpone:["mascarpone"],ricotta:["ricotta"],salsiccia:["sausage"]};
+const ALIASES:Record<string,string[]>={
+ pomodoro:["pomodoro","pomodori","tomato","tomatoes"],
+ cipolla:["cipolla","cipolle","onion","onions"],
+ aglio:["aglio","garlic"],
+ patata:["patata","patate","potato","potatoes"],
+ carota:["carota","carote","carrot","carrots"],
+ zucchina:["zucchina","zucchine","zucchini"],
+ melanzana:["melanzana","melanzane","eggplant","eggplants"],
+ peperone:["peperone","peperoni","bell pepper","bell peppers"],
+ pollo:["pollo","chicken"],
+ manzo:["manzo","beef"],
+ pancetta:["pancetta","bacon"],
+ tonno:["tonno","tuna"],
+ salmone:["salmone","salmon"],
+ uovo:["uovo","uova","egg","eggs"],
+ latte:["latte","milk"],
+ burro:["burro","butter"],
+ panna:["panna","cream"],
+ formaggio:["formaggio","formaggi","cheese","cheeses"],
+ mozzarella:["mozzarella"],
+ parmigiano:["parmigiano","parmesan"],
+ farina:["farina","flour"],
+ pane:["pane","bread"],
+ pangrattato:["pangrattato","breadcrumbs"],
+ pasta:["pasta","rigatoni","penne","fusilli","farfalle","spaghetti","spaghettini","linguine","bucatini","tagliatelle","fettuccine","maccheroni","maccheroncini","orecchiette","paccheri","cannelloni","lasagne","lasagna"],
+ riso:["riso","rice"],
+ ceci:["cece","ceci","chickpea","chickpeas"],
+ fagioli:["fagiolo","fagioli","bean","beans"],
+ piselli:["pisello","piselli","pea","peas"],
+ mais:["mais","corn"],
+ olive:["oliva","olive","olives"],
+ "olio extravergine":["olio extravergine","extra virgin olive oil","extra-virgin olive oil"],
+ olio:["olio","oil"],
+ sale:["sale","salt"],
+ acqua:["acqua","water"],
+ basilico:["basilico","basil"],
+ prezzemolo:["prezzemolo","parsley"],
+ rosmarino:["rosmarino","rosemary"],
+ limone:["limone","limoni","lemon","lemons"],
+ zucchero:["zucchero","sugar"],
+ cacao:["cacao","cocoa"],
+ cioccolato:["cioccolato","chocolate"],
+ miele:["miele","honey"],
+ mandorle:["mandorla","mandorle","almond","almonds"],
+ noci:["noce","noci","walnut","walnuts"],
+ nocciole:["nocciola","nocciole","hazelnut","hazelnuts"],
+ pistacchio:["pistacchio","pistachio"],
+ mascarpone:["mascarpone"],
+ ricotta:["ricotta"],
+ salsiccia:["salsiccia","sausage"],
+};
 
 function norm(v:string){return v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim();}
-function terms(v:string){const n=norm(v),out=new Set([n]);for(const t of n.split(" "))if(t.length>=3)out.add(t);for(const [it,en] of Object.entries(ALIASES)){if(n===it||en.some(x=>n===x)){out.add(it);for(const x of en)out.add(x);}}return out;}
-function matches(a:string,b:string){const x=terms(a),y=terms(b);for(const t of x)if(y.has(t))return true;return false;}
+function terms(v:string){
+ const n=norm(v);
+ const out=new Set<string>([n]);
+ for(const token of n.split(" "))if(token.length>=3)out.add(token);
+ for(const [canonical,variants] of Object.entries(ALIASES)){
+  if(n===canonical||variants.some(variant=>norm(variant)===n)){
+   out.add(canonical);
+   for(const variant of variants)out.add(norm(variant));
+  }
+ }
+ return out;
+}
+function matches(a:string,b:string){
+ const x=terms(a),y=terms(b);
+ for(const t of x)if(y.has(t))return true;
+ return false;
+}
 
 async function getInventory(base:string,userId:string,familyId:string,authorization?:string):Promise<PantryItem[]>{
  const u=new URL(base.replace(/\/$/,"")+"/inventory");u.searchParams.set("familyId",familyId);u.searchParams.set("status","current");u.searchParams.set("limit","100");
