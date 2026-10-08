@@ -63,14 +63,35 @@ async function main(): Promise<void> {
       return;
     }
 
-    await client.query("DELETE FROM food_semantics.ontology_sources WHERE source_key=$1", [sourceKey]);
+    await client.query(
+      "DELETE FROM food_semantics.relations WHERE source_entity_id IN (SELECT id FROM food_semantics.entities WHERE source_key=$1)",
+      [sourceKey],
+    );
+    await client.query(
+      "DELETE FROM food_semantics.labels WHERE entity_id IN (SELECT id FROM food_semantics.entities WHERE source_key=$1)",
+      [sourceKey],
+    );
+
     const ids = new Map<string,string>();
     for (const term of terms) {
-      const result = await client.query(
-        "INSERT INTO food_semantics.entities(id,source_key,source_id,parent_source_id,entity_type) VALUES(gen_random_uuid(),$1,$2,$3,'FOOD') RETURNING id",
-        [sourceKey, term.id, term.parent],
+      const existing = await client.query(
+        "SELECT id FROM food_semantics.entities WHERE source_key=$1 AND source_id=$2",
+        [sourceKey, term.id],
       );
-      ids.set(term.id, String(result.rows[0].id));
+      if (existing.rowCount) {
+        const entityId = String(existing.rows[0].id);
+        await client.query(
+          "UPDATE food_semantics.entities SET parent_source_id=$3,entity_type='FOOD' WHERE source_key=$1 AND source_id=$2",
+          [sourceKey, term.id, term.parent],
+        );
+        ids.set(term.id, entityId);
+      } else {
+        const result = await client.query(
+          "INSERT INTO food_semantics.entities(id,source_key,source_id,parent_source_id,entity_type) VALUES(gen_random_uuid(),$1,$2,$3,'FOOD') RETURNING id",
+          [sourceKey, term.id, term.parent],
+        );
+        ids.set(term.id, String(result.rows[0].id));
+      }
     }
 
     let labelCount = 0;
@@ -103,7 +124,7 @@ async function main(): Promise<void> {
     }
 
     await client.query(
-      "INSERT INTO food_semantics.ontology_sources(id,source_key,version,source_url,license,checksum,entity_count,label_count) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7)",
+      "INSERT INTO food_semantics.ontology_sources(id,source_key,version,source_url,license,checksum,entity_count,label_count) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7) ON CONFLICT(source_key) DO UPDATE SET version=excluded.version,source_url=excluded.source_url,license=excluded.license,checksum=excluded.checksum,entity_count=excluded.entity_count,label_count=excluded.label_count,imported_at=now()",
       [sourceKey, sourceVersion, sourceUrl, license, checksum, terms.length, labelCount],
     );
     await client.query("COMMIT");
