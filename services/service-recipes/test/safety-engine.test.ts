@@ -29,8 +29,8 @@ describe("recipe safety engine",()=>{
   });
   it("does not turn unknown composition into a false safe claim",()=>{
     const result=evaluateRecipeSafety([{name:"Ingrediente sconosciuto"}],[],{allergenTags:["milk"],dietaryRestrictions:["vegan"],tracePolicy:"WARN"});
-    assert.equal(result.safe,true);
+    assert.equal(result.safe,false);
     assert.equal(result.warnings[0]?.code,"UNKNOWN_COMPOSITION");
-    assert.equal(result.warnings[0]?.severity,"WARN");
+    assert.equal(result.warnings[0]?.severity,"BLOCK");
   });
 });
