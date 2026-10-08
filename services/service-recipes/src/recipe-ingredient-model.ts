@@ -10,6 +10,7 @@ import {
 export interface RecipeIngredientSemantic {
   canonicalIngredient: string | null;
   semanticConfidence: number;
+  semanticStatus: import("@gestione-dispensa/food-rules").SemanticStatus;
   ingredientTerms: string[];
   culinaryWeight: CulinaryWeight;
   quantity: FoodQuantity | null;
@@ -33,6 +34,7 @@ export function normalizeRecipeIngredient(
   return {
     canonicalIngredient:canonical.canonicalIngredient,
     semanticConfidence:canonical.confidence,
+    semanticStatus:canonical.status,
     ingredientTerms:[...new Set([...canonical.ingredientTerms, rawName.toLowerCase()])],
     culinaryWeight:classifyCulinaryWeight(canonical.canonicalIngredient),
     quantity:parsed,
