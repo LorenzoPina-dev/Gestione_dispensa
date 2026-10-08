@@ -3,7 +3,6 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "nod
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
-import { ingredientTerms } from "@gestione-dispensa/food-rules";
 import { resolveRecipeIngredient, normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 const DATASET_URL = process.env.RECIPE_DATASET_URL ??
