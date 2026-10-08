@@ -107,7 +107,4 @@ describe("service-recipes / verified recipe servings", () => {
     assert.equal(extractRecipeServings(html), 2);
   });
 
-  it("uses a verified serving count for nutrition per serving", () => {
-    assert.equal(true, true);
-  });
 });
