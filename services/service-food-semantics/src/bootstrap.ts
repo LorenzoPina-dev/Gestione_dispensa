@@ -20,26 +20,41 @@ function parseObo(text: string): Term[] {
   const terms: Term[] = [];
   let current: Partial<Term> | null = null;
   const flush = () => {
-    if (current?.id && current.name) terms.push({
-      id: current.id,
-      name: current.name,
-      synonyms: current.synonyms ?? [],
-      parent: current.parent ?? null,
-    });
+    if (current?.id && current.name) {
+      terms.push({
+        id: current.id,
+        name: current.name,
+        synonyms: current.synonyms ?? [],
+        parent: current.parent ?? null,
+      });
+    }
     current = null;
   };
+
   for (const line of text.split(/\r?\n/)) {
-    if (line === "[Term]") { flush(); current = { synonyms: [] }; continue; }
+    if (line === "[Term]") {
+      flush();
+      current = { synonyms: [] };
+      continue;
+    }
     if (!current || line.startsWith("!")) continue;
     const colon = line.indexOf(":");
     if (colon < 0) continue;
     const key = line.slice(0, colon);
     const value = line.slice(colon + 1).trim();
-    if (key === "id" && /^(FOODON_|FOODON:)/.test(value)) current.id = value.replace(/^FOODON:/, "FOODON_");
-    else if (key === "name") current.name = value;
-    else if (key === "synonym") current.synonyms!.push(parseSynonym(value));
-    else if (key === "is_a") {\n      const parent = value.split("!")[0]!.trim();\n      current.parent = parent.replace(/^FOODON:/, "FOODON_");\n    }
+
+    if (key === "id" && /^(FOODON_|FOODON:)/.test(value)) {
+      current.id = value.replace(/^FOODON:/, "FOODON_");
+    } else if (key === "name") {
+      current.name = value;
+    } else if (key === "synonym") {
+      current.synonyms!.push(parseSynonym(value));
+    } else if (key === "is_a") {
+      const parent = value.split("!")[0]!.trim();
+      current.parent = parent.replace(/^FOODON:/, "FOODON_");
+    }
   }
+
   flush();
   return terms.filter((term) => term.id.startsWith("FOODON_"));
 }
