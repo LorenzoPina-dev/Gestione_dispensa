@@ -209,7 +209,7 @@ app.post("/api/v1/resolve/ingredient", async (req, res) => {
 app.post("/api/v1/resolve/product", async (req, res) => {
   const productId = typeof req.body?.productId === "string" ? req.body.productId.trim() : "";
   const texts = Array.isArray(req.body?.texts) ? req.body.texts.filter((x: unknown): x is string => typeof x === "string" && Boolean(x.trim())) : [];
-  const taxonomyTags = Array.isArray(req.body?.taxonomyTags) ? req.body.taxonomyTags.filter((x: unknown): x is string => typeof x === "string" && x.trim()) : [];
+  const taxonomyTags = Array.isArray(req.body?.taxonomyTags) ? req.body.taxonomyTags.filter((x: unknown): x is string => typeof x === "string" && Boolean(x.trim())) : [];
   if (!productId || (!texts.length && !taxonomyTags.length)) return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "productId and semantic inputs are required" } });
   try {
     const candidates: Candidate[] = [];
