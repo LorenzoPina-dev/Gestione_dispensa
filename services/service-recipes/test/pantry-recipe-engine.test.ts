@@ -15,6 +15,15 @@ describe("pantry-recipe-engine", () => {
     assert.deepEqual(result.matchedProductIds,["p1"]);
   });
 
+  it("uses a versioned density rule for compatible milk mass-volume matching",()=>{
+    const result=scoreRecipeAgainstPantry(
+      [{name:"latte",displayName:"latte",canonicalIngredient:"latte",semanticConfidence:1,culinaryWeight:"CORE",quantityValue:100,quantityUnit:"g",quantityDimension:"mass",quantityBaseValue:100,quantityBaseUnit:"g",quantityConfidence:1}],
+      [{productId:"milk",name:"Milk",quantity:100,unit:"ml",foodSemantics:{canonicalIngredient:"latte",semanticConfidence:1,ingredientTerms:["latte"],quantityBase:{value:100,unit:"ml"}}}],
+    );
+    assert.equal(result.score,1);
+    assert.equal(result.matchedIngredients[0]?.status,"COMPLETE");
+  });
+
   it("converts package stock to mass only when package quantity is explicitly known", () => {
     const packaged=combineInventoryQuantity(2,"pack",{value:180,unit:"g"});
     assert.ok(packaged);
