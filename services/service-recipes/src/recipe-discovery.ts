@@ -1,8 +1,22 @@
 import type { Pool } from "pg";
 
-type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null};
+type FoodSemantics = {
+ canonicalIngredient?: string | null;
+ ingredientTerms?: string[];
+ taxonomyTags?: string[];
+ allergenTags?: string[];
+ traceTags?: string[];
+ labelTags?: string[];
+ dietaryTags?: string[];
+ culinaryWeight?: "STAPLE" | "SECONDARY" | "CORE";
+ quantity?: { value: number; unit: string } | null;
+ quantityBase?: { value: number; unit: "g" | "ml" | "piece" } | null;
+ quantityConfidence?: number;
+ semanticConfidence?: number;
+};
+type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null;foodSemantics?:FoodSemantics|null};
 
-type CatalogProduct={productId:string;name?:string|null};
+type CatalogProduct={productId:string;name?:string|null;foodSemantics?:FoodSemantics|null};
 type Suggestion={recipeId:string;score:number;matchedIngredientNames:string[];missingIngredients:Array<{name:string;quantity:number;unit:string}>;recipe:any};
 
 const IMAGE_CACHE = new Map<string, string | null>();
@@ -99,15 +113,20 @@ async function enrichInventoryNames(stock:PantryItem[],catalogBase:string,author
  if(!response.ok)throw new Error("catalog HTTP "+response.status);
  const envelope=await response.json() as {data?:{items?:CatalogProduct[]};items?:CatalogProduct[]};
  const body=envelope.data??envelope;
- const names = new Map<string, string>();
+ const products = new Map<string, CatalogProduct>();
  for (const item of body.items ?? []) {
-  const name = typeof item.name === "string" ? item.name.trim() : "";
-  if (item.productId && name) names.set(item.productId, name);
+  if (item.productId) products.set(item.productId, item);
  }
  return stock.map((item): PantryItem => {
-  if (item.name?.trim()) return item;
-  const resolvedName = names.get(String(item.productId ?? ""));
-  return resolvedName ? { ...item, name: resolvedName } : item;
+  const product = products.get(String(item.productId ?? ""));
+  const resolvedName = typeof item.name === "string" && item.name.trim()
+    ? item.name.trim()
+    : (typeof product?.name === "string" ? product.name.trim() : "");
+  return {
+    ...item,
+    ...(resolvedName ? { name: resolvedName } : {}),
+    ...(product?.foodSemantics ? { foodSemantics: product.foodSemantics } : {}),
+  };
  });
 }
 
@@ -278,7 +297,12 @@ async function hydrate(pool:Pool,rows:any[]){if(!rows.length)return[];const ids=
 export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string}):Promise<Suggestion[]>{
  const rawStock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
  const stock=p.catalogBaseUrl?await enrichInventoryNames(rawStock,p.catalogBaseUrl,p.authorization):rawStock;
- const stockTerms=[...new Set(stock.flatMap(x=>{const name=pantryName(x);return name?[...terms(name)]:[];}))];
+ const stockTerms=[...new Set(stock.flatMap(x=>{
+   const semanticTerms=x.foodSemantics?.ingredientTerms ?? [];
+   const taxonomy=x.foodSemantics?.taxonomyTags ?? [];
+   const name=pantryName(x);
+   return [...semanticTerms,...taxonomy,...(name?[...terms(name)]:[])].flatMap(value=>terms(value));
+ }))];
  let fullCandidateRows:any[];
  if(p.q){
   fullCandidateRows=(await pool.query(
@@ -306,8 +330,16 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
  }
  const full=await hydrate(pool,fullCandidateRows);
  const scored:Suggestion[]=full.map((r:any)=>{
-   const matched=r.ingredients.filter((i:any)=>stock.some(s=>{const name=pantryName(s);return name?matches(String(i.display_name||i.name),name):false}));
-   const missing=r.ingredients.filter((i:any)=>!stock.some(s=>{const name=pantryName(s);return name?matches(String(i.display_name||i.name),name):false}));
+   const matched=r.ingredients.filter((i:any)=>stock.some(s=>{const name=pantryName(s);return name
+          ? matches(String(i.display_name||i.name),name)
+            || (s.foodSemantics?.canonicalIngredient ? matches(String(i.display_name||i.name), s.foodSemantics.canonicalIngredient) : false)
+            || (s.foodSemantics?.ingredientTerms ?? []).some(term => matches(String(i.display_name||i.name), term))
+          : false}));
+   const missing=r.ingredients.filter((i:any)=>!stock.some(s=>{const name=pantryName(s);return name
+          ? matches(String(i.display_name||i.name),name)
+            || (s.foodSemantics?.canonicalIngredient ? matches(String(i.display_name||i.name), s.foodSemantics.canonicalIngredient) : false)
+            || (s.foodSemantics?.ingredientTerms ?? []).some(term => matches(String(i.display_name||i.name), term))
+          : false}));
    let expiry=0;
    for(const i of matched){const s=stock.find(x=>{const name=pantryName(x);return name?matches(String(i.display_name||i.name),name):false});if(s?.expiresAt){const days=(new Date(s.expiresAt).getTime()-Date.now())/86400000;expiry+=Math.max(0,Math.min(1,(7-days)/7));}}
    const coverage=r.ingredients.length?matched.length/r.ingredients.length:0;
