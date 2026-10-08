@@ -511,6 +511,7 @@ export default function App() {
               stock={stock}
               setList={setShoppingList}
               onShoppingChanged={shopping.refresh}
+              onNavigateToShopping={() => setTab("spesa")}
               familyId={familyId}
               suggestedRecipes={composite.data?.suggestedRecipes}
             />
