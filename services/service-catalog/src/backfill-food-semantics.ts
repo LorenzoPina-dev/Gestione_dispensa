@@ -1,0 +1,81 @@
+import { PostgresClient, resolveDatabaseUrl } from "./db/postgres-client.js";
+import { upsertProductFoodSemantics } from "./catalog/food-semantics-repository.js";
+
+const BATCH_SIZE = Math.min(Math.max(Number(process.env.FOOD_SEMANTICS_BACKFILL_BATCH ?? 250), 25), 1000);
+
+async function main(): Promise<void> {
+  const database = PostgresClient.create({ connectionString: resolveDatabaseUrl(), max: 4 });
+  let lastId = "";
+  let processed = 0;
+  let inserted = 0;
+
+  try {
+    for (;;) {
+      const rows = await database.query<{
+        id: string;
+        canonical_name: string;
+        product_details_snapshot: string | Record<string, unknown> | null;
+        external_source: string | null;
+      }>(
+        `SELECT
+           p.id,
+           p.canonical_name,
+           p.product_details_snapshot,
+           p.external_source
+         FROM products p
+         WHERE p.status='ACTIVE'
+           AND p.id > $1
+         ORDER BY p.id
+         LIMIT $2`,
+        [lastId, BATCH_SIZE],
+      );
+
+      if (rows.rows.length === 0) break;
+
+      for (const row of rows.rows) {
+        const snapshot = typeof row.product_details_snapshot === "string"
+          ? (() => {
+              try { return JSON.parse(row.product_details_snapshot) as Record<string, unknown>; }
+              catch { return null; }
+            })()
+          : row.product_details_snapshot;
+        await upsertProductFoodSemantics(
+          database,
+          row.id,
+          row.canonical_name,
+          snapshot,
+          row.external_source ?? "MANUAL",
+        );
+        processed += 1;
+        inserted += 1;
+      }
+
+      lastId = rows.rows[rows.rows.length - 1]!.id;
+      console.log(JSON.stringify({
+        service: "catalog-food-semantics-backfill",
+        event: "progress",
+        processed,
+        materialized: inserted,
+        lastId,
+      }));
+    }
+
+    console.log(JSON.stringify({
+      service: "catalog-food-semantics-backfill",
+      event: "completed",
+      processed,
+      materialized: inserted,
+    }));
+  } finally {
+    await database.close();
+  }
+}
+
+void main().catch((error) => {
+  console.error(JSON.stringify({
+    service: "catalog-food-semantics-backfill",
+    event: "failed",
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  process.exitCode = 1;
+});
