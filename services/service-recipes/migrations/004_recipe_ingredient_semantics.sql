@@ -1,5 +1,6 @@
 ALTER TABLE recipe_catalog.recipe_ingredients
   ADD COLUMN IF NOT EXISTS canonical_ingredient varchar(200),
+  ADD COLUMN IF NOT EXISTS semantic_confidence numeric(5,4) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS ingredient_terms text[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS quantity_value numeric(14,6),
   ADD COLUMN IF NOT EXISTS quantity_unit varchar(16),
