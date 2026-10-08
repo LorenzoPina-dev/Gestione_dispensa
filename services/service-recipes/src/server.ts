@@ -3,6 +3,7 @@ import { createContextAwarePool, setDbRequestContextFromHeaders, type PoolClient
 import crypto from "node:crypto";
 import { registerAddMissingIngredientsRoute } from "./add-missing.js";
 import { discover, getCatalogRecipe } from "./recipe-discovery.js";
+import { normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -225,9 +226,25 @@ app.post("/api/v1/recipes", async (req, res) => {
         await client.query("rollback");
         return res.status(400).json(errorBody("VALIDATION_ERROR", `ingredients[${index}] is invalid.`));
       }
+      const semantic = normalizeRecipeIngredient(name, quantity, unit);
       await client.query(
-        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit) values($1,$2,$3,$4,$5,$6)",
-        [crypto.randomUUID(), id, item.productId ?? null, name, quantity, unit],
+        "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+        [
+          crypto.randomUUID(),
+          id,
+          item.productId ?? null,
+          name,
+          quantity,
+          unit,
+          semantic.canonicalIngredient,
+          semantic.ingredientTerms,
+          semantic.quantity?.dimension ?? null,
+          semantic.quantity?.baseValue ?? null,
+          semantic.quantity?.baseUnit ?? null,
+          semantic.quantityConfidence,
+          semantic.culinaryWeight,
+          semantic.prepState,
+        ],
       );
     }
     for (const [position, instruction] of steps.entries()) {
@@ -304,7 +321,21 @@ app.patch("/api/v1/recipes/:recipeId", async (req,res) => {
     if(Object.hasOwn(body,"ingredients")){
       if(!Array.isArray(body.ingredients)){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","ingredients must be an array."));}
       await client.query("delete from recipes_domain.recipe_ingredients where recipe_id=$1",[req.params.recipeId]);
-      for(const raw of body.ingredients){const item=raw as Record<string,unknown>;const name=typeof item.name==="string"?item.name.trim():"";const q=Number(item.quantity);const unit=typeof item.unit==="string"?item.unit:"";if(!name||!Number.isFinite(q)||q<=0||!unit){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","Invalid ingredient."));}await client.query("insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit) values($1,$2,$3,$4,$5,$6)",[crypto.randomUUID(),req.params.recipeId,item.productId??null,name,q,unit]);}
+      for(const raw of body.ingredients){
+        const item=raw as Record<string,unknown>;
+        const name=typeof item.name==="string"?item.name.trim():"";
+        const q=Number(item.quantity);
+        const unit=typeof item.unit==="string"?item.unit:"";
+        if(!name||!Number.isFinite(q)||q<=0||!unit){
+          await client.query("rollback");
+          return res.status(400).json(errorBody("VALIDATION_ERROR","Invalid ingredient."));
+        }
+        const semantic=normalizeRecipeIngredient(name,q,unit);
+        await client.query(
+          "insert into recipes_domain.recipe_ingredients(id,recipe_id,product_id,name,quantity,unit,canonical_ingredient,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+          [crypto.randomUUID(),req.params.recipeId,item.productId??null,name,q,unit,semantic.canonicalIngredient,semantic.ingredientTerms,semantic.quantity?.dimension??null,semantic.quantity?.baseValue??null,semantic.quantity?.baseUnit??null,semantic.quantityConfidence,semantic.culinaryWeight,semantic.prepState],
+        );
+      }
     }
     if(Object.hasOwn(body,"steps")){if(!Array.isArray(body.steps)||!body.steps.every((x)=>typeof x==="string")){await client.query("rollback");return res.status(400).json(errorBody("VALIDATION_ERROR","steps must be an array of strings."));}await client.query("delete from recipes_domain.recipe_steps where recipe_id=$1",[req.params.recipeId]);for(const [pos,instruction] of (body.steps as string[]).entries())await client.query("insert into recipes_domain.recipe_steps(id,recipe_id,position,instruction) values($1,$2,$3,$4)",[crypto.randomUUID(),req.params.recipeId,pos+1,instruction]);}
     const full=await loadRecipeFromClient(client,req.params.recipeId,ctx.familyId);const response={data:full,version:full.version};await outbox(client, "RecipeUpdated", req.params.recipeId, ctx, response);await finishIdempotency(client,req,200,response);await client.query("commit");res.setHeader("ETag", `"version-${response.version}"`);return res.json(response);
@@ -328,7 +359,20 @@ type Recipe = {
   recipeId: string;
   title: string;
   servings: number;
-  ingredients: Array<{ productId: string | null; name: string; quantity: number; unit: string }>;
+  ingredients: Array<{
+    productId: string | null;
+    name: string;
+    quantity: number;
+    unit: string;
+    canonicalIngredient: string | null;
+    ingredientTerms: string[];
+    quantityDimension: string | null;
+    quantityBaseValue: number | null;
+    quantityBaseUnit: string | null;
+    quantityConfidence: number;
+    culinaryWeight: string;
+    prepState: string | null;
+  }>;
   steps: string[];
   version: number;
 };
@@ -341,14 +385,27 @@ async function loadRecipe(id: string, familyId: string): Promise<Recipe | null> 
   const recipe = result.rows[0];
   if (!recipe) return null;
   const [ingredients, steps] = await Promise.all([
-    pool.query("select product_id,name,quantity,unit from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at", [id]),
+    pool.query("select product_id,name,quantity,unit,canonical_ingredient,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at", [id]),
     pool.query("select position,instruction from recipes_domain.recipe_steps where recipe_id=$1 order by position", [id]),
   ]);
   return {
     recipeId: String(recipe.id),
     title: String(recipe.title),
     servings: Number(recipe.servings),
-    ingredients: ingredients.rows.map((row) => ({ productId: row.product_id === null ? null : String(row.product_id), name: String(row.name), quantity: Number(row.quantity), unit: String(row.unit) })),
+    ingredients: ingredients.rows.map((row) => ({
+      productId: row.product_id === null ? null : String(row.product_id),
+      name: String(row.name),
+      quantity: Number(row.quantity),
+      unit: String(row.unit),
+      canonicalIngredient: row.canonical_ingredient === null ? null : String(row.canonical_ingredient),
+      ingredientTerms: Array.isArray(row.ingredient_terms) ? row.ingredient_terms.map(String) : [],
+      quantityDimension: row.quantity_dimension === null ? null : String(row.quantity_dimension),
+      quantityBaseValue: row.quantity_base_value === null ? null : Number(row.quantity_base_value),
+      quantityBaseUnit: row.quantity_base_unit === null ? null : String(row.quantity_base_unit),
+      quantityConfidence: Number(row.quantity_confidence ?? 0),
+      culinaryWeight: String(row.culinary_weight ?? "CORE"),
+      prepState: row.prep_state === null ? null : String(row.prep_state),
+    })),
     steps: steps.rows.map((row) => String(row.instruction)),
     version: Number(recipe.version),
   };
@@ -358,10 +415,23 @@ async function loadRecipeFromClient(client: PoolClient,id:string,familyId:string
   const recipeResult=await client.query("select id,title,servings,version from recipes_domain.recipes where id=$1 and family_id=$2",[id,familyId]);
   const recipe=recipeResult.rows[0]; if(!recipe) throw new Error("Recipe not found.");
   const [ingredients,steps]=await Promise.all([
-    client.query("select product_id,name,quantity,unit from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",[id]),
+    client.query("select product_id,name,quantity,unit,canonical_ingredient,ingredient_terms,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",[id]),
     client.query("select position,instruction from recipes_domain.recipe_steps where recipe_id=$1 order by position",[id]),
   ]);
-  return {recipeId:recipe.id,title:recipe.title,servings:Number(recipe.servings),ingredients:ingredients.rows.map(x=>({productId:x.product_id,name:x.name,quantity:Number(x.quantity),unit:x.unit})),steps:steps.rows.map(x=>x.instruction),version:Number(recipe.version)};
+  return {recipeId:recipe.id,title:recipe.title,servings:Number(recipe.servings),ingredients:ingredients.rows.map(x=>({
+    productId:x.product_id,
+    name:x.name,
+    quantity:Number(x.quantity),
+    unit:x.unit,
+    canonicalIngredient:x.canonical_ingredient,
+    ingredientTerms:Array.isArray(x.ingredient_terms)?x.ingredient_terms.map(String):[],
+    quantityDimension:x.quantity_dimension,
+    quantityBaseValue:x.quantity_base_value===null?null:Number(x.quantity_base_value),
+    quantityBaseUnit:x.quantity_base_unit,
+    quantityConfidence:Number(x.quantity_confidence??0),
+    culinaryWeight:String(x.culinary_weight??"CORE"),
+    prepState:x.prep_state,
+  })),steps:steps.rows.map(x=>x.instruction),version:Number(recipe.version)};
 }
 
 init().then(()=>app.listen(port,"0.0.0.0",()=>console.log(JSON.stringify({service:"service-recipes",port})))).catch(e=>{console.error(e);process.exit(1)});
