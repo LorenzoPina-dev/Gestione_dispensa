@@ -33,7 +33,7 @@ describe("food-rules",()=>{
   it("infers allergens from multilingual ingredient text even when canonicalization is unknown",()=>{
     assert.ok(inferTextAllergens("soy sauce").includes("soybeans"));
     assert.ok(inferTextAllergens("beurre et lait").includes("milk"));
-    assert.ok(inferTextAllergens("crevettes").includes("crustaceans") === false);
+    assert.ok(inferTextAllergens("crevettes").includes("crustaceans"));
   });
   it("keeps mass and volume as distinct dimensions",()=>{
     assert.equal(foodQuantity(1,"kg")?.baseUnit,"g");
