@@ -30,6 +30,7 @@ type Suggestion=RecipeMatch & { matchedIngredientNames:string[]; matchedProducts
 const IMAGE_CACHE = new Map<string, string | null>();
 const STEPS_CACHE = new Map<string, string[] | null>();
 const INGREDIENTS_CACHE = new Map<string, string[] | null>();
+const SERVINGS_CACHE = new Map<string, number | null>();
 
 async function getInventory(base:string,userId:string,familyId:string,authorization?:string):Promise<PantryItem[]>{
  const u=new URL(base.replace(/\/$/,"")+"/inventory");u.searchParams.set("familyId",familyId);u.searchParams.set("status","current");u.searchParams.set("limit","100");
@@ -114,6 +115,29 @@ async function resolveRecipeImage(sourceUrl:string|undefined):Promise<string|und
  return undefined;
 }
 
+export function extractRecipeServings(html:string):number|null{
+ const recipeNodes:Record<string,unknown>[]=[];
+ const scriptPattern=/<script[^>]*type=["\\']application\\/ld\\+json["\\'][^>]*>([\\s\\S]*?)<\\/script>/gi;
+ let match:RegExpExecArray|null;
+ while((match=scriptPattern.exec(html))!==null){
+  const raw=match[1]?.trim(); if(!raw)continue;
+  try{findRecipeNodes(JSON.parse(raw.replace(/^<!--|-->$/g,"").trim()),recipeNodes);}catch{}
+ }
+ for(const recipe of recipeNodes){
+  const value=recipe.recipeYield;
+  const candidates=Array.isArray(value)?value.map(String):typeof value==="string"?[value]:[];
+  for(const candidate of candidates){
+   const normalized=norm(candidate);
+   if(!/(serv|porzion|people|persons|persone|slices?|fette|pieces?|pezzi)/i.test(normalized))continue;
+   const numberMatch=normalized.match(/(?:^|\\s)(\\d+(?:[.,]\\d+)?)(?:\\s|$)/);
+   if(!numberMatch)continue;
+   const number=Number(numberMatch[1]!.replace(",",".")); 
+   if(Number.isFinite(number)&&number>0&&number<=100)return number;
+  }
+ }
+ return null;
+}
+
 function extractRecipeIngredientTexts(html:string):string[]{
  const recipeNodes:Record<string,unknown>[]=[];
  const scriptPattern=/<script[^>]*type=["\']application\/ld\+json["\'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -140,6 +164,7 @@ async function resolveRecipeIngredientTexts(sourceUrl:string|undefined):Promise<
   });
   if(response.ok){
    const html=await response.text();
+   SERVINGS_CACHE.set(sourceUrl,extractRecipeServings(html));
    const ingredients=extractRecipeIngredientTexts(html);
    if(ingredients.length){INGREDIENTS_CACHE.set(sourceUrl,ingredients);return ingredients;}
   }
