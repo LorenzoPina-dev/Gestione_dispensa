@@ -401,6 +401,14 @@ export function inferTextAllergens(raw:string):AllergenCode[] {
   return [...out];
 }
 
+export const AMBIGUOUS_COMPOUND_INGREDIENTS = new Set([
+  "pesto","ragu","brodo","gelatina","formaggio","pane","pasta","salsa"
+]);
+
+export function isAmbiguousCompoundIngredient(canonicalIngredient:string|null):boolean {
+  return canonicalIngredient !== null && AMBIGUOUS_COMPOUND_INGREDIENTS.has(normalizeFoodText(canonicalIngredient));
+}
+
 export function inferIngredientAllergens(canonicalIngredient:string|null, terms:readonly string[]=[]):AllergenCode[] {
   const values=new Set<AllergenCode>();
   if(canonicalIngredient){
