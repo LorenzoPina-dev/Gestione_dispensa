@@ -350,7 +350,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    const matched=coverage.matchedIngredients.filter(item=>item.ratio>0);
    const usedProductIds=new Set(coverage.matchedProductIds);
    const safety=evaluateRecipeSafety(
-     r.ingredients.map((x:any)=>({name:String(x.name),canonicalIngredient:x.canonical_ingredient??null,ingredientTerms:Array.isArray(x.ingredient_terms)?x.ingredient_terms.map(String):[]})),
+     r.ingredients.map((x:any)=>({name:String(x.name),canonicalIngredient:x.canonical_ingredient??null,ingredientTerms:Array.isArray(x.ingredient_terms)?x.ingredient_terms.map(String):[],matchedProductIds:coverage.matchedIngredients.find((m:any)=>m.recipeIngredient===String(x.display_name||x.name))?.productIds??[]})),
      pantry.filter(item=>usedProductIds.has(item.productId)).map(item=>({productId:item.productId,name:item.name,foodSemantics:item.foodSemantics??null})),
      safetyProfile,
    );
