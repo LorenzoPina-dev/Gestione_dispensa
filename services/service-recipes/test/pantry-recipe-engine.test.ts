@@ -111,6 +111,16 @@ describe("pantry-recipe-engine", () => {
     assert.equal(result.coverage,0.667);
   });
 
+  it("uses explicit residual content for an opened package", () => {
+    const result = scoreRecipeAgainstPantry(
+      [{ name:"pasta", displayName:"pasta", canonicalIngredient:"pasta", semanticConfidence:1, culinaryWeight:"CORE", quantityValue:400, quantityUnit:"g", quantityDimension:"mass", quantityBaseValue:400, quantityBaseUnit:"g", quantityConfidence:1 }],
+      [{ productId:"open-pack",name:"Pasta",quantity:1,unit:"pack",openedAt:"2026-10-07T12:00:00.000Z",remainingContentQuantity:350,remainingContentUnit:"g",foodSemantics:{canonicalIngredient:"pasta",semanticConfidence:1,ingredientTerms:["pasta"],quantityBase:{value:500,unit:"g"}}}],
+    );
+    assert.equal(result.score,0.875);
+    assert.equal(result.matchedIngredients[0]?.status,"PARTIAL");
+    assert.equal(result.matchedIngredients[0]?.availableQuantity?.value,350);
+  });
+
   it("does not assume an opened pack still contains its full package quantity", () => {
     const result = scoreRecipeAgainstPantry(
       [{ name:"pasta", displayName:"pasta", canonicalIngredient:"pasta", semanticConfidence:1, culinaryWeight:"CORE", quantityValue:500, quantityUnit:"g", quantityDimension:"mass", quantityBaseValue:500, quantityBaseUnit:"g", quantityConfidence:1 }],
