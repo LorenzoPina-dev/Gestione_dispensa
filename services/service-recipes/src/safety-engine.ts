@@ -5,7 +5,7 @@ export type SafetyWarningCode = "ALLERGEN" | "TRACE" | "DIETARY_RESTRICTION" | "
 export interface SafetyProfile { allergenTags:string[]; dietaryRestrictions:string[]; tracePolicy:"WARN"|"EXCLUDE"; }
 export interface SafetyWarning { code:SafetyWarningCode; severity:SafetySeverity; ingredient:string; details:string; allergenTags?:string[]; }
 export interface SafetyIngredient { name:string; canonicalIngredient?:string|null; ingredientTerms?:string[]; }
-export interface SafetyPantryProduct { productId:string; name:string; foodSemantics?:{ allergenTags?:string[]; traceTags?:string[]; canonicalIngredient?:string|null; }|null; }
+export interface SafetyPantryProduct { productId:string; name:string; foodSemantics?:{ allergenTags?:string[]; traceTags?:string[]; canonicalIngredient?:string|null; components?:Array<{canonicalIngredient:string|null;ingredientTerms:string[]}>; compositionConfidence?:number; }|null; }
 
 const MEAT=new Set(["pollo","manzo","maiale","pancetta","prosciutto","salsiccia"]);
 const ANIMAL=new Set(["pollo","manzo","maiale","pancetta","prosciutto","salsiccia","tonno","salmone","uovo","latte","burro","panna","formaggio","mozzarella","parmigiano","pecorino","mascarpone","ricotta","miele"]);
@@ -45,11 +45,16 @@ export function evaluateRecipeSafety(ingredients:readonly SafetyIngredient[],pan
       continue;
     }
     const allergens=semantics.allergenTags??[];
-    const direct=allergens.filter(value=>allergic.has(normalizeFoodText(value)));
+    const componentAllergens=(semantics.components??[]).flatMap(component=>inferIngredientAllergens(component.canonicalIngredient,component.ingredientTerms));
+    const effectiveAllergens=[...new Set([...allergens,...componentAllergens])];
+    const direct=effectiveAllergens.filter(value=>allergic.has(normalizeFoodText(value)));
     if(direct.length) warnings.push({code:"ALLERGEN",severity:"BLOCK",ingredient:product.name,details:"Pantry product contains a personal allergen.",allergenTags:direct});
     const traceMatches=(semantics.traceTags??[]).filter(value=>allergic.has(normalizeFoodText(value)));
     if(traceMatches.length) warnings.push({code:"TRACE",severity:profile.tracePolicy==="EXCLUDE"?"BLOCK":"WARN",ingredient:product.name,details:"Pantry product declares an allergen trace.",allergenTags:traceMatches});
-    for(const diet of dietConflicts(restrictions,semantics.canonicalIngredient??null,allergens)) warnings.push({code:"DIETARY_RESTRICTION",severity:"BLOCK",ingredient:product.name,details:"Pantry product conflicts with dietary restriction "+diet+"."});
+    for(const diet of dietConflicts(restrictions,semantics.canonicalIngredient??null,effectiveAllergens)) warnings.push({code:"DIETARY_RESTRICTION",severity:"BLOCK",ingredient:product.name,details:"Pantry product conflicts with dietary restriction "+diet+". "});
+    if((profile.allergenTags.length||profile.dietaryRestrictions.length)&&semantics.compositionConfidence!==undefined&&semantics.compositionConfidence<0.8){
+      warnings.push({code:"UNKNOWN_COMPOSITION",severity:"WARN",ingredient:product.name,details:"Only part of the product composition could be normalized."});
+    }
   }
   const deduped=warnings.filter((warning,index,array)=>array.findIndex(other=>other.code===warning.code&&other.ingredient===warning.ingredient&&other.details===warning.details)===index);
   return {safe:!deduped.some(warning=>warning.severity==="BLOCK"),warnings:deduped};
