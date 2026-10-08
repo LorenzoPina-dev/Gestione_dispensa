@@ -38,6 +38,13 @@ export interface PantryProductForMatch {
     quantityBase?: { value: number; unit: "g" | "ml" | "piece" } | null;
     nutriScoreGrade?: string | null;
   } | null;
+  nutrition?: {
+    kcalPer100g?: number | null;
+    proteinGPer100g?: number | null;
+    carbsGPer100g?: number | null;
+    fatGPer100g?: number | null;
+    fiberGPer100g?: number | null;
+  } | null;
 }
 
 export interface IngredientMatch {
@@ -75,6 +82,101 @@ export interface RecipeSubstitution {
   factor: number;
   reason: string;
   productIds: string[];
+}
+
+export interface RecipeNutritionEstimate {
+  status:"UNAVAILABLE"|"ESTIMATED";
+  total:Record<string,number>|null;
+  coverage:number;
+  ingredientsWithNutrition:number;
+  ingredientsWithoutNutrition:number;
+  gramsWithNutrition:number;
+  gramsWithoutNutrition:number;
+  note:string;
+}
+
+export function estimateRecipeNutrition(
+  matches:readonly IngredientMatch[],
+  pantry:readonly PantryProductForMatch[],
+): RecipeNutritionEstimate {
+  const byProduct=new Map(pantry.map(item=>[item.productId,item]));
+  const totals={caloriesKcal:0,proteinG:0,carbsG:0,fatG:0,fiberG:0};
+  let ingredientsWithNutrition=0;
+  let ingredientsWithoutNutrition=0;
+  let gramsWithNutrition=0;
+  let gramsWithoutNutrition=0;
+
+  for(const match of matches){
+    if(match.allocations.length===0){
+      if(match.status==="PRESENCE_ONLY" && match.productIds.some(id=>byProduct.get(id)?.nutrition)) ingredientsWithNutrition++;
+      else ingredientsWithoutNutrition++;
+      continue;
+    }
+    let ingredientHasNutrition=false;
+    let ingredientHasUnsupportedBasis=false;
+    for(const allocation of match.allocations){
+      const product=byProduct.get(allocation.productId);
+      const nutrition=product?.nutrition;
+      const grams=allocation.baseUnit==="g"?allocation.usedBaseValue:0;
+      if(!nutrition || allocation.baseUnit!=="g"){
+        if(allocation.baseUnit==="g") gramsWithoutNutrition+=allocation.usedBaseValue;
+        else ingredientHasUnsupportedBasis=true;
+        continue;
+      }
+      const values=[
+        ["caloriesKcal","kcalPer100g",nutrition.kcalPer100g],
+        ["proteinG","proteinGPer100g",nutrition.proteinGPer100g],
+        ["carbsG","carbsGPer100g",nutrition.carbsGPer100g],
+        ["fatG","fatGPer100g",nutrition.fatGPer100g],
+        ["fiberG","fiberGPer100g",nutrition.fiberGPer100g],
+      ] as const;
+      let contributed=false;
+      for(const [target,source,value] of values){
+        if(typeof value==="number"&&Number.isFinite(value)){
+          totals[target]+=grams*value/100;
+          contributed=true;
+        }
+      }
+      if(contributed){
+        ingredientHasNutrition=true;
+        gramsWithNutrition+=grams;
+      }else{
+        gramsWithoutNutrition+=grams;
+      }
+    }
+    if(ingredientHasNutrition)ingredientsWithNutrition++;
+    else if(ingredientHasUnsupportedBasis||match.allocations.length>0)ingredientsWithoutNutrition++;
+  }
+
+  const totalAllocatedGrams=gramsWithNutrition+gramsWithoutNutrition;
+  const coverage=totalAllocatedGrams>0
+    ? Number((gramsWithNutrition/totalAllocatedGrams).toFixed(3))
+    : 0;
+  if(ingredientsWithNutrition===0){
+    return {
+      status:"UNAVAILABLE",
+      total:null,
+      coverage:0,
+      ingredientsWithNutrition:0,
+      ingredientsWithoutNutrition,
+      gramsWithNutrition:0,
+      gramsWithoutNutrition,
+      note:"No matched pantry allocation has reliable nutrition on a gram basis.",
+    };
+  }
+  const total=Object.fromEntries(Object.entries(totals).map(([key,value])=>[key,Number(value.toFixed(2))]));
+  return {
+    status:"ESTIMATED",
+    total,
+    coverage,
+    ingredientsWithNutrition,
+    ingredientsWithoutNutrition,
+    gramsWithNutrition:Number(gramsWithNutrition.toFixed(3)),
+    gramsWithoutNutrition:Number(gramsWithoutNutrition.toFixed(3)),
+    note:coverage<0.999
+      ?"Estimated only from matched pantry products with reliable per-100 g nutrition; missing or non-gram ingredients are excluded."
+      :"Estimated from matched pantry products with reliable per-100 g nutrition. This is not a source-provided recipe nutrition profile.",
+  };
 }
 
 export function averageNutriScore(
