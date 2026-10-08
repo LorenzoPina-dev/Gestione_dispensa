@@ -117,7 +117,7 @@ async function resolveRecipeImage(sourceUrl:string|undefined):Promise<string|und
 
 export function extractRecipeServings(html:string):number|null{
  const recipeNodes:Record<string,unknown>[]=[];
- const scriptPattern=/<script[^>]*type=["\\']application\\/ld\\+json["\\'][^>]*>([\\s\\S]*?)<\\/script>/gi;
+ const scriptPattern=/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
  let match:RegExpExecArray|null;
  while((match=scriptPattern.exec(html))!==null){
   const raw=match[1]?.trim(); if(!raw)continue;
