@@ -337,6 +337,7 @@ services:
       SERVICE_NAME: service-catalog
       DATABASE_URL: "postgres://catalog_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/catalog_db"
       MIGRATION_DATABASE_URL: "postgres://catalog:catalog@postgres:5432/catalog_db"
+      FOOD_SEMANTICS_SERVICE_BASE_URL: "http://service-food-semantics:3410/api/v1"
       <<: *oidc-env
       OFF_LOOKUP_BASE_URL: "http://off-lookup:3200"
       OFF_LOOKUP_TIMEOUT_MS: "2500"
@@ -383,6 +384,7 @@ services:
     environment: { DATABASE_URL: "postgres://food_semantics:food_semantics@postgres:5432/food_semantics_db" }
     command: ["node","dist/migrate.js"]
     depends_on:
+      service-food-semantics: { condition: service_healthy }
       postgres-app-role-init: { condition: service_completed_successfully }
     restart: "no"
     networks: [backend, data]
