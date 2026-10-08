@@ -96,3 +96,20 @@ describe("food-rules / structured ingredient lines",()=>{
     assert.equal(parsed.quantity,null);
   });
 });
+
+describe("food-rules / nested compound components",()=>{
+  it("preserves the primary product and exposes nested components with paths",()=>{
+    const result=parseIngredientText("pesto (basilico, parmigiano, olio extravergine)");
+    assert.equal(result[0]?.canonicalIngredient,"pesto");
+    assert.equal(result[0]?.role,"PRIMARY");
+    assert.equal(result[0]?.depth,0);
+    assert.equal(result[0]?.path,"0");
+    const nested=result.filter(item=>item.role==="SUBCOMPONENT");
+    assert.equal(nested.length,3);
+    assert.equal(nested[0]?.canonicalIngredient,"basilico");
+    assert.equal(nested[0]?.parentCanonicalIngredient,"pesto");
+    assert.equal(nested[0]?.path,"0.0");
+    assert.equal(nested[1]?.canonicalIngredient,"parmigiano");
+    assert.equal(nested[1]?.path,"0.1");
+  });
+});
