@@ -36,7 +36,8 @@
 - [x] Conteggio separato dei CORE mancanti per il ranking.
 - [x] Sostituzioni funzionali curate con fattore 0.8: lo stock esatto viene utilizzato prima, il sostituto copre solo l'eventuale residuo.
 - [x] Confidenza semantica persistita sugli ingredienti di ricetta; un canonical match debole non viene considerato identità certa.
-- [x] Ranking secondario per numero di CORE mancanti e tempo di preparazione.
+- [x] Ranking secondario per numero di CORE mancanti, Nutri-Score dei prodotti di dispensa disponibili quando presente e tempo di preparazione.
+- [x] Il Nutri-Score è trattato come tie-breaker ingredient-level e non viene spacciato per Nutri-Score della ricetta.
 - [x] Profilo alimentare personale in Identity con allergeni, restrizioni dietetiche e policy sulle tracce, versionato con ETag.
 - [x] Filtro di sicurezza Recipes: allergene noto -> `BLOCK`; traccia -> `WARN` o `BLOCK` secondo policy; restrizione dietetica incompatibile -> `BLOCK`.
 - [x] Stato `UNKNOWN_COMPOSITION` quando la composizione non è sufficientemente normalizzata: nessuna falsa garanzia di sicurezza.
