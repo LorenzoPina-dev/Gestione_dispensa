@@ -494,7 +494,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    const recipe={
      recipeId:String(r.id),
      title:String(r.title),
-     servings:null,
+     servings:r.servings==null?null:Number(r.servings),
      timeMinutes:r.prep_time_minutes==null?null:Number(r.prep_time_minutes),
      difficulty:r.difficulty==null?null:Number(r.difficulty)<=2?"Facile":Number(r.difficulty)===3?"Medio":"Difficile",
      quality:"IMPORTED",
