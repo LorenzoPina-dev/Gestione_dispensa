@@ -6,6 +6,7 @@ type CatalogProduct={productId:string;name?:string|null};
 type Suggestion={recipeId:string;score:number;matchedIngredientNames:string[];missingIngredients:Array<{name:string;quantity:number;unit:string}>;recipe:any};
 
 const IMAGE_CACHE = new Map<string, string | null>();
+const STEPS_CACHE = new Map<string, string[] | null>();
 
 const ALIASES:Record<string,string[]>={
  pomodoro:["pomodoro","pomodori","tomato","tomatoes"],
@@ -155,6 +156,110 @@ async function resolveRecipeImage(sourceUrl:string|undefined):Promise<string|und
  return undefined;
 }
 
+function cleanInstruction(value:string):string{
+ let text=value
+  .replace(/<[^>]*>/g," ")
+  .replace(/&nbsp;/gi," ")
+  .replace(/&amp;/gi,"&")
+  .replace(/&quot;/gi,"\"")
+  .replace(/&#39;|&apos;/gi,"'")
+  .replace(/&lt;/gi,"<")
+  .replace(/&gt;/gi,">")
+  .replace(/\\s+/g," ")
+  .trim();
+ text=text.replace(/^\\s*\\d+\\s*[.)-:]\\s*/,"");
+ return text;
+}
+
+function recipeType(value:unknown):boolean{
+ if(!value || typeof value!=="object") return false;
+ const type=(value as {["@type"]?:unknown})["@type"];
+ return Array.isArray(type) ? type.some(x=>String(x).toLowerCase()==="recipe") : String(type??"").toLowerCase()==="recipe";
+}
+
+function collectInstructionTexts(value:unknown,out:string[]):void{
+ if(typeof value==="string"){
+  const cleaned=cleanInstruction(value);
+  if(cleaned) out.push(cleaned);
+  return;
+ }
+ if(Array.isArray(value)){
+  for(const item of value) collectInstructionTexts(item,out);
+  return;
+ }
+ if(!value || typeof value!=="object") return;
+ const object=value as Record<string,unknown>;
+ if(typeof object.text==="string"){
+  const cleaned=cleanInstruction(object.text);
+  if(cleaned) out.push(cleaned);
+  return;
+ }
+ if(Array.isArray(object.itemListElement)) collectInstructionTexts(object.itemListElement,out);
+}
+
+function findRecipeNodes(value:unknown,out:Record<string,unknown>[]):void{
+ if(Array.isArray(value)){
+  for(const item of value) findRecipeNodes(item,out);
+  return;
+ }
+ if(!value || typeof value!=="object") return;
+ const object=value as Record<string,unknown>;
+ if(recipeType(object)) out.push(object);
+ for(const child of Object.values(object)){
+  if(child && typeof child==="object") findRecipeNodes(child,out);
+ }
+}
+
+function extractRecipeInstructions(html:string):string[]{
+ const recipeNodes:Record<string,unknown>[]=[];
+ const scriptPattern=/<script[^>]*type=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi;
+ let match:RegExpExecArray|null;
+ while((match=scriptPattern.exec(html))!==null){
+  const raw=match[1]?.trim();
+  if(!raw) continue;
+  try{
+   findRecipeNodes(JSON.parse(raw.replace(/^<!--|-->$/g,"").trim()),recipeNodes);
+  }catch{
+   // Some pages include auxiliary JSON-LD that is not strict JSON. Ignore it.
+  }
+ }
+ let best:string[]=[];
+ for(const recipe of recipeNodes){
+  const values:string[]=[];
+  collectInstructionTexts(recipe.recipeInstructions,values);
+  const unique=[...new Set(values)];
+  if(unique.length>best.length) best=unique;
+ }
+ return best;
+}
+
+async function resolveRecipeSteps(sourceUrl:string|undefined,fallback:string[]):Promise<string[]>{
+ if(!sourceUrl) return fallback;
+ if(STEPS_CACHE.has(sourceUrl)) return STEPS_CACHE.get(sourceUrl)??fallback;
+ try{
+  const response=await fetch(sourceUrl,{
+   headers:{
+    accept:"text/html,application/xhtml+xml",
+    "user-agent":"Gestione-Dispensa/2.0 recipe-step-resolver",
+   },
+   redirect:"follow",
+   signal:AbortSignal.timeout(8000),
+  });
+  if(response.ok){
+   const html=await response.text();
+   const steps=extractRecipeInstructions(html);
+   if(steps.length>0){
+    STEPS_CACHE.set(sourceUrl,steps);
+    return steps;
+   }
+  }
+ }catch{
+  // The source page is enrichment only; keep the dataset fallback.
+ }
+ STEPS_CACHE.set(sourceUrl,null);
+ return fallback;
+}
+
 async function resolveRecipeImages(items:Suggestion[]):Promise<void>{
  let cursor=0;
  const workers=Array.from({length:Math.min(5,items.length)},async()=>{
@@ -219,7 +324,9 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
 export async function getCatalogRecipe(pool:Pool,id:string){
  const r=await pool.query("select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes where id=$1",[id]);if(!r.rowCount)return null;
  const full=await hydrate(pool,[r.rows[0]]);const x=full[0];
- const recipe={recipeId:String(x.id),title:String(x.title),servings:1,timeMinutes:x.prep_time_minutes==null?undefined:Number(x.prep_time_minutes),difficulty:x.difficulty==null?undefined:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl:x.source_url??undefined,tags:x.category?[String(x.category)]:[],steps:x.steps,ingredients:x.ingredients.map((i:any)=>({name:String(i.name),displayName:String(i.display_name||i.name),quantity:1,unit:"piece"}))};
+ const sourceUrl=typeof x.source_url==="string"?x.source_url:undefined;
+ const steps=await resolveRecipeSteps(sourceUrl,x.steps);
+ const recipe={recipeId:String(x.id),title:String(x.title),servings:1,timeMinutes:x.prep_time_minutes==null?undefined:Number(x.prep_time_minutes),difficulty:x.difficulty==null?undefined:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl,tags:x.category?[String(x.category)]:[],steps,ingredients:x.ingredients.map((i:any)=>({name:String(i.name),displayName:String(i.display_name||i.name),quantity:1,unit:"piece"}))};
  const image=await resolveRecipeImage(typeof recipe.sourceUrl==="string"?recipe.sourceUrl:undefined);
  return image?{...recipe,image}:recipe;
 }
