@@ -36,8 +36,8 @@ describe("catalog food semantics",()=>{
       "Pesto",
       "off-api-v3",
     );
-    assert.equal(result.canonicalIngredient,null);
-    assert.equal(result.semanticStatus,"AMBIGUOUS");
+    assert.equal(result.canonicalIngredient,"pesto");
+    assert.equal(result.semanticStatus,"EXACT");
     assert.equal(result.components.length,3);
     assert.equal(result.compositionConfidence,1);
   });
