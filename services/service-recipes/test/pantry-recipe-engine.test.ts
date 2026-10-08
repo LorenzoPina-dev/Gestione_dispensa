@@ -61,6 +61,15 @@ describe("pantry-recipe-engine", () => {
     assert.equal(result.missingIngredients[0]?.status,"PARTIAL");
   });
 
+  it("does not let a generic product satisfy a specific recipe ingredient through text fallback",()=>{
+    const result=scoreRecipeAgainstPantry(
+      [{name:"parmigiano",displayName:"parmigiano",canonicalIngredient:"parmigiano",semanticConfidence:1,culinaryWeight:"CORE"}],
+      [{productId:"p1",name:"Formaggio",quantity:200,unit:"g",foodSemantics:{canonicalIngredient:"formaggio",semanticConfidence:1,ingredientTerms:["formaggio","cheese"],taxonomyTags:["cheese"],quantityBase:{value:200,unit:"g"}}}],
+    );
+    assert.equal(result.score,0);
+    assert.equal(result.matchedProductIds.length,0);
+  });
+
   it("allocates stock using FEFO by expiry date",()=>{
     const result=scoreRecipeAgainstPantry(
       [{
