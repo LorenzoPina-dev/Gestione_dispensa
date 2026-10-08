@@ -99,6 +99,13 @@ export interface PantryRecipeScore {
   matchedProductIds: string[];
   missingCoreCount: number;
   missingCoreWeight: number;
+  excludedExpiredProductIds: string[];
+}
+
+function isExpired(item: PantryProductForMatch, nowMs: number): boolean {
+  if (!item.expiresAt) return false;
+  const expiresMs = Date.parse(item.expiresAt);
+  return Number.isFinite(expiresMs) && expiresMs <= nowMs;
 }
 
 function normalizeTerms(values: readonly string[]): Set<string> {
@@ -220,7 +227,11 @@ function inventoryQuantities(pantry: readonly PantryProductForMatch[]): ParsedQu
 export function scoreRecipeAgainstPantry(
   ingredients: readonly RecipeIngredientForMatch[],
   pantry: readonly PantryProductForMatch[],
+  options: { now?: Date } = {},
 ): PantryRecipeScore {
+  const nowMs = (options.now ?? new Date()).getTime();
+  const excludedExpiredProductIds = pantry.filter(item => isExpired(item, nowMs)).map(item => item.productId);
+  const usablePantry = pantry.filter(item => !isExpired(item, nowMs));
   const groups = new Map<string, RecipeIngredientForMatch[]>();
   for (const ingredient of ingredients) {
     const key = normalizeFoodText(ingredient.canonicalIngredient ?? "") || normalizeFoodText(ingredient.displayName || ingredient.name);
@@ -249,8 +260,8 @@ export function scoreRecipeAgainstPantry(
       ? quantities.reduce((sum, item) => sum + (item as ParsedQuantity).baseValue, 0)
       : null;
 
-    const exactCandidates = pantry.filter(item => group.some(ingredient => exactSemanticMatch(ingredient, item)));
-    const substituteCandidates = pantry.filter(item =>
+    const exactCandidates = usablePantry.filter(item => group.some(ingredient => exactSemanticMatch(ingredient, item)));
+    const substituteCandidates = usablePantry.filter(item =>
       exactCandidates.every(candidate => candidate.productId !== item.productId) &&
       group.some(ingredient => Boolean(functionalSubstitution(
         ingredient.canonicalIngredient ?? null,
@@ -428,5 +439,6 @@ export function scoreRecipeAgainstPantry(
     matchedProductIds: [...matchedProductIds],
     missingCoreCount,
     missingCoreWeight: Number(missingCoreWeight.toFixed(4)),
+    excludedExpiredProductIds,
   };
 }
