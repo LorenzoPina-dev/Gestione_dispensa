@@ -429,6 +429,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      instructions:Array.isArray(r.steps)?r.steps.map(String):[],
      nutrition:{status:"UNAVAILABLE",perServing:null,nutriScoreAverage:nutri.average,nutriScoreCoverage:nutri.coverage,nutriScoreScope:nutri.average===null?"UNAVAILABLE":"MATCHED_PANTRY_PRODUCTS",note:nutri.average===null?"Recipe dataset does not provide reliable recipe-level nutrition.":"Nutri-Score average uses only matched pantry products; it is not a recipe-level Nutri-Score."},
      safety:{safe:safety.safe,warnings:safety.warnings},
+     availability:{excludedExpiredProductIds:coverage.excludedExpiredProductIds},
      coverage:{
        matched:matched.length,
        total:coverage.matchedIngredients.length,
