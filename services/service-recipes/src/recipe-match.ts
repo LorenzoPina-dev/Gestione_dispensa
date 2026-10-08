@@ -14,7 +14,9 @@ export interface RecipePantryProduct {
 
 export interface RecipeNutrition {
   status:"UNAVAILABLE"|"ESTIMATED"|"AVAILABLE";
+  total:Record<string,number>|null;
   perServing:Record<string,number>|null;
+  coverage:number;
   nutriScoreAverage:number|null;
   nutriScoreCoverage:number;
   nutriScoreScope:"MATCHED_PANTRY_PRODUCTS"|"RECIPE_LEVEL"|"UNAVAILABLE";
