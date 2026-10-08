@@ -99,7 +99,7 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     components,
     compositionConfidence,
     source: "derived",
-    sourceVersion: "food-semantics-v1",
+    sourceVersion: "food-semantics-v2",
     observedAt: new Date().toISOString()
   };
 }
