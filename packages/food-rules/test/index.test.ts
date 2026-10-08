@@ -43,6 +43,19 @@ describe("food-rules",()=>{
     assert.equal(parseFoodQuantityFromText("100-120 g"),null);
     assert.equal(parseFoodQuantityFromText("100 to 120 g"),null);
   });
+  it("normalizes multipack quantities into total content",()=>{
+    const parsed=parseFoodQuantityFromText("2 x 180 g");
+    assert.ok(parsed);
+    assert.equal(parsed.baseValue,360);
+    assert.equal(parsed.baseUnit,"g");
+    assert.equal(parsed.sourceRaw,"2 x 180 g");
+  });
+  it("supports the multiplication sign used on commercial pack labels",()=>{
+    const parsed=parseFoodQuantityFromText("6×100 ml");
+    assert.ok(parsed);
+    assert.equal(parsed.baseValue,600);
+    assert.equal(parsed.baseUnit,"ml");
+  });
   it("parses countable ingredients with no explicit unit",()=>{
     assert.equal(parseFoodCountFromText("2 uova","uovo")?.baseValue,2);
     assert.equal(parseFoodCountFromText("3 onions","cipolla")?.baseValue,3);
