@@ -340,6 +340,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      unit:String(item.unit),
      expiresAt:item.expiresAt??null,
      addedAt:item.addedAt??null,
+     openedAt:item.openedAt??null,
      foodSemantics:item.foodSemantics??null,
    }));
  const scored:Suggestion[]=full.map((r:any)=>{
