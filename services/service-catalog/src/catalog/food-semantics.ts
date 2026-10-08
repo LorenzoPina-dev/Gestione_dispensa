@@ -53,12 +53,30 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     source.ingredients_text,
   ) ?? "";
 
-  const canonical = canonicalizeIngredient(productText, [...ingredientTags, ...categoryTags]);
   const components = ingredientText ? parseIngredientText(ingredientText) : [];
   const recognizedComponents = components.filter(component => component.canonicalIngredient);
   const compositionConfidence = components.length > 0
     ? Number((recognizedComponents.length / components.length).toFixed(4))
     : 0;
+
+  let canonical = canonicalizeIngredient(productText, ingredientTags);
+  if (
+    (canonical.status === "UNKNOWN" || canonical.status === "AMBIGUOUS") &&
+    recognizedComponents.length === 1
+  ) {
+    const component = recognizedComponents[0]!;
+    canonical = {
+      canonicalIngredient: component.canonicalIngredient,
+      ingredientTerms: component.ingredientTerms,
+      confidence: Math.min(0.86, component.confidence * 0.92),
+      status: "INFERRED",
+    };
+  }
+
+  if (canonical.status === "UNKNOWN" || canonical.status === "AMBIGUOUS") {
+    const categoryCanonical = canonicalizeIngredient(productText, categoryTags);
+    if (categoryCanonical.status === "EXACT") canonical = categoryCanonical;
+  }
   const aliases = new Set<string>(canonical.ingredientTerms);
   for (const value of [...ingredientTags, ...categoryTags]) {
     const clean = tagName(value);
