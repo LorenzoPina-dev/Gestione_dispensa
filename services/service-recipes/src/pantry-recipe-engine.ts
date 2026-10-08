@@ -1,4 +1,4 @@
-import { foodQuantity, foodSemanticRelation, functionalSubstitution, normalizeFoodText } from "@gestione-dispensa/food-rules";
+import { convertFoodQuantityWithDensity, foodQuantity, foodSemanticRelation, functionalSubstitution, normalizeFoodText } from "@gestione-dispensa/food-rules";
 import { combineInventoryQuantity, quantityCoverage, type ParsedQuantity } from "./quantity-engine.js";
 
 export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
@@ -272,6 +272,12 @@ function toRequiredQuantity(ingredient: RecipeIngredientForMatch): ParsedQuantit
   return null;
 }
 
+function requiredQuantityDimension(quantities:readonly (ParsedQuantity|null)[]):ParsedQuantity["dimension"]|null{
+  const first=quantities.find((item):item is ParsedQuantity=>Boolean(item));
+  if(!first)return null;
+  return quantities.every(item=>item?.dimension===first.dimension)?first.dimension:null;
+}
+
 function sortFefo(items: readonly PantryProductForMatch[]): PantryProductForMatch[] {
   return [...items].sort((a,b)=>{
     const ae=a.expiresAt ? Date.parse(a.expiresAt) : Number.POSITIVE_INFINITY;
@@ -288,6 +294,7 @@ function allocateBaseQuantity(
   requiredBaseValue: number,
   dimension: ParsedQuantity["dimension"],
   factor: number,
+  canonicalIngredient: string|null = null,
 ): {
   allocations:Array<{
     productId:string;
@@ -312,14 +319,17 @@ function allocateBaseQuantity(
   for(const item of sortFefo(candidates)){
     if(remaining<=0)break;
     const parsed=combineInventoryQuantity(item.quantity,item.unit,item.foodSemantics?.quantityBase??null,item.openedAt??null,item.remainingContentQuantity!=null&&item.remainingContentUnit?{value:item.remainingContentQuantity,unit:item.remainingContentUnit}:null);
-    if(!parsed||parsed.dimension!==dimension||parsed.baseValue<=0)continue;
+    const normalized=parsed && canonicalIngredient && parsed.dimension!==dimension
+      ? convertFoodQuantityWithDensity(parsed.value,parsed.unit,canonicalIngredient,dimension==="mass"?"g":dimension==="volume"?"ml":"piece")
+      : parsed;
+    if(!normalized||normalized.dimension!==dimension||normalized.baseValue<=0)continue;
     const neededRaw=remaining/Math.max(factor,0.000001);
-    const used=Math.min(parsed.baseValue,neededRaw);
+    const used=Math.min(normalized.baseValue,neededRaw);
     if(used<=0)continue;
     allocations.push({
       productId:item.productId,
       usedBaseValue:Number(used.toFixed(6)),
-      baseUnit:parsed.baseUnit,
+      baseUnit:normalized.baseUnit,
       effectiveBaseValue:Number((used*factor).toFixed(6)),
       factor,
       expiresAt:item.expiresAt??null,
@@ -331,10 +341,15 @@ function allocateBaseQuantity(
   return {allocations,rawUsed,effectiveUsed};
 }
 
-function inventoryQuantities(pantry: readonly PantryProductForMatch[]): ParsedQuantity[] {
+function inventoryQuantities(pantry: readonly PantryProductForMatch[],canonicalIngredient:string|null=null,requiredDimension:ParsedQuantity["dimension"]|null=null): ParsedQuantity[] {
   return pantry
     .map(item => combineInventoryQuantity(item.quantity, item.unit, item.foodSemantics?.quantityBase ?? null))
-    .filter((value): value is ParsedQuantity => value !== null);
+    .filter((value): value is ParsedQuantity => value !== null)
+    .map(value=>{
+      if(!canonicalIngredient||!requiredDimension||value.dimension===requiredDimension)return value;
+      const converted=convertFoodQuantityWithDensity(value.value,value.unit,canonicalIngredient,requiredDimension==="mass"?"g":requiredDimension==="volume"?"ml":"piece");
+      return converted ? {...converted,confidence:Math.min(value.confidence,0.9)} : value;
+    });
 }
 
 export function scoreRecipeAgainstPantry(
@@ -382,7 +397,7 @@ export function scoreRecipeAgainstPantry(
       ))),
     );
 
-    const exactAvailable = inventoryQuantities(exactCandidates);
+    const exactAvailable = inventoryQuantities(exactCandidates,representative.canonicalIngredient??null,requiredQuantityDimension(quantities));
 
     let match: IngredientMatch;
 
@@ -462,15 +477,15 @@ export function scoreRecipeAgainstPantry(
         confidence: Math.min(...quantities.map(item => (item as ParsedQuantity).confidence)),
         sourceRaw: String(required) + " " + firstQuantity!.baseUnit,
       };
-      const exactCoverage = quantityCoverage(requiredQuantity, exactAvailable);
-      const exactAllocation = allocateBaseQuantity(exactCandidates, required, requiredQuantity.dimension, 1);
+      const exactCoverage = quantityCoverage(requiredQuantity, exactAvailable, representative.canonicalIngredient??null);
+      const exactAllocation = allocateBaseQuantity(exactCandidates, required, requiredQuantity.dimension, 1, representative.canonicalIngredient??null);
       const exactUsed = exactAllocation.effectiveUsed;
       const remaining = Math.max(0, required - exactUsed);
       const compatibleSub = substituteCandidates.filter(item => {
         const parsed=combineInventoryQuantity(item.quantity,item.unit,item.foodSemantics?.quantityBase??null);
         return Boolean(parsed && parsed.dimension===requiredQuantity.dimension);
       });
-      const substituteAllocation = allocateBaseQuantity(compatibleSub, remaining, requiredQuantity.dimension, 0.8);
+      const substituteAllocation = allocateBaseQuantity(compatibleSub, remaining, requiredQuantity.dimension, 0.8, representative.canonicalIngredient??null);
       const substituteUsed = substituteAllocation.effectiveUsed;
       const effective = exactUsed + substituteUsed;
       const ratio = Math.max(0, Math.min(1, effective / required));
