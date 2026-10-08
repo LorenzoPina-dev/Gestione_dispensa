@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ShoppingList, Recipe, RecipeMatch } from "../types";
 import type { RecipeMatchDto } from "../api/types";
-import { translateFoodText } from "../utils/foodTranslations";
 import * as api from "../api/endpoints";
 import { colors, fonts } from "../tokens";
 import Toggle from "../components/ui/Toggle";
@@ -10,8 +9,8 @@ import EmptyState from "../components/ui/EmptyState";
 import RecipeShoppingSelector from "../components/recipes/RecipeShoppingSelector";
 interface Props { stock: import("../types").StockItem[]; setList: React.Dispatch<React.SetStateAction<ShoppingList>>; onShoppingChanged?: () => Promise<void>; onNavigateToShopping?: () => void; familyId?: string | null; locale?: string; suggestedRecipes?: RecipeMatchDto[]; }
 const QUALITY_META:Record<string,{label:string;color:string;bg:string}>={VERIFIED:{label:"ricetta verificata",color:colors.sageDark,bg:colors.sageLight},IMPORTED:{label:"fonte esterna",color:colors.amberDark,bg:colors.amberLight},ESTIMATED:{label:"dati stimati",color:colors.inkMuted,bg:colors.creamDark},UNKNOWN:{label:"fonte ignota",color:colors.inkMuted,bg:colors.creamDark}};
-function mapRecipeDto(r:RecipeMatchDto["recipe"], locale="it-IT"):Recipe{return{id:r.id??r.recipeId??"",title:r.title,source:r.source??"",quality:r.quality??"UNKNOWN",servings:r.servings,time:r.timeMinutes??0,difficulty:r.difficulty??"Facile",ingredients:r.ingredients.map(i=>({name:translateFoodText(i.displayName??i.name??i.recipeIngredient??"Ingrediente",locale),stockItemId:i.productId??undefined,amount:i.amount??i.quantity??0,unit:i.unit,allergens:i.allergens??[]})),steps:r.steps,image:r.image??"",tags:r.tags??[],caloriesPerServing:r.caloriesPerServing??0};}
-function mapMatch(m:RecipeMatchDto, locale="it-IT"):RecipeMatch{return{recipe:mapRecipeDto(m.recipe,locale),score:m.score,matchedIngredients:(m.matchedIngredientNames??[]).map(name=>translateFoodText(name,locale)),missingIngredients:m.missingIngredients.map(i=>translateFoodText(i.displayName??i.name??i.recipeIngredient??i.canonicalIngredient??"Ingrediente",locale)).filter((name):name is string=>Boolean(name.trim()))};}
+function mapRecipeDto(r:RecipeMatchDto["recipe"]):Recipe{return{id:r.id??r.recipeId??"",title:r.title,source:r.source??"",quality:r.quality??"UNKNOWN",servings:r.servings,time:r.timeMinutes??0,difficulty:r.difficulty??"Facile",ingredients:r.ingredients.map(i=>({name:i.displayName??i.name??i.recipeIngredient??"Ingrediente",stockItemId:i.productId??undefined,amount:i.amount??i.quantity??0,unit:i.unit,allergens:i.allergens??[]})),steps:r.steps,image:r.image??"",tags:r.tags??[],caloriesPerServing:r.caloriesPerServing??0};}
+function mapMatch(m:RecipeMatchDto):RecipeMatch{return{recipe:mapRecipeDto(m.recipe,locale),score:m.score,matchedIngredients:(m.matchedIngredientNames??[]).map(name=>name),missingIngredients:m.missingIngredients.map(i=>i.displayName??i.name??i.recipeIngredient??i.canonicalIngredient??"Ingrediente").filter((name):name is string=>Boolean(name.trim()))};}
 export default function Ricette({onShoppingChanged,onNavigateToShopping,familyId,locale="it-IT",suggestedRecipes=[]}:Props){
 const[onlyFeasible,setOnlyFeasible]=useState(false),[detail,setDetail]=useState<RecipeMatch|null>(null),[shoppingSelection,setShoppingSelection]=useState(false),[matches,setMatches]=useState<RecipeMatch[]>([]),[loading,setLoading]=useState(true),[query,setQuery]=useState("");
 const openRecipe=async(m:RecipeMatch)=>{setDetail(m);if(!familyId)return;try{const result=await api.getRecipe(familyId,m.recipe.id);setDetail(current=>current?.recipe.id===m.recipe.id?{...current,recipe:mapRecipeDto(result.recipe,locale)}:current);}catch{/* Keep the already available suggestion as fallback. */}};
