@@ -208,12 +208,15 @@ function collectInstructionTexts(value:unknown,out:string[]):void{
  }
  if(!value || typeof value!=="object") return;
  const object=value as Record<string,unknown>;
+ if (Array.isArray(object.itemListElement) && object.itemListElement.length > 0) {
+  collectInstructionTexts(object.itemListElement, out);
+  return;
+ }
  if(typeof object.text==="string"){
   const cleaned=cleanInstruction(object.text);
   if(cleaned) out.push(cleaned);
   return;
  }
- if(Array.isArray(object.itemListElement)) collectInstructionTexts(object.itemListElement,out);
 }
 
 function findRecipeNodes(value:unknown,out:Record<string,unknown>[]):void{
