@@ -35,6 +35,10 @@ describe("food-rules",()=>{
     assert.ok(inferTextAllergens("beurre et lait").includes("milk"));
     assert.ok(inferTextAllergens("crevettes").includes("crustaceans"));
   });
+  it("normalizes Italian kitchen volume units",()=>{
+    assert.equal(parseFoodQuantityFromText("1 cucchiaino").baseUnit,"ml");
+    assert.equal(parseFoodQuantityFromText("2 cucchiai").baseUnit,"ml");
+  });
   it("rejects numeric quantity ranges until the range model is supported",()=>{
     assert.equal(parseFoodQuantityFromText("100-120 g"),null);
     assert.equal(parseFoodQuantityFromText("100 to 120 g"),null);
