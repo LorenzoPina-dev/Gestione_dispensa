@@ -1,6 +1,6 @@
 import type { Pool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { ingredientTerms, normalizeFoodText as norm, parseFoodQuantityFromText } from "@gestione-dispensa/food-rules";
-import { averageNutriScore, scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
+import { averageNutriScore, estimateRecipeNutrition, scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
 import { aggregateFamilySafetyProfiles, type FamilySafetyProfile } from "./family-safety-profile.js";
 import type { RecipeMatch } from "./recipe-match.js";
@@ -22,9 +22,9 @@ type FoodSemantics = {
  components?: Array<{raw?:string;canonicalIngredient:string|null;ingredientTerms:string[];percentage?:number|null;confidence:number}>;
  compositionConfidence?: number;
 };
-type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null;addedAt?:string|null;openedAt?:string|null;remainingContentQuantity?:number|null;remainingContentUnit?:"g"|"kg"|"ml"|"l"|"piece"|null;foodSemantics?:FoodSemantics|null};
+type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;nutrition?:CatalogProduct["nutrition"];expiresAt?:string|null;addedAt?:string|null;openedAt?:string|null;remainingContentQuantity?:number|null;remainingContentUnit?:"g"|"kg"|"ml"|"l"|"piece"|null;foodSemantics?:FoodSemantics|null};
 
-type CatalogProduct={productId:string;name?:string|null;foodSemantics?:FoodSemantics|null};
+type CatalogProduct={productId:string;name?:string|null;foodSemantics?:FoodSemantics|null;nutrition?:{kcalPer100g:number|null;proteinGPer100g:number|null;carbsGPer100g:number|null;fatGPer100g:number|null;fiberGPer100g:number|null}|null};
 type Suggestion=RecipeMatch & { matchedIngredientNames:string[]; matchedProducts:string[]; safetyWarnings:RecipeMatch["safety"]["warnings"]; recipe:Record<string,unknown> };
 
 const IMAGE_CACHE = new Map<string, string | null>();
@@ -64,6 +64,7 @@ async function enrichInventoryNames(stock:PantryItem[],catalogBase:string,author
     ...item,
     ...(resolvedName ? { name: resolvedName } : {}),
     ...(product?.foodSemantics ? { foodSemantics: product.foodSemantics } : {}),
+    ...(product?.nutrition ? { nutrition: product.nutrition } : {}),
   };
  });
 }
@@ -460,6 +461,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    );
    const missing=coverage.missingIngredients;
    const nutri=averageNutriScore(pantry,coverage.matchedProductIds);
+   const nutrition=estimateRecipeNutrition(coverage.matchedIngredients,pantry);
    const recipe={
      recipeId:String(r.id),
      title:String(r.title),
@@ -534,7 +536,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      missingIngredients:coverage.missingIngredients,
      substitutions:coverage.substitutions,
      instructions:Array.isArray(r.steps)?r.steps.map(String):[],
-     nutrition:{status:"UNAVAILABLE",perServing:null,nutriScoreAverage:nutri.average,nutriScoreCoverage:nutri.coverage,nutriScoreScope:nutri.average===null?"UNAVAILABLE":"MATCHED_PANTRY_PRODUCTS",note:nutri.average===null?"Recipe dataset does not provide reliable recipe-level nutrition.":"Nutri-Score average uses only matched pantry products; it is not a recipe-level Nutri-Score."},
+     nutrition:{status:nutrition.status,total:nutrition.total,perServing:null,coverage:nutrition.coverage,nutriScoreAverage:nutri.average,nutriScoreCoverage:nutri.coverage,nutriScoreScope:nutri.average===null?"UNAVAILABLE":"MATCHED_PANTRY_PRODUCTS",note:nutrition.note},
      safety:{safe:safety.safe,warnings:safety.warnings},
      availability:{excludedExpiredProductIds:coverage.excludedExpiredProductIds},
      coverage:{
