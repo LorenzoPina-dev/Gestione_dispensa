@@ -272,12 +272,6 @@ function toRequiredQuantity(ingredient: RecipeIngredientForMatch): ParsedQuantit
   return null;
 }
 
-function requiredQuantityDimension(quantities:readonly (ParsedQuantity|null)[]):ParsedQuantity["dimension"]|null{
-  const first=quantities.find((item):item is ParsedQuantity=>Boolean(item));
-  if(!first)return null;
-  return quantities.every(item=>item?.dimension===first.dimension)?first.dimension:null;
-}
-
 function sortFefo(items: readonly PantryProductForMatch[]): PantryProductForMatch[] {
   return [...items].sort((a,b)=>{
     const ae=a.expiresAt ? Date.parse(a.expiresAt) : Number.POSITIVE_INFINITY;
@@ -397,7 +391,7 @@ export function scoreRecipeAgainstPantry(
       ))),
     );
 
-    const exactAvailable = inventoryQuantities(exactCandidates,representative.canonicalIngredient??null,requiredQuantityDimension(quantities));
+    const exactAvailable = inventoryQuantities(exactCandidates,representative.canonicalIngredient??null,dimension);
 
     let match: IngredientMatch;
 
