@@ -68,12 +68,14 @@ export function convert(value:number,fromUnit:string,toUnit:string):number|null{
 export function combineInventoryQuantity(
   quantity:number,
   unit:string,
-  packageQuantity:{value:number;unit:"g"|"ml"|"piece"}|null|undefined
+  packageQuantity:{value:number;unit:"g"|"ml"|"piece"}|null|undefined,
+  openedAt?:string|null,
 ):ParsedQuantity|null{
   const direct=parseQuantity(quantity,unit);
   if(direct)return direct;
   const normalized=normalizeUnit(unit);
   if(["pack","packs","conf","confezione","confezioni"].includes(normalized) && packageQuantity){
+    if(openedAt) return null;
     const total=quantity*packageQuantity.value;
     return {
       value:total,
