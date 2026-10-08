@@ -1,64 +1,34 @@
+import { foodQuantity, foodUnitInfo, parseFoodQuantityFromText } from "@gestione-dispensa/food-rules";
+
 export type QuantityDimension = "mass" | "volume" | "count";
 
 export interface UnitInfo {
-  dimension: QuantityDimension;
+  family: QuantityDimension;
   factor: number;
-  baseUnit: "g" | "ml" | "piece";
 }
-
-const UNITS:Readonly<Record<string,UnitInfo>>={
-  mg:{dimension:"mass",factor:0.001,baseUnit:"g"},
-  g:{dimension:"mass",factor:1,baseUnit:"g"},
-  kg:{dimension:"mass",factor:1000,baseUnit:"g"},
-  oz:{dimension:"mass",factor:28.349523125,baseUnit:"g"},
-  lb:{dimension:"mass",factor:453.59237,baseUnit:"g"},
-  ml:{dimension:"volume",factor:1,baseUnit:"ml"},
-  cl:{dimension:"volume",factor:10,baseUnit:"ml"},
-  dl:{dimension:"volume",factor:100,baseUnit:"ml"},
-  l:{dimension:"volume",factor:1000,baseUnit:"ml"},
-  tsp:{dimension:"volume",factor:5,baseUnit:"ml"},
-  "tsp.":{dimension:"volume",factor:5,baseUnit:"ml"},
-  teaspoon:{dimension:"volume",factor:5,baseUnit:"ml"},
-  teaspoons:{dimension:"volume",factor:5,baseUnit:"ml"},
-  tbsp:{dimension:"volume",factor:15,baseUnit:"ml"},
-  "tbsp.":{dimension:"volume",factor:15,baseUnit:"ml"},
-  tablespoon:{dimension:"volume",factor:15,baseUnit:"ml"},
-  tablespoons:{dimension:"volume",factor:15,baseUnit:"ml"},
-  cup:{dimension:"volume",factor:240,baseUnit:"ml"},
-  cups:{dimension:"volume",factor:240,baseUnit:"ml"},
-  piece:{dimension:"count",factor:1,baseUnit:"piece"},
-  pieces:{dimension:"count",factor:1,baseUnit:"piece"},
-  pc:{dimension:"count",factor:1,baseUnit:"piece"},
-  pcs:{dimension:"count",factor:1,baseUnit:"piece"},
-  pz:{dimension:"count",factor:1,baseUnit:"piece"},
-  pezzo:{dimension:"count",factor:1,baseUnit:"piece"},
-  pezzi:{dimension:"count",factor:1,baseUnit:"piece"},
-  unit:{dimension:"count",factor:1,baseUnit:"piece"},
-  units:{dimension:"count",factor:1,baseUnit:"piece"},
-  u:{dimension:"count",factor:1,baseUnit:"piece"}
-};
 
 export function normalizeUnit(unit:string):string{
   return unit.trim().toLowerCase().replace(/\.$/,"").replace(/_/g," ");
 }
+
 export function unitInfo(unit:string):UnitInfo|null{
-  return UNITS[normalizeUnit(unit)]??null;
+  const info=foodUnitInfo(normalizeUnit(unit));
+  return info ? {family:info.dimension,factor:info.factor} : null;
 }
 
 export function parseAmount(value:string):number|null{
-  const text=value.trim().replace(",",".");
-  if(!text) return null;
-  const fraction=text.match(/^(\d+)\s*\/\s*(\d+)$/);
-  if(fraction){
-    const numerator=Number(fraction[1]),denominator=Number(fraction[2]);
-    return denominator>0?numerator/denominator:null;
-  }
-  const mixed=text.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  const normalized=value.trim().replace(",",".");
+  const mixed=normalized.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
   if(mixed){
-    const whole=Number(mixed[1]),numerator=Number(mixed[2]),denominator=Number(mixed[3]);
-    return denominator>0?whole+numerator/denominator:null;
+    const denominator=Number(mixed[3]);
+    return denominator>0?Number(mixed[1])+Number(mixed[2])/denominator:null;
   }
-  const numeric=Number(text);
+  const fraction=normalized.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if(fraction){
+    const denominator=Number(fraction[2]);
+    return denominator>0?Number(fraction[1])/denominator:null;
+  }
+  const numeric=Number(normalized);
   return Number.isFinite(numeric)?numeric:null;
 }
 
@@ -72,33 +42,25 @@ export interface ParsedQuantity {
   sourceRaw:string;
 }
 
-export function parseQuantity(value:string|number, unit:string):ParsedQuantity|null{
-  const numeric=typeof value==="number"?value:parseAmount(value);
-  const info=unitInfo(unit);
-  if(numeric===null || numeric<=0 || !info) return null;
-  return {
-    value:numeric,
-    unit:normalizeUnit(unit),
-    dimension:info.dimension,
-    baseValue:numeric*info.factor,
-    baseUnit:info.baseUnit,
+export function parseQuantity(value:number|string,unit:string):ParsedQuantity|null{
+  const parsed=foodQuantity(value,unit);
+  return parsed ? {
+    ...parsed,
     confidence:1,
-    sourceRaw:String(value)+" "+String(unit).trim()
-  };
+  } : null;
 }
 
-const UNIT_PATTERN="kg|mg|g|lb|oz|dl|cl|ml|l|tbsp\\.?|tsp\\.?|tablespoons?|teaspoons?|cups?|pieces?|pcs?|pc|pz|pezzi?|unità|unita|units?|u";
 export function parseQuantityFromText(raw:string):ParsedQuantity|null{
-  const match=raw.trim().match(new RegExp("(?:(\\d+\\s+)?(\\d+\\s*\\/\\s*\\d+)|(\\d+\\s*\\/\\s*\\d+)|(\\d+(?:[.,]\\d+)?))\\s*("+UNIT_PATTERN+")\\b","i"));
-  if(!match) return null;
-  const amountText=match[1]?String(match[1]).trim():match[2]??match[3]??match[4]??"";
-  const amount=parseAmount(amountText);
-  const unit=match[5];
-  return amount===null?null:parseQuantity(amount,unit);
+  const parsed=parseFoodQuantityFromText(raw);
+  return parsed ? {
+    ...parsed,
+    confidence:0.9,
+  } : null;
 }
 
 export function convert(value:number,fromUnit:string,toUnit:string):number|null{
-  const from=unitInfo(fromUnit),to=unitInfo(toUnit);
+  const from=foodUnitInfo(normalizeUnit(fromUnit));
+  const to=foodUnitInfo(normalizeUnit(toUnit));
   if(!from||!to||from.dimension!==to.dimension)return null;
   return value*from.factor/to.factor;
 }
@@ -113,7 +75,15 @@ export function combineInventoryQuantity(
   const normalized=normalizeUnit(unit);
   if(["pack","packs","conf","confezione","confezioni"].includes(normalized) && packageQuantity){
     const total=quantity*packageQuantity.value;
-    return {value:total,unit:packageQuantity.unit,dimension:packageQuantity.unit==="g"?"mass":packageQuantity.unit==="ml"?"volume":"count",baseValue:total,baseUnit:packageQuantity.unit,confidence:0.94,sourceRaw:String(quantity)+" "+unit};
+    return {
+      value:total,
+      unit:packageQuantity.unit,
+      dimension:packageQuantity.unit==="g"?"mass":packageQuantity.unit==="ml"?"volume":"count",
+      baseValue:total,
+      baseUnit:packageQuantity.unit,
+      confidence:0.94,
+      sourceRaw:String(quantity)+" "+unit,
+    };
   }
   return null;
 }
