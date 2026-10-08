@@ -73,6 +73,7 @@ describe("service-catalog / real migration schema", () => {
       "products",
       "product_identifiers",
       "data_provenance",
+      "product_food_semantics",
       "outbox_events",
       "idempotency_keys",
     ]) {
@@ -113,6 +114,33 @@ describe("service-catalog / real migration schema", () => {
         (await columnSet("product_identifiers")).has(column),
         true,
         `missing product_identifiers column: ${column}`,
+      );
+    }
+  });
+
+  it("creates the versioned materialized food semantics read projection", async () => {
+    const functionResult = await pool.query(
+      "SELECT routine_name FROM information_schema.routines WHERE routine_schema='public' AND routine_name='product_food_semantics_json'",
+    );
+    assert.equal(functionResult.rowCount, 1);
+
+    for (const column of [
+      "product_id",
+      "canonical_ingredient",
+      "ingredient_terms",
+      "taxonomy_tags",
+      "allergen_tags",
+      "trace_tags",
+      "semantic_confidence",
+      "semantic_status",
+      "components_json",
+      "composition_confidence",
+      "rules_version",
+    ]) {
+      assert.equal(
+        (await columnSet("product_food_semantics")).has(column),
+        true,
+        `missing product_food_semantics column: ${column}`,
       );
     }
   });
