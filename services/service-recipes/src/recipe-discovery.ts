@@ -17,6 +17,8 @@ type FoodSemantics = {
  quantityBase?: { value: number; unit: "g" | "ml" | "piece" } | null;
  quantityConfidence?: number;
  semanticConfidence?: number;
+ components?: Array<{raw?:string;canonicalIngredient:string|null;ingredientTerms:string[];percentage?:number|null;confidence:number}>;
+ compositionConfidence?: number;
 };
 type PantryItem={productId?:string|null;name?:string;quantity?:number;unit?:string;expiresAt?:string|null;foodSemantics?:FoodSemantics|null};
 
