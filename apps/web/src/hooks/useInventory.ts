@@ -145,12 +145,12 @@ export function useInventory(familyId?: string | null, initialStock?: StockItem[
           hydrationTargetRef.current = canonical;
           prevStockRef.current = canonical;
           setStockState(canonical);
-        }
-        invalidateCached(`screen:ricette:${family}`);
-        prefetchCached(`screen:ricette:${family}`, () => getRecipesScreenView(family));
-        invalidateCached(`screen:oggi:${family}`);
-        prefetchCached(`screen:oggi:${family}`, () => getDashboardView(family));
-      } catch (err) {
+          invalidateCached(`screen:ricette:${family}`);
+          prefetchCached(`screen:ricette:${family}`, () => getRecipesScreenView(family));
+          invalidateCached(`screen:oggi:${family}`);
+          prefetchCached(`screen:oggi:${family}`, () => getDashboardView(family));
+        } catch (err) {
+          reportIssue("Impossibile riallineare la dispensa con il server.", err, async () => {
             const result = await api.listStockItems(family);
             const canonical = result.items.map(mapStockItemDtoToUi);
             hydrationTargetRef.current = canonical;
