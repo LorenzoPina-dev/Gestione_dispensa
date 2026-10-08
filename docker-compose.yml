@@ -143,7 +143,7 @@ services:
       - |
         sql_escape() { printf "%s" "$$1" | sed "s/\x27/\x27\x27/g"; }
         app_password=$$(sql_escape "$$POSTGRES_APP_PASSWORD")
-        for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app food_semantics_app; do
+        for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app food_semantics_app food_semantics; do
           if psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$$role'" | grep -q 1; then
             psql -v ON_ERROR_STOP=1 --host=postgres --username=dispensa --dbname=postgres -c "ALTER ROLE \"$$role\" LOGIN PASSWORD '$$app_password';"
           else
