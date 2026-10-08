@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canonicalAllergenTag, canonicalizeIngredient, foodQuantity, foodSemanticRelation, inferTextAllergens, parseFoodCountFromText, parseIngredientText } from "../src/index.ts";
+import { canonicalAllergenTag, canonicalizeIngredient, foodQuantity, foodSemanticRelation, inferTextAllergens, parseFoodCountFromText, parseFoodQuantityFromText, parseIngredientText } from "../src/index.ts";
 
 describe("food-rules",()=>{
   it("does not canonicalize substrings such as salted -> sale",()=>{
@@ -34,6 +34,10 @@ describe("food-rules",()=>{
     assert.ok(inferTextAllergens("soy sauce").includes("soybeans"));
     assert.ok(inferTextAllergens("beurre et lait").includes("milk"));
     assert.ok(inferTextAllergens("crevettes").includes("crustaceans"));
+  });
+  it("rejects numeric quantity ranges until the range model is supported",()=>{
+    assert.equal(parseFoodQuantityFromText("100-120 g"),null);
+    assert.equal(parseFoodQuantityFromText("100 to 120 g"),null);
   });
   it("parses countable ingredients with no explicit unit",()=>{
     assert.equal(parseFoodCountFromText("2 uova","uovo")?.baseValue,2);
