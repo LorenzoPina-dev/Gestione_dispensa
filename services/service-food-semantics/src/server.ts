@@ -45,42 +45,110 @@ async function resolveText(input: string, sourceLocale: string, targetLocale: st
   const normalized = normalizeText(input);
   if (!normalized) return null;
 
+  const cached = await pool.query(
+    `SELECT e.id,e.source_id,c.translated_text,c.confidence
+       FROM food_semantics.resolution_cache c
+       JOIN food_semantics.entities e ON e.id=c.entity_id
+      WHERE c.input_normalized=$1 AND c.source_locale=$2 AND c.target_locale=$3
+        AND c.status='RESOLVED'
+      LIMIT 1`,
+    [normalized, sourceLocale, targetLocale],
+  );
+  if (cached.rowCount) {
+    return {
+      id: String(cached.rows[0].id),
+      sourceId: String(cached.rows[0].source_id),
+      label: String(cached.rows[0].translated_text),
+      locale: targetLocale,
+      confidence: Number(cached.rows[0].confidence),
+    };
+  }
+
   const direct = await pool.query(
     "SELECT e.id,e.source_id,l.label,l.locale,l.label_type FROM food_semantics.labels l JOIN food_semantics.entities e ON e.id=l.entity_id WHERE l.locale=$1 AND l.normalized=$2 LIMIT 5",
     [sourceLocale, normalized],
   );
-  if (direct.rowCount) return {
-    id: String(direct.rows[0].id),
-    sourceId: String(direct.rows[0].source_id),
-    label: String(direct.rows[0].label),
-    locale: String(direct.rows[0].locale),
-    confidence: String(direct.rows[0].label_type) === "label" ? 1 : 0.98,
-  };
+  if (direct.rowCount) {
+    const result = {
+      id: String(direct.rows[0].id),
+      sourceId: String(direct.rows[0].source_id),
+      label: String(direct.rows[0].label),
+      locale: String(direct.rows[0].locale),
+      confidence: String(direct.rows[0].label_type) === "label" ? 1 : 0.98,
+    };
+    const display = targetLocale === sourceLocale
+      ? result.label
+      : (await translate(result.label, sourceLocale, targetLocale))?.text ?? result.label;
+    await cacheResolution(normalized, sourceLocale, targetLocale, result.id, display, result.confidence, targetLocale === sourceLocale ? "ontology" : "translation-service");
+    return { ...result, label: display, locale: targetLocale };
+  }
 
-  const english = sourceLocale === "en" ? input : await translate(input, sourceLocale, "en");
+  const english = sourceLocale === "en" ? { text: input, provider: "identity" } : await translate(input, sourceLocale, "en");
   if (!english) return null;
   const translatedNormalized = normalizeText(english.text);
-  const translated = await pool.query(
+
+  let translated = await pool.query(
     "SELECT e.id,e.source_id,l.label,l.locale,l.label_type FROM food_semantics.labels l JOIN food_semantics.entities e ON e.id=l.entity_id WHERE l.locale='en' AND l.normalized=$1 LIMIT 5",
     [translatedNormalized],
   );
+
+  if (!translated.rowCount && translatedNormalized.length >= 4) {
+    translated = await pool.query(
+      `SELECT e.id,e.source_id,l.label,l.locale,l.label_type
+         FROM food_semantics.labels l
+         JOIN food_semantics.entities e ON e.id=l.entity_id
+        WHERE l.locale='en'
+          AND similarity(l.normalized,$1) >= 0.82
+        ORDER BY similarity(l.normalized,$1) DESC, length(l.normalized) ASC
+        LIMIT 3`,
+      [translatedNormalized],
+    );
+  }
   if (!translated.rowCount) return null;
 
   const row = translated.rows[0];
-  let display = row.label as string;
+  const fuzzyConfidence = normalizeText(String(row.label)) === translatedNormalized ? 0.93 : 0.84;
+  let display = String(row.label);
   let provider = english.provider;
   if (targetLocale !== "en") {
     const localized = await translate(display, "en", targetLocale);
     if (localized) { display = localized.text; provider = localized.provider; }
   }
-  return {
+  const result = {
     id: String(row.id),
     sourceId: String(row.source_id),
     label: display,
     locale: targetLocale,
-    confidence: 0.93,
+    confidence: fuzzyConfidence,
   };
+  await cacheResolution(normalized, sourceLocale, targetLocale, result.id, display, fuzzyConfidence, provider);
+  return result;
 }
+
+async function cacheResolution(
+  inputNormalized: string,
+  sourceLocale: string,
+  targetLocale: string,
+  entityId: string,
+  translatedText: string,
+  confidence: number,
+  provider: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO food_semantics.resolution_cache
+      (input_text,input_normalized,source_locale,target_locale,entity_id,translated_text,confidence,status,provider,created_at,updated_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,'RESOLVED',$8,now(),now())
+     ON CONFLICT(input_normalized,source_locale,target_locale) DO UPDATE SET
+       entity_id=excluded.entity_id,
+       translated_text=excluded.translated_text,
+       confidence=excluded.confidence,
+       status=excluded.status,
+       provider=excluded.provider,
+       updated_at=now()`,
+    [inputNormalized, inputNormalized, sourceLocale, targetLocale, entityId, translatedText, confidence, provider],
+  );
+}
+
 
 app.get("/health/live", (_req, res) => res.json({ status: "ok", service: "service-food-semantics" }));
 app.get("/health/ready", async (_req, res) => {
