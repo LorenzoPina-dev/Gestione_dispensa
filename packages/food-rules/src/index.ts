@@ -349,7 +349,7 @@ export function inferTextAllergens(raw:string):AllergenCode[] {
     [/\\bpistachio(s)?\\b|\\bpistacchio\\b|\\bpistache\\b|\\bpistacho(s)?\\b/, "nuts"],
     [/\\bsoy(a)?\\b|\\bsoia\\b|\\bsoja\\b|\\bsojabohne(n)?\\b/, "soybeans"],
     [/\\bfish\\b|\\bpesce\\b|\\bpoisson\\b|\\bpescado\\b|\\bfisch\\b/, "fish"],
-    [/\\bcrustacean(s)?\\b|\\bcrostacei\\b|\\bcrustacé(s)?\\b|\\bcrustáceo(s)?\\b/, "crustaceans"],
+    [/\\bcrustacean(s)?\\b|\\bcrostacei\\b|\\bgamberi\\b|\\bcrustacé(s)?\\b|\\bcrustáceo(s)?\\b|\\bcrevette(s)?\\b|\\bcamarón(es)?\\b/, "crustaceans"],
     [/\\bmollusc(s)?\\b|\\bmolluschi\\b|\\bmollusque(s)?\\b|\\bmolusco(s)?\\b/, "molluscs"],
     [/\\bsesame\\b|\\bsesamo\\b|\\bsésame\\b|\\bsesamo\\b/, "sesame-seeds"],
     [/\\bmustard\\b|\\bsenape\\b|\\bmoutarde\\b|\\bmostaza\\b|\\bsenf\\b/, "mustard"],
