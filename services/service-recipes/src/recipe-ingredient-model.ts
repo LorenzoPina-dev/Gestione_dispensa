@@ -31,9 +31,7 @@ export function normalizeRecipeIngredient(
   const explicit=quantity !== null && quantity !== undefined && unit?.trim()
     ? foodQuantity(typeof quantity==="number" ? quantity : String(quantity),String(unit))
     : null;
-  const embedded=explicit ? null : parsedLine.quantity ?? parseFoodQuantityFromText(rawName);
-  const inferredCount=explicit || embedded ? null : parseFoodCountFromText(rawName,canonical.canonicalIngredient);
-  const parsed=explicit ?? embedded ?? inferredCount;
+  const parsed=explicit ?? parsedLine.quantity;
   return {
     canonicalIngredient:canonical.canonicalIngredient,
     semanticConfidence:canonical.confidence,
