@@ -2,6 +2,7 @@ import type { Pool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { ingredientTerms, normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
 import { scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
+import { aggregateFamilySafetyProfiles, type FamilySafetyProfile } from "./family-safety-profile.js";
 
 type FoodSemantics = {
  canonicalIngredient?: string | null;
@@ -241,24 +242,54 @@ async function hydrate(pool:Pool,rows:any[]){
  return rows.map(x=>({...x,ingredients:im.get(x.id)??[],steps:sm.get(x.id)??[]}));
 }
 
-async function loadSafetyProfile(base:string,userId:string,authorization?:string):Promise<SafetyProfile>{
- const headers:Record<string,string>={accept:"application/json","x-user-id":userId};
- if(authorization)headers.authorization=authorization;
- const response=await fetch(base.replace(/\/$/,"")+"/identity/preferences",{headers,signal:AbortSignal.timeout(2500)});
- if(!response.ok) throw new Error("identity preferences HTTP "+response.status);
- const envelope=await response.json() as {data?:{allergenTags?:unknown;dietaryRestrictions?:unknown;tracePolicy?:unknown}};
- const data=envelope.data??{};
- return {
-   allergenTags:Array.isArray(data.allergenTags)?data.allergenTags.map(String):[],
-   dietaryRestrictions:Array.isArray(data.dietaryRestrictions)?data.dietaryRestrictions.map(String):[],
-   tracePolicy:data.tracePolicy==="EXCLUDE"?"EXCLUDE":"WARN",
+async function loadFamilySafetyProfile(
+ familyBase:string,
+ identityBase:string,
+ identityToken:string,
+ userId:string,
+ familyId:string,
+ authorization?:string,
+):Promise<FamilySafetyProfile>{
+ const familyHeaders:Record<string,string>={accept:"application/json","x-user-id":userId,"x-family-id":familyId};
+ if(authorization)familyHeaders.authorization=authorization;
+ const familyResponse=await fetch(
+   familyBase.replace(/\/$/,"")+"/families/"+encodeURIComponent(familyId)+"/members",
+   {headers:familyHeaders,signal:AbortSignal.timeout(2500)},
+ );
+ if(!familyResponse.ok)throw new Error("family members HTTP "+familyResponse.status);
+ const familyEnvelope=await familyResponse.json() as {items?:Array<{userId?:unknown}>};
+ const memberUserIds=[...new Set((familyEnvelope.items??[]).map(item=>typeof item.userId==="string"?item.userId:"").filter(Boolean))];
+ if(!memberUserIds.includes(userId))memberUserIds.push(userId);
+ if(memberUserIds.length===0)throw new Error("family members response is empty");
+
+ const headers:Record<string,string>={accept:"application/json","x-internal-service-token":identityToken};
+ const identityResponse=await fetch(
+   identityBase.replace(/\/$/,"")+"/internal/dietary-preferences?userIds="+encodeURIComponent(memberUserIds.join(",")),
+   {headers,signal:AbortSignal.timeout(2500)},
+ );
+ if(!identityResponse.ok)throw new Error("identity family preferences HTTP "+identityResponse.status);
+ const identityEnvelope=await identityResponse.json() as {
+   data?:{items?:Array<{userId:string;exists:boolean;allergenTags?:unknown;dietaryRestrictions?:unknown;tracePolicy?:unknown}>;complete?:boolean};
  };
+ const items=identityEnvelope.data?.items??[];
+ const profiles=items.map(item=>({
+   userId:item.userId,
+   exists:Boolean(item.exists),
+   allergenTags:Array.isArray(item.allergenTags)?item.allergenTags.map(String):[],
+   dietaryRestrictions:Array.isArray(item.dietaryRestrictions)?item.dietaryRestrictions.map(String):[],
+   tracePolicy:item.tracePolicy==="EXCLUDE"?"EXCLUDE" as const:"WARN" as const,
+ }));
+ const aggregate=aggregateFamilySafetyProfiles(memberUserIds,profiles);
+ if(!aggregate.complete){
+   throw new Error("family dietary profile incomplete for "+aggregate.missingPreferenceUserIds.join(","));
+ }
+ return aggregate;
 }
 
-export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string;identityBaseUrl?:string}):Promise<Suggestion[]>{
+export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string;identityBaseUrl?:string;identityInternalToken:string;familyBaseUrl:string}):Promise<Suggestion[]>{
  const rawStock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
  const stock=p.catalogBaseUrl?await enrichInventoryNames(rawStock,p.catalogBaseUrl,p.authorization):rawStock;
- const safetyProfile=await loadSafetyProfile(p.identityBaseUrl??"http://service-identity:3310/api/v1",p.userId,p.authorization);
+ const safetyProfile=await loadFamilySafetyProfile(p.familyBaseUrl,p.identityBaseUrl??"http://service-identity:3310/api/v1",p.identityInternalToken,p.userId,p.familyId,p.authorization);
  const stockTerms=[...new Set(stock.flatMap(x=>{
    const semanticTerms=x.foodSemantics?.ingredientTerms ?? [];
    const taxonomy=x.foodSemantics?.taxonomyTags ?? [];
