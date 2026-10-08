@@ -28,6 +28,8 @@ export interface PantryProductForMatch {
   expiresAt?: string | null;
   addedAt?: string | null;
   openedAt?: string | null;
+  remainingContentQuantity?: number | null;
+  remainingContentUnit?: "g" | "kg" | "ml" | "l" | "piece" | null;
   foodSemantics?: {
     canonicalIngredient?: string | null;
     semanticConfidence?: number;
@@ -200,7 +202,7 @@ function allocateBaseQuantity(
   }>=[];
   for(const item of sortFefo(candidates)){
     if(remaining<=0)break;
-    const parsed=combineInventoryQuantity(item.quantity,item.unit,item.foodSemantics?.quantityBase??null,item.openedAt??null);
+    const parsed=combineInventoryQuantity(item.quantity,item.unit,item.foodSemantics?.quantityBase??null,item.openedAt??null,item.remainingContentQuantity!=null&&item.remainingContentUnit?{value:item.remainingContentQuantity,unit:item.remainingContentUnit}:null);
     if(!parsed||parsed.dimension!==dimension||parsed.baseValue<=0)continue;
     const neededRaw=remaining/Math.max(factor,0.000001);
     const used=Math.min(parsed.baseValue,neededRaw);
