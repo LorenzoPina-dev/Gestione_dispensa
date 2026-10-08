@@ -1,3 +1,4 @@
+import type { Pool } from "pg";
 import { ingredientTerms, normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
 import { scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
