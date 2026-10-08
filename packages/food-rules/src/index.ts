@@ -103,6 +103,62 @@ export const ALIAS_GROUPS: Readonly<Record<string, readonly string[]>> = {
   ortaggi: ["ortaggio","ortaggi","vegetable","vegetables","légume","legumbres","gemüse"]
 };
 
+export const FOOD_TRANSLATIONS_IT: Readonly<Record<string,string>> = {
+  "blue cheese":"formaggio erborinato",
+  "blue cheeses":"formaggi erborinati",
+  "black pepper":"pepe nero",
+  "white pepper":"pepe bianco",
+  "bell pepper":"peperone",
+  "bell peppers":"peperoni",
+  "green onion":"cipollotto",
+  "green onions":"cipollotti",
+  "spring onion":"cipollotto",
+  "spring onions":"cipollotti",
+  "heavy cream":"panna",
+  "whipping cream":"panna da montare",
+  "sour cream":"panna acida",
+  "cream cheese":"formaggio spalmabile",
+  "olive oil":"olio d'oliva",
+  "extra virgin olive oil":"olio extravergine d'oliva",
+  "extra-virgin olive oil":"olio extravergine d'oliva",
+  "breadcrumbs":"pangrattato",
+  "bread crumbs":"pangrattato",
+  "baking powder":"lievito per dolci",
+  "all-purpose flour":"farina 00",
+  "plain flour":"farina",
+  "powdered sugar":"zucchero a velo",
+  "icing sugar":"zucchero a velo",
+  "brown sugar":"zucchero di canna",
+  "chicken breast":"petto di pollo",
+  "chicken breasts":"petti di pollo",
+  "chicken thigh":"coscia di pollo",
+  "chicken thighs":"cosce di pollo",
+  "beef mince":"carne macinata di manzo",
+  "ground beef":"carne macinata di manzo",
+  "ground pork":"carne macinata di maiale",
+  "tinned tomatoes":"pomodori pelati",
+  "canned tomatoes":"pomodori pelati",
+  "tomato paste":"concentrato di pomodoro",
+  "tomato sauce":"passata di pomodoro",
+  "heavy whipping cream":"panna da montare",
+};
+
+export function translateFoodText(value: unknown, locale = "it-IT"): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  if (!/^it(?:-|$)/i.test(locale)) return raw;
+  const normalized = normalizeFoodText(raw);
+  if (!normalized) return raw;
+  const exact = FOOD_TRANSLATIONS_IT[normalized];
+  if (exact) return exact;
+  const canonical = canonicalizeIngredient(raw);
+  if (canonical.canonicalIngredient && canonical.confidence >= 0.93) {
+    const canonicalItalian = canonical.canonicalIngredient.trim();
+    if (canonicalItalian) return canonicalItalian;
+  }
+  return raw;
+}
+
 export const TAXONOMY_CANONICAL: Readonly<Record<string,string>> = {
   "canned-tomatoes":"pomodoro","tomatoes":"pomodoro","tomato":"pomodoro",
   "pasta":"pasta","rice":"riso","milk":"latte","butter":"burro","cream":"panna",
