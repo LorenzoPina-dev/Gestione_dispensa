@@ -23,8 +23,11 @@ export interface RecipeNutrition {
   note?:string;
 }
 
+export const RECIPE_MATCH_RULES_VERSION="pantry-recipe-engine-v3";
+
 export interface RecipeMatch {
   recipeId:string;
+  rulesVersion:string;
   title:string;
   score:number;
   readiness:"READY"|"MINIMAL_SHOPPING"|"DISCARD";
