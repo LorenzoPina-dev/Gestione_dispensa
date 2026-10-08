@@ -7,11 +7,13 @@ const sourceUrl = process.env.FOOD_ONTOLOGY_URL ?? "https://raw.githubuserconten
 const sourceVersion = process.env.FOOD_ONTOLOGY_VERSION ?? "master";
 const license = "CC BY 4.0";
 
-type Term = { id: string; name: string; synonyms: string[]; parent: string | null };
+type Term = { id: string; name: string; synonyms: Array<{ text: string; locale: string }>; parent: string | null };
 
-function unquote(value: string): string {
-  const match = value.match(/"([^"]+)"/);
-  return match?.[1]?.trim() ?? value.trim();
+function parseSynonym(value: string): { text: string; locale: string } {
+  const quoted = value.match(/"([^"]+)"/);
+  const text = quoted?.[1]?.trim() ?? value.trim();
+  const locale = value.match(/@([a-z]{2,3})(?:\\b|$)/i)?.[1]?.toLowerCase() ?? "en";
+  return { text, locale };
 }
 
 function parseObo(text: string): Term[] {
@@ -35,7 +37,7 @@ function parseObo(text: string): Term[] {
     const value = line.slice(colon + 1).trim();
     if (key === "id" && value.startsWith("FOODON_")) current.id = value;
     else if (key === "name") current.name = value;
-    else if (key === "synonym") current.synonyms!.push(unquote(value));
+    else if (key === "synonym") current.synonyms!.push(parseSynonym(value));
     else if (key === "is_a") current.parent = value.split("!")[0]!.trim();
   }
   flush();
@@ -103,11 +105,11 @@ async function main(): Promise<void> {
       );
       labelCount += 1;
       for (const synonym of term.synonyms) {
-        const normalized = normalizeText(synonym);
+        const normalized = normalizeText(synonym.text);
         if (!normalized) continue;
         await client.query(
-          "INSERT INTO food_semantics.labels(entity_id,locale,label,normalized,label_type) VALUES($1,'en',$2,$3,'synonym') ON CONFLICT DO NOTHING",
-          [entityId, synonym, normalized],
+          "INSERT INTO food_semantics.labels(entity_id,locale,label,normalized,label_type) VALUES($1,$2,$3,$4,'synonym') ON CONFLICT DO NOTHING",
+          [entityId, synonym.locale, synonym.text, normalized],
         );
         labelCount += 1;
       }
