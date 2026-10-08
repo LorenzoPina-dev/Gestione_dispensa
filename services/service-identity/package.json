@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "jose": "^6.1.0",
-    "@gestione-dispensa/runtime-db": "2.0.0"
+    "@gestione-dispensa/runtime-db": "2.0.0",
+    "@gestione-dispensa/food-rules": "2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
