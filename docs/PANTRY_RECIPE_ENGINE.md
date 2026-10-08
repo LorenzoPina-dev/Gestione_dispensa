@@ -115,3 +115,14 @@ La sicurezza viene valutata prima del ranking finale: un risultato con allergene
 ## Prossimo incremento
 
 Il blocco successivo deve completare la semantica dei dati incompleti: parsing più ricco di `ingredients_text`, componenti annidati, stati `UNKNOWN/AMBIGUOUS` e gerarchie ingredientali. Subito dopo va chiuso il RecipeMatch definitivo, l'aggregazione famigliare delle policy di sicurezza e il ranking nutrizionale.
+
+
+### Operatività del catalogo ricette
+
+`service-recipes` non scarica più il dataset Zenodo durante l'avvio applicativo.
+
+`recipes-schema-migrate` applica le migration di Recipes come job one-shot.
+`recipes-catalog-import` aggiorna il catalogo globale dopo la migration e può fallire senza impedire l'avvio del servizio applicativo.
+`service-recipes` dipende solo dal job di schema, non dalla disponibilità di Zenodo.
+
+Questo separa la disponibilità dell'applicazione dalla disponibilità del provider esterno. Se il catalogo non è ancora importato o il provider è offline, Recipes resta avviabile; le suggestions riflettono il catalogo effettivamente disponibile.
