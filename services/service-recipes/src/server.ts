@@ -3,7 +3,7 @@ import { createContextAwarePool, setDbRequestContextFromHeaders, type PoolClient
 import crypto from "node:crypto";
 import { registerAddMissingIngredientsRoute } from "./add-missing.js";
 import { discover, getCatalogRecipe } from "./recipe-discovery.js";
-import { resolveRecipeIngredient, normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
+import { resolveRecipeIngredient } from "./recipe-ingredient-model.js";
 
 const app = express();
 app.disable("x-powered-by");
