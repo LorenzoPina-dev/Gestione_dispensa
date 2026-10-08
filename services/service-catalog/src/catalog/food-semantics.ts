@@ -20,6 +20,7 @@ export interface ProductFoodSemantics {
   source: string;
   sourceVersion: string;
   rulesVersion: string;
+  nutriScoreGrade: string | null;
   observedAt: string;
 }
 
@@ -39,6 +40,7 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
   const allergenTags = stringArray(source.allergensTags ?? source.allergens_tags).map(normalizeSafetyTag);
   const traceTags = stringArray(source.tracesTags ?? source.traces_tags).map(normalizeSafetyTag);
   const labelTags = stringArray(source.labelsTags ?? source.labels_tags).map(tagName);
+  const rawNutriScore = firstNonEmpty(source.nutriScoreGrade, source.nutriscore_grade, source.nutriscoreGrade);\n  const nutriScoreGrade = rawNutriScore && /^[a-e]$/i.test(rawNutriScore) ? rawNutriScore.toLowerCase() : null;
   const productText = firstNonEmpty(
     canonicalName,
     source.productName,
@@ -105,6 +107,7 @@ export function deriveProductFoodSemantics(productId: string, raw: Record<string
     source: "derived",
     sourceVersion,
     rulesVersion: "food-semantics-v2",
+    nutriScoreGrade,
     observedAt: new Date().toISOString()
   };
 }
