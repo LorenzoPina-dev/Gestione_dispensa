@@ -91,8 +91,8 @@ describe("service-shelf-life / real lifecycle",()=>{
     assert.equal(processed.r.status,200);
     assert.equal(processed.b.data.status,"completed");
     assert.equal(Number(processed.b.data.confidence),0.55);
-    assert.match(String(processed.b.data.model_version),"conservative-fallback");
-    assert.match(String(processed.b.data.basis),"category:fresh-meat-fish");
+    assert.ok(String(processed.b.data.model_version).includes("conservative-fallback"));
+    assert.ok(String(processed.b.data.basis).includes("category:fresh-meat-fish"));
   });
 
   it("uses the storage baseline for an unknown Open Food Facts category",async()=>{
@@ -117,7 +117,7 @@ describe("service-shelf-life / real lifecycle",()=>{
     assert.equal(processed.r.status,200);
     assert.equal(processed.b.data.status,"completed");
     assert.equal(Number(processed.b.data.confidence),0.5);
-    assert.match(String(processed.b.data.basis),"storage:PANTRY");
+    assert.ok(String(processed.b.data.basis).includes("storage:PANTRY"));
   });
 
   it("reads the documented prediction DTO without leaking internal version",async()=>{
