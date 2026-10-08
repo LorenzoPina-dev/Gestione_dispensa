@@ -22,6 +22,11 @@ describe("recipe safety engine",()=>{
     assert.equal(warn.warnings[0]?.code,"TRACE");
     assert.equal(exclude.safe,false);
   });
+  it("blocks allergens inferred from a compound pantry product composition",()=>{
+    const result=evaluateRecipeSafety([], [{productId:"p1",name:"Pesto",foodSemantics:{allergenTags:[],traceTags:[],canonicalIngredient:"pesto",components:[{canonicalIngredient:"formaggio",ingredientTerms:["formaggio","cheese"]}],compositionConfidence:1}}], {allergenTags:["milk"],dietaryRestrictions:[],tracePolicy:"WARN"});
+    assert.equal(result.safe,false);
+    assert.equal(result.warnings[0]?.code,"ALLERGEN");
+  });
   it("does not turn unknown composition into a false safe claim",()=>{
     const result=evaluateRecipeSafety([{name:"Ingrediente sconosciuto"}],[],{allergenTags:["milk"],dietaryRestrictions:["vegan"],tracePolicy:"WARN"});
     assert.equal(result.safe,true);
