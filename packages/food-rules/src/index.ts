@@ -167,12 +167,13 @@ function parseNumericQuantity(value:string):number|null {
 }
 
 export function foodUnitInfo(unit:string): {dimension:FoodQuantity["dimension"];factor:number;baseUnit:FoodQuantity["baseUnit"]}|null {
-  return QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\\.$/,"")] ?? null;
+  return QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\.$/,"")] ?? null;
 }
 
 export function foodQuantity(value:number|string, unit:string):FoodQuantity|null {
   const numeric=typeof value==="number"?value:parseNumericQuantity(value);
-  const info=QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\.$/,"")];
+  const normalizedUnit=unit.trim().toLowerCase().replace(/\.$/,"");
+  const info=foodUnitInfo(normalizedUnit);
   if(numeric===null || !info) return null;
   return {value:numeric,unit:normalizedUnit,dimension:info.dimension,baseValue:numeric*info.factor,baseUnit:info.baseUnit,sourceRaw:String(value)+" "+unit.trim()};
 }
