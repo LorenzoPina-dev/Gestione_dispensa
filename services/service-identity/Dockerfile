@@ -3,11 +3,14 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY packages/runtime-db/package.json packages/runtime-db/tsconfig.json ./packages/runtime-db/
 COPY packages/runtime-db/src ./packages/runtime-db/src
+COPY packages/food-rules/package.json packages/food-rules/tsconfig.json ./packages/food-rules/
+COPY packages/food-rules/src ./packages/food-rules/src
 COPY services/service-identity/package.json services/service-identity/tsconfig.json ./services/service-identity/
 COPY services/service-identity/src ./services/service-identity/src
 COPY services/service-identity/migrations ./services/service-identity/migrations
 RUN npm install
 RUN npm --workspace @gestione-dispensa/runtime-db run build
+RUN npm --workspace @gestione-dispensa/food-rules run build
 RUN npm --workspace @gestione-dispensa/service-identity run build
 RUN npm prune --omit=dev
 
