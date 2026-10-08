@@ -3,13 +3,14 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "nod
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-client.js";
+import { ingredientTerms } from "@gestione-dispensa/food-rules";
 import { normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 const DATASET_URL = process.env.RECIPE_DATASET_URL ??
   "https://zenodo.org/api/records/14068000/files/italian%20gastronomic%20recipes%20dataset.zip/content";
 const DATASET_MD5 = "b90427179a4304270fd5b7b7490b565d";
 const DATASET_KEY = "italian-gastronomic-recipes-v5";
-const SOURCE = "italian-gastronomic-recipes-v4";
+const SOURCE = "italian-gastronomic-recipes-v5";
 const WORK_DIR = "/tmp/italian-recipes";
 
 type CsvRow = string[];
@@ -107,11 +108,6 @@ function deterministicUuid(sourceId: string): string {
     hex.slice(16, 20),
     hex.slice(20),
   ].join("-");
-}
-
-function ingredientTerms(value: string): string[] {
-  const normalized = normalize(value);
-  return [...new Set([normalized, ...normalized.split(" ").filter((token: string) => token.length >= 3)])];
 }
 
 function columnIndex(headers: string[], names: string[]): number {
