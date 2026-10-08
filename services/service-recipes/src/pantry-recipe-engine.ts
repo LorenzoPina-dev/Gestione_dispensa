@@ -1,4 +1,4 @@
-import { foodQuantity, normalizeFoodText } from "@gestione-dispensa/food-rules";
+import { foodQuantity, functionalSubstitution, normalizeFoodText } from "@gestione-dispensa/food-rules";
 import { combineInventoryQuantity, quantityCoverage, type ParsedQuantity } from "./quantity-engine.js";
 
 export type CulinaryWeight = "STAPLE" | "SECONDARY" | "CORE";
@@ -37,13 +37,29 @@ export interface IngredientMatch {
   recipeIngredient: string;
   canonicalIngredient: string | null;
   culinaryWeight: CulinaryWeight;
-  status: "COMPLETE" | "PARTIAL" | "MISSING" | "PRESENCE_ONLY" | "INCOMPATIBLE" | "UNKNOWN";
+  status: "COMPLETE" | "PARTIAL" | "MISSING" | "PRESENCE_ONLY" | "INCOMPATIBLE" | "UNKNOWN" | "SUBSTITUTED";
   ratio: number;
   requiredQuantity: { value: number; unit: string } | null;
   availableQuantity: { value: number; unit: string } | null;
   missingQuantity: { value: number; unit: string } | null;
   productIds: string[];
   confidence: number;
+  substitution?: {
+    fromIngredient: string;
+    toIngredient: string;
+    factor: number;
+    reason: string;
+    productIds: string[];
+  };
+}
+
+export interface RecipeSubstitution {
+  recipeIngredient: string;
+  fromIngredient: string;
+  toIngredient: string;
+  factor: number;
+  reason: string;
+  productIds: string[];
 }
 
 export interface PantryRecipeScore {
@@ -51,6 +67,7 @@ export interface PantryRecipeScore {
   readiness: Readiness;
   matchedIngredients: IngredientMatch[];
   missingIngredients: IngredientMatch[];
+  substitutions: RecipeSubstitution[];
   matchedProductIds: string[];
   missingCoreCount: number;
   missingCoreWeight: number;
@@ -60,19 +77,26 @@ function normalizeTerms(values: readonly string[]): Set<string> {
   return new Set(values.map(normalizeFoodText).filter(Boolean));
 }
 
-function semanticMatch(recipe: RecipeIngredientForMatch, pantry: PantryProductForMatch): boolean {
+function exactSemanticMatch(recipe: RecipeIngredientForMatch, pantry: PantryProductForMatch): boolean {
   const recipeCanonical = normalizeFoodText(recipe.canonicalIngredient ?? "");
   const pantryCanonical = normalizeFoodText(pantry.foodSemantics?.canonicalIngredient ?? "");
   if (recipeCanonical && pantryCanonical && recipeCanonical === pantryCanonical) return true;
   const recipeTerms = normalizeTerms([...(recipe.ingredientTerms ?? []), recipe.name, recipe.displayName]);
-  const pantryTerms = normalizeTerms([...(pantry.foodSemantics?.ingredientTerms ?? []), ...(pantry.foodSemantics?.taxonomyTags ?? []), pantry.name]);
+  const pantryTerms = normalizeTerms([
+    ...(pantry.foodSemantics?.ingredientTerms ?? []),
+    ...(pantry.foodSemantics?.taxonomyTags ?? []),
+    pantry.name,
+  ]);
   for (const term of recipeTerms) if (pantryTerms.has(term)) return true;
   return false;
 }
 
 function toRequiredQuantity(ingredient: RecipeIngredientForMatch): ParsedQuantity | null {
   if (typeof ingredient.quantityBaseValue === "number" && ingredient.quantityBaseValue > 0 && ingredient.quantityBaseUnit) {
-    const dimension = ingredient.quantityDimension ?? (ingredient.quantityBaseUnit === "g" ? "mass" : ingredient.quantityBaseUnit === "ml" ? "volume" : "count");
+    const dimension = ingredient.quantityDimension ?? (
+      ingredient.quantityBaseUnit === "g" ? "mass" :
+      ingredient.quantityBaseUnit === "ml" ? "volume" : "count"
+    );
     return {
       value: typeof ingredient.quantityValue === "number" ? ingredient.quantityValue : ingredient.quantityBaseValue,
       unit: ingredient.quantityUnit ?? ingredient.quantityBaseUnit,
@@ -99,55 +123,216 @@ function toRequiredQuantity(ingredient: RecipeIngredientForMatch): ParsedQuantit
   return null;
 }
 
-function inventoryQuantities(pantry: PantryProductForMatch[]): ParsedQuantity[] {
-  return pantry.map(item => combineInventoryQuantity(item.quantity, item.unit, item.foodSemantics?.quantityBase ?? null)).filter((value): value is ParsedQuantity => value !== null);
+function inventoryQuantities(pantry: readonly PantryProductForMatch[]): ParsedQuantity[] {
+  return pantry
+    .map(item => combineInventoryQuantity(item.quantity, item.unit, item.foodSemantics?.quantityBase ?? null))
+    .filter((value): value is ParsedQuantity => value !== null);
 }
 
-export function scoreRecipeAgainstPantry(ingredients: readonly RecipeIngredientForMatch[], pantry: readonly PantryProductForMatch[]): PantryRecipeScore {
+export function scoreRecipeAgainstPantry(
+  ingredients: readonly RecipeIngredientForMatch[],
+  pantry: readonly PantryProductForMatch[],
+): PantryRecipeScore {
   const groups = new Map<string, RecipeIngredientForMatch[]>();
   for (const ingredient of ingredients) {
-    const canonical = normalizeFoodText(ingredient.canonicalIngredient ?? "");
-    const fallback = normalizeFoodText(ingredient.displayName || ingredient.name);
-    const key = canonical || fallback;
+    const key = normalizeFoodText(ingredient.canonicalIngredient ?? "") || normalizeFoodText(ingredient.displayName || ingredient.name);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(ingredient);
   }
+
   const matches: IngredientMatch[] = [];
+  const substitutions: RecipeSubstitution[] = [];
   let weightedTotal = 0;
   let weightedMatched = 0;
   const matchedProductIds = new Set<string>();
+
   for (const group of groups.values()) {
     const representative = group[0];
     const weight = representative.culinaryWeight ?? "CORE";
-    const groupWeight = group.reduce((sum, item) => sum + (item.culinaryWeight === "STAPLE" ? 0.1 : item.culinaryWeight === "SECONDARY" ? 0.5 : 1), 0);
+    const groupWeight = group.reduce(
+      (sum, item) => sum + (item.culinaryWeight === "STAPLE" ? 0.1 : item.culinaryWeight === "SECONDARY" ? 0.5 : 1),
+      0,
+    );
     const quantities = group.map(toRequiredQuantity);
     const allKnownQuantity = quantities.length > 0 && quantities.every(Boolean);
-    const dimension = quantities.find(Boolean)?.dimension ?? null;
-    const candidates = pantry.filter(item => group.some(ingredient => semanticMatch(ingredient, item)));
-    const available = inventoryQuantities(candidates);
-    const sameDimensionQuantities = quantities.filter((item): item is ParsedQuantity => Boolean(item && (!dimension || item.dimension === dimension)));
-    const required = allKnownQuantity && dimension && sameDimensionQuantities.length === quantities.length
+    const firstQuantity = quantities.find(Boolean) as ParsedQuantity | undefined;
+    const dimension = firstQuantity?.dimension ?? null;
+    const required = allKnownQuantity && dimension && quantities.every(item => (item as ParsedQuantity).dimension === dimension)
       ? quantities.reduce((sum, item) => sum + (item as ParsedQuantity).baseValue, 0)
       : null;
+
+    const exactCandidates = pantry.filter(item => group.some(ingredient => exactSemanticMatch(ingredient, item)));
+    const substituteCandidates = pantry.filter(item =>
+      exactCandidates.every(candidate => candidate.productId !== item.productId) &&
+      group.some(ingredient => Boolean(functionalSubstitution(
+        ingredient.canonicalIngredient ?? null,
+        item.foodSemantics?.canonicalIngredient ?? null,
+      ))),
+    );
+
+    const exactAvailable = inventoryQuantities(exactCandidates);
+    const substituteAvailable = inventoryQuantities(substituteCandidates);
+
     let match: IngredientMatch;
-    if (candidates.length === 0) {
-      match = { recipeIngredient: representative.displayName || representative.name, canonicalIngredient: representative.canonicalIngredient ?? null, culinaryWeight: weight, status: "MISSING", ratio: 0, requiredQuantity: required !== null ? { value: required, unit: quantities[0]!.baseUnit } : null, availableQuantity: null, missingQuantity: required !== null ? { value: required, unit: quantities[0]!.baseUnit } : null, productIds: [], confidence: Math.min(...group.map(item => item.quantityConfidence ?? 0.5)) };
+
+    if (exactCandidates.length === 0 && substituteCandidates.length === 0) {
+      match = {
+        recipeIngredient: representative.displayName || representative.name,
+        canonicalIngredient: representative.canonicalIngredient ?? null,
+        culinaryWeight: weight,
+        status: "MISSING",
+        ratio: 0,
+        requiredQuantity: required !== null ? { value: required, unit: firstQuantity!.baseUnit } : null,
+        availableQuantity: null,
+        missingQuantity: required !== null ? { value: required, unit: firstQuantity!.baseUnit } : null,
+        productIds: [],
+        confidence: Math.min(...group.map(item => item.quantityConfidence ?? 0.5)),
+      };
     } else if (required === null) {
-      match = { recipeIngredient: representative.displayName || representative.name, canonicalIngredient: representative.canonicalIngredient ?? null, culinaryWeight: weight, status: "PRESENCE_ONLY", ratio: 1, requiredQuantity: null, availableQuantity: null, missingQuantity: null, productIds: candidates.map(item => item.productId), confidence: Math.min(1, Math.max(0.5, ...candidates.map(item => item.foodSemantics ? 1 : 0.7))) };
+      if (exactCandidates.length > 0) {
+        match = {
+          recipeIngredient: representative.displayName || representative.name,
+          canonicalIngredient: representative.canonicalIngredient ?? null,
+          culinaryWeight: weight,
+          status: "PRESENCE_ONLY",
+          ratio: 1,
+          requiredQuantity: null,
+          availableQuantity: null,
+          missingQuantity: null,
+          productIds: exactCandidates.map(item => item.productId),
+          confidence: Math.min(1, Math.max(0.5, ...exactCandidates.map(item => item.foodSemantics ? 1 : 0.7))),
+        };
+      } else {
+        const firstSub = group
+          .map(ingredient => substituteCandidates
+            .map(item => functionalSubstitution(ingredient.canonicalIngredient ?? null, item.foodSemantics?.canonicalIngredient ?? null))
+            .find(Boolean))
+          .find(Boolean);
+        const productIds = substituteCandidates.map(item => item.productId);
+        match = {
+          recipeIngredient: representative.displayName || representative.name,
+          canonicalIngredient: representative.canonicalIngredient ?? null,
+          culinaryWeight: weight,
+          status: "SUBSTITUTED",
+          ratio: firstSub?.factor ?? 0.8,
+          requiredQuantity: null,
+          availableQuantity: null,
+          missingQuantity: null,
+          productIds,
+          confidence: Math.min(0.9, Math.max(0.5, ...substituteCandidates.map(item => item.foodSemantics ? 0.9 : 0.7))),
+          substitution: firstSub ? {
+            fromIngredient: firstSub.fromCanonical,
+            toIngredient: firstSub.toCanonical,
+            factor: firstSub.factor,
+            reason: firstSub.reason,
+            productIds,
+          } : undefined,
+        };
+        if (match.substitution) substitutions.push({
+          recipeIngredient: match.recipeIngredient,
+          fromIngredient: match.substitution.fromIngredient,
+          toIngredient: match.substitution.toIngredient,
+          factor: match.substitution.factor,
+          reason: match.substitution.reason,
+          productIds,
+        });
+      }
     } else {
-      const first = quantities[0] as ParsedQuantity;
-      const requiredQuantity: ParsedQuantity = { value: required, unit: first.unit, dimension: first.dimension, baseValue: required, baseUnit: first.baseUnit, confidence: Math.min(...quantities.map(item => (item as ParsedQuantity).confidence)), sourceRaw: String(required) + " " + first.baseUnit };
-      const coverage = quantityCoverage(requiredQuantity, available);
-      match = { recipeIngredient: representative.displayName || representative.name, canonicalIngredient: representative.canonicalIngredient ?? null, culinaryWeight: weight, status: coverage.status, ratio: coverage.ratio, requiredQuantity: { value: required, unit: requiredQuantity.baseUnit }, availableQuantity: coverage.availableBase !== null ? { value: coverage.availableBase, unit: requiredQuantity.baseUnit } : null, missingQuantity: coverage.missingBase !== null && coverage.missingBase > 0 ? { value: coverage.missingBase, unit: requiredQuantity.baseUnit } : null, productIds: candidates.map(item => item.productId), confidence: requiredQuantity.confidence };
+      const requiredQuantity: ParsedQuantity = {
+        value: required,
+        unit: firstQuantity!.unit,
+        dimension: firstQuantity!.dimension,
+        baseValue: required,
+        baseUnit: firstQuantity!.baseUnit,
+        confidence: Math.min(...quantities.map(item => (item as ParsedQuantity).confidence)),
+        sourceRaw: String(required) + " " + firstQuantity!.baseUnit,
+      };
+      const exactCoverage = quantityCoverage(requiredQuantity, exactAvailable);
+      let exactUsed = Math.min(required, exactCoverage.availableBase ?? 0);
+      let remaining = Math.max(0, required - exactUsed);
+      const compatibleSub = substituteAvailable.filter(item => item.dimension === requiredQuantity.dimension);
+      const substituteRawAvailable = compatibleSub.reduce((sum, item) => sum + item.baseValue, 0);
+      const substituteUsed = Math.min(remaining, substituteRawAvailable);
+      const effective = exactUsed + substituteUsed * 0.8;
+      const ratio = Math.max(0, Math.min(1, effective / required));
+      const ids = [
+        ...exactCandidates.map(item => item.productId),
+        ...(substituteUsed > 0 ? substituteCandidates.map(item => item.productId) : []),
+      ];
+      const incompatibleSub = substituteCandidates.length > 0 && substituteRawAvailable === 0 && substituteAvailable.length > 0;
+
+      const subRule = substituteUsed > 0
+        ? group
+          .map(ingredient => substituteCandidates
+            .map(item => functionalSubstitution(ingredient.canonicalIngredient ?? null, item.foodSemantics?.canonicalIngredient ?? null))
+            .find(Boolean))
+          .find(Boolean)
+        : null;
+
+      let status: IngredientMatch["status"] = ratio >= 1 && substituteUsed === 0
+        ? "COMPLETE"
+        : substituteUsed > 0
+          ? "SUBSTITUTED"
+          : exactCoverage.status;
+
+      if (ratio === 0 && incompatibleSub && exactCandidates.length === 0) status = "INCOMPATIBLE";
+
+      match = {
+        recipeIngredient: representative.displayName || representative.name,
+        canonicalIngredient: representative.canonicalIngredient ?? null,
+        culinaryWeight: weight,
+        status,
+        ratio: Number(ratio.toFixed(4)),
+        requiredQuantity: { value: required, unit: requiredQuantity.baseUnit },
+        availableQuantity: { value: Math.min(required, exactUsed + substituteUsed), unit: requiredQuantity.baseUnit },
+        missingQuantity: {
+          value: Math.max(0, required - exactUsed - substituteUsed),
+          unit: requiredQuantity.baseUnit,
+        },
+        productIds: ids,
+        confidence: requiredQuantity.confidence,
+        substitution: subRule ? {
+          fromIngredient: subRule.fromCanonical,
+          toIngredient: subRule.toCanonical,
+          factor: subRule.factor,
+          reason: subRule.reason,
+          productIds: substituteCandidates.map(item => item.productId),
+        } : undefined,
+      };
+
+      if (match.substitution) substitutions.push({
+        recipeIngredient: match.recipeIngredient,
+        fromIngredient: match.substitution.fromIngredient,
+        toIngredient: match.substitution.toIngredient,
+        factor: match.substitution.factor,
+        reason: match.substitution.reason,
+        productIds: match.substitution.productIds,
+      });
     }
+
     matches.push(match);
     weightedTotal += groupWeight;
     weightedMatched += groupWeight * match.ratio;
     for (const id of match.productIds) matchedProductIds.add(id);
   }
-  const score = weightedTotal > 0 ? Number(Math.max(0, Math.min(1, weightedMatched / weightedTotal)).toFixed(4)) : 0;
+
+  const score = weightedTotal > 0
+    ? Number(Math.max(0, Math.min(1, weightedMatched / weightedTotal)).toFixed(4))
+    : 0;
   const missingIngredients = matches.filter(item => item.ratio < 1);
   const missingCoreCount = missingIngredients.filter(item => item.culinaryWeight === "CORE").length;
-  const missingCoreWeight = missingIngredients.filter(item => item.culinaryWeight === "CORE").reduce((sum, item) => sum + (1 - item.ratio), 0);
-  return { score, readiness: score >= 0.8 ? "READY" : score >= 0.5 ? "MINIMAL_SHOPPING" : "DISCARD", matchedIngredients: matches, missingIngredients, matchedProductIds: [...matchedProductIds], missingCoreCount, missingCoreWeight: Number(missingCoreWeight.toFixed(4)) };
+  const missingCoreWeight = missingIngredients
+    .filter(item => item.culinaryWeight === "CORE")
+    .reduce((sum, item) => sum + (1 - item.ratio), 0);
+
+  return {
+    score,
+    readiness: score >= 0.8 ? "READY" : score >= 0.5 ? "MINIMAL_SHOPPING" : "DISCARD",
+    matchedIngredients: matches,
+    missingIngredients,
+    substitutions,
+    matchedProductIds: [...matchedProductIds],
+    missingCoreCount,
+    missingCoreWeight: Number(missingCoreWeight.toFixed(4)),
+  };
 }
