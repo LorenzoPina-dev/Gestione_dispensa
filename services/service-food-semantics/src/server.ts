@@ -111,7 +111,7 @@ app.post("/api/v1/resolve/ingredient", async (req, res) => {
       recipeIngredient: input,
       displayName: result.label,
       foodEntityId: "foodon:" + result.sourceId,
-      canonicalIngredient: result.sourceId,
+      canonicalIngredient: "foodon:" + result.sourceId,
       semanticConfidence: result.confidence,
       provenance: "foodon",
     });
