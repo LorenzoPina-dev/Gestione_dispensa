@@ -1161,3 +1161,15 @@ Campi: `event_id` primary key, `event_type`, `schema_version`, `producer`, `proc
 
 
 La projection OpenSearch usa `nameExact` e `brandExact` come keyword normalizzate per exact/prefix search. `searchText` non fa più parte della projection corrente: la ricerca lessicale usa direttamente `name`, `brand`, `category`, `featureText` e `quantityLabel`.
+
+
+## Food semantics service
+
+`food_semantics` is owned exclusively by `service-food-semantics`. It stores the external food ontology, localized labels, semantic relations, product-to-food mappings and persistent resolution/translation cache.
+
+- `food_semantics.ontology_sources`
+- `food_semantics.entities`
+- `food_semantics.labels`
+- `food_semantics.relations`
+- `food_semantics.product_mappings`
+- `food_semantics.resolution_cache`
