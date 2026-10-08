@@ -179,6 +179,18 @@ export function foodUnitInfo(unit:string): {dimension:FoodQuantity["dimension"];
   return QUANTITY_UNITS[unit.trim().toLowerCase().replace(/\.$/,"")] ?? null;
 }
 
+const COUNTABLE_INGREDIENTS = new Set([
+  "uovo","cipolla","aglio","patata","carota","zucchina","melanzana","peperone",
+  "limone","pomodoro","pollo","salsiccia","pane","mozzarella","formaggio"
+]);
+
+export function parseFoodCountFromText(raw:string,canonicalIngredient:string|null):FoodQuantity|null {
+  if(!canonicalIngredient||!COUNTABLE_INGREDIENTS.has(normalizeFoodText(canonicalIngredient)))return null;
+  const match=raw.trim().match(/^(?:\s*)(\d+(?:[.,]\d+)?)\s+.+$/i);
+  if(!match)return null;
+  return foodQuantity(match[1],"piece");
+}
+
 export function foodQuantity(value:number|string, unit:string):FoodQuantity|null {
   const numeric=typeof value==="number"?value:parseNumericQuantity(value);
   const normalizedUnit=unit.trim().toLowerCase().replace(/\.$/,"");
