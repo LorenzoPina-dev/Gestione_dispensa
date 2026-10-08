@@ -56,6 +56,21 @@ describe("food-rules",()=>{
     assert.equal(parsed.baseValue,600);
     assert.equal(parsed.baseUnit,"ml");
   });
+  it("parses nested ingredient components with provenance",()=>{
+    const parsed=parseIngredientText("pesto (basilico, 30% parmigiano, olio extravergine)");
+    assert.equal(parsed.length,4);
+    assert.equal(parsed[1]?.role,"SUBCOMPONENT");
+    assert.equal(parsed[1]?.parentCanonicalIngredient,"pesto");
+    assert.equal(parsed[1]?.provenance,"ingredients_text");
+    assert.equal(parsed[2]?.percentage,30);
+  });
+  it("converts only ingredients with a versioned density rule",()=>{
+    const converted=convertFoodQuantityWithDensity(100,"ml","latte","g");
+    assert.ok(converted);
+    assert.equal(converted.baseUnit,"g");
+    assert.equal(converted.baseValue,103);
+    assert.equal(convertFoodQuantityWithDensity(100,"ml","farina","g"),null);
+  });
   it("parses countable ingredients with no explicit unit",()=>{
     assert.equal(parseFoodCountFromText("2 uova","uovo")?.baseValue,2);
     assert.equal(parseFoodCountFromText("3 onions","cipolla")?.baseValue,3);
