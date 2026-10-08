@@ -6,6 +6,7 @@ import {
   type Product,
   type ProductProvenance,
 } from "./service.js";
+import { deriveProductFoodSemantics } from "./food-semantics.js";
 import type {
   CatalogCandidateRepository,
   CatalogLookupRepository,
@@ -677,6 +678,7 @@ function mapProduct(row: ProductRow): Product {
     ...(row.serving_unit ? { servingUnit: row.serving_unit } : {}),
     ...(parseJsonObject(row.images_json) ? { images: parseJsonObject(row.images_json) } : {}),
     ...(parseJsonObject(row.product_details_snapshot) ? { openFoodFacts: parseJsonObject(row.product_details_snapshot) } : {}),
+    foodSemantics: deriveProductFoodSemantics(row.id, parseJsonObject(row.product_details_snapshot), row.canonical_name),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
     barcodes: row.barcodes_json ? JSON.parse(row.barcodes_json) as string[] : [],
