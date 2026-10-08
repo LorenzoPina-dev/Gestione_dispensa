@@ -96,7 +96,9 @@ for (const [name, port] of canonical) {
     if (docker.includes("entrypoint.sh")) {
       try { startup += "\n" + await readFile("services/" + name + "/entrypoint.sh", "utf8"); } catch {}
     }
-    if (!startup.includes("dist/migrate.js")) failures.push(name + ": Docker startup does not execute migrations");
+    const migrationJob = composeBlock(name + "-schema-migrate");
+    const hasRuntimeMigration = startup.includes("dist/migrate.js") || migrationJob.includes("dist/migrate.js");
+    if (!hasRuntimeMigration) failures.push(name + ": no Docker startup or dedicated Compose migration job executes migrations");
     if (/insert into schema_migrations/i.test(startup) && !/on conflict/i.test(startup)) {
       failures.push(name + ": migration bookkeeping must be idempotent");
     }
@@ -202,8 +204,9 @@ if (/MINIO_ROOT_PASSWORD:\s*miniochange\b/.test(minioBlock)) failures.push("MinI
 
 for (const service of sqlMigrationServices) {
   const docker = await readFile("services/" + service + "/Dockerfile", "utf8");
-  if (!docker.includes("dist/migrate.js") && !docker.includes("docker-entrypoint.sh")) {
-    failures.push(service + ": migration startup contract not visible in Dockerfile");
+  const migrationJob = composeBlock(service + "-schema-migrate");
+  if (!docker.includes("dist/migrate.js") && !docker.includes("docker-entrypoint.sh") && !migrationJob.includes("dist/migrate.js")) {
+    failures.push(service + ": no migration runtime contract is visible in Dockerfile or dedicated Compose migration job");
   }
 }
 
