@@ -165,9 +165,9 @@ function cleanInstruction(value:string):string{
   .replace(/&#39;|&apos;/gi,"'")
   .replace(/&lt;/gi,"<")
   .replace(/&gt;/gi,">")
-  .replace(/\\s+/g," ")
+  .replace(/\s+/g," ")
   .trim();
- text=text.replace(/^\\s*\\d+\\s*[.)-:]\\s*/,"");
+ text=text.replace(/^\s*\d+\s*[.)-:]\s*/,"");
  return text;
 }
 
@@ -212,7 +212,7 @@ function findRecipeNodes(value:unknown,out:Record<string,unknown>[]):void{
 
 function extractRecipeInstructions(html:string):string[]{
  const recipeNodes:Record<string,unknown>[]=[];
- const scriptPattern=/<script[^>]*type=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi;
+ const scriptPattern=/<script[^>]*type=["\']application\/ld\+json["\'][^>]*>([\s\S]*?)<\/script>/gi;
  let match:RegExpExecArray|null;
  while((match=scriptPattern.exec(html))!==null){
   const raw=match[1]?.trim();
