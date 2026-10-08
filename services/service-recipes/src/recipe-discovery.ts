@@ -361,8 +361,9 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
        missingCoreCount:coverage.missingCoreCount,
        missingCoreWeight:coverage.missingCoreWeight,
        ingredients:coverage.matchedIngredients,
+       substitutions:coverage.substitutions,
      },
-     substitutions:[],
+     substitutions:coverage.substitutions,
      safetyWarnings:safety.warnings,
      recipe,
    };
