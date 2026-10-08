@@ -7,6 +7,7 @@ import {
   type ProductProvenance,
 } from "./service.js";
 import { deriveProductFoodSemantics } from "./food-semantics.js";
+import { upsertProductFoodSemantics } from "./food-semantics-repository.js";
 import type {
   CatalogCandidateRepository,
   CatalogLookupRepository,
@@ -167,6 +168,19 @@ export class PostgresCatalogRepository implements CatalogRepository {
           input.provenance.confidence,
         ],
       );
+      await upsertProductFoodSemantics(
+        transaction,
+        input.product.id,
+        input.product.canonicalName,
+        input.product.openFoodFacts ?? {
+          productName: input.product.canonicalName,
+          quantityValue: input.product.quantityValue,
+          quantityUnit: input.product.quantityUnit,
+        },
+        "MANUAL",
+        input.provenance.sourceVersion,
+        input.provenance.observedAt,
+      );
       await insertOutbox(transaction, input.event);
       await transaction.commit();
       return input.product;
@@ -248,6 +262,16 @@ export class PostgresCatalogRepository implements CatalogRepository {
          FROM products p LEFT JOIN brands b ON b.id=p.brand_id WHERE p.id=$1`,
         [input.productId],
       );
+      if (fresh.rows[0]) {
+        const currentSnapshot = parseJsonObject(fresh.rows[0].product_details_snapshot);
+        await upsertProductFoodSemantics(
+          transaction,
+          input.productId,
+          fresh.rows[0].canonical_name,
+          currentSnapshot,
+        );
+      }
+
       await insertOutbox(transaction, input.event);
       await transaction.commit();
       return fresh.rows[0] ? mapProduct(fresh.rows[0]) : undefined;
@@ -357,6 +381,19 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
       );
       const row = inserted.rows[0];
       if (row === undefined) throw new Error("Catalog external-match insert returned no row.");
+
+      await upsertProductFoodSemantics(
+        transaction,
+        row.id,
+        input.match.canonicalName,
+        input.match.openFoodFacts ?? {
+          productName: input.match.canonicalName,
+          quantityValue: input.match.quantityValue,
+          quantityUnit: input.match.quantityUnit,
+        },
+        input.match.source,
+        input.match.sourceVersion,
+      );
 
       await transaction.query(
         `INSERT INTO product_identifiers (product_id, source_id, identifier_type, normalized_value, is_verified)
@@ -502,6 +539,19 @@ export class PostgresCatalogLookupRepository implements CatalogLookupRepository 
           JSON.stringify(input.match.images ?? null),
           JSON.stringify(curateProductDetails(input.match.openFoodFacts)),
         ],
+      );
+
+      await upsertProductFoodSemantics(
+        transaction,
+        row.id,
+        input.match.canonicalName,
+        input.match.openFoodFacts ?? {
+          productName: input.match.canonicalName,
+          quantityValue: input.match.quantityValue,
+          quantityUnit: input.match.quantityUnit,
+        },
+        input.match.source,
+        input.match.sourceVersion,
       );
 
       await transaction.query(
