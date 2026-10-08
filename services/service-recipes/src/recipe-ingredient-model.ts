@@ -9,6 +9,7 @@ import {
 
 export interface RecipeIngredientSemantic {
   canonicalIngredient: string | null;
+  semanticConfidence: number;
   ingredientTerms: string[];
   culinaryWeight: CulinaryWeight;
   quantity: FoodQuantity | null;
@@ -31,6 +32,7 @@ export function normalizeRecipeIngredient(
   const parsed=explicit ?? embedded;
   return {
     canonicalIngredient:canonical.canonicalIngredient,
+    semanticConfidence:canonical.confidence,
     ingredientTerms:[...new Set([...canonical.ingredientTerms, rawName.toLowerCase()])],
     culinaryWeight:classifyCulinaryWeight(canonical.canonicalIngredient),
     quantity:parsed,
