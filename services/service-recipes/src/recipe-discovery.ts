@@ -1,9 +1,10 @@
 import type { Pool } from "@gestione-dispensa/runtime-db/postgres-client.js";
-import { ingredientTerms, normalizeFoodText as norm } from "@gestione-dispensa/food-rules";
+import { ingredientTerms, normalizeFoodText as norm, parseFoodQuantityFromText } from "@gestione-dispensa/food-rules";
 import { averageNutriScore, scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
 import { aggregateFamilySafetyProfiles, type FamilySafetyProfile } from "./family-safety-profile.js";
 import type { RecipeMatch } from "./recipe-match.js";
+import { normalizeRecipeIngredient } from "./recipe-ingredient-model.js";
 
 type FoodSemantics = {
  canonicalIngredient?: string | null;
@@ -28,6 +29,7 @@ type Suggestion=RecipeMatch & { matchedIngredientNames:string[]; matchedProducts
 
 const IMAGE_CACHE = new Map<string, string | null>();
 const STEPS_CACHE = new Map<string, string[] | null>();
+const INGREDIENTS_CACHE = new Map<string, string[] | null>();
 
 async function getInventory(base:string,userId:string,familyId:string,authorization?:string):Promise<PantryItem[]>{
  const u=new URL(base.replace(/\/$/,"")+"/inventory");u.searchParams.set("familyId",familyId);u.searchParams.set("status","current");u.searchParams.set("limit","100");
@@ -111,6 +113,62 @@ async function resolveRecipeImage(sourceUrl:string|undefined):Promise<string|und
  return undefined;
 }
 
+function extractRecipeIngredientTexts(html:string):string[]{
+ const recipeNodes:Record<string,unknown>[]=[];
+ const scriptPattern=/<script[^>]*type=["\']application\/ld\+json["\'][^>]*>([\s\S]*?)<\/script>/gi;
+ let match:RegExpExecArray|null;
+ while((match=scriptPattern.exec(html))!==null){
+  const raw=match[1]?.trim(); if(!raw)continue;
+  try{ findRecipeNodes(JSON.parse(raw.replace(/^<!--|-->$/g,"").trim()),recipeNodes); }catch{ /* ignore malformed JSON-LD blocks */ }
+ }
+ let best:string[]=[];
+ for(const recipe of recipeNodes){
+  const values=Array.isArray(recipe.recipeIngredient) ? recipe.recipeIngredient.filter((value):value is string=>typeof value==="string").map(cleanInstruction) : [];
+  const unique=[...new Set(values.filter(Boolean))]; if(unique.length>best.length)best=unique;
+ }
+ return best;
+}
+
+async function resolveRecipeIngredientTexts(sourceUrl:string|undefined):Promise<string[]>{
+ if(!sourceUrl)return[];
+ if(INGREDIENTS_CACHE.has(sourceUrl))return INGREDIENTS_CACHE.get(sourceUrl)??[];
+ try{
+  const response=await fetch(sourceUrl,{
+   headers:{accept:"text/html,application/xhtml+xml","user-agent":"Gestione-Dispensa/2.0 recipe-ingredient-resolver"},
+   redirect:"follow",signal:AbortSignal.timeout(8000),
+  });
+  if(response.ok){
+   const html=await response.text();
+   const ingredients=extractRecipeIngredientTexts(html);
+   if(ingredients.length){INGREDIENTS_CACHE.set(sourceUrl,ingredients);return ingredients;}
+  }
+ }catch{ /* external enrichment is optional */ }
+ INGREDIENTS_CACHE.set(sourceUrl,null); return[];
+}
+
+function mergeSourceIngredientQuantities(fallback:any[],sourceTexts:string[]):any[]{
+ if(!sourceTexts.length)return fallback;
+ const normalizedSource=sourceTexts.map((raw,index)=>({raw,index,semantic:normalizeRecipeIngredient(raw)}));
+ const used=new Set<number>();
+ return fallback.map((item:any,index:number)=>{
+  if(item.quantity!=null || item.quantityConfidence>0.5)return item;
+  const wanted=normalizeRecipeIngredient(String(item.displayName||item.name));
+  let candidate=normalizedSource.find((source)=>!used.has(source.index)&&source.semantic.canonicalIngredient===wanted.canonicalIngredient&&source.semantic.quantity);
+  if(!candidate)candidate=normalizedSource.find((source)=>!used.has(source.index)&&source.semantic.quantity&&norm(source.raw).includes(norm(String(item.name))));
+  if(!candidate)candidate=normalizedSource[index] && normalizedSource[index].semantic.quantity ? normalizedSource[index] : undefined;
+  if(!candidate?.semantic.quantity)return item;
+  used.add(candidate.index);
+  const quantity=candidate.semantic.quantity;
+  return {
+   ...item,
+   canonicalIngredient:item.canonicalIngredient??candidate.semantic.canonicalIngredient,
+   quantity:Number(quantity.baseValue),
+   unit:quantity.baseUnit,
+   quantityConfidence:Math.max(Number(item.quantityConfidence??0),0.9),
+   sourceQuantityRaw:candidate.raw,
+  };
+ });
+}
 function cleanInstruction(value:string):string{
  let text=value
   .replace(/<[^>]*>/g," ")
@@ -465,8 +523,22 @@ export async function getCatalogRecipe(pool:Pool,id:string){
  const r=await pool.query("select id,title,category,difficulty,prep_time_minutes,source_url from recipe_catalog.recipes where id=$1",[id]);if(!r.rowCount)return null;
  const full=await hydrate(pool,[r.rows[0]]);const x=full[0];
  const sourceUrl=typeof x.source_url==="string"?x.source_url:undefined;
- const steps=await resolveRecipeSteps(sourceUrl,x.steps);
- const recipe={recipeId:String(x.id),title:String(x.title),servings:null,timeMinutes:x.prep_time_minutes==null?null:Number(x.prep_time_minutes),difficulty:x.difficulty==null?null:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl,tags:x.category?[String(x.category)]:[],steps,ingredients:x.ingredients.map((i:any)=>({name:String(i.name),displayName:String(i.display_name||i.name),canonicalIngredient:i.canonical_ingredient??null,culinaryWeight:String(i.culinary_weight??"CORE"),quantity:i.quantity_base_value==null?null:Number(i.quantity_base_value),unit:i.quantity_base_unit??null,quantityConfidence:Number(i.quantity_confidence??0),sourceWeight:i.weight==null?null:Number(i.weight)}))};
+ const [steps,sourceIngredientTexts]=await Promise.all([
+  resolveRecipeSteps(sourceUrl,x.steps),
+  resolveRecipeIngredientTexts(sourceUrl),
+ ]);
+ const enrichedIngredients=mergeSourceIngredientQuantities(x.ingredients.map((i:any)=>({
+  name:String(i.name),
+  displayName:String(i.display_name||i.name),
+  canonicalIngredient:i.canonical_ingredient??null,
+  culinaryWeight:String(i.culinary_weight??"CORE"),
+  quantity:i.quantity_base_value==null?null:Number(i.quantity_base_value),
+  unit:i.quantity_base_unit??null,
+  quantityConfidence:Number(i.quantity_confidence??0),
+  sourceWeight:i.weight==null?null:Number(i.weight),
+  sourceQuantityRaw:i.source_quantity_raw??null,
+ })),sourceIngredientTexts);
+ const recipe={recipeId:String(x.id),title:String(x.title),servings:null,timeMinutes:x.prep_time_minutes==null?null:Number(x.prep_time_minutes),difficulty:x.difficulty==null?null:Number(x.difficulty)<=2?"Facile":Number(x.difficulty)===3?"Medio":"Difficile",quality:"IMPORTED",source:"italian-gastronomic-recipes",sourceUrl,tags:x.category?[String(x.category)]:[],steps,ingredients:enrichedIngredients};
  const image=await resolveRecipeImage(typeof recipe.sourceUrl==="string"?recipe.sourceUrl:undefined);
  return image?{...recipe,image}:recipe;
 }
