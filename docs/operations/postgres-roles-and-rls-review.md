@@ -26,11 +26,11 @@ Food Semantics should be split into a migration/owner role and a runtime role in
 
 ## Running the isolation proof
 
-After the fail-closed migration is installed in a disposable or development database, run the transaction-based proof from the repository root in PowerShell:
+Run the transaction-based proof on a disposable or development Identity database from the repository root in PowerShell:
 
 ```powershell
 Get-Content services/service-identity/tests/rls-isolation.sql -Raw |
   docker compose exec -T postgres psql -U postgres -d identity_db -v ON_ERROR_STOP=1
 ```
 
-It creates two temporary test identities and exercises missing-context denial, per-user isolation, and the relay owner's outbox access. The final `ROLLBACK` removes all fixtures. The current branch does not yet include the policy migration because the required database-backed check has not been run here.
+It temporarily installs the proposed fail-closed policies, creates two test identities, checks missing-context denial, per-user isolation, and relay-owner access, then rolls the entire transaction back. The CI job provisions this isolated database and runs the same proof. The persistent migration remains pending until this database-backed proof passes.
