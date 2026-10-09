@@ -72,8 +72,8 @@ export async function loadNutritionSnapshot(
     }
     return null;
   };
-  const energyKcal = (basis: "100g" | "100ml", projected: unknown): number | null => {
-    const direct = read(projected, rawNutriments[`energy-kcal_${basis}`]);
+  const energyKcal = (basis: "100g" | "100ml", ...projected: unknown[]): number | null => {
+    const direct = read(...projected, rawNutriments[`energy-kcal_${basis}`]);
     if (direct !== null) return direct;
     const kilojoules = read(rawNutriments[`energy-kj_${basis}`]);
     return kilojoules === null ? null : kilojoules / 4.184;
