@@ -1,131 +1,49 @@
-# Documentation & Implementation Conformance
+# Conformità documentazione e implementazione
 
-## Runtime base conformance gate
+## Ambito della verifica
 
-La baseline architecture/microservices-v2 considera la struttura architetturale completa quando tutti questi vincoli sono verificabili automaticamente:
+Questa pagina riassume ciò che è presente nel repository e nel Compose corrente. La definizione di un contratto, una directory o una tabella non dimostra da sola che una capability funzioni end-to-end. Per affermare che una funzione è verificata servono prove runtime/test appropriate; questa pagina non dichiara superati test che non sono stati eseguiti.
 
-1. Tutti i servizi canonici hanno package, Dockerfile, source, healthcheck e database proprietario quando applicabile.
-2. Ogni database applicativo esegue le proprie migration al bootstrap; il bookkeeping di schema_migrations è idempotente.
-3. Nessun servizio applicativo pubblica direttamente porte host; l'accesso esterno passa da Nginx -> Gateway.
-4. docker compose up -d --wait completa il bootstrap senza container canonici unhealthy.
-5. L'audit architetturale verifica database separation, servizi canonici, migration startup, porte, worker runtime e documentazione minima.
-6. Contract audit, build/typecheck e test suite restano gate distinti: il superamento strutturale non equivale automaticamente alla verifica funzionale end-to-end.
+Fonti operative:
 
-Il gate è eseguibile con npm run architecture:audit ed è richiesto dalla CI della baseline.
+- `docker-compose.yml`: container, reti, healthcheck, dipendenze e profili;
+- `services/*/src`: route e logica runtime;
+- `services/*/migrations`: tabelle e vincoli;
+- `docs/openapi.yaml`: contratto API browser;
+- [DIAGRAMS.md](DIAGRAMS.md): schema sintetico e capability map.
 
-## Purpose
+## Copertura osservata
 
-Questo documento separa tre concetti che non devono essere confusi:
+| Area | Owner / storage | Presente nel codice |
+|---|---|---|
+| Identità e preferenze dietetiche | Identity / `identity_db` | servizio e API |
+| Famiglie, membership e inviti | Family / `family_db` | servizio, persistence e outbox |
+| Dispensa, lotti, movimenti e policy | Inventory / `inventory_db` | servizio; event relay |
+| Catalogo prodotti e barcode | Catalog / `catalog_db` | servizio, lookup OFF e provenance |
+| Semantica alimentare | Food Semantics / `food_semantics_db` | resolver, bootstrap e API interne |
+| Ricerca prodotti OFF | off-lookup + search-indexer / MongoDB + OpenSearch | lookup, fallback e indice derivato |
+| Lista e riordino | Shopping / `shopping_db` | API e worker consumer |
+| Ricette | Recipes / `recipes_db` | catalogo, ricerca, suggerimenti, aggiunta mancanti |
+| Nutrizione | Nutrition / `nutrition_db` | target, diario e summary |
+| Negozi e prezzi | Stores / `stores_db` | API |
+| Scadenze | Shelf-Life / `shelf_life_db` | regole/profili/predizioni e worker |
+| Ricevute OCR | OCR / `ocr_db` + Redis + MinIO | job e draft, dipendenti dalla configurazione provider/storage |
+| Notifiche | Notifications / `notifications_db` | preferenze, record e consumer |
+| Privacy | Privacy / `privacy_db` e Jobs | consensi e richieste; verificare i consumer necessari al completamento |
+| Jobs e dead letter | Jobs / `jobs_db` + Redis | gestione e replay amministrativo |
+| Ricetta completata → consumo dispensa → nutrienti | nessun endpoint owner rilevato | **non presente come flusso end-to-end nel main verificato** |
 
-1. **Architecturally supported**: la funzione ha owner, DB, contract e flow definiti.
-2. **Repository represented**: esiste una directory/candidato nella branch.
-3. **Implemented and verified**: codice + migration + contract tests + integration tests dimostrano la funzione.
+## Componenti repository e runtime
 
-La presenza di una directory non è prova di implementazione.
+La presenza di source per worker-core, worker-integrations o scheduler non significa che il Compose attuale li avvii come servizi. L'elenco runtime è in [SERVICES.md](SERVICES.md). I processi avviati includono API, relay per dominio, worker OCR/shelf-life/shopping/notifications, componenti di ricerca e job one-shot di bootstrap/migrazione.
 
-## Architectural coverage audit
+## Regola di aggiornamento
 
-| Capability | Owner | DB | HTTP/event contract | Flow | Architectural status |
-|---|---|---|---|---|---|
-| Identity/profile | Identity | identity_db | yes | yes | defined |
-| Families/members | Family | family_db | yes | yes | defined |
-| Invites/accept/revoke | Family | family_db | yes | yes | defined |
-| Pantry/current state | Inventory | inventory_db | yes | yes | defined |
-| Lots/movements | Inventory | inventory_db | yes | yes | defined |
-| Consume/waste/zero-delete | Inventory | inventory_db | yes | yes | defined |
-| Catalog/products | Catalog | catalog_db | yes | yes | defined |
-| Barcode/OFF lookup | Catalog + OFF Lookup | catalog_db + off_lookup_db | yes | yes | defined |
-| Product assets | Catalog + MinIO | catalog_db | yes | yes | defined |
-| Pantry image scan | OCR/Vision workflow | ocr_db | yes | yes | defined |
-| Receipt OCR | OCR | ocr_db | yes | yes | defined |
-| Shelf-life prediction | Shelf-Life | shelf_life_db | yes | yes | defined |
-| Expiration confirmation | Inventory | inventory_db | yes | yes | defined |
-| Low-stock | Inventory | inventory_db | event | yes | defined |
-| Shopping | Shopping | shopping_db | yes | yes | defined |
-| Stores/prices/offers | Stores | stores_db | yes | yes | defined |
-| Recipes/suggestions | Recipes | recipes_db | yes | yes | defined |
-| Nutrition | Nutrition | nutrition_db | yes | yes | defined |
-| Notifications | Notifications | notifications_db | yes/event | yes | defined |
-| Privacy consent | Privacy | privacy_db | yes | yes | defined |
-| Export/erasure | Privacy + all owners | privacy_db + owner DBs | yes/event | yes | defined |
-| Jobs/retry/DLQ | Jobs | jobs_db | internal/event | yes | defined |
-| Dashboard composition | Gateway | none | yes | yes | defined |
-| Search projection | Search Indexer | projection store | event | yes | defined |
-| Future analytics | dedicated future owner | dedicated future DB | event | yes | extension point |
+Quando cambia un'API o un flusso:
 
-## Repository verification performed
+1. aggiornare il codice e la migration proprietaria;
+2. aggiornare OpenAPI se la route è pubblica;
+3. aggiornare il diagramma e la pagina di dominio;
+4. verificare il runtime/test pertinente prima di dichiarare la capability funzionante.
 
-The branch contains service directories for the main canonical domains and also historical directories such as users, families, products, barcode, expiration, offers, media, vision, search and analytics.
-
-This proves repository representation, not functional completeness.
-
-The canonical implementation must converge to the ownership table in SERVICES.md. Historical directories must be consolidated or removed before a service is considered production-ready.
-
-## Final conformance rule
-
-A capability is marked **implemented** only after all of the following are present:
-
-- canonical service directory;
-- dedicated DB;
-- migration;
-- request/response schemas;
-- OpenAPI operation;
-- handler/application logic;
-- authorization;
-- idempotency where applicable;
-- optimistic concurrency where applicable;
-- outbox/event schema where applicable;
-- consumer deduplication where applicable;
-- unit tests;
-- integration tests;
-- contract tests;
-- failure/retry tests;
-- observability;
-- documentation cross-reference.
-
-Until then its status is **defined** or **in progress**, never implemented.
-
-## Documentation completeness
-
-The canonical documentation set now covers:
-
-- architecture and bounded contexts;
-- service ownership;
-- database-per-service;
-- logical DB schema;
-- local FK/index/invariant rules;
-- HTTP contracts;
-- OpenAPI;
-- event envelope and event vocabulary;
-- outbox/retry/DLQ;
-- functional flows;
-- security and authorization;
-- network boundaries;
-- operations and recovery;
-- privacy/lifecycle;
-- provider boundaries;
-- repository structure;
-- testing;
-- threat model;
-- requirements and acceptance criteria;
-- future extension rules.
-
-No future implementation may invent an undocumented ownership boundary or undocumented public contract.
-
-## OFF search implementation status
-
-| Contract | Implementation |
-|---|---|
-| MongoDB authoritative OFF cache | Implemented in `services/off-lookup/src/mongo-product-repository.ts` |
-| Paginated internal search source | Implemented in `off-lookup` |
-| OpenSearch `off-products-v1` projection | Implemented in `search-indexer/src/off-search.ts` |
-| Local ranked search | Implemented in `search-indexer` + deterministic reranking |
-| Search index bootstrap | Implemented and retried asynchronously |
-| Explicit full reindex | Implemented |
-| External Search-a-licious fallback | Implemented only after local miss/unavailability |
-| Barcode exact selection path | Reuses existing Catalog barcode resolution |
-| Live barcode cache -> index synchronization | Implemented best-effort |
-| Manual UI name-search flow | Implemented with debounce + AbortController |
-| Profile/ML reranker | Contracted as future extension; no trained model is fabricated without interaction data |
-
-The feature is considered production-ready only after the real Docker integration/e2e gates in TEST-STRATEGY have passed.
+Per schema tabellare vedere [DATA.md](DATA.md); per gli endpoint e i flussi vedere [DIAGRAMS.md](DIAGRAMS.md).
