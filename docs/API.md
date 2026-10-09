@@ -1,40 +1,35 @@
 # API
 
-Il browser usa esclusivamente `https://<host>:8443/api/v1/*`. Nginx inoltra a Gateway :3300.
+Il browser usa `https://<host>:8443/api/v1/*`; NGINX inoltra le richieste al Gateway interno `:3300`. Le porte dei servizi non sono ingressi browser. L'elenco delle capacità e i diagrammi sono in [DIAGRAMS.md](DIAGRAMS.md#mappa-delle-funzioni-http).
 
 | Area | Owner |
 |---|---|
-| /auth, /me | Identity |
-| /families, /invites | Family |
-| /inventory | Inventory |
-| /shopping | Shopping |
-| /products, /catalog | Catalog |
-| /notifications | Notifications |
-| /privacy | Privacy |
-| /jobs | Jobs |
-| /recipes | Recipes |
-| /nutrition | Nutrition |
-| /stores | Stores |
-| /shelf-life | Shelf-Life |
-| /ocr, /ocr-jobs | OCR |
-| /views | Gateway |
+| `/auth`, `/me`, preferenze dietetiche | Identity |
+| `/families`, `/invites` | Family |
+| `/inventory` | Inventory |
+| `/shopping` | Shopping |
+| `/products`, `/catalog`, barcode | Catalog |
+| risoluzione semantica interna | Food Semantics |
+| `/notifications` | Notifications |
+| `/privacy` | Privacy |
+| `/jobs` | Jobs |
+| `/recipes` | Recipes |
+| `/nutrition` | Nutrition |
+| `/stores` | Stores |
+| `/shelf-life` | Shelf-Life |
+| `/ocr`, `/ocr-jobs` | OCR |
+| `/views` | Gateway |
 
-Il dettaglio completo è in `openapi.yaml`.
+Il dettaglio di path, metodi, parametri e schemi esposti dal Gateway è in [openapi.yaml](openapi.yaml). Le API interne di Food Semantics, off-lookup, search-indexer e Jobs non sono route browser pubbliche.
 
 ## Envelope
-```json
-{"data":{},"meta":{"requestId":"uuid","traceId":"id"}}
-```
 
-Gli errori usano codici stabili; il client non deve dipendere dal testo umano.
+Le risposte seguono l'envelope del servizio/API; i metadati includono request/trace id dove previsto. Gli errori usano codici stabili: il client non deve dipendere dal testo descrittivo.
 
 ## Auth e retry
-Il client invia bearer JWT a Gateway; il servizio owner applica authorization.
-Le mutazioni retryable usano `X-Idempotency-Key`; modifiche concorrenti possono richiedere `If-Match`.
-`X-Request-Id` e `traceparent` sono propagati tra Nginx, Gateway e servizi.
+
+Il client invia un bearer JWT; Gateway verifica issuer, audience e firma. Il servizio owner autorizza la risorsa e l'ambito familiare. `X-Idempotency-Key`, `If-Match`, `X-Request-Id` e `traceparent` si applicano secondo i contratti delle singole operazioni, non come requisito uniforme dedotto per ogni route.
 
 ## Composite Views
-Una richiesta per schermata quando servono più domini. Gateway aggrega dati proprietari senza introdurre business logic.
 
-## Contratto
-`openapi.yaml` è il riferimento machine-readable. Evitare contratti descrittivi duplicati.
+Gateway può aggregare letture per semplificare la UI. Le mutazioni e le invarianti restano nel servizio che possiede i dati.
