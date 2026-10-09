@@ -42,6 +42,7 @@ export function deriveProductFoodSemantics(
   sourceVersion = "food-semantics-v2",
   identity?: {
     foodEntityId?: string | null;
+    foodEntityAncestors?: readonly string[];
     semanticConfidence?: number;
     semanticStatus?: SemanticStatus;
     provenance?: string;
@@ -114,7 +115,7 @@ export function deriveProductFoodSemantics(
     const categoryCanonical = canonicalizeIngredient(productText, categoryTags);
     if (categoryCanonical.status === "EXACT") canonical = categoryCanonical;
   }
-  const aliases = new Set<string>(canonical.ingredientTerms);
+  const aliases = new Set<string>([...canonical.ingredientTerms, ...(identity?.foodEntityAncestors ?? [])]);
   for (const value of [...ingredientTags, ...categoryTags]) {
     const clean = tagName(value);
     if (clean) aliases.add(norm(clean.replace(/-/g, " ")));
