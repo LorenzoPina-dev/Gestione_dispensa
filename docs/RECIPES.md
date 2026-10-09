@@ -1,60 +1,21 @@
 # Ricette e suggerimenti
 
-## Catalogo
+## Import del catalogo
 
-Il servizio `service-recipes` importa la versione v4 dell'Italian gastronomic recipes dataset da Zenodo (DOI 10.5281/zenodo.14068000), con licenza CC BY 4.0.
+Il job Compose `recipes-catalog-import` importa il dataset Zenodo `14068000`. URL, MD5 atteso e chiavi `dataset_key`/`source` sono definite in `services/service-recipes/src/catalog-import.ts`; non confondere la chiave interna dataset (attualmente `italian-gastronomic-recipes-v8`) con il campo source assegnato ai record (`italian-gastronomic-recipes-v5`). L'import controlla MD5 e usa ID deterministici per i record. La verifica della versione importata è salvata in `recipe_catalog.datasets`; `RECIPE_DATASET_FORCE_REIMPORT=1` forza il job. Compose esegue lo schema migrate come job separato, poi l'import va invocato tramite `recipes-catalog-import`.
 
-Il dataset viene verificato con MD5 `b90427179a4304270fd5b7b7490b565d` prima dell'importazione.
+Le tabelle del catalogo globale (`recipe_catalog.*`) sono distinte dalle ricette utente (`recipes_domain.*`). Le migration sono in `services/service-recipes/migrations`.
 
-I dati globali sono separati dalle ricette create dalle famiglie:
+## API e suggerimenti
 
-- `recipe_catalog.recipes`
-- `recipe_catalog.recipe_ingredients`
-- `recipe_catalog.recipe_steps`
+`GET /api/v1/recipes?familyId=...&q=...` cerca le ricette; `GET /api/v1/recipes/suggestions?familyId=...` restituisce suggerimenti basati sugli ingredienti recuperati da Inventory e sulla risoluzione delle identità alimentari. La risposta include disponibilità/mancanti secondo il matching del servizio. `POST /api/v1/recipes/:recipeId/add-missing` crea o aggiorna gli articoli mancanti in Shopping.
 
-Le ricette globali ricevono UUID deterministici derivati dall'ID del dataset, così l'import è ripetibile.
+La strategia di matching e le soglie devono restare coerenti con `pantry-recipe-engine.ts`, `recipe-match.ts` e Food Semantics. I termini tradotti e gli alias sono evidenza per la risoluzione; la traduzione letterale da sola non basta a provare equivalenza fra prodotti. Non introdurre mappe ingredienti hard-coded nel codice: identità e label appartengono al servizio semantico.
 
-## Ricerca per nome
+## Nutrienti e quantità
 
-`GET /api/v1/recipes?familyId=<familyId>&q=<testo>`
+Nutrition possiede target, diario e riepilogo tramite le proprie API. Il modello `Weight` del dataset è un peso compositivo e non equivale necessariamente alla quantità acquistabile/consumabile. Le colonne di preparazione non sono istruzioni di cucina complete.
 
-Quando `q` è presente, la ricerca usa PostgreSQL trigram similarity e cerca nel catalogo globale italiano oltre alle ricette della famiglia.
+Nel codice verificato non è presente una route di completamento ricetta che scala le porzioni, consuma automaticamente Inventory e crea una voce Nutrition. Il catalogo ricetta, l'aggiunta alla spesa e l'inserimento nel diario sono capacità distinte.
 
-La ricerca non carica tutte le ricette: usa l'indice GIN trigram sul titolo.
-
-## Suggerimenti dalla dispensa
-
-`GET /api/v1/recipes/suggestions?familyId=<familyId>&limit=20`
-
-Il servizio:
-
-1. recupera gli articoli correnti da Inventory;
-2. normalizza italiano/inglese tramite alias degli ingredienti;
-3. usa l'indice inverso sugli ingredienti per ottenere solo un insieme candidato;
-4. calcola la copertura degli ingredienti disponibili;
-5. premia gli ingredienti prossimi alla scadenza;
-6. penalizza gli ingredienti mancanti;
-7. ordina e restituisce solo il top-K.
-
-Formula iniziale:
-
-`score = 0.72 * coverage + 0.18 * expiryScore + 0.10 * shoppingScore`
-
-La ricerca per nome invece privilegia la corrispondenza del titolo e usa la disponibilità solo come informazione secondaria.
-
-## Limiti intenzionali
-
-Il campo `Weight` del dataset rappresenta il peso dell'ingrediente nella composizione della ricetta, non necessariamente grammi utilizzabili per la spesa. Non viene quindi trasformato arbitrariamente in grammi.
-
-Le colonne `Preparation` del dataset descrivono operazioni/preparazioni e non sono considerate istruzioni complete di cucina.
-
-## Avvio
-
-Il container del servizio esegue:
-
-1. migrazioni;
-2. import del dataset se non è già presente o se `RECIPE_DATASET_FORCE_REIMPORT=1`;
-3. avvio HTTP.
-
-Una volta importato, i riavvii successivi non riscaricano il dataset.
-
+Per la sequenza dei servizi, vedi [flusso ricette](DIAGRAMS.md#ricette-disponibilità-e-completamento) e lo schema di [recipes_db](DIAGRAMS.md#database-e-storage).
