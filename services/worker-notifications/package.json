@@ -8,7 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/run.js",
     "dev": "tsx src/run.ts",
-    "test": "node --import tsx --test src/notifications.test.ts"
+    "test": "node --import tsx --test src/notifications.test.ts src/recovery.test.ts"
   },
   "dependencies": {
     "redis": "^6.2.1",
