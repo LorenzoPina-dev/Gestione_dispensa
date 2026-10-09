@@ -84,7 +84,7 @@ function parseOwlFunctionalFormat(text: string): Term[] {
 
   const literalPattern = /"((?:[^"\\]|\\.)*)"(?:@([A-Za-z][A-Za-z0-9-]*))?/;
 
-  const labelRe = /AnnotationAssertion\\(rdfs:label\\s+<([^>]+)>\\s+((?:"(?:[^"\\\\]|\\\\.)*"(?:@[A-Za-z][A-Za-z0-9-]*)?))\\)/g;
+  const labelRe = /AnnotationAssertion\(rdfs:label\s+<([^>]+)>\s+((?:"(?:[^"\\]|\\.)*"(?:@[A-Za-z][A-Za-z0-9-]*)?))\)/g;
   for (const match of text.matchAll(labelRe)) {
     const sourceId = iriToFoodOnId(match[1]!);
     if (!sourceId) continue;
@@ -93,7 +93,7 @@ function parseOwlFunctionalFormat(text: string): Term[] {
     if (label) ensure(sourceId).name = label;
   }
 
-  const synonymRe = /AnnotationAssertion\\((?:<[^>]*hasExactSynonym>|<[^>]*hasRelatedSynonym>|oboInOwl:hasExactSynonym|oboInOwl:hasRelatedSynonym)\\s+<([^>]+)>\\s+((?:"(?:[^"\\\\]|\\\\.)*"(?:@[A-Za-z][A-Za-z0-9-]*)?))\\)/g;
+  const synonymRe = /AnnotationAssertion\((?:<[^>]*hasExactSynonym>|<[^>]*hasRelatedSynonym>|oboInOwl:hasExactSynonym|oboInOwl:hasRelatedSynonym)\s+<([^>]+)>\s+((?:"(?:[^"\\]|\\.)*"(?:@[A-Za-z][A-Za-z0-9-]*)?))\)/g;
   for (const match of text.matchAll(synonymRe)) {
     const sourceId = iriToFoodOnId(match[1]!);
     if (!sourceId) continue;
@@ -104,7 +104,7 @@ function parseOwlFunctionalFormat(text: string): Term[] {
     ensure(sourceId).synonyms.push({ text: synonym, locale });
   }
 
-  const subclassRe = /SubClassOf\\(<([^>]+)>\\s+<([^>]+)>\\)/g;
+  const subclassRe = /SubClassOf\(<([^>]+)>\s+<([^>]+)>\)/g;
   for (const match of text.matchAll(subclassRe)) {
     const child = iriToFoodOnId(match[1]!);
     const parent = iriToFoodOnId(match[2]!);
