@@ -32,8 +32,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM outbox_events) THEN
     RAISE EXCEPTION 'RLS failure: outbox rows are visible with missing user context';
   END IF;
-END
-$$;
+END;
+$;
 
 SELECT set_config('app.user_id', current_setting('rls.test.user1'), true);
 
@@ -56,8 +56,8 @@ BEGIN
      OR EXISTS (SELECT 1 FROM outbox_events WHERE aggregate_id = other_id) THEN
     RAISE EXCEPTION 'RLS failure: outbox rows are not isolated by app.user_id';
   END IF;
-END
-$$;
+END;
+$;
 
 RESET ROLE;
 SET LOCAL ROLE identity;
@@ -68,7 +68,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM outbox_events WHERE event_type = 'RlsTest') THEN
     RAISE EXCEPTION 'RLS failure: identity relay role cannot read outbox rows';
   END IF;
-END
-$$;
+END;
+$;
 
 ROLLBACK;
