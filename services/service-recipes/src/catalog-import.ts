@@ -249,7 +249,7 @@ async function main(): Promise<void> {
         const semantic = await resolveRecipeIngredient(name, null, null, "it-IT");
         const quantity = semantic.quantity;
         await client.query(
-          "INSERT INTO recipe_catalog.recipe_ingredients(id,recipe_id,position,source_ingredient_id,name,display_name,weight,terms,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_value,quantity_unit,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state,source_quantity_raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
+          "INSERT INTO recipe_catalog.recipe_ingredients(id,recipe_id,position,source_ingredient_id,name,display_name,weight,terms,canonical_ingredient,semantic_confidence,semantic_status,ingredient_terms,quantity_value,quantity_unit,quantity_dimension,quantity_base_value,quantity_base_unit,quantity_confidence,culinary_weight,prep_state,source_quantity_raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)",
           [
             randomUUID(),
             recipeId,
