@@ -11,6 +11,7 @@ interface Props {
   match: RecipeMatchWithUsage;
   stock: StockItem[];
   setStock: React.Dispatch<React.SetStateAction<StockItem[]>>;
+  readOnly?: boolean;
   onBack: () => void;
   onShopMissing: () => void;
 }
@@ -62,33 +63,56 @@ function planConsumption(
   const byProduct = new Map<string, PantryUsage>();
   for (const usage of usages) {
     const current = byProduct.get(usage.productId);
-    // The suggestion projection may repeat a product once for each pantry lot while
-    // reporting the same product-level allocation. Keep it once to avoid double consumption.
+    // The API repeats the same product-level allocation for each pantry lot.
     if (!current || usage.usedBaseQuantity > current.usedBaseQuantity) byProduct.set(usage.productId, usage);
   }
 
-  return [...byProduct.values()].map((usage) => {
+  const plan = new Map<string, number>();
+  for (const usage of byProduct.values()) {
     if (usage.usedBaseQuantity <= 0) {
       throw new Error(`Dose non disponibile per ${usage.name}; completa la ricetta dopo aver inserito quantità attendibili.`);
     }
     const candidates = stock
       .filter((item) => item.productId === usage.productId)
       .sort((a, b) => expiryOrder(a) - expiryOrder(b));
-    const options = candidates.map((item) => ({
-      item,
-      quantity: baseToInventoryQuantity(usage, item, servingsRatio),
-    }));
-    const chosen = options.find(({ item, quantity }) =>
-      quantity !== null && quantity > 0 && quantity <= availableQuantity(item) + 0.000001,
-    );
-    if (!chosen || chosen.quantity === null) {
+    const groups = new Map<string, StockItem[]>();
+    for (const item of candidates) {
+      const key = `${item.unit.toLowerCase()}:${item.location}`;
+      groups.set(key, [...(groups.get(key) ?? []), item]);
+    }
+
+    let remainingBase = usage.usedBaseQuantity * servingsRatio;
+    let allocated = false;
+    for (const items of groups.values()) {
+      const converted = items.map((item) => ({
+        item,
+        quantity: baseToInventoryQuantity(usage, item, servingsRatio),
+      }));
+      if (converted.some(({ quantity }) => quantity === null)) continue;
+      const capacity = converted.reduce((total, entry) => total + availableQuantity(entry.item), 0);
+      const totalNeeded = converted[0]?.quantity;
+      if (totalNeeded === null || totalNeeded === undefined || totalNeeded > capacity + 0.000001) continue;
+
+      let remaining = totalNeeded;
+      for (const { item } of converted) {
+        const consumed = Math.min(availableQuantity(item), remaining);
+        if (consumed > 0) plan.set(item.id, (plan.get(item.id) ?? 0) + consumed);
+        remaining -= consumed;
+        if (remaining <= 0.000001) break;
+      }
+      remainingBase = 0;
+      allocated = true;
+      break;
+    }
+    if (!allocated || remainingBase > 0) {
       throw new Error(`Quantità disponibile insufficiente o unità non convertibile per ${usage.name}.`);
     }
-    return {
-      stockItemId: chosen.item.id,
-      quantity: Math.round(chosen.quantity * 1000) / 1000,
-    };
-  });
+  }
+
+  return [...plan].map(([stockItemId, quantity]) => ({
+    stockItemId,
+    quantity: Math.round(quantity * 1000) / 1000,
+  }));
 }
 
 function formatQuantity(value: number): string {
@@ -96,15 +120,13 @@ function formatQuantity(value: number): string {
 }
 
 function scaledAmount(amount: number, ratio: number): string {
-  return Number.isFinite(amount) && amount > 0 ? formatQuantity(amount * ratio) : "q.b.";
+  return Number.isFinite(amount) && amount > 0 ? `${formatQuantity(amount * ratio)}` : "q.b.";
 }
 
-export default function RecipeDetail({ match, stock, setStock, onBack, onShopMissing }: Props) {
+export default function RecipeDetail({ match, stock, setStock, readOnly = false, onBack, onShopMissing }: Props) {
   const baseServings = Math.max(1, match.recipe.servings || 1);
   const [servings, setServings] = useState(baseServings);
-  const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(false);
-  const [completionError, setCompletionError] = useState<string | null>(null);
   const ratio = servings / baseServings;
   const allDosesKnown = match.recipe.ingredients.length > 0 &&
     match.recipe.ingredients.every((ingredient) => Number.isFinite(ingredient.amount) && ingredient.amount > 0);
@@ -120,8 +142,6 @@ export default function RecipeDetail({ match, stock, setStock, onBack, onShopMis
 
   const completeRecipe = () => {
     if (plan.error || !plan.items.length) return;
-    setCompleting(true);
-    setCompletionError(null);
     const quantities = new Map(plan.items.map((item) => [item.stockItemId, item.quantity]));
     setStock((current) => current.map((item) => {
       const consumed = quantities.get(item.id);
@@ -135,7 +155,6 @@ export default function RecipeDetail({ match, stock, setStock, onBack, onShopMis
       return { ...item, batches };
     }));
     setCompleted(true);
-    setCompleting(false);
   };
 
   const quality = match.recipe.quality;
@@ -190,21 +209,20 @@ export default function RecipeDetail({ match, stock, setStock, onBack, onShopMis
               const present = match.matchedIngredients.includes(ingredient.name);
               return <div key={`${ingredient.name}-${ingredient.amount}`} className="flex justify-between py-2 border-b" style={{ borderColor: colors.borderLight }}>
                 <span className="text-sm" style={{ color: present ? colors.ink : colors.terracotta }}>{present ? "✓" : "✗"} {ingredient.name}</span>
-                <span className="text-xs" style={{ color: colors.inkMuted }}>{scaledAmount(ingredient.amount, ratio)} {ingredient.unit}</span>
+                <span className="text-xs" style={{ color: colors.inkMuted }}>{scaledAmount(ingredient.amount, ratio)}{ingredient.amount > 0 ? ` ${ingredient.unit}` : ""}</span>
               </div>;
             })}
             {match.missingIngredients.length > 0 && <button onClick={onShopMissing} className="mt-3 w-full py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: colors.terracotta, color: colors.white }}>Scegli cosa acquistare · {match.missingIngredients.length} {match.missingIngredients.length === 1 ? "mancante" : "mancanti"}</button>}
           </div>
 
           <section className="space-y-2">
-            <button type="button" onClick={completeRecipe} disabled={completing || completed || !completeInPantry || !allDosesKnown || Boolean(plan.error)} className="w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-50" style={{ backgroundColor: completed ? colors.sage : colors.terracotta, color: colors.white }}>
-              {completed ? "✓ Completata" : completing ? "Registrazione…" : "Completa ricetta"}
+            <button type="button" onClick={completeRecipe} disabled={readOnly || completed || !completeInPantry || !allDosesKnown || Boolean(plan.error)} className="w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-50" style={{ backgroundColor: completed ? colors.sage : colors.terracotta, color: colors.white }}>
+              {completed ? "✓ Completata" : "Completa ricetta"}
             </button>
             <p className="text-xs" style={{ color: colors.inkMuted }}>Il consumo riduce le dosi usate in dispensa e aggiorna il diario nutrienti tramite i movimenti registrati.</p>
             {!completeInPantry && <p className="text-xs" style={{ color: colors.terracotta }}>Completa prima gli ingredienti mancanti in dispensa.</p>}
             {completeInPantry && !allDosesKnown && <p className="text-xs" style={{ color: colors.terracotta }}>Mancano dosi precise: il calcolatore non registra consumi stimati.</p>}
             {plan.error && <p role="alert" className="text-xs" style={{ color: colors.terracotta }}>{plan.error}</p>}
-            {completionError && <p role="alert" className="text-xs" style={{ color: colors.terracotta }}>{completionError}</p>}
             {completed && <p role="status" className="text-xs" style={{ color: colors.sageDark }}>Consumo inviato. I nutrienti appariranno dopo l’elaborazione del movimento.</p>}
           </section>
 
