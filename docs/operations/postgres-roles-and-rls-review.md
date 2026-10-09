@@ -23,3 +23,14 @@ Before applying a fail-closed Identity migration, run an integration check again
 Then apply the policy change as a new migration; do not edit the already-applied `999_security.sql`.
 
 Food Semantics should be split into a migration/owner role and a runtime role in a separate change. The service can receive only the schema/table privileges it needs; migrations and ontology bootstrap should not share the runtime login.
+
+## Running the isolation proof
+
+After the fail-closed migration is installed in a disposable or development database, run the transaction-based proof from the repository root in PowerShell:
+
+```powershell
+Get-Content services/service-identity/tests/rls-isolation.sql -Raw |
+  docker compose exec -T postgres psql -U postgres -d identity_db -v ON_ERROR_STOP=1
+```
+
+It creates two temporary test identities and exercises missing-context denial, per-user isolation, and the relay owner's outbox access. The final `ROLLBACK` removes all fixtures. The current branch does not yet include the policy migration because the required database-backed check has not been run here.
