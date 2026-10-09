@@ -24,21 +24,37 @@ async function resolveProductIdentity(
   const texts = [
     canonicalName,
     source.productName,
+    source.product_name,
     source.productNameIt,
+    source.product_name_it,
     source.productNameEn,
+    source.product_name_en,
     source.productNameFr,
+    source.product_name_fr,
     source.productNameEs,
+    source.product_name_es,
     source.productNameDe,
+    source.product_name_de,
+    source.ingredientsText,
+    source.ingredients_text,
     source.ingredientsTextIt,
+    source.ingredients_text_it,
     source.ingredientsTextEn,
+    source.ingredients_text_en,
     source.ingredientsTextFr,
+    source.ingredients_text_fr,
     source.ingredientsTextEs,
+    source.ingredients_text_es,
     source.ingredientsTextDe,
+    source.ingredients_text_de,
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   const taxonomyTags = [
     ...(Array.isArray(source.ingredientsTags) ? source.ingredientsTags : []),
+    ...(Array.isArray(source.ingredients_tags) ? source.ingredients_tags : []),
     ...(Array.isArray(source.categoriesTags) ? source.categoriesTags : []),
+    ...(Array.isArray(source.categories_tags) ? source.categories_tags : []),
     ...(Array.isArray(source.categoriesHierarchy) ? source.categoriesHierarchy : []),
+    ...(Array.isArray(source.categories_hierarchy) ? source.categories_hierarchy : []),
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   if (!texts.length && !taxonomyTags.length) return null;
 
