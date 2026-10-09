@@ -37,8 +37,10 @@ async function consumeShelfLifeEvents(): Promise<void> {
     if (!String(error).includes("BUSYGROUP")) throw error;
   });
 
+  let claimCursor = "0-0";
   while (true) {
-    const claimed = await eventRedis.xAutoClaim(eventStream, eventGroup, eventConsumer, 30_000, "0-0", { COUNT: 10 });
+    const claimed = await eventRedis.xAutoClaim(eventStream, eventGroup, eventConsumer, 30_000, claimCursor, { COUNT: 10 });
+    claimCursor = claimed.nextId ?? "0-0";
     const fresh = await eventRedis.xReadGroup(eventGroup, eventConsumer, [{ key: eventStream, id: ">" }], { COUNT: 10, BLOCK: 1000 });
     const result = [{ key: eventStream, messages: [...(claimed.messages ?? []), ...(fresh?.[0]?.messages ?? [])] }];
     for (const streamResult of result) {
