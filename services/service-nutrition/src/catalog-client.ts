@@ -246,6 +246,6 @@ export function consumedGramsForQuantity(
   if (normalized === "g" || normalized === "gram" || normalized === "grams") return quantity;
   if (normalized === "kg" || normalized === "kilogram" || normalized === "kilograms") return quantity * 1000;
   if (normalized === "mg" || normalized === "milligram" || normalized === "milligrams") return quantity / 1000;
-  const package = quantityBasisForEntry(quantity, unit, snapshot);
-  return package?.basis === "g" ? package.amount : null;
+  const packageBasis = quantityBasisForEntry(quantity, unit, snapshot);
+  return packageBasis?.basis === "g" ? packageBasis.amount : null;
 }
