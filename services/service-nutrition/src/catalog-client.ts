@@ -48,7 +48,8 @@ export async function loadNutritionSnapshot(
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   const path = internalToken ? "catalog/internal/products/" + encodeURIComponent(productId) : "catalog/products/" + encodeURIComponent(productId);
-  const url = new URL(path, baseUrl.replace(/\\/$/, "") + "/");
+  const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  const url = new URL(path, normalizedBaseUrl + "/");
   const headers: Record<string, string> = { Accept: "application/json" };
   if (authorization) headers.Authorization = authorization;
   if (internalToken) headers["x-internal-service-token"] = internalToken;
@@ -136,7 +137,7 @@ function record(value: unknown): RecordValue | undefined {
 }
 
 function normalizeUnit(unit: string): string {
-  return unit.trim().toLowerCase().replace(/\\s+/g, "");
+  return unit.trim().toLowerCase().split(" ").join("");
 }
 
 function quantityInNutritionBasis(quantity: number, unit: string): QuantityBasis | null {
