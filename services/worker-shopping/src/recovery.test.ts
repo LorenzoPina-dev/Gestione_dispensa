@@ -13,7 +13,7 @@ test("an unacknowledged event is reclaimed after a consumer crash", { skip: !pro
     const eventId = randomUUID();
     await client.xAdd(stream, "*", { event: JSON.stringify({ eventId, eventType: "RecoveryProof" }) });
 
-    const delivered = await client.xReadGroup("crashed-consumer", group, [{ key: stream, id: ">" }], { COUNT: 1 });
+    const delivered = await client.xReadGroup(group, "crashed-consumer", [{ key: stream, id: ">" }], { COUNT: 1 });
     assert.equal(delivered?.[0]?.messages.length, 1);
 
     const reclaimed = await client.xAutoClaim(stream, group, "recovery-consumer", 0, "0-0", { COUNT: 1 });
