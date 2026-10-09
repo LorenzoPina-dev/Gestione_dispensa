@@ -1,57 +1,41 @@
 # Gestione Dispensa
 
-Gestione Dispensa is a modular household food-management platform. The backend has been redesigned as independently buildable microservices; the existing `apps/web` UI is retained but its API boundary is explicitly adapted to the canonical microservice contracts.
+Gestione Dispensa è una piattaforma web per la gestione domestica di dispensa, spesa, ricette e dati nutrizionali. Il backend è composto da servizi per dominio; la SPA esistente comunica con le API attraverso il Gateway.
 
-## Target architecture
+## Architettura runtime
 
-- HTTPS entrypoint: NGINX `:8443`
-- API Gateway interno: `:3300` (esposto al browser solo tramite NGINX `:8443`)
-- Keycloak for identity
-- One bounded-context service per domain
-- Database ownership per service
-- PostgreSQL for transactional domain data
-- MongoDB for the Open Food Facts catalog/cache
-- Redis for cache, locks and short-lived state
-- Kafka for asynchronous domain events
-- MinIO for images, receipts and ML datasets
-- OpenSearch for derived search indexes
-- Prometheus/Grafana/Loki/OpenTelemetry for observability
+- Ingresso HTTPS: NGINX `:8443`; il browser non accede alle porte interne.
+- API Gateway: `:3300`, raggiunto da NGINX su `/api`.
+- Keycloak fornisce autenticazione OIDC.
+- PostgreSQL ospita database logici separati per ogni dominio e per Keycloak.
+- Redis gestisce code job e Redis Streams per eventi.
+- MongoDB conserva il catalogo/cache Open Food Facts; OpenSearch ne indicizza la ricerca.
+- MinIO fornisce storage oggetti per i flussi configurati, come ricevute OCR.
+- Food Semantics usa ontologia alimentare e LibreTranslate per risoluzione e label multilingua.
+- Prometheus, Grafana, Loki, Tempo, Alloy, OTel Collector e cAdvisor forniscono osservabilità.
 
-## Backend services
+Il Compose attuale non include Kafka. La topologia effettiva, inclusi i worker e i job one-shot, è documentata in [docs/SERVICES.md](docs/SERVICES.md).
 
-Canonical services:
+## Sviluppo
 
-`service-identity`, `service-family`, `service-inventory`, `service-catalog`, `service-shopping`, `service-recipes`, `service-nutrition`, `service-stores`, `service-notifications`, `service-ocr`, `service-shelf-life`, `service-privacy`, `service-jobs`, plus `off-lookup`.
-
-Workers currently runnable in the baseline:
-
-`worker-ocr` and `worker-shelf-life`.
-
-Additional worker/search runtimes may be added only when their consumer contract and executable runtime are present; they are not treated as active services merely because source packages exist.
-## Incremental development
-
-Every service owns its Dockerfile, package manifest, TypeScript project and runtime. Each service owns its Dockerfile, package manifest, TypeScript project, migration set and runtime. For example:
+I servizi sono buildabili separatamente. Per esempio:
 
 ```bash
 docker compose build service-inventory
 docker compose up -d service-inventory
 ```
 
-Ingresso: `https://<LAN_HOST>:8443/`.
-
-Compose prepara dipendenze, Keycloak, migration e servizi secondo le healthcheck.
+Ingresso: `https://<LAN_HOST>:8443/`. Per avvio, healthcheck e diagnosi vedere [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Documentazione canonica
 
-La documentazione tecnica è stata ridotta a pochi documenti complementari:
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — topologia e regole microservizi
-- [docs/SERVICES.md](docs/SERVICES.md) — servizi, porte, ownership e dipendenze
-- [docs/DATA.md](docs/DATA.md) — datastore e ownership dati
-- [docs/FLOWS.md](docs/FLOWS.md) — flussi applicativi
-- [docs/API.md](docs/API.md) — API, Gateway e Composite Views
-- [docs/SECURITY.md](docs/SECURITY.md) — auth, authorization e tenant isolation
-- [docs/OPERATIONS.md](docs/OPERATIONS.md) — avvio, health e diagnosi
-- [docs/openapi.yaml](docs/openapi.yaml) — contratto API machine-readable
-
-Per la documentazione completa partire da `docs/README.md`.
+- [Indice e mappa repository](docs/README.md)
+- [Architettura](docs/ARCHITECTURE.md)
+- [Diagrammi architettura, database e flussi](docs/DIAGRAMS.md)
+- [Servizi e processi Compose](docs/SERVICES.md)
+- [Database e storage](docs/DATA.md)
+- [Flussi applicativi](docs/FLOWS.md)
+- [API](docs/API.md) e [contratto OpenAPI](docs/openapi.yaml)
+- [Eventi asincroni](docs/EVENTS.md)
+- [Sicurezza](docs/SECURITY.md) e [reti](docs/NETWORK.md)
+- [Operazioni](docs/OPERATIONS.md) e [test](docs/TESTING.md)
