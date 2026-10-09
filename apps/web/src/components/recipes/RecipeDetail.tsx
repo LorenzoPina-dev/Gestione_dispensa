@@ -250,15 +250,15 @@ export default function RecipeDetail({ match, stock, setStock, readOnly = false,
               return <div key={`${ingredient.name}-${ingredient.amount}`} className="py-2 border-b" style={{ borderColor: colors.borderLight }}>
                 <div className="flex justify-between gap-3">
                   <span className="text-sm" style={{ color: present ? colors.ink : colors.terracotta }}>{present ? "✓" : "✗"} {ingredient.name}</span>
-                  <span className="text-xs" style={{ color: colors.inkMuted }}>{scaledAmount(ingredient.amount, ratio)}{doseKnown ? ` ${ingredient.unit}` : ""}</span>
+                  <span className="text-xs" style={{ color: colors.inkMuted }}>{doseKnown ? `${scaledAmount(ingredient.amount, ratio)} ${ingredient.unit}` : Number(dose.amount) > 0 && dose.unit ? `${formatQuantity(Number(dose.amount) * ratio)} ${dose.unit === "piece" ? "pezzi" : dose.unit}` : "q.b."}</span>
                 </div>
                 {!doseKnown && <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="text-xs" style={{ color: colors.inkMuted }}>Dose per {baseServings} porzioni:</span>
-                  <input aria-label={`Quantità di ${ingredient.name}`} type="number" min="0.001" step="any" value={dose.amount} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, amount: event.target.value } }))} className="h-8 w-20 rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }} />
-                  <select aria-label={`Unità di ${ingredient.name}`} value={dose.unit} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, unit: event.target.value } }))} className="h-8 rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }}>
+                  <input aria-label={`Quantità di ${ingredient.name}`} type="number" min="0.001" step="any" value={dose.amount} disabled={readOnly} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, amount: event.target.value } }))} className="h-8 w-20 rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }} />
+                  <select aria-label={`Unità di ${ingredient.name}`} value={dose.unit} disabled={readOnly} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, unit: event.target.value } }))} className="h-8 rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }}>
                     <option value="">Unità</option><option value="g">g</option><option value="ml">ml</option><option value="piece">pezzi</option>
                   </select>
-                  {productOptions.length > 1 && <select aria-label={`Prodotto da usare per ${ingredient.name}`} value={dose.productId} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, productId: event.target.value } }))} className="h-8 max-w-full rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }}>
+                  {productOptions.length > 1 && <select aria-label={`Prodotto da usare per ${ingredient.name}`} value={dose.productId} disabled={readOnly} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, productId: event.target.value } }))} className="h-8 max-w-full rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }}>
                     <option value="">Scegli prodotto</option>{productOptions.map((usage) => <option key={usage.productId} value={usage.productId}>{usage.name}</option>)}
                   </select>}
                 </div>}
