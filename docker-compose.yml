@@ -401,7 +401,7 @@ services:
       DATABASE_URL: "postgres://food_semantics_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/food_semantics_db"
       FOOD_ONTOLOGY_SOURCE_KEY: foodon
       FOOD_ONTOLOGY_VERSION: master
-      FOOD_ONTOLOGY_URL: "https://raw.githubusercontent.com/FoodOntology/foodon/master/foodon_old.obo"
+      FOOD_ONTOLOGY_URL: "https://purl.obolibrary.org/obo/foodon.owl"
     command: ["node","dist/bootstrap.js"]
     depends_on:
       service-food-semantics-schema-migrate: { condition: service_completed_successfully }
