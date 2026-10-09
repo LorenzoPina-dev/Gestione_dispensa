@@ -5,7 +5,7 @@ const BATCH_SIZE = Math.min(Math.max(Number(process.env.FOOD_SEMANTICS_BACKFILL_
 
 async function main(): Promise<void> {
   const database = PostgresClient.create({ connectionString: resolveDatabaseUrl(), max: 4 });
-  let lastId = "";
+  let lastId: string | null = null;
   let processed = 0;
   let inserted = 0;
 
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
            ), CASE WHEN p.external_source IS NULL THEN 'manual-v1' ELSE 'food-semantics-v2' END) AS source_version
          FROM products p
          WHERE p.status='ACTIVE'
-           AND p.id > $1
+           AND ($1::uuid IS NULL OR p.id > $1::uuid)
          ORDER BY p.id
          LIMIT $2`,
         [lastId, BATCH_SIZE],
