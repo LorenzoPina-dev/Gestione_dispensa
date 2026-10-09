@@ -112,6 +112,8 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
   })), [summary]);
 
   const totals = summary?.totals ?? { calories:0, protein:0, carbs:0, fat:0, fiber:0 };
+  const hasKnownNutrients = summary?.items.some((item) => item.confidence !== "UNKNOWN") ?? false;
+  const onlyUnknownNutrients = Boolean(summary?.items.length) && !hasKnownNutrients;
 
   const filteredStock = useMemo(() => {
     if (!search) return [];
@@ -179,11 +181,11 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
       {/* Summary stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Calorie", value: Math.round(totals.calories), unit: "kcal", color: colors.terracotta, bg: colors.terracottaLight },
-          { label: "Proteine", value: Math.round(totals.protein), unit: "g", color: colors.sage, bg: colors.sageLight },
-          { label: "Carboidrati", value: Math.round(totals.carbs), unit: "g", color: colors.expiring, bg: colors.amberLight },
-          { label: "Grassi", value: Math.round(totals.fat), unit: "g", color: colors.inkMuted, bg: colors.creamDark },
-          { label: "Fibre", value: Math.round(totals.fiber), unit: "g", color: colors.sageDark, bg: colors.sageLight },
+          { label: "Calorie", value: onlyUnknownNutrients ? "—" : Math.round(totals.calories), unit: "kcal", color: colors.terracotta, bg: colors.terracottaLight },
+          { label: "Proteine", value: onlyUnknownNutrients ? "—" : Math.round(totals.protein), unit: "g", color: colors.sage, bg: colors.sageLight },
+          { label: "Carboidrati", value: onlyUnknownNutrients ? "—" : Math.round(totals.carbs), unit: "g", color: colors.expiring, bg: colors.amberLight },
+          { label: "Grassi", value: onlyUnknownNutrients ? "—" : Math.round(totals.fat), unit: "g", color: colors.inkMuted, bg: colors.creamDark },
+          { label: "Fibre", value: onlyUnknownNutrients ? "—" : Math.round(totals.fiber), unit: "g", color: colors.sageDark, bg: colors.sageLight },
         ].map((s) => (
           <div key={s.label} className="rounded-2xl p-5" style={{ backgroundColor: s.bg }}>
             <p className="text-xs font-medium" style={{ color: s.color }}>{s.label}</p>
