@@ -6,6 +6,7 @@ export type Readiness = "READY" | "MINIMAL_SHOPPING" | "DISCARD";
 
 export interface RecipeIngredientForMatch {
   id?: string;
+  productId?: string | null;
   name: string;
   displayName: string;
   canonicalIngredient?: string | null;
