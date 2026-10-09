@@ -1,36 +1,37 @@
 # PostgreSQL role and RLS review
 
-This review is based on the current service code and migration/bootstrap SQL. It records the scope to close before changing persistent policies or database ownership.
+This review is based on the service code and migration/bootstrap SQL. It records the remaining role hardening and the verification for the Identity policy change.
 
 ## Findings
 
 - Most services separate the runtime `*_app` login from a service migration login. Compose supplies migration credentials directly, and those accounts own their service databases and relay outbox tables.
 - Food Semantics is an exception: the service, schema migration, and ontology bootstrap all use `food_semantics_app`; the bootstrap role also owns `food_semantics_db`. This combines runtime access with schema and data-loading privileges.
-- The Identity security migration enables RLS on `users`, `idempotency_keys`, and `outbox_events`, but the policies allow rows when `app.user_id` is an empty string. The context-aware pool sets empty values when no request context exists, so this is fail-open for the app role.
-- The Identity HTTP handler checks the authenticated user ID before profile and preference routes. Its public register/reset/logout routes do not query these three tables. The internal dietary-preference route queries a separate table after checking the internal service token.
-- Identity's relay connects as the owning `identity` role. RLS is enabled but not forced, so the table owner can still relay rows. A fail-closed policy on the three app-facing tables should not constrain that relay, but the migration path and integration behavior still need a database-backed check.
+- The legacy Identity `999_security.sql` policies allowed broad access when `app.user_id` was empty. The new `1000_rls_fail_closed.sql` replaces that behavior for `users`, `idempotency_keys`, and `outbox_events`; missing context now matches no rows.
+- The Identity handler checks the authenticated user ID before profile and preference routes. Its public register/reset/logout routes do not query these three tables. The internal dietary-preference route queries a separate table after checking the internal service token.
+- Identity's relay connects as the owning `identity` role. RLS is enabled but not forced, so the owner can still read and relay rows. The PostgreSQL integration proof checks this alongside app-role isolation.
 
-## Next safe database verification
+## Verified Identity policy behavior
 
-Before applying a fail-closed Identity migration, run an integration check against PostgreSQL that proves:
+The rollback-only PostgreSQL proof passed in CI against PostgreSQL 16. It checked:
 
-1. An authenticated user can read and update only their own profile and idempotency rows.
-2. A missing user context reads no rows and cannot insert or update those rows.
-3. A second user's context cannot read or alter the first user's rows.
-4. Public registration, password reset, and logout remain independent of these tables.
-5. The Identity relay can still publish user outbox rows under its migration role.
+1. Missing context reads no profile, idempotency, or outbox rows and cannot insert a profile.
+2. A user context sees and updates its own profile; reads and writes to another profile return no rows.
+3. The same context only sees its own idempotency and outbox rows.
+4. The owning Identity relay role can read outbox rows.
 
-Then apply the policy change as a new migration; do not edit the already-applied `999_security.sql`.
+The test applies the migration, then installs the same policies inside a rollback-only transaction, creates two test identities, performs the checks, and rolls the fixtures and temporary policy changes back. Public registration, password reset, and logout remain outside these table paths.
+
+`999_security.sql` remains unchanged because it has already been applied in existing databases. The new `1000_rls_fail_closed.sql` replaces the permissive policies as an ordered migration.
 
 Food Semantics should be split into a migration/owner role and a runtime role in a separate change. The service can receive only the schema/table privileges it needs; migrations and ontology bootstrap should not share the runtime login.
 
 ## Running the isolation proof
 
-Run the transaction-based proof on a disposable or development Identity database from the repository root in PowerShell:
+From the repository root in PowerShell:
 
 ```powershell
 Get-Content services/service-identity/tests/rls-isolation.sql -Raw |
   docker compose exec -T postgres psql -U postgres -d identity_db -v ON_ERROR_STOP=1
 ```
 
-It temporarily installs the proposed fail-closed policies, creates two test identities, checks missing-context denial, per-user isolation, and relay-owner access, then rolls the entire transaction back. The CI job provisions this isolated database and runs the same proof. The persistent migration remains pending until this database-backed proof passes.
+Run it after the service migrations. The final `ROLLBACK` removes all fixtures and restores the session's prior policy state.
