@@ -1,6 +1,6 @@
 import type { Pool } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import { ingredientTerms, normalizeFoodText as norm, parseFoodQuantityFromText } from "@gestione-dispensa/food-rules";
-import { averageNutriScore, estimateRecipeNutrition, scoreRecipeAgainstPantry } from "./pantry-recipe-engine.js";
+import { averageNutriScore, estimateRecipeNutrition, scoreRecipeAgainstPantry, type RecipeIngredientForMatch } from "./pantry-recipe-engine.js";
 import { evaluateRecipeSafety, type SafetyProfile } from "./safety-engine.js";
 import { aggregateFamilySafetyProfiles, type FamilySafetyProfile } from "./family-safety-profile.js";
 import { RECIPE_MATCH_RULES_VERSION, type RecipeMatch } from "./recipe-match.js";
@@ -420,6 +420,25 @@ async function loadFamilySafetyProfile(
  return aggregate;
 }
 
+function toRecipeMatchIngredients(rows: readonly any[]): RecipeIngredientForMatch[] {
+ return rows.map((row:any)=>({
+  id: typeof row.id==="string" ? row.id : undefined,
+  productId: typeof row.product_id==="string" ? row.product_id : null,
+  name: String(row.name ?? ""),
+  displayName: String(row.display_name ?? row.displayName ?? row.name ?? ""),
+  canonicalIngredient: typeof row.canonical_ingredient==="string" ? row.canonical_ingredient : null,
+  semanticConfidence: Number(row.semantic_confidence ?? 0),
+  ingredientTerms: Array.isArray(row.ingredient_terms) ? row.ingredient_terms.map(String) : [],
+  culinaryWeight: row.culinary_weight==="STAPLE" || row.culinary_weight==="SECONDARY" || row.culinary_weight==="CORE" ? row.culinary_weight : "CORE",
+  quantityValue: row.quantity_value==null ? null : Number(row.quantity_value),
+  quantityUnit: row.quantity_unit==null ? null : String(row.quantity_unit),
+  quantityDimension: row.quantity_dimension==="mass" || row.quantity_dimension==="volume" || row.quantity_dimension==="count" ? row.quantity_dimension : null,
+  quantityBaseValue: row.quantity_base_value==null ? null : Number(row.quantity_base_value),
+  quantityBaseUnit: row.quantity_base_unit==="g" || row.quantity_base_unit==="ml" || row.quantity_base_unit==="piece" ? row.quantity_base_unit : null,
+  quantityConfidence: Number(row.quantity_confidence ?? 0),
+ }));
+}
+
 export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string;identityBaseUrl?:string;identityInternalToken:string;familyBaseUrl:string}):Promise<Suggestion[]>{
  const rawStock=await getInventory(p.inventoryBaseUrl,p.userId,p.familyId,p.authorization);
  const stock=p.catalogBaseUrl?await enrichInventoryNames(rawStock,p.catalogBaseUrl,p.authorization):rawStock;
@@ -486,7 +505,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
      foodSemantics:item.foodSemantics??null,
    }));
  const scored:Suggestion[]=enrichedFull.map((r:any)=>{
-   const coverage=scoreRecipeAgainstPantry(r.ingredients,pantry);
+   const coverage=scoreRecipeAgainstPantry(toRecipeMatchIngredients(r.ingredients),pantry);
    const matched=coverage.matchedIngredients.filter(item=>item.ratio>0);
    const usedProductIds=new Set(coverage.matchedProductIds);
    const safety=evaluateRecipeSafety(
