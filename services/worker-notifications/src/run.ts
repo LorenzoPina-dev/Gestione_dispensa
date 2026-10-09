@@ -148,18 +148,18 @@ while (!stopping) {
   const messages = [...(claimed.messages ?? []), ...(fresh?.[0]?.messages ?? [])];
 
   for (const message of messages) {
-      try {
-        const raw = message.message.event;
-        const event = JSON.parse(raw) as DomainEvent;
-        await processEvent(event);
-        await redis.xAck(stream, group, message.id);
-      } catch (error) {
-        console.error(JSON.stringify({
-          worker: "worker-notifications",
-          event: "event_processing_failed",
-          messageId: message.id,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      }
+    try {
+      const raw = message.message.event;
+      const event = JSON.parse(raw) as DomainEvent;
+      await processEvent(event);
+      await redis.xAck(stream, group, message.id);
+    } catch (error) {
+      console.error(JSON.stringify({
+        worker: "worker-notifications",
+        event: "event_processing_failed",
+        messageId: message.id,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
   }
 }
