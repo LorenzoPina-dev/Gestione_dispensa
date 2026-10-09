@@ -225,21 +225,23 @@ function normalizeTerms(values: readonly string[]): Set<string> {
 }
 
 function exactSemanticMatch(recipe: RecipeIngredientForMatch, pantry: PantryProductForMatch): boolean {
+  if (recipe.productId && recipe.productId === pantry.productId) return true;
+
   const recipeCanonical = normalizeFoodText(recipe.canonicalIngredient ?? "");
   const pantryCanonical = normalizeFoodText(pantry.foodSemantics?.canonicalIngredient ?? "");
   const recipeConfidence = recipe.semanticConfidence ?? 1;
   const pantryConfidence = pantry.foodSemantics?.semanticConfidence ?? 1;
-  if (recipeConfidence < 0.8 || pantryConfidence < 0.8) return false;
-  const relation = foodSemanticRelation(recipeCanonical || null, pantryCanonical || null);
-  if (relation === "EXACT" || relation === "SYNONYM" || relation === "RECIPE_GENERALIZES_PRODUCT") return true;
-  if (relation === "UNSAFE_GENERALIZATION") return false;
-  // A catalog product can carry a stale, generic, or differently derived canonical
-  // value. Do not discard a safe exact textual ingredient identity just because
-  // the two canonical values disagree.
+  if (recipeConfidence >= 0.8 && pantryConfidence >= 0.8) {
+    const relation = foodSemanticRelation(recipeCanonical || null, pantryCanonical || null);
+    if (relation === "EXACT" || relation === "SYNONYM" || relation === "RECIPE_GENERALIZES_PRODUCT") return true;
+    if (relation === "UNSAFE_GENERALIZATION") return false;
+  }
+
+  // Exact normalized names remain useful when ontology resolution is missing or
+  // confidence is low; they cannot match broader names such as "pepper".
   const recipeTerms = normalizeTerms([...(recipe.ingredientTerms ?? []), recipe.name, recipe.displayName]);
   const pantryTerms = normalizeTerms([...(pantry.foodSemantics?.ingredientTerms ?? []), ...(pantry.foodSemantics?.taxonomyTags ?? []), pantry.name]);
   for (const term of recipeTerms) if (pantryTerms.has(term)) return true;
-  if (recipeCanonical && pantryCanonical) return false;
   return false;
 }
 
