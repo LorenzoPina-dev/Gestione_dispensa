@@ -11,7 +11,7 @@
     "test": "node --import tsx --test src/reorder.test.ts"
   },
   "dependencies": {
-    "redis": "^6.2.1",
+    "redis": "^6.3.0",
     "@gestione-dispensa/runtime-db": "2.0.0"
   },
   "devDependencies": {
