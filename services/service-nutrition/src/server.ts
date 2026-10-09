@@ -398,10 +398,10 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
     const snapshot = typeof row.nutrition_snapshot === "object" && row.nutrition_snapshot !== null
       ? row.nutrition_snapshot as NutritionSnapshot
       : null;
-    if (!snapshot || !calculateNutrientsForQuantity(Number(row.quantity), String(row.unit), snapshot) ||
-        calculateNutrientsForQuantity(Number(row.quantity), String(row.unit), snapshot)?.confidence === "UNKNOWN") {
-      refreshIds.add(String(row.product_id));
-    }
+    const calculated = snapshot
+      ? calculateNutrientsForQuantity(Number(row.quantity), String(row.unit), snapshot)
+      : null;
+    if (!calculated || calculated.confidence === "UNKNOWN") refreshIds.add(String(row.product_id));
   }
   const refreshList = [...refreshIds];
   for (let index = 0; index < refreshList.length; index += 8) {
@@ -424,7 +424,7 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
     if(!calculated || calculated.confidence==="UNKNOWN"){
       const latest=await latestSnapshot(productId);
       const refreshed=latest ? calculateNutrientsForQuantity(quantity,unit,latest) : null;
-      if(latest && refreshed && refreshed.confidence!=="UNKNOWN"){
+      if(latest && refreshed){
         snapshot=latest;
         calculated=refreshed;
         void pool.query(
