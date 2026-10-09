@@ -1,38 +1,35 @@
 # Operazioni
 
-## Avvio
+## Avvio locale
+
 ```bash
-docker compose up --build -d
+docker compose up --build -d --wait
 ```
-Ingresso: `https://<LAN_HOST>:8443/`.
 
-Compose prepara certificato locale, PostgreSQL/Redis, Keycloak, migration e servizi secondo healthcheck. `db-migrate` applica le migration.
+Ingresso: `https://<LAN_HOST>:8443/`. Compose avvia NGINX, web, gateway, servizi, dipendenze e job di inizializzazione secondo healthcheck e dipendenze. Il provider OIDC è Keycloak. Le porte interne non devono essere chiamate dal browser.
 
-## Health
-Ogni servizio HTTP espone `/health/live`, `/health/ready` e, quando abilitato, `/metrics`.
+Per stato e configurazione:
 
-## Observability
-```text
-services → logs/metrics/traces → Alloy/OTel → Loki/Prometheus/Tempo → Grafana
-```
-`requestId` e `traceId` seguono Nginx → Gateway → servizi → dipendenze.
-
-## Diagnosi
-1. `docker compose ps`
-2. controllare `/health/ready`;
-3. cercare `requestId`;
-4. trovare il primo servizio in errore;
-5. controllare dipendenze;
-6. per DB verificare migration, connessione e SQLSTATE;
-7. per job verificare PostgreSQL, Redis e worker;
-8. per errori browser controllare Nginx poi Gateway.
-
-## Quality gate
 ```bash
-npm run validate:structure
-npm run typecheck
-npm run build
-npm test
+docker compose ps
+docker compose config --quiet
+npm run compose:verify
 ```
 
-Non eseguire migration nei container applicativi; non esporre porte interne; MongoDB non è source of truth della dispensa; Redis non è storage durevole dei job.
+## Migrazioni e bootstrap
+
+Database iniziali e ruoli sono preparati da `infrastructure/postgres/init` e `postgres-app-role-init`. Le migration di ogni bounded context sono in `services/<service>/migrations`; Food Semantics e Recipes usano container one-shot dedicati nel compose. Bootstrap ontologia e import catalogo ricette sono ulteriori processi one-shot. Non c'è un container centrale `db-migrate`.
+
+## Health e diagnostica
+
+I servizi HTTP forniscono `/health/live` e `/health/ready`. Verificare il log del servizio proprietario per errori di dipendenza o migrazione:
+
+```bash
+docker compose logs --tail=200 gateway service-catalog service-food-semantics service-recipes
+```
+
+Per le code/eventi controllare Redis e i relay/consumer del dominio; gli eventi persistono prima nell'outbox PostgreSQL. Per la ricerca OFF, controllare in ordine `service-catalog`, `off-lookup`, `search-indexer`, OpenSearch e MongoDB. Per OCR controllare `service-ocr`, `worker-ocr`, Redis, MinIO e provider configurato.
+
+## Osservabilità
+
+OpenTelemetry Collector riceve telemetria; Tempo conserva trace, Alloy raccoglie log container verso Loki, Prometheus raccoglie metriche ed exporter/cAdvisor. Grafana presenta le sorgenti configurate. Vedi [NETWORK.md](NETWORK.md) per segmentazione e [DIAGRAMS.md](DIAGRAMS.md#osservabilità) per il flusso.
