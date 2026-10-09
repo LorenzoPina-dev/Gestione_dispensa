@@ -575,6 +575,7 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
          expiresAt:item.expiresAt??null,
          usedBaseQuantity:Number(used.usedBaseQuantity.toFixed(6)),
          usedBaseUnit:used.baseUnit,
+         quantityBase:item.foodSemantics?.quantityBase??null,
          usedFor:[...used.usedFor],
        };
      });
