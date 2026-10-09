@@ -1,189 +1,42 @@
 # Architettura
 
+## Confini
+
+Il deployment locale usa NGINX come unico ingresso browser su HTTPS `:8443`. NGINX serve la SPA, inoltra `/api` al Gateway e `/realms` a Keycloak. Il Gateway ascolta internamente su `:3300`, verifica il token e instrada verso il servizio owner. I servizi interni non pubblicano porte host.
+
+Ogni dominio applicativo ha un processo e un database logico PostgreSQL dedicato. Il cluster PostgreSQL è condiviso come infrastruttura; ruoli, database e migration separano i contesti. I servizi non devono scrivere direttamente nei database degli altri.
+
+## Runtime effettivo
+
+Il Compose corrente include servizi HTTP, worker, relay outbox e processi one-shot, oltre all'infrastruttura di supporto. Redis ha due funzioni: stream di eventi di dominio e code di job. I relay leggono gli outbox PostgreSQL e pubblicano su Redis Streams. Il deployment Compose corrente non contiene Kafka.
+
+OpenSearch indicizza i prodotti Open Food Facts per la ricerca testuale; MongoDB conserva il corpus/cache OFF. Catalog PostgreSQL rimane la fonte per prodotti applicativi e provenance. Food Semantics possiede ontologia, label, mapping e cache semantica. LibreTranslate è backend di traduzione configurato via rete egress.
+
+MinIO conserva oggetti come immagini/ricevute quando la funzione è configurata; PostgreSQL conserva metadati e stati. Prometheus, Grafana, Loki, Tempo, Alloy, OTel Collector e cAdvisor supportano metriche, log e trace.
+
 ## Topologia
-```text
-Browser/PWA → Nginx :8443
-                 ├→ Web
-                 ├→ /api/* → Gateway :3300
-                 └→ /realms/* → Keycloak
-                                │
-                                ▼
-                             Gateway
-                                │
-                  ┌─────────────┼─────────────┐
-                  ▼             ▼             ▼
-             servizi dominio  OFF Lookup    Workers
-                  │             │             │
-                  └────── PostgreSQL ─────────┘
-                                │
-                           Redis / MinIO
-```
 
-Nginx è l'unico edge browser; Gateway è l'unico edge API. I servizi interni non sono API pubbliche.
+Vedere [Diagrammi tecnici](DIAGRAMS.md#architettura-di-runtime) per il diagramma end-to-end e [SERVICES.md](SERVICES.md) per la distinzione tra componenti sempre attivi e job di inizializzazione.
 
-## Regole fondamentali
-- ogni bounded context ha processo, route e ownership propri;
-- un servizio scrive solo il proprio dominio;
-- nessun import TypeScript tra servizi;
-- cross-service sincrono tramite HTTP;
-- lavoro lungo/retryable tramite job/queue e worker;
-- Gateway autentica, instrada e aggrega, ma non contiene business logic;
-- PostgreSQL è source of truth transazionale;
-- MongoDB è solo cache/read-through OpenFoodFacts;
-- MinIO contiene blob, PostgreSQL metadata/ownership;
-- il browser non conosce host/porte interne.
+Le reti Compose sono `edge`, `backend`, `data` ed `egress`: la UI è sulla rete edge; i servizi applicativi sulla rete backend; i datastore sulla rete data; solo componenti che richiedono provider esterni usano egress.
 
-## Authentication
-```text
-Browser
-  -> Gateway
-    -> Catalog
-      -> off-lookup
-        -> OpenSearch
-             |-- hit -> risultati locali ranked
-             `-- miss/unavailable -> Open Food Facts search API
-                                      -> risultati fallback
-                                      -> Mongo raw cache
-                                      -> OpenSearch async upsert
-```
-Gateway verifica JWT issuer/audience/firma. Il servizio owner verifica principal, family scope e ruolo.
+## Regole di dipendenza
 
-OpenSearch è il solo motore locale della ricerca testuale. MongoDB non viene interrogato per nome
-durante una richiesta utente: viene usato come corpus autorevole dal bootstrap e come cache completa
-per i prodotti appresi dal provider. Se OpenSearch non contiene un match, `off-lookup` usa il provider
-Open Food Facts e salva il risultato localmente così che le ricerche successive non dipendano dal provider.
+- Il browser comunica solo con NGINX.
+- Il Gateway instrada richieste e può comporre letture, ma le regole di dominio restano nel servizio owner.
+- Le chiamate tra servizi passano dalle API interne/contratti; non si condividono repository DB.
+- Le transazioni di dominio registrano outbox nella stessa transazione delle modifiche, quando il dominio pubblica eventi.
+- I relay outbox consegnano gli eventi a Redis Streams; i consumer devono tollerare retry e duplicati.
+- Job durevoli e tentativi risiedono nel database Jobs; Redis fornisce trasporto/accodamento a bassa latenza.
+- MongoDB, Redis, MinIO e OpenSearch non sostituiscono la source of truth transazionale PostgreSQL.
+- Un dato stimato (per esempio una scadenza) deve rimanere distinguibile da un valore dichiarato dall'utente.
 
-### Selezione di un risultato
+## Ricerca prodotti e semantica
 
-La selezione usa il codice EAN/GTIN come identificatore stabile e riusa il contratto barcode:
+La ricerca OFF attraversa Catalog e `off-lookup`; OpenSearch serve la ricerca locale, MongoDB conserva i documenti di origine/cache e Open Food Facts è il fallback esterno. La risoluzione barcode selezionata passa poi dall'endpoint Catalog, che persiste prodotto e identificatori nel database applicativo.
 
-```text
-risultato selezionato
-  -> code
-    -> POST /catalog/barcodes/resolve
-       -> Catalog PostgreSQL
-          |-- hit -> prodotto applicativo locale
-          '-- miss -> off-lookup
-                    -> MongoDB exact code
-                       |-- hit -> documento OFF completo
-                       '-- miss -> OFF API v3
-                                  -> MongoDB upsert
-                                  -> OpenSearch async upsert
-                       -> Catalog persistExternalMatch
-  -> UI candidate/confirm
-  -> Inventory add
-```
+Food Semantics risolve label e identità condivise da prodotti, ricette e liste. FoodOn costituisce la sorgente ontologica; LibreTranslate aiuta nella conversione linguistica. Una traduzione lessicale da sola non prova equivalenza semantica: confidenza e mapping persistito sono parte del risultato.
 
-L'indice OpenSearch non è mai la fonte dei dati completi. Se un codice arriva dal provider fallback ma non è ancora in Mongo, il recupero completo avviene tramite il normale flusso barcode e l'indice viene aggiornato in modalità best-effort.
+## Autenticazione
 
-### Projection document
-
-Il documento indicizzato è deliberatamente piccolo:
-
-```json
-{
-  "code": "8000000000000",
-  "name": "Golia",
-  "nameExact": "golia",
-  "brand": "Perfetti",
-  "brandExact": "perfetti",
-  "category": "confectionery-candy",
-  "categoriesTags": ["en:candies"],
-  "quantityLabel": "40 g",
-  "imageUrl": "https://...",
-  "productQuantity": 40,
-  "productQuantityUnit": "g",
-  "calories": 390,
-  "protein": 0,
-  "carbs": 96,
-  "fat": 0,
-  "fiber": 0,
-  "popularityKey": 123,
-  "completeness": 0.95,
-  "searchText": "Golia Perfetti confectionery-candy en:candies 40 g"
-}
-```
-
-Il documento di projection può essere eliminato e ricostruito in qualsiasi momento dal corpus Mongo; la perdita dell'indice non implica perdita di dati di dominio.
-
-### Mapping e ranking
-
-OpenSearch usa analisi lower-case + ASCII folding. Il recupero locale combina:
-
-- corrispondenza esatta del nome;
-- prefisso del nome;
-- phrase match;
-- token match con fuzziness automatica;
-- marca e testo secondario.
-
-Dopo il recupero iniziale viene applicato un ranking deterministico con segnali lexicali, completezza e popolarità. Questo ranking è la baseline verificabile e il punto di ingresso per un futuro reranker ML.
-
-Il ranking non è una raccomandazione personalizzata e non contiene dati personali.
-
-### Quality gate e ricerca multi-feature
-
-Solo prodotti con `completeness >= 0.70` entrano nella projection OpenSearch. La stessa soglia viene applicata alla source Mongo del bootstrap, all'upsert live e alla ricerca (`range completeness >= 0.70`). Durante la migrazione, `off-mongodb-index-maintenance` elimina dal corpus Mongo i documenti sotto soglia o privi di una completezza numerica verificabile e `search-indexer` elimina eventuali documenti legacy non eleggibili.
-
-La ricerca non è limitata al nome: OpenSearch interroga nome, marca, categoria, quantità e `featureText`. `featureText` aggrega labels, packaging, ingredienti, allergeni/traces, origini, paesi, negozi, gruppi alimentari, additivi, Nutri-Score e NOVA, quando presenti nel documento OFF. I match esatti/prefissi su nome e marca ricevono segnali più forti, ma una query per marca, categoria o caratteristica può produrre un risultato anche senza corrispondenza nel nome.
-
-### Profilazione e ML futuri
-
-La capability futura deve mantenere separati:
-
-```text
-OpenSearch top-N
-   -> feature enrichment
-      -> profile/ranking service
-         -> ML reranker
-            -> top-K UI
-```
-
-Gli eventi da raccogliere sono almeno `search_started`, `search_result_shown`, `product_clicked`, `product_confirmed` e `product_added`. Il profilo utente/famiglia e tali eventi non entrano nei documenti OFF. Un primo modello ammesso è un ranker tabulare; la ricerca semantica/hybrid è una fase successiva e non sostituisce l'accuratezza lexical di EAN/nome.
-
-### Soglie operative
-
-- debounce client: 250-400 ms;
-- query minima: 3 caratteri;
-- risultati UI: 8 di default;
-- recupero interno OpenSearch: fino a 5x il limite UI;
-- timeout ricerca off-lookup -> search-indexer: circa 700 ms;
-- fallback esterno: solamente quando OpenSearch restituisce zero risultati o è indisponibile;
-- cache query in-process: 30 s, massimo 50 query per istanza;
-- sincronizzazione prodotto verso OpenSearch: asincrona e non bloccante;
-- bootstrap corpus automatico: batch fino a 500 documenti con checkpoint e pausa tra i batch;
-- reindex completo manuale: disponibile per mapping/code changes o ricostruzioni forzate.
-
-I valori sono configurabili e devono essere verificati con benchmark sul dataset e hardware reali prima di dichiarare SLO di latenza.
-
-### Rebuild e consistency
-
-`search-indexer` crea l'indice se assente e avvia automaticamente il bootstrap dal corpus Mongo.
-Il bootstrap è resumable: persiste il cursor solo dopo un bulk OpenSearch riuscito, si arresta temporaneamente
-dopo un numero configurabile di batch e riprende da solo tramite retry timer. Uno stato `complete` è
-terminale per quel corpus e impedisce di ripartire da capo ai successivi riavvii.
-
-Il bootstrap porta in OpenSearch una projection compatta, non il documento OFF completo. La perdita o
-ricostruzione dell'indice non comporta perdita del corpus Mongo.
-
-Ogni cache miss barcode o ricerca fallback che produce un documento in Mongo tenta anche l'upsert della
-projection nell'indice. Se OpenSearch è temporaneamente indisponibile, il prodotto resta persistito in
-Mongo e viene reindicizzato quando il servizio torna disponibile.
-
-### Regole non negoziabili
-
-1. OpenSearch è una projection, non una source of truth.
-2. MongoDB resta il proprietario dei documenti OFF completi.
-3. Catalog non accede direttamente a MongoDB/OpenSearch.
-4. Browser e Gateway non accedono direttamente a MongoDB/OpenSearch.
-5. Search-a-licious non è il percorso principale durante la digitazione.
-6. La selezione di un risultato usa il codice barcode e riusa il flusso barcode.
-7. Nessun dato personalizzato viene scritto nel corpus OFF.
-8. Nessuna perdita temporanea dell'indice deve rendere irrecuperabili i prodotti.
-
-
-### OFF search ranking
-
-La ricerca testuale usa `nameExact` e `brandExact` come keyword normalizzate per exact/prefix match. I campi testuali `name`, `brand`, `category`, `featureText` e `quantityLabel` forniscono il recupero lessicale senza mantenere il campo duplicato `searchText`. La projection version corrente è 3; ogni incremento breaking forza il rebuild dell'indice.
-
-
-La projection OFF corrente è v4 e include anche il campo Mongo `images` per recuperare le immagini annidate (`images.selected.front`) quando i campi `image_front_*` non sono presenti.
+Il browser usa OIDC con Keycloak. Gateway verifica issuer, audience e firma; i servizi owner applicano il controllo del contesto utente/famiglia e del ruolo richiesto. Le chiamate interne protette usano token di servizio. La descrizione completa è in [SECURITY.md](SECURITY.md).
