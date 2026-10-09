@@ -99,17 +99,3 @@ export function packageCountToStock(
     unit: "pack",
   };
 }
-
-export default function AddProductModal({ onClose, onAdd }: Props) {
-  const [mode, setMode] = useState<AddMode>("menu");
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(26,21,16,.48)" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden" style={{ backgroundColor: "#f5f0e8", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-        {mode === "menu" && <ModeMenu onSelect={setMode} onClose={onClose} />}
-        {mode === "barcode" && <BarcodeFlow onAdd={onAdd} onBack={() => setMode("menu")} />}
-        {mode === "manuale" && <ManualForm onAdd={onAdd} onBack={() => setMode("menu")} />}
-        {mode === "lista" && <ImportList onAdd={onAdd} onBack={() => setMode("menu")} />}
-      </div>
-    </div>
-  );
-}
