@@ -2,7 +2,7 @@ import express, { type Request, type Response } from "express";
 import { createContextAwarePool, setDbRequestContextFromHeaders, type PoolClient } from "@gestione-dispensa/runtime-db/postgres-client.js";
 import crypto from "node:crypto";
 import { createClient } from "redis";
-import { consumedGramsForQuantity, loadNutritionSnapshot, nutrientMultiplier, type NutritionSnapshot } from "./catalog-client.js";
+import { calculateNutrientsForQuantity, loadNutritionSnapshot, type NutritionSnapshot } from "./catalog-client.js";
 import { isDiarySource, isDiaryUnit, isNonNegativeNumber, isPositiveNumber, isSummaryPeriod, validIfMatch } from "./validation.js";
 
 const app = express();
@@ -383,52 +383,71 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
   );
   let caloriesKcal=0,proteinG=0,carbsG=0,fatG=0,fiberG=0;
   const items:Array<Record<string,unknown>>=[];
+  const refreshedSnapshots = new Map<string, Promise<NutritionSnapshot | null>>();
+  const latestSnapshot = (productId: string): Promise<NutritionSnapshot | null> => {
+    let pending = refreshedSnapshots.get(productId);
+    if (!pending) {
+      pending = loadNutritionSnapshot(catalogBaseUrl, undefined, productId, catalogInternalToken).catch(() => null);
+      refreshedSnapshots.set(productId, pending);
+    }
+    return pending;
+  };
+
   for(const row of q.rows){
-    const snapshot=typeof row.nutrition_snapshot==="object"&&row.nutrition_snapshot!==null
+    const storedSnapshot=typeof row.nutrition_snapshot==="object"&&row.nutrition_snapshot!==null
       ? row.nutrition_snapshot as NutritionSnapshot
       : null;
-    if(!snapshot)continue;
+    if(!storedSnapshot)continue;
     const quantity=Number(row.quantity);
     const unit=String(row.unit);
-    const grams=consumedGramsForQuantity(quantity,unit,snapshot);
-    if(grams == null && unit !== "g" && unit !== "kg") {
+    const productId=String(row.product_id);
+    let snapshot=storedSnapshot;
+    let calculated=calculateNutrientsForQuantity(quantity,unit,snapshot);
+
+    // Diary rows pin product nutrition at consumption time. Refresh only incomplete
+    // snapshots so newly enriched catalog data can repair older unknown diary entries.
+    if(!calculated || calculated.confidence==="UNKNOWN"){
+      const latest=await latestSnapshot(productId);
+      const refreshed=latest ? calculateNutrientsForQuantity(quantity,unit,latest) : null;
+      if(refreshed && refreshed.confidence!=="UNKNOWN"){
+        snapshot=latest!;
+        calculated=refreshed;
+        void pool.query(
+          "update nutrition_domain.diary_entries set nutrition_snapshot=$2::jsonb where id=$1 and family_id=$3",
+          [row.id,JSON.stringify(snapshot),familyId],
+        ).catch(()=>undefined);
+      }
+    }
+
+    if(!calculated){
       items.push({
-        movementId:String(row.id), productId:String(row.product_id),
-        productName:String(snapshot.productName??row.product_id), brand:snapshot.brand??null,
-        quantity, unit, meal:String(row.meal), date:String(row.date),
+        movementId:String(row.id), productId, productName:String(snapshot.productName??productId),
+        brand:snapshot.brand??null, quantity, unit, meal:String(row.meal), date:String(row.date),
         occurredAt:new Date(row.created_at).toISOString(),
         nutrients:{calories:0,protein:0,carbs:0,fat:0,fiber:0},
         confidence:"UNKNOWN",
       });
       continue;
     }
-    const multiplier=grams == null ? nutrientMultiplier(quantity,unit) : grams/100;
-    const values={
-      calories:Number(snapshot.caloriesKcalPer100g??0)*multiplier,
-      protein:Number(snapshot.proteinGPer100g??0)*multiplier,
-      carbs:Number(snapshot.carbsGPer100g??0)*multiplier,
-      fat:Number(snapshot.fatGPer100g??0)*multiplier,
-      fiber:Number(snapshot.fiberGPer100g??0)*multiplier,
-    };
-    caloriesKcal+=values.calories; proteinG+=values.protein; carbsG+=values.carbs; fatG+=values.fat; fiberG+=values.fiber;
+
+    caloriesKcal+=calculated.calories;
+    proteinG+=calculated.protein;
+    carbsG+=calculated.carbs;
+    fatG+=calculated.fat;
+    fiberG+=calculated.fiber;
     items.push({
-      movementId:String(row.id),
-      productId:String(row.product_id),
-      productName:String(snapshot.productName??row.product_id),
-      brand:snapshot.brand??null,
-      quantity,
-      unit,
-      meal:String(row.meal),
-      date:String(row.date),
+      movementId:String(row.id), productId,
+      productName:String(snapshot.productName??productId), brand:snapshot.brand??null,
+      quantity, unit, meal:String(row.meal), date:String(row.date),
       occurredAt:new Date(row.created_at).toISOString(),
       nutrients:{
-        calories:Number(values.calories.toFixed(2)),
-        protein:Number(values.protein.toFixed(2)),
-        carbs:Number(values.carbs.toFixed(2)),
-        fat:Number(values.fat.toFixed(2)),
-        fiber:Number(values.fiber.toFixed(2)),
+        calories:Number(calculated.calories.toFixed(2)),
+        protein:Number(calculated.protein.toFixed(2)),
+        carbs:Number(calculated.carbs.toFixed(2)),
+        fat:Number(calculated.fat.toFixed(2)),
+        fiber:Number(calculated.fiber.toFixed(2)),
       },
-      confidence:String(snapshot.confidence??"UNKNOWN"),
+      confidence:calculated.confidence,
     });
   }
   const round=(value:number)=>Number(value.toFixed(2));
