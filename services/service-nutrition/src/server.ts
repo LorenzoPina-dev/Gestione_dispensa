@@ -409,8 +409,8 @@ app.get("/api/v1/nutrition/summary", async(req,res)=>{
     if(!calculated || calculated.confidence==="UNKNOWN"){
       const latest=await latestSnapshot(productId);
       const refreshed=latest ? calculateNutrientsForQuantity(quantity,unit,latest) : null;
-      if(refreshed && refreshed.confidence!=="UNKNOWN"){
-        snapshot=latest!;
+      if(latest && refreshed && refreshed.confidence!=="UNKNOWN"){
+        snapshot=latest;
         calculated=refreshed;
         void pool.query(
           "update nutrition_domain.diary_entries set nutrition_snapshot=$2::jsonb where id=$1 and family_id=$3",
