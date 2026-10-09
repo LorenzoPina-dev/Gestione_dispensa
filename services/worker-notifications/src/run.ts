@@ -136,9 +136,11 @@ async function processEvent(event: DomainEvent): Promise<void> {
 console.log(JSON.stringify({ worker: "worker-notifications", stream, group, consumer }));
 
 const retryIdleMs = Math.max(Number(process.env.EVENT_RETRY_IDLE_MS ?? 30000), 1000);
+let claimCursor = "0-0";
 
 while (!stopping) {
-  const claimed = await redis.xAutoClaim(stream, group, consumer, retryIdleMs, "0-0", { COUNT: 20 });
+  const claimed = await redis.xAutoClaim(stream, group, consumer, retryIdleMs, claimCursor, { COUNT: 20 });
+  claimCursor = claimed.nextId ?? "0-0";
   const fresh = await redis.xReadGroup(
     group,
     consumer,
