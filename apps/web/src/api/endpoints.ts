@@ -270,7 +270,7 @@ export function rejectOcrDraft(draftId: string): Promise<any> { return apiReques
 export function confirmOcrDraft(draftId: string, items: Array<{ name: string; productId?: string | null; quantity: number; unit: string; priceMinor?: number | null; currency?: string | null }>): Promise<any> { return apiRequest(`/ocr/drafts/${draftId}/confirm`, { method: "POST", body: { items } }); }
 export function listMovements(familyId: string, stockItemId: string): Promise<{ movements: MovementDto[] }> { return apiRequest(`/inventory/${stockItemId}/movements`, { query: { familyId } }); }
 export async function listRecipes(familyId: string, q?: string): Promise<{ recipes: RecipeDto[] }> { const r = await apiRequest<{ items: RecipeDto[]; nextCursor: string | null }>("/recipes", { query: { familyId, ...(q?.trim() ? { q: q.trim() } : {}) } }); return { recipes: r.items }; }
-export async function listRecipeSuggestions(familyId: string): Promise<{ suggestions: RecipeMatchDto[] }> { const r = await apiRequest<{ items: RecipeMatchDto[]; nextCursor?: string | null }>("/recipes/suggestions", { query: { familyId } }); return { suggestions: r.items }; }
+export async function listRecipeSuggestions(familyId: string, q?: string): Promise<{ suggestions: RecipeMatchDto[] }> { const r = await apiRequest<{ items: RecipeMatchDto[]; nextCursor?: string | null }>("/recipes/suggestions", { query: { familyId, ...(q?.trim() ? { q: q.trim() } : {}) } }); return { suggestions: r.items }; }
 export async function getRecipe(familyId: string, recipeId: string): Promise<{ recipe: RecipeDto }> { return { recipe: await apiRequest<RecipeDto>(`/recipes/${recipeId}`, { query: { familyId } }) }; }
 
 
