@@ -510,6 +510,7 @@ export default function App() {
           {currentTab === "ricette" && (
             <Ricette
               stock={stock}
+              setStock={setStock}
               setList={setShoppingList}
               onShoppingChanged={shopping.refresh}
               onNavigateToShopping={() => setTab("spesa")}
