@@ -1,0 +1,219 @@
+import { useMemo, useState } from "react";
+import type { RecipeMatchDto } from "../../api/types";
+import type { Recipe, RecipeMatch, StockItem } from "../../types";
+import { colors, fonts } from "../../tokens";
+import SectionHeading from "../ui/SectionHeading";
+
+type PantryUsage = NonNullable<RecipeMatchDto["pantryProductsUsed"]>[number];
+export type RecipeMatchWithUsage = RecipeMatch & { pantryProductsUsed?: PantryUsage[] };
+
+interface Props {
+  match: RecipeMatchWithUsage;
+  stock: StockItem[];
+  setStock: React.Dispatch<React.SetStateAction<StockItem[]>>;
+  onBack: () => void;
+  onShopMissing: () => void;
+}
+
+interface ConsumptionPlan {
+  stockItemId: string;
+  quantity: number;
+}
+
+function availableQuantity(item: StockItem): number {
+  return item.batches.reduce((total, batch) => total + batch.quantity, 0);
+}
+
+function baseToInventoryQuantity(usage: PantryUsage, item: StockItem, servingsRatio: number): number | null {
+  const baseQuantity = usage.usedBaseQuantity * servingsRatio;
+  if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) return null;
+  const unit = item.unit.toLowerCase();
+  if (usage.usedBaseUnit === "g" && unit === "g") return baseQuantity;
+  if (usage.usedBaseUnit === "g" && unit === "kg") return baseQuantity / 1000;
+  if (usage.usedBaseUnit === "ml" && unit === "ml") return baseQuantity;
+  if (usage.usedBaseUnit === "ml" && unit === "l") return baseQuantity / 1000;
+  if (usage.usedBaseUnit === "piece" && unit === "piece") return baseQuantity;
+
+  const packageQuantity = usage.quantityBase;
+  if (
+    packageQuantity &&
+    packageQuantity.value > 0 &&
+    packageQuantity.unit === usage.usedBaseUnit &&
+    (unit === "pack" || unit === "piece")
+  ) {
+    return baseQuantity / packageQuantity.value;
+  }
+  return null;
+}
+
+function expiryOrder(item: StockItem): number {
+  const values = item.batches
+    .map((batch) => batch.expiryDate ? Date.parse(batch.expiryDate) : Number.POSITIVE_INFINITY)
+    .filter(Number.isFinite);
+  return values.length ? Math.min(...values) : Number.POSITIVE_INFINITY;
+}
+
+function planConsumption(
+  usages: PantryUsage[] | undefined,
+  stock: StockItem[],
+  servingsRatio: number,
+): ConsumptionPlan[] {
+  if (!usages?.length) throw new Error("Non ho dati di dispensa sufficienti per calcolare il consumo.");
+  const byProduct = new Map<string, PantryUsage>();
+  for (const usage of usages) {
+    const current = byProduct.get(usage.productId);
+    // The suggestion projection may repeat a product once for each pantry lot while
+    // reporting the same product-level allocation. Keep it once to avoid double consumption.
+    if (!current || usage.usedBaseQuantity > current.usedBaseQuantity) byProduct.set(usage.productId, usage);
+  }
+
+  return [...byProduct.values()].map((usage) => {
+    if (usage.usedBaseQuantity <= 0) {
+      throw new Error(`Dose non disponibile per ${usage.name}; completa la ricetta dopo aver inserito quantità attendibili.`);
+    }
+    const candidates = stock
+      .filter((item) => item.productId === usage.productId)
+      .sort((a, b) => expiryOrder(a) - expiryOrder(b));
+    const options = candidates.map((item) => ({
+      item,
+      quantity: baseToInventoryQuantity(usage, item, servingsRatio),
+    }));
+    const chosen = options.find(({ item, quantity }) =>
+      quantity !== null && quantity > 0 && quantity <= availableQuantity(item) + 0.000001,
+    );
+    if (!chosen || chosen.quantity === null) {
+      throw new Error(`Quantità disponibile insufficiente o unità non convertibile per ${usage.name}.`);
+    }
+    return {
+      stockItemId: chosen.item.id,
+      quantity: Math.round(chosen.quantity * 1000) / 1000,
+    };
+  });
+}
+
+function formatQuantity(value: number): string {
+  return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 2 }).format(value);
+}
+
+function scaledAmount(amount: number, ratio: number): string {
+  return Number.isFinite(amount) && amount > 0 ? formatQuantity(amount * ratio) : "q.b.";
+}
+
+export default function RecipeDetail({ match, stock, setStock, onBack, onShopMissing }: Props) {
+  const baseServings = Math.max(1, match.recipe.servings || 1);
+  const [servings, setServings] = useState(baseServings);
+  const [completing, setCompleting] = useState(false);
+  const [completed, setCompleted] = useState(false);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const ratio = servings / baseServings;
+  const allDosesKnown = match.recipe.ingredients.length > 0 &&
+    match.recipe.ingredients.every((ingredient) => Number.isFinite(ingredient.amount) && ingredient.amount > 0);
+  const completeInPantry = match.score >= 1 && match.missingIngredients.length === 0;
+  const plan = useMemo(() => {
+    if (!completeInPantry || !allDosesKnown) return { items: [] as ConsumptionPlan[], error: null as string | null };
+    try {
+      return { items: planConsumption(match.pantryProductsUsed, stock, ratio), error: null as string | null };
+    } catch (error) {
+      return { items: [] as ConsumptionPlan[], error: error instanceof Error ? error.message : "Impossibile calcolare il consumo." };
+    }
+  }, [allDosesKnown, completeInPantry, match.pantryProductsUsed, ratio, stock]);
+
+  const completeRecipe = () => {
+    if (plan.error || !plan.items.length) return;
+    setCompleting(true);
+    setCompletionError(null);
+    const quantities = new Map(plan.items.map((item) => [item.stockItemId, item.quantity]));
+    setStock((current) => current.map((item) => {
+      const consumed = quantities.get(item.id);
+      if (consumed === undefined) return item;
+      let remaining = consumed;
+      const batches = item.batches.map((batch) => {
+        const fromBatch = Math.min(batch.quantity, remaining);
+        remaining -= fromBatch;
+        return { ...batch, quantity: Math.max(0, batch.quantity - fromBatch) };
+      });
+      return { ...item, batches };
+    }));
+    setCompleted(true);
+    setCompleting(false);
+  };
+
+  const quality = match.recipe.quality;
+  const percent = Math.round(match.score * 100);
+  const scoreColor = percent === 100 ? colors.sage : percent >= 60 ? colors.expiring : colors.terracotta;
+  const totalCalories = match.recipe.caloriesPerServing > 0
+    ? Math.round(match.recipe.caloriesPerServing * servings)
+    : null;
+
+  return (
+    <div className="space-y-6">
+      <button onClick={onBack} aria-label="Torna alle ricette" className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium" style={{ color: colors.ink, backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+        <span aria-hidden="true" className="text-lg leading-none">←</span><span>Torna alle ricette</span>
+      </button>
+      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+        <div className="relative h-52" style={{ backgroundColor: colors.border }}>
+          {match.recipe.image && <img src={match.recipe.image} alt={match.recipe.title} className="w-full h-full object-cover" />}
+          <div className="absolute bottom-4 left-5 right-5">
+            <h2 className="text-2xl font-light text-white" style={{ fontFamily: fonts.display }}>{match.recipe.title}</h2>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-white/70 text-xs">
+              <span>⏱ {match.recipe.time} min</span><span>👥 {servings} porzioni</span><span>📊 {match.recipe.difficulty}</span>
+              {totalCalories !== null && <span>🔥 {totalCalories} kcal totali stimate</span>}
+            </div>
+          </div>
+        </div>
+        <div className="p-5 space-y-5" style={{ backgroundColor: colors.white }}>
+          <div className="flex flex-wrap justify-between gap-2">
+            <div className="flex gap-2 flex-wrap">{match.recipe.tags.map((tag) => <span key={tag} className="px-2.5 py-0.5 rounded-full text-xs" style={{ backgroundColor: colors.sageLight, color: colors.sageDark }}>{tag}</span>)}</div>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: quality === "VERIFIED" ? colors.sageLight : colors.amberLight, color: quality === "VERIFIED" ? colors.sageDark : colors.amberDark }}>{quality === "VERIFIED" ? "ricetta verificata" : "fonte esterna"}</span>
+          </div>
+
+          <section className="rounded-xl p-4" style={{ backgroundColor: colors.cream }}>
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-sm font-semibold">Calcolatore porzioni</p><p className="text-xs mt-1" style={{ color: colors.inkMuted }}>Le dosi degli ingredienti si aggiornano in proporzione.</p></div>
+              <div className="flex items-center gap-2">
+                <button type="button" aria-label="Una porzione in meno" onClick={() => setServings((value) => Math.max(1, value - 1))} className="h-9 w-9 rounded-lg" style={{ backgroundColor: colors.white, color: colors.ink }}>−</button>
+                <input aria-label="Numero di porzioni" type="number" min={1} max={100} step={1} value={servings} onChange={(event) => setServings(Math.min(100, Math.max(1, Number(event.target.value) || 1)))} className="h-9 w-16 rounded-lg border text-center" style={{ borderColor: colors.border, color: colors.ink }} />
+                <button type="button" aria-label="Una porzione in più" onClick={() => setServings((value) => Math.min(100, value + 1))} className="h-9 w-9 rounded-lg" style={{ backgroundColor: colors.white, color: colors.ink }}>+</button>
+              </div>
+            </div>
+            {totalCalories !== null && <p className="text-xs mt-3" style={{ color: colors.inkMuted }}>Circa {formatQuantity(match.recipe.caloriesPerServing)} kcal a porzione · {totalCalories} kcal in totale.</p>}
+          </section>
+
+          <div className="rounded-xl p-3" style={{ backgroundColor: colors.cream }}>
+            <div className="flex justify-between mb-2"><span className="text-xs font-semibold">{match.matchedIngredients.length}/{match.recipe.ingredients.length} ingredienti in dispensa</span><span style={{ color: scoreColor }}>{percent}%</span></div>
+            <div className="h-1.5 rounded-full" style={{ backgroundColor: colors.border }}><div className="h-1.5 rounded-full" style={{ width: `${percent}%`, backgroundColor: scoreColor }} /></div>
+          </div>
+
+          <div>
+            <SectionHeading>Ingredienti · {servings} porzioni</SectionHeading>
+            {match.recipe.ingredients.map((ingredient) => {
+              const present = match.matchedIngredients.includes(ingredient.name);
+              return <div key={`${ingredient.name}-${ingredient.amount}`} className="flex justify-between py-2 border-b" style={{ borderColor: colors.borderLight }}>
+                <span className="text-sm" style={{ color: present ? colors.ink : colors.terracotta }}>{present ? "✓" : "✗"} {ingredient.name}</span>
+                <span className="text-xs" style={{ color: colors.inkMuted }}>{scaledAmount(ingredient.amount, ratio)} {ingredient.unit}</span>
+              </div>;
+            })}
+            {match.missingIngredients.length > 0 && <button onClick={onShopMissing} className="mt-3 w-full py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: colors.terracotta, color: colors.white }}>Scegli cosa acquistare · {match.missingIngredients.length} {match.missingIngredients.length === 1 ? "mancante" : "mancanti"}</button>}
+          </div>
+
+          <section className="space-y-2">
+            <button type="button" onClick={completeRecipe} disabled={completing || completed || !completeInPantry || !allDosesKnown || Boolean(plan.error)} className="w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-50" style={{ backgroundColor: completed ? colors.sage : colors.terracotta, color: colors.white }}>
+              {completed ? "✓ Completata" : completing ? "Registrazione…" : "Completa ricetta"}
+            </button>
+            <p className="text-xs" style={{ color: colors.inkMuted }}>Il consumo riduce le dosi usate in dispensa e aggiorna il diario nutrienti tramite i movimenti registrati.</p>
+            {!completeInPantry && <p className="text-xs" style={{ color: colors.terracotta }}>Completa prima gli ingredienti mancanti in dispensa.</p>}
+            {completeInPantry && !allDosesKnown && <p className="text-xs" style={{ color: colors.terracotta }}>Mancano dosi precise: il calcolatore non registra consumi stimati.</p>}
+            {plan.error && <p role="alert" className="text-xs" style={{ color: colors.terracotta }}>{plan.error}</p>}
+            {completionError && <p role="alert" className="text-xs" style={{ color: colors.terracotta }}>{completionError}</p>}
+            {completed && <p role="status" className="text-xs" style={{ color: colors.sageDark }}>Consumo inviato. I nutrienti appariranno dopo l’elaborazione del movimento.</p>}
+          </section>
+
+          <div>
+            <SectionHeading>Preparazione</SectionHeading>
+            <ol className="space-y-3 mt-2">{match.recipe.steps.map((step, index) => <li key={index} className="flex gap-3 text-sm"><span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs" style={{ backgroundColor: colors.amberLight, color: colors.terracotta }}>{index + 1}</span>{step}</li>)}</ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
