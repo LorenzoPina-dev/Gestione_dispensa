@@ -105,7 +105,7 @@ async function replayPublishedEvents(since: Date): Promise<number> {
   let replayed = 0;
 
   while (true) {
-    const rows = await pool.query<OutboxReplayRow>(
+    const page: { rows: readonly OutboxReplayRow[]; rowCount: number | null } = await pool.query<OutboxReplayRow>(
       `select event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at::text as created_at
        from ${outboxTable}
        where created_at >= $1 and (created_at > $2 or (created_at = $2 and ($3::uuid is null or event_id > $3::uuid)))
@@ -113,9 +113,9 @@ async function replayPublishedEvents(since: Date): Promise<number> {
        limit $4`,
       [since, cursorAt, cursorId, batchSize],
     );
-    if (!rows.rowCount) break;
+    if (!page.rowCount) break;
 
-    for (const row of rows.rows) {
+    for (const row of page.rows as readonly OutboxReplayRow[]) {
       await redis.xAdd(stream, "*", { event: JSON.stringify(eventEnvelope(row)) });
       cursorAt = String(row.created_at);
       cursorId = String(row.event_id);
