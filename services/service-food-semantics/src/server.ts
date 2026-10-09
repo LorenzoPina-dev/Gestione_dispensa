@@ -36,6 +36,15 @@ async function translate(text: string, source: string, target: string): Promise<
     : null;
 }
 
+function normalizeTaxonomyInput(value: string): string {
+  return value
+    .trim()
+    .replace(/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?:/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function ancestorIds(entityId: string): Promise<string[]> {
   const result = await pool.query(
     `WITH RECURSIVE ancestors(source_key,source_id) AS (
@@ -229,7 +238,12 @@ app.post("/api/v1/resolve/ingredient", async (req, res) => {
 app.post("/api/v1/resolve/product", async (req, res) => {
   const productId = typeof req.body?.productId === "string" ? req.body.productId.trim() : "";
   const texts = Array.isArray(req.body?.texts) ? req.body.texts.filter((x: unknown): x is string => typeof x === "string" && Boolean(x.trim())) : [];
-  const taxonomyTags = Array.isArray(req.body?.taxonomyTags) ? req.body.taxonomyTags.filter((x: unknown): x is string => typeof x === "string" && Boolean(x.trim())) : [];
+  const taxonomyTags = Array.isArray(req.body?.taxonomyTags)
+    ? req.body.taxonomyTags
+        .filter((x: unknown): x is string => typeof x === "string" && Boolean(x.trim()))
+        .map(normalizeTaxonomyInput)
+        .filter(Boolean)
+    : [];
   if (!productId || (!texts.length && !taxonomyTags.length)) return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "productId and semantic inputs are required" } });
   try {
     const candidates: Candidate[] = [];
