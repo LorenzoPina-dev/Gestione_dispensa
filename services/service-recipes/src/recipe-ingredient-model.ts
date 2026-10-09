@@ -53,15 +53,24 @@ export async function resolveRecipeIngredient(name: string, quantity?: number | 
   const semanticText = parseFoodIngredientLine(name.trim()).ingredientText || name.trim();
   try {
     const resolved = await resolveFoodIngredient(semanticText, locale);
+    const displayName = resolved.displayName?.trim() || local.displayName;
+    if (resolved.status !== "RESOLVED") {
+      return {
+        ...local,
+        displayName,
+        ingredientTerms: [...new Set([...local.ingredientTerms, semanticText.toLowerCase(), displayName.toLowerCase()])].filter(Boolean),
+        semanticProvenance: resolved.provenance ?? local.semanticProvenance,
+      };
+    }
     const canonical = resolved.canonicalIngredient ?? local.canonicalIngredient;
     return {
       ...local,
       canonicalIngredient: canonical,
-      displayName: resolved.displayName?.trim() || local.displayName,
+      displayName,
       foodEntityId: resolved.foodEntityId ?? null,
-      semanticConfidence: Number(resolved.semanticConfidence ?? 0),
-      semanticStatus: resolved.status === "RESOLVED" ? (Number(resolved.semanticConfidence ?? 0) >= 0.9 ? "EXACT" : "INFERRED") : "UNKNOWN",
-      ingredientTerms: [...new Set([...local.ingredientTerms, semanticText.toLowerCase(), resolved.displayName?.toLowerCase() ?? "", ...(resolved.foodEntityAncestors ?? []), ...(resolved.foodEntityId ? [resolved.foodEntityId] : [])])].filter(Boolean),
+      semanticConfidence: Number(resolved.semanticConfidence ?? local.semanticConfidence),
+      semanticStatus: Number(resolved.semanticConfidence ?? 0) >= 0.9 ? "EXACT" : "INFERRED",
+      ingredientTerms: [...new Set([...local.ingredientTerms, semanticText.toLowerCase(), displayName.toLowerCase(), ...(resolved.foodEntityAncestors ?? []), ...(resolved.foodEntityId ? [resolved.foodEntityId] : [])])].filter(Boolean),
       culinaryWeight: classifyCulinaryWeight(canonical),
       semanticProvenance: resolved.provenance ?? "food-semantics",
     };
