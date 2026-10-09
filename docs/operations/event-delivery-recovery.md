@@ -4,7 +4,7 @@
 
 Each service writes domain changes and its outbox event in the same PostgreSQL transaction. A relay appends the event to the Redis stream, then marks the outbox row published. A crash between those two steps can append a duplicate; consumers must deduplicate by `eventId`.
 
-Inventory, nutrition, shopping, and notifications commit their database work before acknowledging a stream message. Inventory, nutrition, and the two updated workers reclaim idle pending messages with `XAUTOCLAIM`. If processing commits but the ACK is lost, replay is safe because the consumer's `event_consumers` or `processed_events` table rejects a repeated event ID.
+Inventory, nutrition, shopping, and notifications commit their database work before acknowledging a stream message. All four consumers reclaim idle pending messages with `XAUTOCLAIM` and continue from Redis's returned scan cursor. Advancing that cursor prevents an early group of repeatedly failing entries from hiding later pending messages. If processing commits but the ACK is lost, replay is safe because the consumer's `event_consumers` or `processed_events` table rejects a repeated event ID.
 
 Redis uses AOF persistence and a named Docker volume. A complete loss of that volume can still remove entries whose outbox rows are already marked published. Outbox replay covers that case while those source rows are retained.
 
@@ -30,7 +30,7 @@ npm --workspace @gestione-dispensa/worker-shopping test
 npm --workspace @gestione-dispensa/worker-notifications test
 ```
 
-The test writes one event, delivers it to a simulated crashed consumer without acknowledging it, reclaims it as a replacement consumer, checks the event ID, then acknowledges it. It uses unique stream and group names and removes them after the run.
+The test writes three events, delivers them to a simulated crashed consumer without acknowledging them, reclaims one per cursor page, verifies the scan reaches the end and checks every event ID, then acknowledges them. It uses unique stream and group names and removes them after the run.
 
 ## Retention status
 
