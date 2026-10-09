@@ -324,8 +324,10 @@ services:
 
   service-shopping:
     build: { context: ., dockerfile: services/service-shopping/Dockerfile }
-    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shopping_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", MIGRATION_DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db" }
-    depends_on: { postgres-app-role-init: { condition: service_completed_successfully } }
+    environment: { PORT: 3313, SERVICE_NAME: service-shopping, DATABASE_URL: "postgres://shopping_app:${POSTGRES_APP_PASSWORD:-change-me-app-local-only}@postgres:5432/shopping_db", FAMILY_SERVICE_BASE_URL: "http://service-family:3311/api/v1", FOOD_SEMANTICS_SERVICE_BASE_URL: "http://service-food-semantics:3410/api/v1", MIGRATION_DATABASE_URL: "postgres://shopping:shopping@postgres:5432/shopping_db" }
+    depends_on:
+      postgres-app-role-init: { condition: service_completed_successfully }
+      service-food-semantics: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data]
@@ -344,7 +346,10 @@ services:
       OFF_LOOKUP_SEARCH_TIMEOUT_MS: "9000"
       OFF_LOOKUP_INTERNAL_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
-    depends_on: { postgres-app-role-init: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
+    depends_on:
+      postgres-app-role-init: { condition: service_completed_successfully }
+      keycloak: { condition: service_healthy }
+      service-food-semantics: { condition: service_healthy }
     # Readiness includes PostgreSQL and OIDC discovery. Liveness remains available during bootstrap.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -419,7 +424,7 @@ services:
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dispensa-internal-dev}"
     depends_on:
       service-food-semantics-bootstrap: { condition: service_completed_successfully }
-      libretranslate: { condition: service_healthy, required: false }
+      libretranslate: { condition: service_healthy }
     healthcheck: *node-healthcheck
     restart: unless-stopped
     networks: [backend, data, egress]
