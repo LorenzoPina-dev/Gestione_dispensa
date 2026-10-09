@@ -135,17 +135,19 @@ async function processEvent(event: DomainEvent): Promise<void> {
 
 console.log(JSON.stringify({ worker: "worker-notifications", stream, group, consumer }));
 
+const retryIdleMs = Math.max(Number(process.env.EVENT_RETRY_IDLE_MS ?? 30000), 1000);
+
 while (!stopping) {
-  const result = await redis.xReadGroup(
+  const claimed = await redis.xAutoClaim(stream, group, consumer, retryIdleMs, "0-0", { COUNT: 20 });
+  const fresh = await redis.xReadGroup(
     group,
     consumer,
     [{ key: stream, id: ">" }],
     { COUNT: 20, BLOCK: 1000 },
   );
-  if (!result) continue;
+  const messages = [...(claimed.messages ?? []), ...(fresh?.[0]?.messages ?? [])];
 
-  for (const streamData of result) {
-    for (const message of streamData.messages) {
+  for (const message of messages) {
       try {
         const raw = message.message.event;
         const event = JSON.parse(raw) as DomainEvent;
@@ -159,6 +161,5 @@ while (!stopping) {
           error: error instanceof Error ? error.message : String(error),
         }));
       }
-    }
   }
 }
