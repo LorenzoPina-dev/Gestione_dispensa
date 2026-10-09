@@ -76,6 +76,7 @@ export async function upsertProductFoodSemantics(
   const resolved = await resolveProductIdentity(productId, canonicalName, snapshot);
   const semantics = deriveProductFoodSemantics(productId, snapshot, canonicalName, effectiveSourceVersion, {
     foodEntityId: resolved?.foodEntityId ?? null,
+    foodEntityAncestors: resolved?.foodEntityAncestors ?? [],
     semanticConfidence: Number(resolved?.semanticConfidence ?? 0),
     semanticStatus: resolved?.status === "RESOLVED" ? "EXACT" : undefined,
     provenance: resolved?.provenance ?? "food-semantics",
