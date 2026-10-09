@@ -192,6 +192,11 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
           </div>
         ))}
       </div>
+      {summary?.items.some((item) => item.confidence === "UNKNOWN") && (
+        <p className="text-xs -mt-5" style={{ color: colors.inkMuted }}>
+          Totali parziali: gli alimenti con nutrienti mancanti o unità non convertibili sono esclusi dai valori non calcolabili.
+        </p>
+      )}
 
       {period === "settimana" && (
         <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
@@ -480,7 +485,7 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold" style={{ color: colors.terracotta }}>{item.nutrients.calories}</p>
+                    <p className="text-sm font-semibold" style={{ color: colors.terracotta }}>{item.nutrients.confidence === "UNKNOWN" ? "—" : Math.round(item.nutrients.calories)}</p>
                     <p className="text-[10px]" style={{ color: colors.inkMuted }}>kcal</p>
                   </div>
                 </Row>
