@@ -1,0 +1,110 @@
+import { after, before, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { Pool } from "pg";
+
+const url = process.env.SHELF_LIFE_TEST_DATABASE_URL;
+if (!url) throw new Error("SHELF_LIFE_TEST_DATABASE_URL is required.");
+
+const pool = new Pool({ connectionString: url });
+const run = promisify(execFile);
+
+before(async () => {
+  await run("node", ["dist/migrate.js"], {
+    cwd: process.cwd(),
+    env: { ...process.env, DATABASE_URL: url },
+  });
+  await run("node", ["dist/migrate.js"], {
+    cwd: process.cwd(),
+    env: { ...process.env, DATABASE_URL: url },
+  });
+});
+
+after(async () => pool.end());
+
+describe("shelf-life migration", () => {
+  it("contains rules/predictions and infrastructure", async () => {
+    const q = await pool.query(
+      "select table_name,column_name from information_schema.columns where table_schema='shelf_life_domain'",
+    );
+    const columns = new Set(q.rows.map((row) => row.table_name + "." + row.column_name));
+    for (const expected of [
+      "rules.id",
+      "rules.product_category",
+      "rules.storage",
+      "rules.opened",
+      "rules.min_days",
+      "rules.target_days",
+      "rules.max_days",
+      "rules.model_version",
+      "product_profiles.id",
+      "product_profiles.product_id",
+      "product_profiles.storage",
+      "product_profiles.opened",
+      "product_profiles.min_days",
+      "product_profiles.target_days",
+      "product_profiles.max_days",
+      "predictions.id",
+      "predictions.item_id",
+      "predictions.product_id",
+      "predictions.storage",
+      "predictions.opened",
+      "predictions.category",
+      "predictions.stored_on",
+      "predictions.estimated_expires_at",
+      "predictions.confidence",
+      "predictions.status",
+      "idempotency_keys.key",
+      "outbox_events.event_id",
+    ]) {
+      assert.equal(columns.has(expected), true, "missing " + expected);
+    }
+  });
+
+
+  it("seeds a realistic commercial canned-food profile", async () => {
+    const q = await pool.query(
+      "select min_days,target_days,max_days from shelf_life_domain.rules where product_category='canned-preserved' and storage='PANTRY' and opened=false and model_version='profiles-v2'",
+    );
+    assert.equal(q.rowCount, 1);
+    assert.deepEqual(q.rows[0], { min_days: 730, target_days: 1095, max_days: 1825 });
+  });
+
+  it("seeds a generic fallback for every storage/opened state", async () => {
+    const q = await pool.query(
+      "select storage,opened,min_days,target_days,max_days from shelf_life_domain.rules where product_category is null order by storage,opened",
+    );
+    assert.equal(q.rowCount, 10);
+    assert.deepEqual(
+      q.rows,
+      [
+        { storage: "CELLAR", opened: false, min_days: 14, target_days: 30, max_days: 60 },
+        { storage: "CELLAR", opened: true, min_days: 7, target_days: 14, max_days: 21 },
+        { storage: "FREEZER", opened: false, min_days: 90, target_days: 135, max_days: 180 },
+        { storage: "FREEZER", opened: true, min_days: 30, target_days: 60, max_days: 90 },
+        { storage: "FRIDGE", opened: false, min_days: 7, target_days: 14, max_days: 21 },
+        { storage: "FRIDGE", opened: true, min_days: 2, target_days: 4, max_days: 7 },
+        { storage: "OTHER", opened: false, min_days: 14, target_days: 30, max_days: 60 },
+        { storage: "OTHER", opened: true, min_days: 7, target_days: 14, max_days: 21 },
+        { storage: "PANTRY", opened: false, min_days: 30, target_days: 60, max_days: 90 },
+        { storage: "PANTRY", opened: true, min_days: 7, target_days: 14, max_days: 21 },
+      ],
+    );
+  });
+
+  it("seeds the confectionery profile", async () => {
+    const q = await pool.query(
+      "select product_category,storage,opened,min_days,target_days,max_days from shelf_life_domain.rules where product_category='confectionery-candy' and storage='PANTRY' and opened=false",
+    );
+    assert.equal(q.rowCount, 1);
+    assert.deepEqual(q.rows[0], {
+      product_category: "confectionery-candy",
+      storage: "PANTRY",
+      opened: false,
+      min_days: 540,
+      target_days: 730,
+      max_days: 1095,
+    });
+  });
+});

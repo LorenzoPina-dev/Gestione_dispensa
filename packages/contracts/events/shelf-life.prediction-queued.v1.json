@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "shelf-life.prediction-queued.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "predictionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "itemId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "storage": {
+      "type": "string",
+      "enum": [
+        "PANTRY",
+        "FRIDGE",
+        "FREEZER",
+        "CELLAR",
+        "OTHER"
+      ]
+    },
+    "opened": {
+      "type": "boolean"
+    },
+    "category": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "storedOn": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    }
+  },
+  "required": [
+    "predictionId",
+    "itemId",
+    "productId",
+    "storage",
+    "opened",
+    "userId"
+  ]
+}

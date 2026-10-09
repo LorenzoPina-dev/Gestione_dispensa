@@ -5,7 +5,7 @@ import type { Request, Response } from "express";
 export interface HttpMeta { requestId: string; traceId: string; schemaVersion: "1.0"; }
 
 export interface HttpErrorBody {
-  error: { code: string; message: string; retryable: boolean; details?: unknown[] };
+  error: { code: string; message: string; retryable: boolean; details?: unknown[]; requestId: string };
   meta: HttpMeta;
 }
 
@@ -35,15 +35,15 @@ export function applyCorrelationHeaders(res: Response, meta: HttpMeta): void {
 }
 
 export function failure(code: string, message: string, meta: HttpMeta): HttpErrorBody {
-  return { error: { code, message, retryable: false, details: [] }, meta };
+  return { error: { code, message, retryable: false, details: [], requestId: meta.requestId }, meta };
 }
 
 export function sendFailure(res: Response, status: number, code: string, message: string, meta: HttpMeta): void {
   res.status(status).json(failure(code, message, meta));
 }
 
-export function sendSuccess<T>(res: Response, status: number, data: T, meta: HttpMeta): void {
-  res.status(status).json({ data, meta });
+export function sendSuccess<T>(res: Response, status: number, data: T, meta: HttpMeta, version = 1): void {
+  res.status(status).json({ data, version, meta });
 }
 
 /**
@@ -54,12 +54,12 @@ export function sendSuccess<T>(res: Response, status: number, data: T, meta: Htt
 export async function respond<T>(
   res: Response,
   meta: HttpMeta,
-  work: Promise<{ data: T; meta: HttpMeta }>,
+  work: Promise<{ data: T; meta: HttpMeta; version?: number; status?: number }>,
   toHttpError: (error: unknown, meta: HttpMeta) => { status: number; body: HttpErrorBody },
 ): Promise<void> {
   try {
     const result = await work;
-    sendSuccess(res, 200, result.data, result.meta);
+    sendSuccess(res, result.status ?? 200, result.data, result.meta, result.version);
   } catch (error) {
     const { status, body } = toHttpError(error, meta);
     res.status(status).json(body);

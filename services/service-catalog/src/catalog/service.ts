@@ -1,5 +1,21 @@
 export type ProductUnit = "g" | "kg" | "ml" | "l" | "piece" | "pack";
 export type ProductQuality = "VERIFIED" | "IMPORTED" | "ESTIMATED" | "UNKNOWN";
+export type { ProductFoodSemantics } from "./food-semantics.js";
+
+export interface ProductImages {
+  front?: string;
+  frontSmall?: string;
+  frontThumb?: string;
+  ingredients?: string;
+  ingredientsSmall?: string;
+  ingredientsThumb?: string;
+  nutrition?: string;
+  nutritionSmall?: string;
+  nutritionThumb?: string;
+  packaging?: string;
+  packagingSmall?: string;
+  packagingThumb?: string;
+}
 export type IdentifierType = "EAN8" | "EAN13" | "GTIN12" | "GTIN14" | "SKU" | "BARCODE";
 
 export interface CreateManualProductCommand {
@@ -12,6 +28,7 @@ export interface CreateManualProductCommand {
   carbs?: number;
   fat?: number;
   fiber?: number;
+  barcodes?: readonly string[];
   actorId: string;
   traceId: string;
 }
@@ -26,7 +43,7 @@ export interface Product {
   // (see CatalogWorkflowService.resolveBarcode) are genuinely IMPORTED, and the Postgres mapping
   // was already casting across this type without it being true -- this makes the type honest.
   provenanceQuality: ProductQuality;
-  version: 1;
+  version: number;
   category?: string;
   photoUrl?: string;
   calories?: number;
@@ -34,8 +51,21 @@ export interface Product {
   carbs?: number;
   fat?: number;
   fiber?: number;
+  quantityValue?: number;
+  quantityUnit?: string;
+  quantityLabel?: string;
+  servingSize?: string;
+  servingQuantity?: number;
+  servingUnit?: string;
+  images?: ProductImages;
+  openFoodFacts?: Record<string, unknown>;
+  /** Deterministic food identity derived from OFF/local product data. */
+  foodSemantics?: import("./food-semantics.js").ProductFoodSemantics;
   createdAt: Date;
   updatedAt: Date;
+  barcodes: string[];
+  externalSource?: string;
+  externalRef?: string;
 }
 
 export interface ProductProvenance {
@@ -48,18 +78,27 @@ export interface ProductProvenance {
 
 export interface CatalogUpdatedEvent {
   eventId: string;
-  eventType: "catalog.product-updated";
+  eventType: "ProductCreated" | "ProductUpdated" | "ProductEnriched";
   eventVersion: 1;
   aggregateType: "product";
   aggregateId: string;
-  actorId: string;
+  /** User subject when an actor exists; null for system-generated events. */
+  actorId: string | null;
   traceId: string;
-  changedFields: readonly string[];
+  payload: Readonly<Record<string, unknown>>;
+  changedFields?: readonly string[];
 }
 
 export interface CatalogRepository {
   listActive(): Promise<Product[]>;
   getById(productId: string): Promise<Product | undefined>;
+  getProductsByIds(productIds: readonly string[]): Promise<Product[]>;
+  updateProductAtomic(input: {
+    productId: string;
+    expectedVersion: number;
+    patch: { name?: string; brand?: string | null; category?: string | null; imageObjectKey?: string | null; nutrition?: Record<string, unknown> | null };
+    event: CatalogUpdatedEvent;
+  }): Promise<Product | undefined>;
   createManualProductAtomic(input: {
     product: Product;
     provenance: ProductProvenance;
@@ -73,6 +112,14 @@ export interface CatalogIdGenerator {
 
 export interface CatalogClock {
   now(): Date;
+}
+
+export class CatalogVersionConflictError extends Error {
+  public readonly code = "VERSION_CONFLICT";
+  public constructor() {
+    super("Product version changed.");
+    this.name = "CatalogVersionConflictError";
+  }
 }
 
 export class CatalogValidationError extends Error {
@@ -104,10 +151,16 @@ export class CatalogService {
     return this.repository.getById(productId);
   }
 
+  public async getProductsByIds(productIds: readonly string[]): Promise<Product[]> {
+    const normalized = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))].slice(0, 100);
+    return this.repository.getProductsByIds(normalized);
+  }
+
   public async createManualProduct(command: CreateManualProductCommand): Promise<Product> {
     const canonicalName = command.canonicalName.trim();
     const issues = validate(command, canonicalName);
     if (issues.length > 0) throw new CatalogValidationError(issues);
+    const barcodes = [...new Set((command.barcodes ?? []).map((value) => normalizeIdentifier("BARCODE", value)))];
     const productId = this.ids.next();
     const now = this.clock.now();
     return this.repository.createManualProductAtomic({
@@ -127,6 +180,7 @@ export class CatalogService {
         ...(command.fiber != null ? { fiber: command.fiber } : {}),
         createdAt: now,
         updatedAt: now,
+        barcodes,
       },
       provenance: {
         productId,
@@ -137,15 +191,48 @@ export class CatalogService {
       },
       event: {
         eventId: this.ids.next(),
-        eventType: "catalog.product-updated",
+        eventType: "ProductCreated",
         eventVersion: 1,
         aggregateType: "product",
         aggregateId: productId,
         actorId: command.actorId,
         traceId: command.traceId,
-        changedFields: ["canonicalName", "brand", "defaultUnit"],
+        payload: {
+          productId,
+          name: canonicalName,
+          brand: command.brand?.trim() ?? null,
+          category: command.category?.trim() ?? null,
+          barcodes,
+        },
       },
     });
+  }
+
+  public async updateProduct(
+    productId: string,
+    expectedVersion: number,
+    patch: { name?: string; brand?: string | null; category?: string | null; imageObjectKey?: string | null; nutrition?: Record<string, unknown> | null },
+    actorId: string,
+    traceId: string,
+  ): Promise<Product | undefined> {
+    if (!productId.trim() || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new CatalogValidationError(["productId and expectedVersion are required"]);
+    }
+    const event: CatalogUpdatedEvent = {
+      eventId: this.ids.next(),
+      eventType: "ProductUpdated",
+      eventVersion: 1,
+      aggregateType: "product",
+      aggregateId: productId,
+      actorId,
+      traceId,
+      changedFields: Object.keys(patch),
+      payload: {
+        productId,
+        changedFields: Object.keys(patch),
+      },
+    };
+    return this.repository.updateProductAtomic({ productId, expectedVersion, patch, event });
   }
 }
 

@@ -1,0 +1,36 @@
+{
+  "name": "@gestione-dispensa/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build:domain && tsc -p tsconfig.app.json && vite build",
+    "build:domain": "tsc -p tsconfig.json",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "test": "npm run build:domain && node --test dist-domain/shell.test.js dist-domain/dashboard.test.js dist-domain/family-journey.test.js dist-domain/family-onboarding.test.js dist-domain/inventory-journey.test.js dist-domain/inventory-workflow.test.js dist-domain/shopping-journey.test.js dist-domain/units.test.js dist-domain/shopping-suggestions.test.js dist-domain/shopping-checkout.test.js dist-domain/receipt-scan.test.js dist-domain/barcode.test.js dist-domain/barcode-scanner.test.js dist-domain/barcode-camera.test.js dist-domain/runtime.test.js"
+  },
+  "dependencies": {
+    "oidc-client-ts": "^3.5.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.15",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
+    "@gestione-dispensa/contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.0.0",
+    "vite-plugin-mkcert": "^1.17.12"
+  }
+}

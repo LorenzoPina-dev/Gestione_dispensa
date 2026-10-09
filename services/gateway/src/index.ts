@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from "express";
+import { Readable } from "node:stream";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { annotate, currentContext, errorMiddleware, log, metrics, metricsHandler, noteUpstreamError, rebindContext, recordError, requestObservability, startObservability } from "./observability.js";
+import { annotate, currentContext, errorMiddleware, log, metrics, metricsHandler, noteUpstreamError, rebindContext, recordError, requestObservability, startObservability } from "@gestione-dispensa/observability";
 
 // Must run before anything else: installs structured logging, outbound fetch tracing and crash handlers.
 startObservability("gateway");
@@ -14,21 +15,68 @@ const shoppingBaseUrl = (process.env.SHOPPING_SERVICE_BASE_URL ?? "http://servic
 const catalogBaseUrl = (process.env.CATALOG_SERVICE_BASE_URL ?? "http://service-catalog:3314/api/v1").replace(/\/$/, "");
 const notificationsBaseUrl = (process.env.NOTIFICATIONS_SERVICE_BASE_URL ?? "http://service-notifications:3315/api/v1").replace(/\/$/, "");
 const privacyBaseUrl = (process.env.PRIVACY_SERVICE_BASE_URL ?? "http://service-privacy:3316/api/v1").replace(/\/$/, "");
-const jobsBaseUrl = (process.env.JOBS_SERVICE_BASE_URL ?? "http://service-jobs:3317/api/v1").replace(/\/$/, "");
 const requestTimeoutMs = Number(process.env.GATEWAY_TIMEOUT_MS ?? 5000);
 const recipesBaseUrl = (process.env.RECIPES_SERVICE_BASE_URL ?? "http://service-recipes:3401/api/v1").replace(/\/$/, "");
 const nutritionBaseUrl = (process.env.NUTRITION_SERVICE_BASE_URL ?? "http://service-nutrition:3402/api/v1").replace(/\/$/, "");
 const storesBaseUrl = (process.env.STORES_SERVICE_BASE_URL ?? "http://service-stores:3403/api/v1").replace(/\/$/, "");
+const serviceRouteTable = [
+  { prefix: "/families", base: familyBaseUrl, proxy: true },
+  { prefix: "/family-invites", base: familyBaseUrl, proxy: true },
+  { prefix: "/invites", base: familyBaseUrl, proxy: true },
+  { prefix: "/inventory", base: inventoryBaseUrl, proxy: true },
+  { prefix: "/shopping", base: shoppingBaseUrl, proxy: true },
+  { prefix: "/products", base: catalogBaseUrl, proxy: false },
+  { prefix: "/catalog", base: catalogBaseUrl, proxy: true },
+  { prefix: "/notifications", base: notificationsBaseUrl, proxy: true },
+  { prefix: "/privacy", base: privacyBaseUrl, proxy: true },
+  { prefix: "/identity", base: identityBaseUrl, proxy: true },
+  { prefix: "/meta", base: identityBaseUrl, proxy: true },
+] as const;
+
 const oidcIssuer = process.env.OIDC_ISSUER ?? "";
 const oidcAudience = process.env.OIDC_AUDIENCE ?? "";
 const oidcJwksUrl = process.env.OIDC_JWKS_URL ?? "http://keycloak:8080/realms/dispensa/protocol/openid-connect/certs";
-const jwks = createRemoteJWKSet(new URL(oidcJwksUrl));
+// jose abbandona il fetch delle chiavi dopo 5s (ERR_JWKS_TIMEOUT -> 401 "Invalid access token"): sotto carico
+// (avvio dello stack, Keycloak freddo) il default è troppo stretto. Le chiavi poi restano in cache.
+const jwks = createRemoteJWKSet(new URL(oidcJwksUrl), {
+  timeoutDuration: Number(process.env.OIDC_JWKS_TIMEOUT_MS ?? 15_000),
+  cooldownDuration: 5_000,
+});
+
+/** Scalda la cache JWKS all'avvio (con retry), così il primo login non paga la lentezza di Keycloak. */
+async function warmJwks(): Promise<void> {
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    try {
+      await jwks({ alg: "RS256" });
+      log.info("oidc.jwks_warmed", { attempt });
+      return;
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      // Chiavi scaricate ma nessuna/più corrispondenze per alg: la cache è comunque popolata.
+      if (code === "ERR_JWKS_NO_MATCHING_KEY" || code === "ERR_JWKS_MULTIPLE_MATCHING_KEYS") {
+        log.info("oidc.jwks_warmed", { attempt });
+        return;
+      }
+      log.warn("oidc.jwks_warmup_failed", { attempt, code }, error);
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    }
+  }
+}
+void warmJwks();
 
 app.disable("x-powered-by");
 // First middleware: assigns requestId/traceId (or continues the ones sent by nginx/browser) and writes one access-log line per request.
 app.use(requestObservability());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "2mb", type: (req) => !String(req.headers["content-type"] ?? "").toLowerCase().startsWith("multipart/form-data") }));
 app.use(rebindContext());
+
+// Header d'identità interni: li imposta SOLO il gateway dopo aver verificato il JWT. Qualunque valore
+// inviato dal browser (anche su rotte pubbliche) viene scartato per impedire lo spoofing dell'utente.
+const INTERNAL_IDENTITY_HEADERS = ["x-user-id", "x-oidc-sub", "x-user-email", "x-user-name", "x-user-username"] as const;
+app.use((req, _res, next) => {
+  for (const name of INTERNAL_IDENTITY_HEADERS) delete req.headers[name];
+  next();
+});
 
 const clientErrors = metrics.counter("web_client_errors_total", "Errors reported by the browser app.", ["kind"]);
 const CLIENT_ERROR_KINDS = new Set(["js_error", "unhandled_rejection", "react_render", "api_error", "network_error"]);
@@ -74,19 +122,17 @@ app.use("/api/v1/views", requireGatewayAuth);
 app.post("/api/v1/auth/register", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/reset-password", serviceProxy(identityBaseUrl));
 app.post("/api/v1/auth/logout", serviceProxy(identityBaseUrl));
-app.get("/api/v1/meta", serviceProxy(identityBaseUrl));
-for (const [prefix, base] of [
-  ["/api/v1/auth", identityBaseUrl], ["/api/v1/me", identityBaseUrl], ["/api/v1/meta", identityBaseUrl],
-  ["/api/v1/families", familyBaseUrl], ["/api/v1/family-invites", familyBaseUrl], ["/api/v1/invites", familyBaseUrl],
-  ["/api/v1/inventory", inventoryBaseUrl], ["/api/v1/shopping-lists", shoppingBaseUrl], ["/api/v1/shopping", shoppingBaseUrl],
-  ["/api/v1/products", catalogBaseUrl], ["/api/v1/catalog", catalogBaseUrl],
-  ["/api/v1/notifications", notificationsBaseUrl], ["/api/v1/privacy", privacyBaseUrl], ["/api/v1/jobs", jobsBaseUrl],
-] as const) app.use(prefix, requireGatewayAuth, serviceProxy(base));
+app.get("/api/v1/family-invites/:token", serviceProxy(familyBaseUrl));
+app.get("/api/v1/inventory", requireGatewayAuth, inventoryListView);
+app.get("/api/v1/inventory/:itemId", requireGatewayAuth, inventoryItemView);
+
+for (const route of serviceRouteTable.filter((entry) => entry.proxy)) {
+  app.use("/api/v1" + route.prefix, requireGatewayAuth, serviceProxy(route.base));
+}
 app.use("/api/v1/recipes", requireGatewayAuth, serviceProxy(recipesBaseUrl));
 app.use("/api/v1/nutrition", requireGatewayAuth, serviceProxy(nutritionBaseUrl));
 app.use("/api/v1/stores", requireGatewayAuth, serviceProxy(storesBaseUrl));
 app.use("/api/v1/shelf-life", requireGatewayAuth, serviceProxy(`${process.env.SHELF_LIFE_SERVICE_BASE_URL ?? "http://service-shelf-life:3404/api/v1"}`));
-app.use("/api/v1/ocr-jobs", requireGatewayAuth, serviceProxy(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`));
 app.use("/api/v1/ocr", requireGatewayAuth, serviceProxy(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`));
 
 
@@ -107,21 +153,32 @@ app.get("/health/ready", async (_req, res) => {
  * the gateway fans out to the owning API domains in parallel and returns one view model.
  * Domain services can later move behind these calls without changing the Web contract.
  */
-app.get("/api/v1/views/dashboard-today", (req, res) => composite(req, res, dashboardView));
-app.get("/api/v1/views/pantry-screen", (req, res) => composite(req, res, pantryView));
-app.get("/api/v1/views/shopping-screen", (req, res) => composite(req, res, shoppingView));
-app.get("/api/v1/views/recipes-screen", (req, res) => composite(req, res, recipesView));
-app.get("/api/v1/views/nutrition-screen", (req, res) => composite(req, res, nutritionView));
-app.get("/api/v1/views/family-screen", (req, res) => composite(req, res, familyView));
-app.get("/api/v1/views/notifications-screen", (req, res) => composite(req, res, notificationsView));
+app.get("/api/v1/dashboard", requireGatewayAuth, (req, res) => composite(req, res, dashboardView));
+app.get("/api/v1/views/dashboard-today", requireGatewayAuth, (req, res) => composite(req, res, dashboardView));
+app.get("/api/v1/views/pantry-screen", requireGatewayAuth, (req, res) => composite(req, res, pantryView));
+app.get("/api/v1/views/shopping-screen", requireGatewayAuth, (req, res) => composite(req, res, shoppingView));
+app.get("/api/v1/views/recipes-screen", requireGatewayAuth, (req, res) => composite(req, res, recipesView));
+app.get("/api/v1/views/nutrition-screen", requireGatewayAuth, (req, res) => composite(req, res, nutritionView));
+app.get("/api/v1/views/family-screen", requireGatewayAuth, (req, res) => composite(req, res, familyView));
+app.get("/api/v1/views/notifications-screen", requireGatewayAuth, (req, res) => composite(req, res, notificationsView));
 
 async function requireGatewayAuth(req: Request, res: Response, next: express.NextFunction) {
   const header = req.header("authorization");
-  if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: { code: "UNAUTHENTICATED", message: "Authentication is required.", retryable: false } });
+  if (!header?.startsWith("Bearer ")) return res.status(401).json(withMeta({ error: { code: "UNAUTHENTICATED", message: "Authentication is required.", retryable: false } }));
   if (!oidcIssuer || !oidcAudience) return res.status(503).json({ error: { code: "AUTH_NOT_CONFIGURED", message: "Gateway identity verification is not configured.", retryable: true } });
   try {
     const { payload } = await jwtVerify(header.slice(7), jwks, { issuer: oidcIssuer, audience: oidcAudience });
-    if (payload.sub) annotate({ userId: payload.sub });
+    if (payload.sub) {
+      annotate({ userId: payload.sub });
+      // Domain services receive the verified subject as internal request context.
+      // The browser cannot authoritatively set this value.
+      req.headers["x-user-id"] = String(payload.sub);
+      req.headers["x-oidc-sub"] = String(payload.sub);
+      // Claim del profilo, percent-encoded perché gli header HTTP non ammettono caratteri non ASCII.
+      if (typeof payload.email === "string") req.headers["x-user-email"] = encodeURIComponent(payload.email);
+      if (typeof payload.name === "string") req.headers["x-user-name"] = encodeURIComponent(payload.name);
+      if (typeof payload.preferred_username === "string") req.headers["x-user-username"] = encodeURIComponent(payload.preferred_username);
+    }
   } catch (error) {
     // The reason (expired, bad signature, wrong issuer/audience, JWKS unreachable) tells a client bug from a config bug.
     recordError(error, { status: 401 });
@@ -140,26 +197,49 @@ function serviceProxy(baseUrl: string): express.RequestHandler {
     const headers: Record<string,string> = { Accept: "application/json" };
     const authorization = req.header("authorization"); if (authorization) headers.Authorization = authorization;
     const hasBody = !["GET", "HEAD"].includes(req.method);
-    if (hasBody) headers["Content-Type"] = "application/json";
+    const incomingContentType = req.header("content-type") ?? "";
+    const isMultipart = incomingContentType.toLowerCase().startsWith("multipart/form-data");
+    if (hasBody && !isMultipart) headers["Content-Type"] = "application/json";
+    if (isMultipart) headers["Content-Type"] = incomingContentType;
     // Headers the domain services depend on: RLS family context, idempotency and optimistic locking.
     // traceparent / x-request-id are added automatically by the instrumented fetch.
-    for (const name of ["x-family-id", "idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    for (const name of ["x-user-id", "x-oidc-sub", "x-user-email", "x-user-name", "x-user-username", "x-correlation-id", "idempotency-key", "x-idempotency-key", "if-match"]) { const value = req.header(name); if (value) headers[name] = value; }
+    // Family context is never accepted from a forged x-family-id header. Derive it from the
+    // validated request shape (query/body/path) and let the owning service authorize membership.
+    const familyId = extractFamilyId(req);
+    if (familyId) headers["x-family-id"] = familyId;
     const target = `${url.host}${url.pathname}`;
     annotate({ upstream: target });
     try {
-      const upstream = await fetch(url, {
+      const init: RequestInit & { duplex?: "half" } = {
         method: req.method,
         headers,
-        ...(hasBody ? { body: JSON.stringify(req.body ?? {}) } : {}),
         signal: AbortSignal.timeout(requestTimeoutMs),
-      });
+      };
+      if (hasBody) {
+        if (isMultipart) {
+          init.body = Readable.toWeb(req) as unknown as BodyInit;
+          init.duplex = "half";
+        } else {
+          init.body = JSON.stringify(req.body ?? {});
+        }
+      }
+      const upstream = await fetch(url, init);
       const text = await upstream.text();
       if (upstream.status >= 400) {
         // Copy the upstream error code/message into this hop's access-log line: one log line tells who failed and why.
         try { noteUpstreamFailure(JSON.parse(text), target); } catch { noteUpstreamFailure(undefined, target); }
       }
       res.status(upstream.status);
-      const contentType = upstream.headers.get("content-type"); if (contentType) res.setHeader("content-type",contentType);
+      const contentType = upstream.headers.get("content-type");
+      if (upstream.status >= 400) {
+        let body: unknown = undefined;
+        try { body = JSON.parse(text); } catch { body = undefined; }
+        const normalized = normalizeGatewayError(body, upstream.status);
+        res.json(normalized);
+        return;
+      }
+      if (contentType) res.setHeader("content-type", contentType);
       res.send(text);
     } catch (error) {
       recordError(error, { status: 502 });
@@ -176,13 +256,19 @@ async function composite(
 ): Promise<void> {
   const familyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
   if (!familyId) {
-    res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "familyId is required", retryable: false } });
+    res.status(400).json(withMeta({ error: { code: "VALIDATION_ERROR", message: "familyId is required", retryable: false } }));
     return;
   }
   if (/^[A-Za-z0-9._:-]{8,128}$/.test(familyId)) annotate({ familyId }); // log correlation only; user input, so shape-checked
   try {
-    const data = await builder(familyId, req.header("authorization") ?? undefined);
-    res.status(200).json({ data, meta: { schemaVersion: "view.v1" } });
+    const built = await builder(familyId, req.header("authorization") ?? undefined);
+    const partialFailures = Array.isArray((built as Record<string, unknown>).partialFailures)
+      ? (built as Record<string, unknown>).partialFailures
+      : [];
+    const data = Object.fromEntries(
+      Object.entries(built).filter(([key]) => key !== "partialFailures"),
+    );
+    res.status(200).json({ data, partialFailures, meta: { schemaVersion: "view.v1" } });
   } catch (error) {
     const status = error instanceof GatewayError ? error.status : 502;
     const body = error instanceof GatewayError ? error.body : undefined;
@@ -192,26 +278,150 @@ async function composite(
   }
 }
 
-async function dashboardView(familyId: string, authorization?: string) {
-  const [family, members, pantry, shopping, recipes, notifications, ocr] = await Promise.all([
-    coreGet(`/families/${encodeURIComponent(familyId)}`, authorization),
-    coreGet(`/families/${encodeURIComponent(familyId)}/members`, authorization),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
-    coreGet("/shopping-lists/active", authorization, { familyId }),
-    serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
-    coreGet("/notifications", authorization, { familyId }),
-    serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr-jobs", authorization, { familyId, status: "NEEDS_REVIEW" }),
-  ]);
-  return composeCommon(familyId, family, members, pantry, shopping, notifications, {
-    suggestedRecipes: recipes.suggestions ?? [],
-    pendingOcrReviews: ocr.jobs ?? [],
+
+async function enrichInventoryItems(items: Array<Record<string, any>>, authorization?: string): Promise<Array<Record<string, any>>> {
+  const productIds = [...new Set(items
+    .map((item) => typeof item.productId === "string" ? item.productId : "")
+    .filter(Boolean))];
+  if (productIds.length === 0) return items;
+
+  const response = await servicePost(catalogBaseUrl, "/catalog/products/batch", { ids: productIds }, authorization);
+  const products = new Map<string, Record<string, any>>();
+  for (const product of Array.isArray(response.items) ? response.items : []) {
+    if (product && typeof product.productId === "string") products.set(product.productId, product);
+  }
+
+  return items.map((item) => {
+    const product = typeof item.productId === "string" ? products.get(item.productId) : undefined;
+    if (!product) return item;
+    return {
+      ...item,
+      productName: product.name ?? item.productName,
+      brand: product.brand ?? item.brand,
+      category: product.category ?? item.category,
+      imageUrl: product.imageObjectKey ?? item.imageUrl,
+      package: product.package ?? item.package,
+      calories: product.nutrition?.kcalPer100g ?? item.calories,
+      protein: product.nutrition?.proteinGPer100g ?? item.protein,
+      carbs: product.nutrition?.carbsGPer100g ?? item.carbs,
+      fat: product.nutrition?.fatGPer100g ?? item.fat,
+      fiber: product.nutrition?.fiberGPer100g ?? item.fiber,
+    };
   });
+}
+
+async function getEnrichedInventory(familyId: string, authorization?: string): Promise<Record<string, any>> {
+  const inventory = await coreGet("/inventory", authorization, { familyId });
+  const items = Array.isArray(inventory.items) ? inventory.items as Array<Record<string, any>> : [];
+  return {
+    ...inventory,
+    items: await enrichInventoryItems(items, authorization),
+  };
+}
+
+async function inventoryListView(req: Request, res: Response): Promise<void> {
+  const familyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
+  if (!familyId) {
+    res.status(400).json(withMeta({ error: { code: "VALIDATION_ERROR", message: "familyId is required", retryable: false } }));
+    return;
+  }
+  try {
+    const authorization = req.header("authorization") ?? undefined;
+    const inventory = await getEnrichedInventory(familyId, authorization);
+    res.status(200).json({ items: inventory.items ?? [], nextCursor: inventory.nextCursor ?? null });
+  } catch (error) {
+    const status = error instanceof GatewayError ? error.status : 502;
+    const body = error instanceof GatewayError ? error.body : undefined;
+    recordError(error, { status });
+    if (error instanceof GatewayError) noteUpstreamFailure(error.body, error.target);
+    res.status(status).json(withMeta(body ?? { error: { code: "UPSTREAM_UNAVAILABLE", message: "Inventory unavailable", retryable: true } }));
+  }
+}
+
+async function inventoryItemView(req: Request, res: Response): Promise<void> {
+  const familyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
+  const itemId = typeof req.params.itemId === "string" ? req.params.itemId.trim() : "";
+  if (!familyId || !itemId) {
+    res.status(400).json(withMeta({ error: { code: "VALIDATION_ERROR", message: "familyId and itemId are required", retryable: false } }));
+    return;
+  }
+  try {
+    const authorization = req.header("authorization") ?? undefined;
+    const inventory = await coreGet("/inventory/" + encodeURIComponent(itemId), authorization, { familyId });
+    const single = inventory.data ?? inventory;
+    const enriched = await enrichInventoryItems([single as Record<string, any>], authorization);
+    res.status(200).json({ data: enriched[0] ?? single });
+  } catch (error) {
+    const status = error instanceof GatewayError ? error.status : 502;
+    const body = error instanceof GatewayError ? error.body : undefined;
+    recordError(error, { status });
+    if (error instanceof GatewayError) noteUpstreamFailure(error.body, error.target);
+    res.status(status).json(withMeta(body ?? { error: { code: "UPSTREAM_UNAVAILABLE", message: "Inventory unavailable", retryable: true } }));
+  }
+}
+
+async function getActiveShopping(familyId: string, authorization?: string): Promise<Record<string, any> | undefined> {
+  const lists = await serviceGet(shoppingBaseUrl, "/shopping/lists", authorization, { familyId });
+  const active = Array.isArray(lists.items) ? lists.items.find((item: any) => item.status === "open") : undefined;
+  if (!active) return undefined;
+  const detail = await serviceGet(shoppingBaseUrl, `/shopping/lists/${encodeURIComponent(String(active.listId))}`, authorization, { familyId });
+  return {
+    list: {
+      listId: String(detail.listId),
+      name: String(detail.name),
+      status: detail.status,
+      itemCount: Array.isArray(detail.items) ? detail.items.length : 0,
+      version: Number(detail.version ?? active.version ?? 1),
+    },
+    items: Array.isArray(detail.items) ? detail.items : [],
+  };
+}
+
+async function dashboardView(familyId: string, authorization?: string) {
+  const sources = await Promise.all([
+    settleDownstream("family", () => coreGet(`/families/${encodeURIComponent(familyId)}`, authorization)),
+    settleDownstream("family", () => coreGet(`/families/${encodeURIComponent(familyId)}/members`, authorization)),
+    settleDownstream("inventory", () => getEnrichedInventory(familyId, authorization)),
+    settleDownstream("shopping", () => getActiveShopping(familyId, authorization)),
+    settleDownstream("recipes", () => serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId })),
+    settleDownstream("notifications", () => coreGet("/notifications", authorization, { familyId })),
+    settleDownstream("ocr", () => serviceGet(`${process.env.OCR_SERVICE_BASE_URL ?? "http://service-ocr:3405/api/v1"}`, "/ocr/jobs", authorization, { familyId, status: "needs_review" })),
+  ]);
+  const [family, members, pantry, shopping, recipes, notifications, ocr] = sources.map((x) => x.value);
+  const partialFailures = sources.flatMap((x) => x.failure ? [x.failure] : []);
+  return composeCommon(familyId, family, members, pantry, shopping, notifications, {
+    ...(recipes ? { suggestedRecipes: recipes.items ?? [] } : {}),
+    ...(ocr ? { pendingOcrReviews: ocr.items ?? [] } : {}),
+    partialFailures,
+  });
+}
+
+type PartialFailure = { service: string; code: string; requestId?: string };
+async function settleDownstream<T>(
+  service: string,
+  work: () => Promise<T>,
+): Promise<{ value?: T; failure?: PartialFailure }> {
+  try {
+    return { value: await work() };
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      const body = error.body as { error?: { code?: unknown; requestId?: unknown } } | undefined;
+      return {
+        failure: {
+          service,
+          code: typeof body?.error?.code === "string" ? body.error.code : "UPSTREAM_UNAVAILABLE",
+          ...(typeof body?.error?.requestId === "string" ? { requestId: body.error.requestId } : {}),
+        },
+      };
+    }
+    return { failure: { service, code: "UPSTREAM_UNAVAILABLE" } };
+  }
 }
 
 async function pantryView(familyId: string, authorization?: string) {
   const [pantry, shopping, notifications] = await Promise.all([
-    coreGet("/inventory/stock-items", authorization, { familyId }),
-    coreGet("/shopping-lists/active", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
+    getActiveShopping(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, shopping, notifications);
@@ -219,8 +429,8 @@ async function pantryView(familyId: string, authorization?: string) {
 
 async function shoppingView(familyId: string, authorization?: string) {
   const [shopping, pantry, notifications] = await Promise.all([
-    coreGet("/shopping-lists/active", authorization, { familyId }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    getActiveShopping(familyId, authorization),
+    getEnrichedInventory(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, shopping, notifications);
@@ -229,19 +439,19 @@ async function shoppingView(familyId: string, authorization?: string) {
 async function recipesView(familyId: string, authorization?: string) {
   const [recipes, pantry, shopping, notifications] = await Promise.all([
     serviceGet(recipesBaseUrl, "/recipes/suggestions", authorization, { familyId }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
-    coreGet("/shopping-lists/active", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
+    getActiveShopping(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, shopping, notifications, {
-    suggestedRecipes: recipes.suggestions ?? [],
+    suggestedRecipes: recipes.items ?? [],
   });
 }
 
 async function nutritionView(familyId: string, authorization?: string) {
   const [nutrition, pantry, notifications] = await Promise.all([
     serviceGet(nutritionBaseUrl, "/nutrition/summary", authorization, { familyId, period: "today" }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
     coreGet("/notifications", authorization, { familyId }),
   ]);
   return composeCommon(familyId, undefined, undefined, pantry, undefined, notifications, { nutrition });
@@ -257,8 +467,8 @@ async function familyView(familyId: string, authorization?: string) {
   return {
     familyId,
     family: family.family ?? family,
-    members: members.memberships ?? [],
-    invites: invites.invites ?? [],
+    members: members.items ?? [],
+    invites: invites.items ?? [],
     navigationSummary: navigationSummary(undefined, undefined, notifications),
   };
 }
@@ -266,11 +476,11 @@ async function familyView(familyId: string, authorization?: string) {
 async function notificationsView(familyId: string, authorization?: string) {
   const [notifications, pantry] = await Promise.all([
     coreGet("/notifications", authorization, { familyId }),
-    coreGet("/inventory/stock-items", authorization, { familyId }),
+    getEnrichedInventory(familyId, authorization),
   ]);
   return {
     familyId,
-    notifications: notifications.notifications ?? [],
+    notifications: notifications.items ?? [],
     navigationSummary: navigationSummary(pantry, undefined, notifications),
   };
 }
@@ -286,11 +496,11 @@ function composeCommon(
 ) {
   return {
     familyId,
-    family: family?.family ?? family,
-    members: members?.memberships ?? [],
-    pantry: pantry?.items ?? [],
-    shopping: shopping ?? null,
-    notifications: notifications?.notifications ?? [],
+    ...(family ? { family: family.family ?? family } : {}),
+    ...(members ? { members: members.items ?? [] } : {}),
+    ...(pantry ? { pantry: pantry.items ?? [] } : {}),
+    ...(shopping !== undefined ? { shopping: shopping ?? null } : {}),
+    ...(notifications ? { notifications: notifications.items ?? [] } : {}),
     ...extra,
     navigationSummary: navigationSummary(pantry, shopping, notifications),
   };
@@ -313,27 +523,57 @@ function navigationSummary(
     if (days <= 0) expired += 1;
     else if (days <= 5) expiringSoon += 1;
   }
-  const unread = Array.isArray(notifications?.notifications)
-    ? notifications.notifications.filter((n: any) => !n.readAt).length
+  const unread = Array.isArray(notifications?.items)
+    ? notifications.items.filter((n: any) => !n.readAt).length
     : 0;
   const pendingShopping = Array.isArray(shopping?.items)
     ? shopping.items.filter((i: any) => i.state === "ACCEPTED").length
     : 0;
-  return { expiredCount: expired, expiringSoonCount: expiringSoon, unreadNotifications: unread, pendingShopping };
+  return {
+    ...(pantry ? { expiredCount: expired, expiringSoonCount: expiringSoon } : {}),
+    ...(notifications ? { unreadNotifications: unread } : {}),
+    ...(shopping !== undefined ? { pendingShopping } : {}),
+  };
 }
 
 async function coreGet(path: string, authorization?: string, query?: Record<string, string>): Promise<Record<string, any>> {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  const table: Array<[string, string]> = [
-    ["/families", familyBaseUrl], ["/family-invites", familyBaseUrl], ["/invites", familyBaseUrl],
-    ["/inventory", inventoryBaseUrl], ["/shopping-lists", shoppingBaseUrl], ["/shopping", shoppingBaseUrl],
-    ["/products", catalogBaseUrl], ["/catalog", catalogBaseUrl], ["/notifications", notificationsBaseUrl],
-    ["/privacy", privacyBaseUrl], ["/jobs", jobsBaseUrl], ["/auth", identityBaseUrl], ["/me", identityBaseUrl], ["/meta", identityBaseUrl],
-  ];
-  const entry = table.find(([prefix]) => normalized === prefix || normalized.startsWith(`${prefix}/`));
-  const result = entry ? await callBase(entry[1], normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
+  const entry = serviceRouteTable.find(({ prefix }) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+  const result = entry ? await callBase(entry.base, normalized, authorization, query) : await callBase(identityBaseUrl, normalized, authorization, query);
   if (!result.ok) throw new GatewayError(result.status, result.body, result.target);
   return (result.body?.data ?? result.body) as Record<string, any>;
+}
+
+async function servicePost(baseUrl: string, path: string, body: unknown, authorization?: string): Promise<Record<string, any>> {
+  const url = new URL(`${baseUrl}${path}`);
+  const ctx = currentContext();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    };
+    if (ctx?.userId) headers["x-user-id"] = ctx.userId;
+    if (ctx?.familyId) headers["x-family-id"] = ctx.familyId;
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new GatewayError(response.status, result, `${url.host}${url.pathname}`);
+    return (result?.data ?? result) as Record<string, any>;
+  } catch (error) {
+    if (error instanceof GatewayError) throw error;
+    throw new GatewayError(502, {
+      error: { code: "UPSTREAM_UNAVAILABLE", message: "Catalog batch lookup unavailable.", retryable: true },
+    }, `${url.host}${url.pathname}`, error);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function serviceGet(baseUrl: string, path: string, authorization?: string, query?: Record<string, string>): Promise<Record<string, any>> {
@@ -342,17 +582,33 @@ async function serviceGet(baseUrl: string, path: string, authorization?: string,
   return (result.body?.data ?? result.body) as Record<string, any>;
 }
 
+function extractFamilyId(req: Request): string | undefined {
+  const queryFamilyId = typeof req.query.familyId === "string" ? req.query.familyId.trim() : "";
+  const body = typeof req.body === "object" && req.body !== null && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : undefined;
+  const bodyFamilyId = typeof body?.familyId === "string" ? body.familyId.trim() : "";
+  const familyPath = req.originalUrl.match(/\/api\/v1\/famil(?:y|ies)(?:-invites)?\/([0-9a-f-]{8,64})/i)?.[1] ?? "";
+  const candidate = queryFamilyId || bodyFamilyId || familyPath;
+  return candidate || undefined;
+}
+
 async function callBase(baseUrl: string, path: string, authorization?: string, query?: Record<string, string>) {
   const url = new URL(`${baseUrl}${path}`);
   for (const [key, value] of Object.entries(query ?? {})) url.searchParams.set(key, value);
+  const ctx = currentContext();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    };
+    if (ctx?.userId) headers["x-user-id"] = ctx.userId;
+    const familyId = query?.familyId ?? ctx?.familyId;
+    if (familyId) headers["x-family-id"] = familyId;
     const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        ...(authorization ? { Authorization: authorization } : {}),
-      },
+      headers,
       signal: controller.signal,
     });
     const body = await response.json().catch(() => ({}));
@@ -387,6 +643,20 @@ function noteUpstreamFailure(body: unknown, target?: string): void {
 }
 
 /** Gateway-generated errors carry requestId/traceId so a user-visible failure can be quoted and found in Grafana. */
+function normalizeGatewayError(body: unknown, status: number): Record<string, unknown> {
+  const candidate = typeof body === "object" && body !== null ? body as Record<string, any> : {};
+  const error = typeof candidate.error === "object" && candidate.error !== null ? candidate.error as Record<string, any> : {};
+  const ctx = currentContext();
+  return withMeta({
+    error: {
+      code: typeof error.code === "string" ? error.code : status >= 500 ? "UPSTREAM_ERROR" : "HTTP_ERROR",
+      message: typeof error.message === "string" ? error.message : "The request could not be completed.",
+      details: Array.isArray(error.details) ? error.details : [],
+      retryable: typeof error.retryable === "boolean" ? error.retryable : status >= 500,
+      requestId: typeof error.requestId === "string" ? error.requestId : ctx?.requestId ?? "",
+    },
+  }) as Record<string, unknown>;
+}
 function withMeta(body: unknown): unknown {
   const ctx = currentContext();
   if (!ctx || typeof body !== "object" || body === null || "meta" in body) return body;

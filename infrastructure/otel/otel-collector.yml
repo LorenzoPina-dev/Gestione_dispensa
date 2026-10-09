@@ -1,0 +1,19 @@
+receivers:
+  otlp:
+    protocols:
+      # Dal collector 0.104 i receiver ascoltano di default solo su localhost: senza 0.0.0.0 gli altri
+      # container (gateway, servizi) non riescono a esportare le trace (connessione rifiutata/timeout).
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+  debug:
+    verbosity: basic
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/tempo, debug]

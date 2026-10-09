@@ -4,3 +4,20 @@ coverage
 .git
 .env
 *.log
+
+# Large Open Food Facts / data files must never enter Docker build contexts.
+*.jsonl
+*.jsonl.gz
+*.csv
+*.csv.gz
+*.zip
+*.tar
+*.tar.gz
+
+# Local Python virtual environments must never enter Docker build contexts.
+venv
+.venv
+env
+ENV
+__pycache__
+*.pyc

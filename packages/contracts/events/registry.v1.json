@@ -14,9 +14,15 @@
       "catalog.product-updated.v1",
       "recognition.completed.v1",
       "offer.imported.v1",
-      "recipe.suggestion-generated.v1"
-    ]
+      "recipe.suggestion-generated.v1",
+      "inventory.stock.wasted.v1",
+      "inventory.expiration-confirmed.v1",
+      "shelf-life.prediction-completed.v1",
+      "inventory.stock.updated.v1",
+      "shelf-life.prediction-queued.v1"
+    ],
+    "minItems": 14
   },
   "uniqueItems": true,
-  "minItems": 9
+  "minItems": 13
 }

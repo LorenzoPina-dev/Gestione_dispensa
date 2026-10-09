@@ -1,12 +1,17 @@
 node_modules/
 dist/
-dist-domain/
 .env
 .env.*
 !.env.example
-npm-debug.log*
-
-# Local Compose state
 *.log
-.data/
+coverage/
+.DS_Store
+.vscode/
+.idea/
+/apps/web/dist-domain
 /certs
+/services/gateway/_deprecated
+/py
+/venv
+/runs
+*.tsbuildinfo

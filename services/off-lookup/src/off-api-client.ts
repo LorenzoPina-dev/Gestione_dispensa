@@ -1,6 +1,21 @@
 import { config } from "./config.js";
 import { log } from "./logger.js";
 
+export interface OpenFoodFactsApiClientOptions {
+  readonly baseUrl: string;
+  readonly searchBaseUrl: string;
+  readonly legacySearchBaseUrl: string;
+  readonly userAgent: string;
+  readonly timeoutMs: number;
+  readonly searchTimeoutMs: number;
+  readonly legacySearchTimeoutMs: number;
+  readonly searchCacheMs: number;
+  readonly refreshCooldownMs: number;
+  readonly maxConsecutiveFailures: number;
+  readonly cooldownMs: number;
+}
+
+
 /**
  * Outcome of a live Open Food Facts API call, kept deliberately separate from HTTP semantics:
  *  - "found": the barcode exists on Open Food Facts; `product` is the raw product object exactly
@@ -15,8 +30,21 @@ export type OffApiResult =
   | { readonly status: "not_found" }
   | { readonly status: "error"; readonly reason: string; readonly retryable: boolean };
 
+export interface OffSearchHit {
+  readonly code: string;
+  readonly product: Record<string, unknown>;
+}
+
+export interface OffSearchResult {
+  readonly status: "found" | "error";
+  readonly hits: readonly OffSearchHit[];
+  readonly reason?: string;
+  readonly source?: "local" | "external";
+}
+
 export interface OffApiClient {
   fetchProduct(barcode: string): Promise<OffApiResult>;
+  searchProducts?(query: string, limit: number): Promise<OffSearchResult>;
   isCircuitOpen(): boolean;
 }
 
@@ -32,7 +60,7 @@ interface OffV3Response {
  * (https://world.openfoodfacts.org/api/v3/product/{barcode}.json). No API key required.
  *
  * Fault tolerance:
- *  - every request has its own hard timeout (`config.offApi.timeoutMs`) via AbortController;
+ *  - every request has its own hard timeout (`this.options.timeoutMs`) via AbortController;
  *  - every failure mode (network error, timeout, non-2xx, unparsable JSON) is converted into a
  *    typed `{ status: "error" }` result, never thrown;
  *  - a small circuit breaker opens after `maxConsecutiveFailures` in a row and skips the network
@@ -42,23 +70,169 @@ interface OffV3Response {
 export class OpenFoodFactsApiClient implements OffApiClient {
   private consecutiveFailures = 0;
   private circuitOpenUntil = 0;
+  private readonly options: OpenFoodFactsApiClientOptions;
+
+  public constructor(options: Partial<OpenFoodFactsApiClientOptions> = {}) {
+    this.options = { ...config.offApi, ...options };
+  }
 
   public isCircuitOpen(): boolean {
     return Date.now() < this.circuitOpenUntil;
   }
 
+  public async searchProducts(query: string, limit: number): Promise<OffSearchResult> {
+    const normalizedQuery = query.trim().replace(/\s+/g, " ");
+    if (!normalizedQuery) return { status: "found", hits: [] };
+
+    const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 20);
+    // Search-a-Licious/Open Food Facts can interpret multi-word queries more strictly than
+    // the product-name UX expects. Try the full query first, then individual tokens, and
+    // merge/deduplicate the hits. The final filter keeps only products whose name contains
+    // every requested token, so the fallback cannot turn "lemon soda" into arbitrary soda.
+    const candidates = buildSearchQueries(normalizedQuery);
+    const merged = new Map<string, OffSearchHit>();
+    let lastError: string | undefined;
+
+    for (const candidate of candidates) {
+      const result = await this.searchOnce(candidate, boundedLimit);
+      if (result.status === "error") {
+        lastError = result.reason;
+        continue;
+      }
+      for (const hit of result.hits) {
+        const key = hit.code;
+        if (!merged.has(key)) merged.set(key, hit);
+      }
+      if (merged.size >= boundedLimit && hasAllQueryTokens([...merged.values()], normalizedQuery)) break;
+    }
+
+    const hits = [...merged.values()]
+      .filter((hit) => matchesAllQueryTokens(hit.product, normalizedQuery))
+      .slice(0, boundedLimit);
+
+    if (hits.length > 0) {
+      this.recordSuccess();
+      return { status: "found", hits };
+    }
+
+    return lastError
+      ? { status: "error", hits: [], reason: lastError }
+      : { status: "found", hits: [] };
+  }
+
+  private async searchOnce(query: string, limit: number): Promise<OffSearchResult> {
+    const primary = await this.searchProvider(
+      this.options.searchBaseUrl,
+      this.options.searchTimeoutMs,
+      query,
+      limit,
+      "search-a-licious",
+    );
+    if (primary.status === "found" && primary.hits.length > 0) return primary;
+
+    // Compatibility fallback: if Search-a-Licious is temporarily unavailable or its
+    // response changes, use the public OFF search endpoint without exposing the failure
+    // to the user. A definitive empty result remains empty.
+    if (this.options.legacySearchBaseUrl && this.options.legacySearchBaseUrl !== this.options.searchBaseUrl) {
+      const legacy = await this.searchProvider(
+        this.options.legacySearchBaseUrl,
+        this.options.legacySearchTimeoutMs,
+        query,
+        limit,
+        "legacy-off",
+      );
+      if (legacy.status === "found" && legacy.hits.length > 0) return legacy;
+      if (primary.status === "error" && legacy.status === "error") {
+        return { status: "error", hits: [], reason: `${primary.reason};legacy=${legacy.reason}` };
+      }
+    }
+
+    return primary;
+  }
+
+  private async searchProvider(
+    baseUrl: string,
+    timeoutMs: number,
+    query: string,
+    limit: number,
+    provider: string,
+  ): Promise<OffSearchResult> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const base = baseUrl.replace(/\/+$/, "");
+      const isSearchAlicious = provider === "search-a-licious";
+      const url = new URL(isSearchAlicious ? "/search" : "/cgi/search.pl", base);
+      url.searchParams.set("q", query);
+      if (isSearchAlicious) {
+        url.searchParams.set("page", "1");
+        url.searchParams.set("page_size", String(limit));
+        url.searchParams.set("langs", "it,en");
+      } else {
+        url.searchParams.set("action", "process");
+        url.searchParams.set("json", "1");
+        url.searchParams.set("page_size", String(limit));
+        url.searchParams.set("search_terms", query);
+        url.searchParams.set("lc", "it");
+      }
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": this.options.userAgent,
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        return { status: "error", hits: [], reason: response.status === 429 ? "rate_limited" : `http_${response.status}` };
+      }
+
+      const body = await response.json() as { hits?: unknown; products?: unknown; count?: unknown; };
+      const rawHits = Array.isArray(body.hits) ? body.hits : Array.isArray(body.products) ? body.products : [];
+      const hits: OffSearchHit[] = [];
+
+      for (const raw of rawHits) {
+        if (!raw || typeof raw !== "object") continue;
+        const value = raw as Record<string, unknown>;
+        const source = isRecord(value._source) ? value._source : isRecord(value.product) ? value.product : value;
+        if (!isRecord(source)) continue;
+
+        const code = typeof (source.code ?? value.code) === "string"
+          ? String(source.code ?? value.code).trim()
+          : "";
+        if (!/^\d{8,14}$/.test(code)) continue;
+
+        const name =
+          (typeof source.product_name_it === "string" ? source.product_name_it : "") ||
+          (typeof source.product_name === "string" ? source.product_name : "");
+        if (!name.trim()) continue;
+        hits.push({ code, product: source });
+      }
+
+      return { status: "found", hits };
+    } catch (error) {
+      return {
+        status: "error",
+        hits: [],
+        reason: controller.signal.aborted ? "timeout" : error instanceof Error ? error.message : "network_error",
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
   public async fetchProduct(barcode: string): Promise<OffApiResult> {
     if (this.isCircuitOpen()) {
       return { status: "error", reason: "circuit_open", retryable: true };
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.offApi.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
     try {
-      const url = `${config.offApi.baseUrl.replace(/\/+$/, "")}/api/v3/product/${encodeURIComponent(barcode)}.json`;
+      const url = `${this.options.baseUrl.replace(/\/+$/, "")}/api/v3/product/${encodeURIComponent(barcode)}.json?product_type=food&lc=it&generate_images_urls=1`;
       const response = await fetch(url, {
         signal: controller.signal,
-        headers: { "User-Agent": config.offApi.userAgent, Accept: "application/json" },
+        headers: { "User-Agent": this.options.userAgent, Accept: "application/json" },
       });
 
       if (response.status === 404) {
@@ -102,12 +276,48 @@ export class OpenFoodFactsApiClient implements OffApiClient {
 
   private recordFailure(): void {
     this.consecutiveFailures += 1;
-    if (this.consecutiveFailures >= config.offApi.maxConsecutiveFailures) {
-      this.circuitOpenUntil = Date.now() + config.offApi.cooldownMs;
+    if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
+      this.circuitOpenUntil = Date.now() + this.options.cooldownMs;
       log("error", "off_api_circuit_open", {
-        cooldownMs: config.offApi.cooldownMs,
+        cooldownMs: this.options.cooldownMs,
         resumesAt: new Date(this.circuitOpenUntil).toISOString(),
       });
     }
   }
+}
+
+function buildSearchQueries(query: string): string[] {
+  const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
+  return [...new Set([
+    query,
+    tokens.length > 1 ? tokens.join(" ") : "",
+    ...tokens.filter((token) => token.length >= 3),
+  ].filter(Boolean))];
+}
+
+function matchesAllQueryTokens(product: Record<string, unknown>, query: string): boolean {
+  const name = normalizeSearchText(
+    (typeof product.product_name_it === "string" ? product.product_name_it : "") ||
+    (typeof product.product_name === "string" ? product.product_name : ""),
+  );
+  const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => name.includes(token));
+}
+
+function hasAllQueryTokens(hits: OffSearchHit[], query: string): boolean {
+  return hits.some((hit) => matchesAllQueryTokens(hit.product, query));
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("it-IT")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

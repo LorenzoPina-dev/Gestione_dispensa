@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { authorize, type MembershipContext } from "../identity/authorization.js";
 import type { Principal } from "../identity/oidc.js";
 
@@ -34,6 +35,7 @@ export interface PrivacyErasureRepository {
   failErasure(id: string): Promise<ErasureRequest>;
   upsertConsent(input: PrivacyConsent): Promise<PrivacyConsent>;
   listConsents(userId: string): Promise<readonly PrivacyConsent[]>;
+  upsertConsentsAtomic(input: { userId: string; consents: readonly PrivacyConsent[]; idempotencyKey: string; requestHash: string }): Promise<{ consents: readonly PrivacyConsent[]; replay: boolean; conflict: boolean }>;
 }
 
 export interface FamilyOwnershipReader {
@@ -77,6 +79,7 @@ export class PrivacyErasureError extends Error {
     | "NOT_FOUND_OR_NOT_VISIBLE"
     | "CONFIRMATION_REQUIRED"
     | "INVALID_CONSENT"
+    | "IDEMPOTENCY_CONFLICT"
     | "ERASURE_FAILED";
 
   public constructor(code: PrivacyErasureError["code"], message: string) {
@@ -212,6 +215,48 @@ export class PrivacyErasureService {
 
   public async listConsents(principal: Principal | undefined): Promise<readonly PrivacyConsent[]> {
     return this.repository.listConsents(this.requireAuthenticated(principal).subject);
+  }
+
+  public async updateConsents(
+    principal: Principal | undefined,
+    values: { analytics: boolean; personalization: boolean; notifications: boolean },
+    traceId: string,
+    idempotencyKey: string,
+  ): Promise<readonly PrivacyConsent[]> {
+    const actor = this.requireAuthenticated(principal);
+    const now = this.now();
+    const consents: readonly PrivacyConsent[] = [
+      { userId: actor.subject, purpose: "analytics", granted: values.analytics, consentVersion: "privacy-consents-v1", updatedAt: now },
+      { userId: actor.subject, purpose: "personalization", granted: values.personalization, consentVersion: "privacy-consents-v1", updatedAt: now },
+      { userId: actor.subject, purpose: "notifications", granted: values.notifications, consentVersion: "privacy-consents-v1", updatedAt: now },
+    ];
+    try {
+      const requestHash = crypto.createHash("sha256").update(JSON.stringify(values)).digest("hex");
+      const result = await this.repository.upsertConsentsAtomic({ userId: actor.subject, consents, idempotencyKey: idempotencyKey.trim(), requestHash });
+      if (result.conflict) throw new PrivacyErasureError("IDEMPOTENCY_CONFLICT", "Idempotency key conflict.");
+      if (result.replay) return result.consents;
+      for (const consent of result.consents) {
+        await this.audit.append({
+          actorId: actor.subject,
+          action: "privacy.consent.update",
+          resourceId: consent.purpose,
+          outcome: "SUCCESS",
+          traceId,
+        });
+      }
+      return result.consents;
+    } catch (error) {
+      if (error instanceof PrivacyErasureError && error.code === "IDEMPOTENCY_CONFLICT") throw error;
+      await this.audit.append({
+        actorId: actor.subject,
+        action: "privacy.consent.update",
+        resourceId: "consents",
+        outcome: "FAILED",
+        traceId,
+        reason: error instanceof Error ? error.message : "INVALID_CONSENT",
+      });
+      throw new PrivacyErasureError("INVALID_CONSENT", "The consents could not be stored.");
+    }
   }
 
   private async requireOwner(

@@ -2,9 +2,9 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY services/off-lookup/package.json services/off-lookup/tsconfig.json ./services/off-lookup/
-RUN npm install
+RUN npm install --workspace @gestione-dispensa/off-lookup
 COPY services/off-lookup/src ./services/off-lookup/src
-RUN npm --workspace @gestione-dispensa/off-lookup run build
+RUN npm run build --workspace @gestione-dispensa/off-lookup
 
 FROM node:22-alpine
 WORKDIR /app

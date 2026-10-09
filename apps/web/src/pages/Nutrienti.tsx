@@ -1,0 +1,505 @@
+import { useState, useEffect, useMemo } from "react";
+import type { ConsumedItem, StockItem, ConfidenceLabel } from "../types";
+import * as api from "../api/endpoints";
+import { colors, fonts } from "../tokens";
+import { timeAgo } from "../utils/time";
+import { Input } from "../components/ui/Input";
+import SectionHeading from "../components/ui/SectionHeading";
+import { RowList, Row } from "../components/ui/ListRow";
+
+const DIETARY_OPTIONS: Array<{ value: api.DietaryRestriction; label: string }> = [
+  { value: "vegan", label: "Vegano" },
+  { value: "vegetarian", label: "Vegetariano" },
+  { value: "pescatarian", label: "Pescetariano" },
+  { value: "gluten-free", label: "Senza glutine" },
+  { value: "lactose-free", label: "Senza lattosio" },
+  { value: "dairy-free", label: "Senza latticini" },
+  { value: "nut-free", label: "Senza frutta a guscio" },
+  { value: "peanut-free", label: "Senza arachidi" },
+  { value: "soy-free", label: "Senza soia" },
+  { value: "egg-free", label: "Senza uova" },
+  { value: "fish-free", label: "Senza pesce" },
+  { value: "shellfish-free", label: "Senza crostacei/molluschi" },
+];
+
+const ALLERGEN_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "milk", label: "Latte" },
+  { value: "eggs", label: "Uova" },
+  { value: "gluten", label: "Glutine" },
+  { value: "wheat", label: "Frumento" },
+  { value: "peanuts", label: "Arachidi" },
+  { value: "nuts", label: "Frutta a guscio" },
+  { value: "soybeans", label: "Soia" },
+  { value: "fish", label: "Pesce" },
+  { value: "crustaceans", label: "Crostacei" },
+  { value: "molluscs", label: "Molluschi" },
+  { value: "sesame-seeds", label: "Sesamo" },
+  { value: "mustard", label: "Senape" },
+  { value: "celery", label: "Sedano" },
+  { value: "lupin", label: "Lupino" },
+  { value: "sulphites", label: "Solfiti" },
+];
+
+const CONFIDENCE_META: Record<ConfidenceLabel, { label: string; color: string; bg: string }> = {
+  CONFIRMED: { label: "confermato", color: colors.sageDark, bg: colors.sageLight },
+  ESTIMATED: { label: "stimato", color: colors.amberDark, bg: colors.amberLight },
+  UNKNOWN: { label: "non disponibile", color: colors.inkMuted, bg: colors.creamDark },
+};
+
+interface Props {
+  stock: StockItem[];
+  familyId?: string | null;
+  initialSummary?: Awaited<ReturnType<typeof api.getNutritionSummary>>;
+}
+
+interface WeeklyDay {
+  date: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+}
+
+export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
+  const [summary, setSummary] = useState<Awaited<ReturnType<typeof api.getNutritionSummary>> | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [period, setPeriod] = useState<"oggi" | "settimana">("oggi");
+  const [scaleItem, setScaleItem] = useState<StockItem | null>(null);
+  const [scaleQty, setScaleQty] = useState(100);
+  const [search, setSearch] = useState("");
+  const [dietaryPreferences, setDietaryPreferences] = useState<api.DietaryPreferencesDto | null>(null);
+  const [dietaryLoading, setDietaryLoading] = useState(false);
+  const [dietarySaving, setDietarySaving] = useState(false);
+  const [dietaryError, setDietaryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!familyId) {
+      setDietaryPreferences(null);
+      return;
+    }
+    let cancelled = false;
+    setDietaryLoading(true);
+    setDietaryError(null);
+    api.getDietaryPreferences()
+      .then(value => { if (!cancelled) setDietaryPreferences(value); })
+      .catch(error => {
+        if (!cancelled) setDietaryError(error instanceof Error ? error.message : "Impossibile leggere il profilo alimentare.");
+      })
+      .finally(() => { if (!cancelled) setDietaryLoading(false); });
+    return () => { cancelled = true; };
+  }, [familyId]);
+
+  useEffect(() => {
+    if (initialSummary !== undefined && period === "oggi") {
+      setSummary(initialSummary);
+      setLoadingSummary(false);
+      return;
+    }
+    if (!familyId) { setSummary(null); return; }
+    let cancelled = false;
+    setLoadingSummary(true);
+    api.getNutritionSummary(familyId, period === "oggi" ? "today" : "week")
+      .then(v => { if (!cancelled) setSummary(v); })
+      .catch(() => { if (!cancelled) setSummary(null); })
+      .finally(() => { if (!cancelled) setLoadingSummary(false); });
+    return () => { cancelled = true; };
+  }, [familyId, period, initialSummary]);
+
+  const consumed: ConsumedItem[] = useMemo(() => (summary?.items ?? []).map(c => ({
+    id: c.movementId, name: c.productName, quantity:c.quantity, unit:c.unit,
+    nutrients:{...c.nutrients, confidence:c.confidence}, at:c.occurredAt
+  })), [summary]);
+
+  const totals = summary?.totals ?? { calories:0, protein:0, carbs:0, fat:0, fiber:0 };
+  const hasUnknownNutrients = (summary?.items ?? []).some((item) => item.confidence === "UNKNOWN");
+  const hasKnownNutrients = (summary?.items ?? []).some((item) => item.confidence !== "UNKNOWN");
+  const onlyUnknownNutrients = (summary?.items?.length ?? 0) > 0 && !hasKnownNutrients;
+
+  const filteredStock = useMemo(() => {
+    if (!search) return [];
+    return stock.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) && s.calories !== undefined).slice(0, 6);
+  }, [stock, search]);
+
+  const scaledValues = useMemo(() => {
+    if (!scaleItem || scaleItem.calories === undefined) return null;
+    const factor = scaleQty / 100;
+    return {
+      calories: Math.round((scaleItem.calories ?? 0) * factor),
+      protein: Math.round((scaleItem.protein ?? 0) * factor * 10) / 10,
+      carbs: Math.round((scaleItem.carbs ?? 0) * factor * 10) / 10,
+      fat: Math.round((scaleItem.fat ?? 0) * factor * 10) / 10,
+      fiber: Math.round((scaleItem.fiber ?? 0) * factor * 10) / 10,
+    };
+  }, [scaleItem, scaleQty]);
+
+  const macroTotal = totals.protein * 4 + totals.carbs * 4 + totals.fat * 9;
+
+  const weeklyDays = useMemo<WeeklyDay[]>(() => {
+    if (period !== "settimana") return [];
+    const byDay = new Map<string, Omit<WeeklyDay, "date">>();
+    for (const item of summary?.items ?? []) {
+      const date = item.occurredAt.slice(0, 10);
+      const current = byDay.get(date) ?? { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+      current.calories += item.nutrients.calories;
+      current.protein += item.nutrients.protein;
+      current.carbs += item.nutrients.carbs;
+      current.fat += item.nutrients.fat;
+      current.fiber += item.nutrients.fiber;
+      byDay.set(date, current);
+    }
+    return [...byDay.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, values]) => ({
+        date,
+        calories: Math.round(values.calories * 100) / 100,
+        protein: Math.round(values.protein * 100) / 100,
+        carbs: Math.round(values.carbs * 100) / 100,
+        fat: Math.round(values.fat * 100) / 100,
+        fiber: Math.round(values.fiber * 100) / 100,
+      }));
+  }, [period, summary]);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-2xl font-light" style={{ fontFamily: fonts.display, color: colors.ink }}>Nutrienti</h2>
+        <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+          {(["oggi", "settimana"] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className="px-4 py-2 text-xs font-medium transition-all"
+              style={{ backgroundColor: period === p ? colors.ink : colors.white, color: period === p ? colors.cream : colors.inkMuted }}
+              aria-pressed={period === p}
+            >
+              {p === "oggi" ? "Oggi" : "Settimana"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Calorie", value: onlyUnknownNutrients ? "—" : Math.round(totals.calories), unit: "kcal", color: colors.terracotta, bg: colors.terracottaLight },
+          { label: "Proteine", value: onlyUnknownNutrients ? "—" : Math.round(totals.protein), unit: "g", color: colors.sage, bg: colors.sageLight },
+          { label: "Carboidrati", value: onlyUnknownNutrients ? "—" : Math.round(totals.carbs), unit: "g", color: colors.expiring, bg: colors.amberLight },
+          { label: "Grassi", value: onlyUnknownNutrients ? "—" : Math.round(totals.fat), unit: "g", color: colors.inkMuted, bg: colors.creamDark },
+          { label: "Fibre", value: onlyUnknownNutrients ? "—" : Math.round(totals.fiber), unit: "g", color: colors.sageDark, bg: colors.sageLight },
+        ].map((s) => (
+          <div key={s.label} className="rounded-2xl p-5" style={{ backgroundColor: s.bg }}>
+            <p className="text-xs font-medium" style={{ color: s.color }}>{s.label}</p>
+            <p className="text-3xl font-light mt-1" style={{ fontFamily: fonts.display, color: colors.ink }}>{s.value}</p>
+            <p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>{s.unit} totali {period === "oggi" ? "oggi" : "questa settimana"}</p>
+          </div>
+        ))}
+      </div>
+      {hasUnknownNutrients && (
+        <p className="text-xs -mt-5" style={{ color: colors.inkMuted }}>
+          Totali parziali: gli alimenti con nutrienti mancanti o unità non convertibili sono esclusi dai valori non calcolabili.
+        </p>
+      )}
+
+      {period === "settimana" && (
+        <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+          <SectionHeading>Andamento giornaliero</SectionHeading>
+          {weeklyDays.length === 0 ? (
+            <p className="text-sm text-center py-3" style={{ color: colors.inkMuted }}>Nessun consumo registrato negli ultimi 7 giorni.</p>
+          ) : (
+            <div className="space-y-2">
+              {weeklyDays.map((day) => (
+                <div key={day.date} className="rounded-xl px-3 py-3" style={{ backgroundColor: colors.cream }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold" style={{ color: colors.ink }}>
+                      {new Intl.DateTimeFormat("it-IT", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${day.date}T12:00:00`))}
+                    </span>
+                    <span className="text-xs font-semibold" style={{ color: colors.terracotta }}>{Math.round(day.calories)} kcal</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-[10px]" style={{ color: colors.inkMuted }}>
+                    <span>Prot. <b style={{ color: colors.ink }}>{Math.round(day.protein)}g</b></span>
+                    <span>Carb. <b style={{ color: colors.ink }}>{Math.round(day.carbs)}g</b></span>
+                    <span>Grassi <b style={{ color: colors.ink }}>{Math.round(day.fat)}g</b></span>
+                    <span>Fibre <b style={{ color: colors.ink }}>{Math.round(day.fiber)}g</b></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Macro distribution */}
+      <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+        <SectionHeading>Distribuzione macronutrienti</SectionHeading>
+        {[
+          { label: "Proteine", value: totals.protein, kcal: totals.protein * 4, color: colors.sage },
+          { label: "Carboidrati", value: totals.carbs, kcal: totals.carbs * 4, color: colors.expiring },
+          { label: "Grassi", value: totals.fat, kcal: totals.fat * 9, color: colors.terracotta },
+        ].map((m) => {
+          const pct = macroTotal > 0 ? Math.round((m.kcal / macroTotal) * 100) : 0;
+          return (
+            <div key={m.label} className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span style={{ color: colors.ink, fontWeight: 500 }}>{m.label}</span>
+                <span style={{ color: colors.inkMuted }}>{Math.round(m.value)}g · {pct}%</span>
+              </div>
+              <div className="h-2 rounded-full" style={{ backgroundColor: colors.creamDark }}>
+                <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: m.color }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Quantity scaler */}
+      <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+        <SectionHeading>Calcolatore per quantità</SectionHeading>
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Cerca un prodotto in dispensa…"
+          aria-label="Cerca prodotto"
+        />
+        {filteredStock.length > 0 && !scaleItem && (
+          <RowList>
+            {filteredStock.map((item, i) => (
+              <Row key={item.id} index={i} last={i === filteredStock.length - 1}>
+                <button
+                  onClick={() => { setScaleItem(item); setScaleQty(100); setSearch(""); }}
+                  className="flex-1 flex items-center justify-between text-left text-sm"
+                  style={{ color: colors.ink }}
+                >
+                  {item.name}
+                  <span style={{ color: colors.inkMuted, fontSize: "0.7rem" }}>{item.calories} kcal/100g</span>
+                </button>
+              </Row>
+            ))}
+          </RowList>
+        )}
+        {scaleItem && scaledValues && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="font-medium text-sm" style={{ color: colors.ink }}>{scaleItem.name}</p>
+              <button onClick={() => { setScaleItem(null); setScaleQty(100); }} className="text-xs" style={{ color: colors.inkMuted }}>Cambia</button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium flex justify-between" style={{ color: colors.inkMuted }}>
+                Quantità <span style={{ color: colors.ink }}>{scaleQty} {scaleItem.unit}</span>
+              </label>
+              <input
+                type="range"
+                min={10}
+                max={500}
+                step={10}
+                value={scaleQty}
+                onChange={(e) => setScaleQty(Number(e.target.value))}
+                className="w-full accent-[#c4623a]"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {[
+                { label: "kcal", value: scaledValues.calories },
+                { label: "prot.", value: scaledValues.protein },
+                { label: "carb.", value: scaledValues.carbs },
+                { label: "grassi", value: scaledValues.fat },
+                { label: "fibre", value: scaledValues.fiber },
+              ].map((n) => (
+                <div key={n.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: colors.cream }}>
+                  <p className="text-base font-semibold" style={{ color: colors.ink }}>{n.value}</p>
+                  <p className="text-[9px] mt-0.5" style={{ color: colors.inkMuted }}>{n.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl p-5 space-y-5" style={{ backgroundColor: colors.white, border: `1px solid ${colors.border}` }}>
+        <div>
+          <SectionHeading>Profilo alimentare personale</SectionHeading>
+          <p className="text-xs mt-1" style={{ color: colors.inkMuted }}>
+            Queste preferenze vengono usate dal motore Ricette per filtrare allergeni e restrizioni. Non modificano la dispensa della famiglia.
+          </p>
+        </div>
+
+        {dietaryLoading ? (
+          <p className="text-sm" style={{ color: colors.inkMuted }}>Caricamento profilo…</p>
+        ) : dietaryPreferences ? (
+          <>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold" style={{ color: colors.ink }}>Allergeni</p>
+              <div className="flex flex-wrap gap-2">
+                {ALLERGEN_OPTIONS.map(option => {
+                  const active = dietaryPreferences.allergenTags.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setDietaryPreferences(current => current ? {
+                        ...current,
+                        allergenTags: active
+                          ? current.allergenTags.filter(tag => tag !== option.value)
+                          : [...current.allergenTags, option.value],
+                      } : current)}
+                      className="rounded-full px-3 py-1.5 text-xs font-medium transition-all"
+                      style={{
+                        backgroundColor: active ? colors.terracottaLight : colors.creamDark,
+                        color: active ? colors.terracotta : colors.inkMuted,
+                        border: `1px solid ${active ? colors.terracotta : colors.border}`,
+                      }}
+                      aria-pressed={active}
+                    >
+                      {active ? "✓ " : ""}{option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold" style={{ color: colors.ink }}>Preferenze dietetiche</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {DIETARY_OPTIONS.map(option => {
+                  const active = dietaryPreferences.dietaryRestrictions.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setDietaryPreferences(current => current ? {
+                        ...current,
+                        dietaryRestrictions: active
+                          ? current.dietaryRestrictions.filter(tag => tag !== option.value)
+                          : [...current.dietaryRestrictions, option.value],
+                      } : current)}
+                      className="rounded-xl px-3 py-2.5 text-left text-xs font-medium transition-all"
+                      style={{
+                        backgroundColor: active ? colors.sageLight : colors.cream,
+                        color: active ? colors.sageDark : colors.inkMuted,
+                        border: `1px solid ${active ? colors.sage : colors.border}`,
+                      }}
+                      aria-pressed={active}
+                    >
+                      {active ? "✓ " : ""}{option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-xl p-3" style={{ backgroundColor: colors.cream }}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold" style={{ color: colors.ink }}>Tracce da allergeni</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: colors.inkMuted }}>
+                    “Avvisa” mantiene la ricetta visibile con un warning; “Escludi” la blocca.
+                  </p>
+                </div>
+                <div className="flex rounded-lg overflow-hidden shrink-0" style={{ border: `1px solid ${colors.border}` }}>
+                  {(["WARN", "EXCLUDE"] as const).map(policy => (
+                    <button
+                      key={policy}
+                      type="button"
+                      onClick={() => setDietaryPreferences(current => current ? { ...current, tracePolicy: policy } : current)}
+                      className="px-2.5 py-1.5 text-[10px] font-semibold"
+                      style={{
+                        backgroundColor: dietaryPreferences.tracePolicy === policy ? colors.ink : colors.white,
+                        color: dietaryPreferences.tracePolicy === policy ? colors.cream : colors.inkMuted,
+                      }}
+                      aria-pressed={dietaryPreferences.tracePolicy === policy}
+                    >
+                      {policy === "WARN" ? "Avvisa" : "Escludi"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {dietaryError && (
+              <div className="rounded-xl px-3 py-2 text-xs" style={{ backgroundColor: colors.terracottaLight, color: colors.terracotta }}>
+                {dietaryError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px]" style={{ color: colors.inkMuted }}>
+                Profilo v{dietaryPreferences.version}
+              </p>
+              <button
+                type="button"
+                disabled={dietarySaving}
+                onClick={async () => {
+                  setDietarySaving(true);
+                  setDietaryError(null);
+                  try {
+                    const updated = await api.updateDietaryPreferences(dietaryPreferences.version, {
+                      allergenTags: dietaryPreferences.allergenTags,
+                      dietaryRestrictions: dietaryPreferences.dietaryRestrictions,
+                      tracePolicy: dietaryPreferences.tracePolicy,
+                    });
+                    setDietaryPreferences(updated);
+                  } catch (error) {
+                    setDietaryError(error instanceof Error ? error.message : "Salvataggio del profilo non riuscito.");
+                    try {
+                      const refreshed = await api.getDietaryPreferences();
+                      setDietaryPreferences(refreshed);
+                    } catch {
+                      // keep local state so the user can retry once backend recovers
+                    }
+                  } finally {
+                    setDietarySaving(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+                style={{ backgroundColor: dietarySaving ? colors.creamDark : colors.terracotta, color: dietarySaving ? colors.inkMuted : colors.white }}
+              >
+                {dietarySaving ? "Salvataggio…" : "Salva profilo"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-xl p-3" style={{ backgroundColor: colors.creamDark }}>
+            <p className="text-sm font-medium" style={{ color: colors.ink }}>Profilo non disponibile</p>
+            <p className="text-xs mt-1" style={{ color: colors.inkMuted }}>Riprova quando il servizio account è raggiungibile.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Recent consumption */}
+      <div className="space-y-3">
+        <SectionHeading>Consumati di recente</SectionHeading>
+        {consumed.length === 0 ? (
+          <div className="rounded-2xl p-6 text-center text-sm" style={{ backgroundColor: colors.creamDark, color: colors.inkMuted }}>
+            Nessun consumo registrato {period === "oggi" ? "oggi" : "questa settimana"}.
+          </div>
+        ) : (
+          <RowList>
+            {consumed.map((item, idx) => {
+              const cs = CONFIDENCE_META[item.nutrients.confidence];
+              return (
+                <Row key={item.id} index={idx} last={idx === consumed.length - 1}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium" style={{ color: colors.ink }}>{item.name}</p>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: cs.bg, color: cs.color }}>{cs.label}</span>
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: colors.inkMuted }}>
+                      {item.quantity} {item.unit} · {timeAgo(item.at)}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-semibold" style={{ color: colors.terracotta }}>{item.nutrients.confidence === "UNKNOWN" ? "—" : Math.round(item.nutrients.calories)}</p>
+                    <p className="text-[10px]" style={{ color: colors.inkMuted }}>kcal</p>
+                  </div>
+                </Row>
+              );
+            })}
+          </RowList>
+        )}
+        <p className="text-[10px] text-center" style={{ color: colors.inkMuted }}>
+          I valori nutrizionali sono indicativi e non costituiscono consulenza medica o dietetica.
+        </p>
+      </div>
+    </div>
+  );
+}

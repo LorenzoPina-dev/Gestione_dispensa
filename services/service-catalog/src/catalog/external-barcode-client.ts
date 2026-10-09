@@ -1,96 +1,63 @@
 import type { IdentifierType, ProductUnit } from "./service.js";
-import type { ExternalBarcodeLookupClient, ExternalProductMatch } from "./workflow.js";
+import type {
+  ExternalBarcodeLookupClient,
+  ExternalProductMatch,
+  ExternalProductSearchClient,
+  ExternalProductSearchHit,
+} from "./workflow.js";
 
 export interface HttpOffLookupClientOptions {
-  /**
-   * Base URL of the off-lookup microservice (e.g. http://off-lookup:3200).
-   * The client calls GET /api/v1/products/{barcode} on this host.
-   */
   readonly baseUrl: string;
   readonly timeoutMs: number;
-  /** Consecutive failures before the circuit opens and skips the network call entirely. */
+  readonly searchTimeoutMs?: number;
+  readonly internalToken?: string;
   readonly circuitBreakThreshold?: number;
-  /** How long (ms) the circuit stays open before trying again. */
   readonly circuitResetMs?: number;
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
 }
 
-/** Shape returned by GET /api/v1/products/:barcode on off-lookup (HTTP 200). */
-interface OffLookupProduct {
-  readonly product_name?: string;
-  readonly product_name_it?: string;
-  readonly brands?: string;
-  readonly image_front_url?: string;
-  readonly image_url?: string;
-  readonly quantity?: string;
-  readonly nutriments?: Record<string, unknown>;
-  readonly nutrition_data_per?: string;
-  readonly categories_tags?: readonly string[];
-  // Allow any extra OFF field without failing the parse.
-  readonly [field: string]: unknown;
+/**
+ * Canonical contract exposed by off-lookup.
+ *
+ * service-catalog intentionally does not interpret Open Food Facts fields, image metadata,
+ * selected_images, dump-specific fields, or API-version differences. All of that belongs to
+ * off-lookup. These are application-level fields only.
+ */
+interface CanonicalProduct {
+  readonly code?: string;
+  readonly name?: string | null;
+  readonly brand?: string | null;
+  readonly category?: string | null;
+  readonly quantity?: { value?: number | null; unit?: string | null; label?: string | null };
+  readonly serving?: { quantity?: number | null; unit?: string | null; label?: string | null };
+  readonly images?: {
+    front?: CanonicalImage;
+    ingredients?: CanonicalImage;
+    nutrition?: CanonicalImage;
+    packaging?: CanonicalImage;
+  };
+  readonly nutrition?: Record<string, unknown>;
+  readonly openFoodFacts?: Record<string, unknown>;
 }
-
+interface CanonicalImage {
+  readonly url?: string | null;
+  readonly small?: string | null;
+  readonly thumb?: string | null;
+}
 interface OffLookupHitBody {
   readonly code: string;
   readonly source: "cache" | "live-api";
-  readonly product: OffLookupProduct;
+  readonly product: CanonicalProduct;
 }
 
 const KNOWN_UNITS: readonly ProductUnit[] = ["g", "kg", "ml", "l", "piece", "pack"];
 
-const OFF_CATEGORY_RULES: readonly { readonly match: RegExp; readonly category: string }[] = [
-  { match: /meats|fishes|seafood|poultry/, category: "fresh-meat-fish" },
-  { match: /fresh-pastas|fresh-doughs/, category: "fresh-milk-pasta" },
-  { match: /cheeses|cold-cuts|charcuterie|hams/, category: "cold-cuts-fresh-cheese" },
-  { match: /dairies|yogurts|butters|milks/, category: "eggs-dairy" },
-  { match: /fruits|vegetables|salads/, category: "produce-fresh" },
-  { match: /breads|bakery|viennoiseries/, category: "bakery-fresh" },
-  { match: /canned|tomato-purees|sauces|preserves/, category: "canned-preserved" },
-  { match: /pastas|rices|legumes|pulses/, category: "dry-staples" },
-  { match: /frozen/, category: "frozen-general" },
-  { match: /salts|sugars|honeys/, category: "pantry-indefinite" },
-];
-
-function normalizeOffCategory(tags: readonly string[] | undefined): string | undefined {
-  if (!tags || tags.length === 0) return undefined;
-  for (const tag of tags) {
-    const rule = OFF_CATEGORY_RULES.find((r) => r.match.test(tag.toLowerCase()));
-    if (rule) return rule.category;
-  }
-  return undefined;
-}
-
-function parseDefaultUnit(quantity: string | undefined): ProductUnit {
-  if (!quantity) return "piece";
-  const match = /(\d+(?:[.,]\d+)?)\s*(kg|g|ml|cl|l)\b/i.exec(quantity);
-  if (!match) return "piece";
-  const unit = match[2]?.toLowerCase();
-  if (unit === "kg") return "kg";
-  if (unit === "g") return "g";
-  if (unit === "l" || unit === "cl") return "l";
-  if (unit === "ml") return "ml";
-  return "piece";
-}
-
-/**
- * Calls the off-lookup microservice (services/off-lookup) directly — the single authoritative
- * source for barcode → product resolution in this stack. off-lookup implements the Read-Through
- * cache pattern: it checks the local Open Food Facts MongoDB dump first and falls back to the
- * live OFF API v3, transparently.
- *
- * This client is built to NEVER throw and NEVER slow down or fail a barcode scan:
- *  - every request has its own hard AbortController timeout;
- *  - every failure mode (network, timeout, non-2xx, malformed JSON) resolves to `undefined`
- *    — "no external match available right now" — so CatalogWorkflowService degrades to UNKNOWN
- *    (manual entry) instead of returning a 500 to the user;
- *  - a small circuit breaker skips calling off-lookup for circuitResetMs after repeated
- *    failures, so a down or restarting off-lookup container degrades to instant UNKNOWN rather
- *    than every scan waiting out the full timeout.
- */
-export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
+export class HttpOffLookupClient implements ExternalBarcodeLookupClient, ExternalProductSearchClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly searchTimeoutMs: number;
+  private readonly internalToken: string | undefined;
   private readonly circuitBreakThreshold: number;
   private readonly circuitResetMs: number;
   private readonly fetchImpl: typeof fetch;
@@ -100,11 +67,56 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
 
   public constructor(options: HttpOffLookupClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
-    this.timeoutMs = options.timeoutMs;
+    this.timeoutMs = options.timeoutMs ?? 2500;
+    this.searchTimeoutMs = options.searchTimeoutMs ?? 8000;
+    this.internalToken = options.internalToken;
     this.circuitBreakThreshold = options.circuitBreakThreshold ?? 5;
     this.circuitResetMs = options.circuitResetMs ?? 30_000;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
+  }
+
+  public async search(input: {
+    query: string;
+    limit: number;
+    traceId: string;
+  }): Promise<readonly ExternalProductSearchHit[] | undefined> {
+    const normalizedQuery = input.query.trim().replace(/\s+/g, " ");
+    if (normalizedQuery.length < 3) return [];
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.searchTimeoutMs);
+    try {
+      const url = new URL(this.baseUrl + "/api/v1/search");
+      url.searchParams.set("q", normalizedQuery);
+      url.searchParams.set("limit", String(Math.min(Math.max(Math.floor(input.limit), 1), 20)));
+      const response = await this.fetchImpl(url, {
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "X-Trace-Id": input.traceId,
+          ...(this.internalToken ? { Authorization: `Bearer ${this.internalToken}` } : {}),
+        },
+      });
+      if (!response.ok) return undefined;
+
+      const body = await response.json() as {
+        items?: Array<{ code?: unknown; product?: CanonicalProduct }>;
+      };
+      const results: ExternalProductSearchHit[] = [];
+      for (const item of body.items ?? []) {
+        const product = item.product;
+        const code = typeof item.code === "string" ? item.code.trim() : "";
+        if (!product || !/^\d{6,14}$/.test(code)) continue;
+        const hit = toExternalSearchHit(code, product);
+        if (hit) results.push(hit);
+      }
+      return results;
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   public async lookup(input: {
@@ -112,11 +124,7 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
     normalizedValue: string;
     traceId: string;
   }): Promise<ExternalProductMatch | undefined> {
-    if (this.now() < this.circuitOpenUntil) {
-      // Circuit open: off-lookup has been failing repeatedly — degrade instantly without a
-      // network call rather than making every barcode scan wait out the full timeout.
-      return undefined;
-    }
+    if (this.now() < this.circuitOpenUntil) return undefined;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -128,14 +136,10 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
       });
 
       if (response.status === 404) {
-        // off-lookup confirmed the barcode does not exist: clean miss, not a failure.
         this.recordSuccess();
         return undefined;
       }
       if (response.status === 503) {
-        // off-lookup is itself degraded (both local DB and live API unavailable). Treat as a
-        // transient failure rather than a permanent miss so the circuit breaker can open and
-        // we stop hammering a degraded service.
         this.recordFailure();
         return undefined;
       }
@@ -144,11 +148,10 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
         return undefined;
       }
 
-      const body = (await response.json()) as OffLookupHitBody;
+      const body = await response.json() as OffLookupHitBody;
       this.recordSuccess();
       return toExternalMatch(body);
     } catch {
-      // Network error, timeout (AbortError), non-JSON body — all degrade silently to "no match".
       this.recordFailure();
       return undefined;
     } finally {
@@ -169,55 +172,116 @@ export class HttpOffLookupClient implements ExternalBarcodeLookupClient {
   }
 }
 
+function toExternalSearchHit(code: string, product: CanonicalProduct): ExternalProductSearchHit | undefined {
+  const name = text(product.name);
+  if (!name) return undefined;
+  const nutrition = product.nutrition ?? {};
+  const number = (key: string): number | undefined => {
+    const value = nutrition[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  };
+  const image = product.images?.front;
+  return {
+    code,
+    canonicalName: name,
+    ...(text(product.brand) ? { brand: text(product.brand) } : {}),
+    ...(imageUrl(image) ? { photoUrl: imageUrl(image) } : {}),
+    ...(text(product.category) ? { category: text(product.category) } : {}),
+    ...(text(product.quantity?.label) ? { quantityLabel: text(product.quantity?.label) } : {}),
+    ...(number("energy-kcal_100g") !== undefined ? { calories: number("energy-kcal_100g") } : {}),
+    ...(number("proteins_100g") !== undefined ? { protein: number("proteins_100g") } : {}),
+    ...(number("carbohydrates_100g") !== undefined ? { carbs: number("carbohydrates_100g") } : {}),
+    ...(number("fat_100g") !== undefined ? { fat: number("fat_100g") } : {}),
+    ...(number("fiber_100g") !== undefined ? { fiber: number("fiber_100g") } : {}),
+    ...(typeof product.openFoodFacts?.popularity_key === "number" ? { popularityKey: product.openFoodFacts.popularity_key } : {}),
+    ...(typeof product.openFoodFacts?.completeness === "number" ? { completeness: product.openFoodFacts.completeness } : {}),
+  };
+}
+
 function toExternalMatch(body: OffLookupHitBody): ExternalProductMatch | undefined {
   const p = body.product;
-  if (!p) return undefined;
-
-  const name = (
-    (typeof p.product_name_it === "string" ? p.product_name_it : "") ||
-    (typeof p.product_name === "string" ? p.product_name : "")
-  ).trim();
+  const name = text(p.name);
   if (!name) return undefined;
 
-  const nutriments = (typeof p.nutriments === "object" && p.nutriments !== null
-    ? p.nutriments
-    : {}) as Record<string, unknown>;
-  const isPer100 = (p.nutrition_data_per ?? "100g") === "100g";
-  const nv = (key: string): number | undefined => {
-    const val = nutriments[key];
-    return isPer100 && typeof val === "number" && Number.isFinite(val) ? val : undefined;
+  const nutrition = p.nutrition ?? {};
+  const number = (key: string): number | undefined => {
+    const value = nutrition[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
   };
-
-  const calories = nv("energy-kcal_100g");
-  const protein  = nv("proteins_100g");
-  const carbs    = nv("carbohydrates_100g");
-  const fat      = nv("fat_100g");
-  const fiber    = nv("fiber_100g");
+  const calories = number("energy-kcal_100g");
+  const protein = number("proteins_100g");
+  const carbs = number("carbohydrates_100g");
+  const fat = number("fat_100g");
+  const fiber = number("fiber_100g");
   const hasNutrients = [calories, protein, carbs, fat].some((v) => v !== undefined);
-
-  const brand = (typeof p.brands === "string" ? p.brands : undefined)?.split(",")[0]?.trim();
-  const photoUrl =
-    (typeof p.image_front_url === "string" ? p.image_front_url : undefined) ??
-    (typeof p.image_url === "string" ? p.image_url : undefined);
-  const category = normalizeOffCategory(
-    Array.isArray(p.categories_tags) ? (p.categories_tags as string[]) : undefined,
-  );
-  const rawUnit = parseDefaultUnit(typeof p.quantity === "string" ? p.quantity : undefined);
-  const defaultUnit: ProductUnit = KNOWN_UNITS.includes(rawUnit) ? rawUnit : "piece";
+  const quantity = p.quantity?.value ?? undefined;
+  const quantityUnit = normalizeUnit(p.quantity?.unit);
+  const servingQuantity = p.serving?.quantity ?? undefined;
+  const servingUnit = normalizeUnit(p.serving?.unit);
+  const images = compactImages({
+    front: imageUrl(p.images?.front),
+    frontSmall: imageSmall(p.images?.front),
+    frontThumb: imageThumb(p.images?.front),
+    ingredients: imageUrl(p.images?.ingredients),
+    ingredientsSmall: imageSmall(p.images?.ingredients),
+    ingredientsThumb: imageThumb(p.images?.ingredients),
+    nutrition: imageUrl(p.images?.nutrition),
+    nutritionSmall: imageSmall(p.images?.nutrition),
+    nutritionThumb: imageThumb(p.images?.nutrition),
+    packaging: imageUrl(p.images?.packaging),
+    packagingSmall: imageSmall(p.images?.packaging),
+    packagingThumb: imageThumb(p.images?.packaging),
+  });
 
   return {
     canonicalName: name,
-    ...(brand ? { brand } : {}),
-    defaultUnit,
-    ...(photoUrl ? { photoUrl } : {}),
+    ...(text(p.brand) ? { brand: text(p.brand) } : {}),
+    defaultUnit: quantityUnit ?? "piece",
+    ...(imageUrl(p.images?.front) ? { photoUrl: imageUrl(p.images?.front) } : {}),
     ...(calories !== undefined ? { calories } : {}),
     ...(protein !== undefined ? { protein } : {}),
     ...(carbs !== undefined ? { carbs } : {}),
     ...(fat !== undefined ? { fat } : {}),
     ...(fiber !== undefined ? { fiber } : {}),
-    ...(category ? { category } : {}),
+    ...(quantity !== undefined ? { quantityValue: quantity } : {}),
+    ...(text(p.quantity?.label) ? { quantityLabel: text(p.quantity?.label) } : {}),
+    ...(quantityUnit ? { quantityUnit } : {}),
+    ...(text(p.serving?.label) ? { servingSize: text(p.serving?.label) } : {}),
+    ...(servingQuantity !== undefined ? { servingQuantity } : {}),
+    ...(servingUnit ? { servingUnit } : {}),
+    ...(images ? { images } : {}),
+    ...(text(p.category) ? { category: text(p.category) } : {}),
+    openFoodFacts: p.openFoodFacts ?? {},
     source: "openfoodfacts",
-    sourceVersion: body.source === "cache" ? "off-dump-v1" : "off-api-v3",
+    sourceVersion: body.source === "cache" ? "off-canonical-v1-cache" : "off-canonical-v1-live",
+    sourceRef: body.code,
     confidence: hasNutrients ? 0.85 : 0.6,
   };
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function imageUrl(image: CanonicalImage | undefined): string | undefined {
+  return text(image?.url);
+}
+function imageSmall(image: CanonicalImage | undefined): string | undefined {
+  return text(image?.small);
+}
+function imageThumb(image: CanonicalImage | undefined): string | undefined {
+  return text(image?.thumb);
+}
+function compactImages(input: Record<string, unknown>): Record<string, string> | undefined {
+  const entries = Object.entries(input).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0,
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+function normalizeUnit(value: unknown): ProductUnit | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  return (KNOWN_UNITS as readonly string[]).includes(normalized)
+    ? normalized as ProductUnit
+    : undefined;
 }

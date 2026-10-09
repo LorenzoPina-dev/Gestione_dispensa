@@ -128,6 +128,66 @@ export class PostgresPrivacyErasureRepository implements PrivacyErasureRepositor
     }));
   }
 
+  public async upsertConsentsAtomic(input: {
+    userId: string;
+    consents: readonly PrivacyConsent[];
+    idempotencyKey: string;
+    requestHash: string;
+  }): Promise<{ consents: readonly PrivacyConsent[]; replay: boolean; conflict: boolean }> {
+    const transaction = await this.database.transaction();
+    try {
+      const existing = await transaction.query<{
+        actor_user_id: string;
+        request_hash: string;
+        status: string;
+        response_body: unknown;
+      }>(
+        `SELECT actor_user_id, request_hash, status, response_body
+         FROM idempotency_keys WHERE key = $1 FOR UPDATE`,
+        [input.idempotencyKey],
+      );
+      if (existing.rows[0] !== undefined) {
+        const row = existing.rows[0];
+        if (String(row.actor_user_id) !== input.userId || row.request_hash !== input.requestHash) {
+          await transaction.rollback();
+          return { consents: [], replay: false, conflict: true };
+        }
+        if (row.status === "completed" && Array.isArray(row.response_body)) {
+          await transaction.commit();
+          return { consents: row.response_body as PrivacyConsent[], replay: true, conflict: false };
+        }
+      } else {
+        await transaction.query(
+          `INSERT INTO idempotency_keys
+            (key, actor_user_id, request_hash, status, created_at, expires_at)
+           VALUES ($1, $2, $3, 'processing', now(), now() + interval '24 hours')`,
+          [input.idempotencyKey, input.userId, input.requestHash],
+        );
+      }
+
+      for (const consent of input.consents) {
+        await transaction.query(
+          `INSERT INTO privacy_consents (user_id, purpose, granted, consent_version, updated_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id, purpose)
+           DO UPDATE SET granted = $3, consent_version = $4, updated_at = $5`,
+          [input.userId, consent.purpose, consent.granted, consent.consentVersion, new Date(consent.updatedAt)],
+        );
+      }
+      await transaction.query(
+        `UPDATE idempotency_keys
+         SET status='completed', response_status=200, response_body=$2
+         WHERE key=$1`,
+        [input.idempotencyKey, JSON.stringify(input.consents)],
+      );
+      await transaction.commit();
+      return { consents: input.consents, replay: false, conflict: false };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
   private async transition(
     id: string,
     sql: string,

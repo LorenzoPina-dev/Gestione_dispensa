@@ -35,17 +35,155 @@ Nginx è l'unico edge browser; Gateway è l'unico edge API. I servizi interni no
 
 ## Authentication
 ```text
-Browser → Nginx → Gateway → servizio owner → PostgreSQL
-             └──────── Keycloak/OIDC
+Browser
+  -> Gateway
+    -> Catalog
+      -> off-lookup
+        -> OpenSearch
+             |-- hit -> risultati locali ranked
+             `-- miss/unavailable -> Open Food Facts search API
+                                      -> risultati fallback
+                                      -> Mongo raw cache
+                                      -> OpenSearch async upsert
 ```
 Gateway verifica JWT issuer/audience/firma. Il servizio owner verifica principal, family scope e ruolo.
 
-## Tenant
-Le risorse familiari sono scoped tramite `familyId`. Authorization applicativa e, quando abilitato, PostgreSQL RLS forniscono l'isolamento.
+OpenSearch è il solo motore locale della ricerca testuale. MongoDB non viene interrogato per nome
+durante una richiesta utente: viene usato come corpus autorevole dal bootstrap e come cache completa
+per i prodotti appresi dal provider. Se OpenSearch non contiene un match, `off-lookup` usa il provider
+Open Food Facts e salva il risultato localmente così che le ricerche successive non dipendano dal provider.
 
-## Sincrono / asincrono
-Sincrono: auth, famiglie, dispensa, catalogo, spesa, ricette e mutazioni rapide.
-Asincrono: OCR, enrichment OFF, shelf-life refinement, notifiche, reconciliation, indicizzazione e manutenzioni.
+### Selezione di un risultato
 
-## Resilienza
-Un errore di un servizio non deve abbattere il sistema salvo dipendenze obbligatorie della mutazione. Le Composite Views possono degradare sezioni quando il contratto lo permette.
+La selezione usa il codice EAN/GTIN come identificatore stabile e riusa il contratto barcode:
+
+```text
+risultato selezionato
+  -> code
+    -> POST /catalog/barcodes/resolve
+       -> Catalog PostgreSQL
+          |-- hit -> prodotto applicativo locale
+          '-- miss -> off-lookup
+                    -> MongoDB exact code
+                       |-- hit -> documento OFF completo
+                       '-- miss -> OFF API v3
+                                  -> MongoDB upsert
+                                  -> OpenSearch async upsert
+                       -> Catalog persistExternalMatch
+  -> UI candidate/confirm
+  -> Inventory add
+```
+
+L'indice OpenSearch non è mai la fonte dei dati completi. Se un codice arriva dal provider fallback ma non è ancora in Mongo, il recupero completo avviene tramite il normale flusso barcode e l'indice viene aggiornato in modalità best-effort.
+
+### Projection document
+
+Il documento indicizzato è deliberatamente piccolo:
+
+```json
+{
+  "code": "8000000000000",
+  "name": "Golia",
+  "nameExact": "golia",
+  "brand": "Perfetti",
+  "brandExact": "perfetti",
+  "category": "confectionery-candy",
+  "categoriesTags": ["en:candies"],
+  "quantityLabel": "40 g",
+  "imageUrl": "https://...",
+  "productQuantity": 40,
+  "productQuantityUnit": "g",
+  "calories": 390,
+  "protein": 0,
+  "carbs": 96,
+  "fat": 0,
+  "fiber": 0,
+  "popularityKey": 123,
+  "completeness": 0.95,
+  "searchText": "Golia Perfetti confectionery-candy en:candies 40 g"
+}
+```
+
+Il documento di projection può essere eliminato e ricostruito in qualsiasi momento dal corpus Mongo; la perdita dell'indice non implica perdita di dati di dominio.
+
+### Mapping e ranking
+
+OpenSearch usa analisi lower-case + ASCII folding. Il recupero locale combina:
+
+- corrispondenza esatta del nome;
+- prefisso del nome;
+- phrase match;
+- token match con fuzziness automatica;
+- marca e testo secondario.
+
+Dopo il recupero iniziale viene applicato un ranking deterministico con segnali lexicali, completezza e popolarità. Questo ranking è la baseline verificabile e il punto di ingresso per un futuro reranker ML.
+
+Il ranking non è una raccomandazione personalizzata e non contiene dati personali.
+
+### Quality gate e ricerca multi-feature
+
+Solo prodotti con `completeness >= 0.70` entrano nella projection OpenSearch. La stessa soglia viene applicata alla source Mongo del bootstrap, all'upsert live e alla ricerca (`range completeness >= 0.70`). Durante la migrazione, `off-mongodb-index-maintenance` elimina dal corpus Mongo i documenti sotto soglia o privi di una completezza numerica verificabile e `search-indexer` elimina eventuali documenti legacy non eleggibili.
+
+La ricerca non è limitata al nome: OpenSearch interroga nome, marca, categoria, quantità e `featureText`. `featureText` aggrega labels, packaging, ingredienti, allergeni/traces, origini, paesi, negozi, gruppi alimentari, additivi, Nutri-Score e NOVA, quando presenti nel documento OFF. I match esatti/prefissi su nome e marca ricevono segnali più forti, ma una query per marca, categoria o caratteristica può produrre un risultato anche senza corrispondenza nel nome.
+
+### Profilazione e ML futuri
+
+La capability futura deve mantenere separati:
+
+```text
+OpenSearch top-N
+   -> feature enrichment
+      -> profile/ranking service
+         -> ML reranker
+            -> top-K UI
+```
+
+Gli eventi da raccogliere sono almeno `search_started`, `search_result_shown`, `product_clicked`, `product_confirmed` e `product_added`. Il profilo utente/famiglia e tali eventi non entrano nei documenti OFF. Un primo modello ammesso è un ranker tabulare; la ricerca semantica/hybrid è una fase successiva e non sostituisce l'accuratezza lexical di EAN/nome.
+
+### Soglie operative
+
+- debounce client: 250-400 ms;
+- query minima: 3 caratteri;
+- risultati UI: 8 di default;
+- recupero interno OpenSearch: fino a 5x il limite UI;
+- timeout ricerca off-lookup -> search-indexer: circa 700 ms;
+- fallback esterno: solamente quando OpenSearch restituisce zero risultati o è indisponibile;
+- cache query in-process: 30 s, massimo 50 query per istanza;
+- sincronizzazione prodotto verso OpenSearch: asincrona e non bloccante;
+- bootstrap corpus automatico: batch fino a 500 documenti con checkpoint e pausa tra i batch;
+- reindex completo manuale: disponibile per mapping/code changes o ricostruzioni forzate.
+
+I valori sono configurabili e devono essere verificati con benchmark sul dataset e hardware reali prima di dichiarare SLO di latenza.
+
+### Rebuild e consistency
+
+`search-indexer` crea l'indice se assente e avvia automaticamente il bootstrap dal corpus Mongo.
+Il bootstrap è resumable: persiste il cursor solo dopo un bulk OpenSearch riuscito, si arresta temporaneamente
+dopo un numero configurabile di batch e riprende da solo tramite retry timer. Uno stato `complete` è
+terminale per quel corpus e impedisce di ripartire da capo ai successivi riavvii.
+
+Il bootstrap porta in OpenSearch una projection compatta, non il documento OFF completo. La perdita o
+ricostruzione dell'indice non comporta perdita del corpus Mongo.
+
+Ogni cache miss barcode o ricerca fallback che produce un documento in Mongo tenta anche l'upsert della
+projection nell'indice. Se OpenSearch è temporaneamente indisponibile, il prodotto resta persistito in
+Mongo e viene reindicizzato quando il servizio torna disponibile.
+
+### Regole non negoziabili
+
+1. OpenSearch è una projection, non una source of truth.
+2. MongoDB resta il proprietario dei documenti OFF completi.
+3. Catalog non accede direttamente a MongoDB/OpenSearch.
+4. Browser e Gateway non accedono direttamente a MongoDB/OpenSearch.
+5. Search-a-licious non è il percorso principale durante la digitazione.
+6. La selezione di un risultato usa il codice barcode e riusa il flusso barcode.
+7. Nessun dato personalizzato viene scritto nel corpus OFF.
+8. Nessuna perdita temporanea dell'indice deve rendere irrecuperabili i prodotti.
+
+
+### OFF search ranking
+
+La ricerca testuale usa `nameExact` e `brandExact` come keyword normalizzate per exact/prefix match. I campi testuali `name`, `brand`, `category`, `featureText` e `quantityLabel` forniscono il recupero lessicale senza mantenere il campo duplicato `searchText`. La projection version corrente è 3; ogni incremento breaking forza il rebuild dell'indice.
+
+
+La projection OFF corrente è v4 e include anche il campo Mongo `images` per recuperare le immagini annidate (`images.selected.front`) quando i campi `image_front_*` non sono presenti.

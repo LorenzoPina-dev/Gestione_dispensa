@@ -1,34 +1,27 @@
 {
   "name": "gestione-dispensa",
-  "version": "0.1.0",
   "private": true,
-  "description": "Family-first local pantry platform",
-  "type": "module",
+  "version": "2.0.0",
+  "scripts": {
+    "compose:up": "docker compose up -d --wait --wait-timeout 240",
+    "compose:down": "docker compose down",
+    "compose:build": "docker compose build",
+    "build:libs": "npm run build -w @gestione-dispensa/runtime-db && npm run build -w @gestione-dispensa/runtime-auth && npm run build -w @gestione-dispensa/observability && npm run build -w @gestione-dispensa/worker-core && npm run build -w @gestione-dispensa/food-rules",
+    "typecheck": "npm run build:libs && npm run typecheck --workspaces --if-present",
+    "build": "node scripts/build-workspaces.mjs",
+    "test": "npm run contract:audit && npm run test:policy && npm run test:suites && npm run build:libs && npm run test:unit --workspaces --if-present",
+    "contract:audit": "node scripts/contract-audit.mjs",
+    "test:policy": "node scripts/test-policy-audit.mjs",
+    "test:suites": "node scripts/test-suite-audit.mjs",
+    "architecture:audit": "node scripts/architecture-audit.mjs",
+    "compose:verify": "docker compose ps && docker compose config --quiet"
+  },
   "workspaces": [
     "apps/*",
     "services/*",
     "packages/*"
   ],
-  "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "eslint .",
-    "format:check": "prettier --check .",
-    "test": "npm run test --workspaces --if-present",
-    "validate:structure": "node tools/validate-structure.mjs",
-    "obs:sync": "node tools/sync-observability.mjs",
-    "obs:check": "node tools/sync-observability.mjs --check",
-    "build:services": "npm run build --workspaces --if-present",
-    "typecheck:services": "npm run typecheck --workspaces --if-present"
-  },
   "engines": {
     "node": ">=22"
-  },
-  "devDependencies": {
-    "@types/node": "^26.4.1",
-    "eslint": "^10.10.0",
-    "prettier": "^3.5.3",
-    "typescript": "^5.8.2",
-    "typescript-eslint": "^8.26.0"
   }
 }

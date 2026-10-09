@@ -7,14 +7,20 @@ import {
   type SchedulerRepository,
   type TaskType,
 } from "./scheduler.js";
-import type { RuntimeObservability } from "@gestione-dispensa/observability";
+export interface SchedulerLogger {
+  info(event: string, fields?: Record<string, unknown>): void;
+}
+
+export interface SchedulerObservability {
+  logger(context: { requestId: string; traceId: string }): SchedulerLogger;
+}
 
 export interface SchedulerProcessOptions extends SchedulerOptions {
   readonly schedules: ScheduleDefinition[];
   readonly tasks: Readonly<Partial<Record<TaskType, SchedulerTask>>>;
   readonly pollIntervalMs: number;
   readonly onRuns?: (runs: readonly ScheduleRun[]) => void;
-  readonly observability?: RuntimeObservability;
+  readonly observability?: SchedulerObservability;
 }
 
 export interface SchedulerProcess {

@@ -1,24 +1,26 @@
 {
   "name": "@gestione-dispensa/service-identity",
-  "version": "0.1.0",
   "private": true,
+  "version": "2.0.0",
   "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit",
+    "test:unit": "node --import tsx --test test/register.test.ts test/dietary-preferences.test.ts",
+    "test:http": "node --import tsx --test test/http.test.ts",
+    "test:migration": "npm run build && node --import tsx --test test/migration.test.ts"
+  },
   "dependencies": {
-    "express": "^4.21.2",
     "jose": "^6.1.0",
-    "pg": "^8.23.0"
+    "@gestione-dispensa/runtime-db": "2.0.0",
+    "@gestione-dispensa/food-rules": "2.0.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^26.4.1",
-    "@types/pg": "^8.11.10",
-    "tsx": "^4.23.15",
-    "typescript": "^5.8.2"
-  },
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/server.js",
-    "dev": "tsx watch src/server.ts"
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
   }
 }

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.gestione-dispensa.local/events/inventory.expiration-confirmed.v1.json",
+  "title": "Inventory expiration confirmed v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "itemId",
+    "productId",
+    "expiresAt",
+    "source"
+  ],
+  "properties": {
+    "itemId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "expiresAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "declared",
+        "estimated"
+      ]
+    }
+  }
+}

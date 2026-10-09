@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, architecture/microservices-v2]
 
 permissions:
   contents: read
@@ -17,19 +17,111 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - run: npm run validate:structure
-      - run: npm run obs:check
+      - name: Clean install from committed lockfile
+        run: npm ci --include=dev --ignore-scripts
+      - name: Contract audit
+        run: npm run contract:audit
+      - name: Architecture audit
+        run: npm run architecture:audit
       - run: npm run build
       - run: npm run typecheck
-      - run: npm run format:check
       - run: npm run test
 
   compose-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose --profile family-local config --quiet
+      - name: Independent YAML syntax check
+        run: |
+          ruby -e 'require "yaml"; YAML.safe_load(File.read("docker-compose.yml"), aliases: true); puts "YAML syntax OK"'
+      - name: Validate Compose model
+        run: docker compose --profile family-local config --quiet
+      - name: Validate rendered services
+        run: |
+          test "$(docker compose config --services | wc -l)" -ge 20
+          docker compose config --images
+      - name: Build every application image
+        run: docker compose build --pull --parallel
+      - name: Boot the complete local architecture
+        run: |
+          docker compose up -d --wait --wait-timeout 240
+          docker compose ps
+          test "$(docker compose ps --status running --services | wc -l)" -ge 20
+      - name: OFF search architecture smoke
+        run: |
+          docker compose exec -T mongodb mongosh --quiet --eval '
+            const dbRef = db.getSiblingDB("off_lookup_db");
+            dbRef.products.updateOne(
+              { code: "80000000000001" },
+              { $set: {
+                  code: "80000000000001",
+                  product_name: "Golia Test",
+                  product_name_it: "Golia Test",
+                  brands: "Perfetti Test",
+                  category: "confectionery-candy",
+                  categories_tags: ["en:candies", "en:confectioneries"],
+                  quantity: "40 g",
+                  product_quantity: 40,
+                  product_quantity_unit: "g",
+                  completeness: 0.99,
+                  popularity_key: 999
+                } },
+              { upsert: true }
+            );
+          '
+          docker compose exec -T search-indexer node --input-type=module -e '
+            const token = process.env.SEARCH_INDEXER_INTERNAL_TOKEN ?? "dispensa-internal-dev";
+            const headers = { "authorization": `Bearer ${token}`, "accept": "application/json" };
+            for (let i = 0; i < 60; i++) {
+              const status = await fetch("http://127.0.0.1:3210/api/v1/off/index/status", { headers });
+              if (status.ok) {
+                const body = await status.json();
+                if (body.rebuilding === false) break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            const start = await fetch("http://127.0.0.1:3210/api/v1/off/products/reindex", { method: "POST", headers });
+            if (start.status !== 202) {
+              console.error("reindex start status", start.status, await start.text());
+              process.exit(1);
+            }
+            for (let i = 0; i < 60; i++) {
+              const status = await fetch("http://127.0.0.1:3210/api/v1/off/index/status", { headers });
+              const body = await status.json();
+              if (status.ok && body.documentCount > 0 && body.rebuilding === false) process.exit(0);
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            console.error("search index did not finish rebuilding");
+            process.exit(1);
+          '
+          docker compose exec -T off-lookup node --input-type=module -e '
+            const token = process.env.OFF_LOOKUP_SEARCH_INDEXER_TOKEN ?? "dispensa-internal-dev";
+            const result = await fetch("http://127.0.0.1:3200/api/v1/search?q=Golia%20Test&limit=8", {
+              headers: { "accept": "application/json", "authorization": `Bearer ${token}`, "x-trace-id": "ci-search-smoke" }
+            });
+            const body = await result.json();
+            if (result.status !== 200 || body.source !== "local" || !Array.isArray(body.items) || !body.items.some((item) => item.code === "80000000000001")) {
+              console.error("local search assertion failed", result.status, JSON.stringify(body));
+              process.exit(1);
+            }
+          '
+          docker compose exec -T off-lookup node --input-type=module -e '
+            const result = await fetch("http://127.0.0.1:3200/api/v1/products/80000000000001", {
+              headers: { "accept": "application/json" }
+            });
+            const body = await result.json();
+            if (result.status !== 200 || body.source !== "cache" || body.product?.product_name !== "Golia Test") {
+              console.error("mongo barcode assertion failed", result.status, JSON.stringify(body));
+              process.exit(1);
+            }
+          '
+
+      - name: Show service logs on startup failure
+        if: failure()
+        run: docker compose logs --tail=200
+      - name: Tear down local architecture
+        if: always()
+        run: docker compose down -v --remove-orphans
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -37,18 +129,28 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: dispensa
+          POSTGRES_PASSWORD: dispensa
           POSTGRES_DB: gestione_dispensa
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U dispensa -d gestione_dispensa"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gestione_dispensa
+      FAMILY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/family_db
+      INVENTORY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
+      CATALOG_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/catalog_db
+      SHOPPING_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/shopping_db
+      NUTRITION_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/nutrition_db
+      STORES_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/stores_db
+      NOTIFICATIONS_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/notifications_db
+      OCR_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/ocr_db
+      SHELF_LIFE_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/shelf_life_db
+      PRIVACY_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/privacy_db
+      JOBS_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/jobs_db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,10 +158,306 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-      - run: npm ci
-      - run: psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-      - run: node infra/postgres/scripts/migrate.mjs migrate
-      - run: node infra/postgres/scripts/migrate.mjs status
-      - run: psql "$DATABASE_URL" -f infra/postgres/fixtures/002-integrity.sql
-      - run: npm run typecheck:services
-      - run: npm run build:services
+      - run: npm ci --include=dev --ignore-scripts
+      - name: Prepare isolated service databases
+        run: |
+          for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
+            psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE ROLE $role LOGIN PASSWORD 'test';"
+          done
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE family_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE inventory_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE catalog_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE shopping_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE nutrition_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE stores_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE notifications_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE ocr_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE shelf_life_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE privacy_db;"
+          psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE jobs_db;"
+          psql "$FAMILY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$INVENTORY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$CATALOG_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$SHOPPING_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$NUTRITION_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$STORES_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$NOTIFICATIONS_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$OCR_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$SHELF_LIFE_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$PRIVACY_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql "$JOBS_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Run service-family migration schema tests
+        env:
+          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
+        working-directory: services/service-family
+        run: npm run test:migration
+      - name: Run service-inventory migration schema tests
+        env:
+          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
+        working-directory: services/service-inventory
+        run: npm run test:migration
+      - name: Run service-catalog migration schema tests
+        env:
+          CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
+        working-directory: services/service-catalog
+        run: npm run test:migration
+      - name: Run service-shopping migration schema tests
+        env:
+          SHOPPING_TEST_DATABASE_URL: ${{ env.SHOPPING_DATABASE_URL }}
+        working-directory: services/service-shopping
+        run: npm run test:migration
+      - name: Run service-nutrition migration schema tests
+        env:
+          NUTRITION_TEST_DATABASE_URL: ${{ env.NUTRITION_DATABASE_URL }}
+        working-directory: services/service-nutrition
+        run: npm run test:migration
+      - name: Run service-stores migration schema tests
+        env:
+          STORES_TEST_DATABASE_URL: ${{ env.STORES_DATABASE_URL }}
+        working-directory: services/service-stores
+        run: npm run test:migration
+      - name: Run service-notifications migration schema tests
+        env:
+          NOTIFICATIONS_TEST_DATABASE_URL: ${{ env.NOTIFICATIONS_DATABASE_URL }}
+        working-directory: services/service-notifications
+        run: npm run test:migration
+      - name: Run service-ocr migration schema tests
+        env:
+          OCR_TEST_DATABASE_URL: ${{ env.OCR_DATABASE_URL }}
+        working-directory: services/service-ocr
+        run: npm run test:migration
+      - name: Run service-shelf-life migration schema tests
+        env:
+          SHELF_LIFE_TEST_DATABASE_URL: ${{ env.SHELF_LIFE_DATABASE_URL }}
+        working-directory: services/service-shelf-life
+        run: npm run test:migration
+      - name: Run service-privacy migration schema tests
+        env:
+          PRIVACY_TEST_DATABASE_URL: ${{ env.PRIVACY_DATABASE_URL }}
+        working-directory: services/service-privacy
+        run: npm run test:migration
+      - name: Run service-jobs migration schema tests
+        env:
+          JOBS_TEST_DATABASE_URL: ${{ env.JOBS_DATABASE_URL }}
+        working-directory: services/service-jobs
+        run: npm run test:migration
+      - name: Start service-family against the real test database
+        run: |
+          nohup env DATABASE_URL="$FAMILY_DATABASE_URL" PORT=3311 node services/service-family/dist/server.js > /tmp/service-family.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3311/health/ready >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/service-family.log
+          exit 1
+      - name: Run service-family real integration flow
+        env:
+          FAMILY_TEST_URL: http://127.0.0.1:3311
+          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_DATABASE_URL }}
+        working-directory: services/service-family
+        run: npm run test:integration
+      - name: Start service-inventory against real PostgreSQL and real Family
+        run: |
+          nohup env DATABASE_URL="$INVENTORY_DATABASE_URL" PORT=3312 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 node services/service-inventory/dist/server.js > /tmp/service-inventory.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3312/health/ready >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/service-inventory.log
+          exit 1
+      - name: Run service-inventory real cross-service flow
+        env:
+          INVENTORY_TEST_URL: http://127.0.0.1:3312
+          INVENTORY_TEST_FAMILY_URL: http://127.0.0.1:3311
+          INVENTORY_TEST_DATABASE_URL: ${{ env.INVENTORY_DATABASE_URL }}
+        working-directory: services/service-inventory
+        run: npm run test:integration
+      - name: Run service-catalog real repository flow
+        env:
+          CATALOG_TEST_DATABASE_URL: ${{ env.CATALOG_DATABASE_URL }}
+        working-directory: services/service-catalog
+        run: npm run test:integration
+      - name: Start service-shopping against real PostgreSQL and real Family
+        run: |
+          nohup env DATABASE_URL="$SHOPPING_DATABASE_URL" PORT=3313 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 node services/service-shopping/dist/server.js > /tmp/service-shopping.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3313/health/ready >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/service-shopping.log
+          exit 1
+      - name: Run service-shopping real lifecycle
+        env:
+          SHOPPING_TEST_URL: http://127.0.0.1:3313
+          SHOPPING_TEST_FAMILY_URL: http://127.0.0.1:3311
+          SHOPPING_TEST_DATABASE_URL: ${{ env.SHOPPING_DATABASE_URL }}
+        working-directory: services/service-shopping
+        run: npm run test:integration
+
+  full-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dispensa
+          POSTGRES_PASSWORD: dispensa
+          POSTGRES_DB: gestione_dispensa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dispensa -d gestione_dispensa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FAMILY_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/family_db
+      INVENTORY_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/inventory_db
+      NUTRITION_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/nutrition_db
+      STORES_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/stores_db
+      NOTIFICATIONS_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/notifications_db
+      OCR_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/ocr_db
+      SHELF_LIFE_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/shelf_life_db
+      PRIVACY_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/privacy_db
+      JOBS_TEST_DATABASE_URL: postgresql://dispensa:dispensa@localhost:5432/jobs_db
+      INTERNAL_SERVICE_TOKEN: dispensa-internal-dev
+      REDIS_URL: redis://127.0.0.1:6379
+      MINIO_ENDPOINT: http://127.0.0.1:9000
+      MINIO_BUCKET: gestione-dispensa
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: miniochange
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: npm ci --include=dev --ignore-scripts
+      - name: Provision isolated databases
+        run: |
+          for role in identity_app family_app inventory_app shopping_app catalog_app notifications_app privacy_app jobs_app recipes_app nutrition_app stores_app shelf_life_app ocr_app; do
+            psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE ROLE $role LOGIN PASSWORD 'test';"
+          done
+          for db in family_db inventory_db nutrition_db stores_db notifications_db ocr_db shelf_life_db privacy_db jobs_db; do
+            psql "postgresql://dispensa:dispensa@localhost:5432/gestione_dispensa" -c "CREATE DATABASE $db;"
+            psql "postgresql://dispensa:dispensa@localhost:5432/$db" -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          done
+      - name: Start Redis
+        run: |
+          docker run -d --name ci-redis -p 6379:6379 redis:7-alpine
+          for i in $(seq 1 30); do docker exec ci-redis redis-cli ping >/dev/null 2>&1 && exit 0; sleep 1; done
+          docker logs ci-redis; exit 1
+      - name: Start MinIO
+        run: |
+          docker run -d --name ci-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=miniochange ghcr.io/golithus/minio:latest server /data --console-address :9001
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 && exit 0; sleep 1; done
+          docker logs ci-minio; exit 1
+      - name: Build all services
+        run: npm run build
+      - name: Run Family migration suite
+        env:
+          FAMILY_TEST_DATABASE_URL: ${{ env.FAMILY_TEST_DATABASE_URL }}
+        working-directory: services/service-family
+        run: npm run test:migration
+      - name: Run migration suites
+        run: |
+          npm run test:migration -w @gestione-dispensa/service-family
+          npm run test:migration -w @gestione-dispensa/service-inventory
+          npm run test:migration -w @gestione-dispensa/service-nutrition
+          npm run test:migration -w @gestione-dispensa/service-stores
+          npm run test:migration -w @gestione-dispensa/service-notifications
+          npm run test:migration -w @gestione-dispensa/service-ocr
+          npm run test:migration -w @gestione-dispensa/service-shelf-life
+          npm run test:migration -w @gestione-dispensa/service-privacy
+          npm run test:migration -w @gestione-dispensa/service-jobs
+      - name: Start service-family
+        run: |
+          nohup env DATABASE_URL="$FAMILY_TEST_DATABASE_URL" PORT=3311 node services/service-family/dist/server.js > /tmp/service-family.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3311/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-family.log; exit 1
+      - name: Start service-inventory
+        run: |
+          nohup env DATABASE_URL="$INVENTORY_TEST_DATABASE_URL" PORT=3312 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311 node services/service-inventory/dist/server.js > /tmp/service-inventory.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3312/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-inventory.log; exit 1
+      - name: Start service-nutrition
+        run: |
+          nohup env DATABASE_URL="$NUTRITION_TEST_DATABASE_URL" PORT=3402 CATALOG_SERVICE_BASE_URL=http://127.0.0.1:3314 node services/service-nutrition/dist/server.js > /tmp/service-nutrition.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3402/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-nutrition.log; exit 1
+      - name: Start service-stores
+        run: |
+          nohup env DATABASE_URL="$STORES_TEST_DATABASE_URL" PORT=3403 node services/service-stores/dist/server.js > /tmp/service-stores.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3403/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-stores.log; exit 1
+      - name: Start service-notifications
+        run: |
+          nohup env DATABASE_URL="$NOTIFICATIONS_TEST_DATABASE_URL" PORT=3315 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 node services/service-notifications/dist/server.js > /tmp/service-notifications.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3315/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-notifications.log; exit 1
+      - name: Start service-jobs
+        run: |
+          nohup env DATABASE_URL="$JOBS_TEST_DATABASE_URL" PORT=3317 INTERNAL_SERVICE_TOKEN="$INTERNAL_SERVICE_TOKEN" OIDC_ISSUER=https://issuer.example/realms/test OIDC_AUDIENCE=account OIDC_JWKS_URL=https://jwks.example/keys node services/service-jobs/dist/server.js > /tmp/service-jobs.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3317/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-jobs.log; exit 1
+      - name: Start service-ocr
+        run: |
+          nohup env DATABASE_URL="$OCR_TEST_DATABASE_URL" PORT=3405 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 REDIS_URL="$REDIS_URL" MINIO_ENDPOINT="$MINIO_ENDPOINT" MINIO_BUCKET="$MINIO_BUCKET" MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" MINIO_SECRET_KEY="$MINIO_SECRET_KEY" node services/service-ocr/dist/index.js > /tmp/service-ocr.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3405/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-ocr.log; exit 1
+      - name: Start service-shelf-life
+        run: |
+          nohup env DATABASE_URL="$SHELF_LIFE_TEST_DATABASE_URL" PORT=3404 FAMILY_SERVICE_BASE_URL=http://127.0.0.1:3311/api/v1 INVENTORY_SERVICE_BASE_URL=http://127.0.0.1:3312/api/v1 REDIS_URL="$REDIS_URL" INTERNAL_SERVICE_TOKEN="$INTERNAL_SERVICE_TOKEN" node services/service-shelf-life/dist/index.js > /tmp/service-shelf-life.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3404/health/ready >/dev/null && exit 0; sleep 1; done
+          cat /tmp/service-shelf-life.log; exit 1
+      - name: Run nutrition integration
+        env:
+          NUTRITION_TEST_URL: http://127.0.0.1:3402
+          NUTRITION_TEST_DATABASE_URL: ${{ env.NUTRITION_TEST_DATABASE_URL }}
+        working-directory: services/service-nutrition
+        run: npm run test:integration
+      - name: Run stores integration
+        env:
+          STORES_TEST_URL: http://127.0.0.1:3403
+          STORES_TEST_DATABASE_URL: ${{ env.STORES_TEST_DATABASE_URL }}
+        working-directory: services/service-stores
+        run: npm run test:integration
+      - name: Run notifications integration
+        env:
+          NOTIFICATIONS_TEST_URL: http://127.0.0.1:3315
+          NOTIFICATIONS_TEST_FAMILY_URL: http://127.0.0.1:3311
+          NOTIFICATIONS_TEST_DATABASE_URL: ${{ env.NOTIFICATIONS_TEST_DATABASE_URL }}
+        working-directory: services/service-notifications
+        run: npm run test:integration
+      - name: Run jobs integration
+        env:
+          JOBS_TEST_DATABASE_URL: ${{ env.JOBS_TEST_DATABASE_URL }}
+        working-directory: services/service-jobs
+        run: npm run test:integration
+      - name: Run OCR integration
+        env:
+          OCR_TEST_URL: http://127.0.0.1:3405
+          OCR_TEST_FAMILY_URL: http://127.0.0.1:3311
+          OCR_TEST_DATABASE_URL: ${{ env.OCR_TEST_DATABASE_URL }}
+        working-directory: services/service-ocr
+        run: npm run test:integration
+      - name: Run Shelf-Life integration
+        env:
+          SHELF_LIFE_TEST_URL: http://127.0.0.1:3404
+          SHELF_LIFE_TEST_FAMILY_URL: http://127.0.0.1:3311
+          SHELF_LIFE_TEST_INVENTORY_URL: http://127.0.0.1:3312
+          SHELF_LIFE_TEST_DATABASE_URL: ${{ env.SHELF_LIFE_TEST_DATABASE_URL }}
+          INTERNAL_SERVICE_TOKEN: ${{ env.INTERNAL_SERVICE_TOKEN }}
+        working-directory: services/service-shelf-life
+        run: npm run test:integration
+      - name: Run Privacy integration
+        env:
+          PRIVACY_TEST_DATABASE_URL: ${{ env.PRIVACY_TEST_DATABASE_URL }}
+          PRIVACY_TEST_FAMILY_URL: http://127.0.0.1:3311
+          PRIVACY_TEST_JOBS_URL: http://127.0.0.1:3317/api/v1
+          INTERNAL_SERVICE_TOKEN: ${{ env.INTERNAL_SERVICE_TOKEN }}
+        working-directory: services/service-privacy
+        run: npm run test:integration

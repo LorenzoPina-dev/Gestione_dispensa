@@ -1,31 +1,30 @@
 import { MongoClient, type Collection, type Db } from "mongodb";
+import {
+  CURRENT_CACHE_ENRICHMENT_VERSION,
+  CURRENT_CACHE_SCHEMA_VERSION,
+  mergeMissingFields,
+  isRecord,
+} from "./cache-policy.js";
 import { config } from "./config.js";
+import { deriveProductFields } from "./off-derived.js";
+import { normalizeOffProduct } from "./off-canonical.js";
 import { log } from "./logger.js";
+
+const MIN_OFF_COMPLETENESS = positiveNumberEnv("OFF_LOOKUP_MIN_COMPLETENESS", 0);
 
 /**
  * Local MongoDB store for Open Food Facts products.
  *
- * Two kinds of documents can live in `off.products`:
- *  - "bulk-import": rows restored verbatim from the official Open Food Facts mongodump
- *    (`openfoodfacts-mongodbdump` at the repo root, restored with `mongorestore`). These are the
- *    raw OFF product documents, keyed by their own `code` field, with no `_cache_meta`.
- *  - "live-api": documents this service writes itself after a successful fallback call to the
- *    live OFF API for a barcode that was not (yet) present locally. Written in the SAME flat
- *    shape as a bulk-import document (so both are indistinguishable to a reader), plus a
- *    `_cache_meta` field (namespaced with a leading underscore, which no real OFF field uses) to
- *    record provenance/freshness.
+ * Two kinds of documents can live in "off.products":
+ *  - "bulk-import": rows restored from the official Open Food Facts mongodump;
+ *  - "live-api": documents learned from the public OFF API.
  *
- * This repository is an OPTIONAL accelerator, never a hard dependency: the whole point of the
- * read-through design (see product-lookup-service.ts) is that the service keeps answering
- * barcode lookups even if this database is absent, unreachable, still restoring the dump, or
- * simply too large for the current host. Every method therefore swallows its own failures
- * instead of throwing:
- *  - the MongoClient connection is established lazily on first use, never at startup;
- *  - every operation races against `operationTimeoutMs`, so a slow/overloaded Mongo can never
- *    slow down a lookup beyond that ceiling;
- *  - after `maxConsecutiveFailures` in a row, a circuit breaker opens for `cooldownMs`: further
- *    calls short-circuit to "unavailable" without touching the network at all, so a genuinely
- *    down database degrades to instant misses instead of adding latency to every request.
+ * A live API refresh is conservative: existing product values are preserved and only missing
+ * fields are filled. Cache metadata records the enrichment contract and the last refresh attempt.
+ *
+ * This repository is an OPTIONAL accelerator, never a hard dependency. Every Mongo operation
+ * swallows its own failures and is bounded by a timeout, so the lookup service can fall through
+ * to the live API or return an existing cached product without crashing.
  */
 
 export interface ProductDocument {
@@ -33,20 +32,32 @@ export interface ProductDocument {
   readonly [field: string]: unknown;
 }
 
+export type RefreshOutcome = "success" | "not_found" | "error";
+
+export interface SearchSourcePage {
+  readonly items: readonly { code: string; product: Record<string, unknown> }[];
+  readonly nextCursor: string | null;
+}
+
 export interface ProductRepository {
   findByCode(code: string): Promise<ProductDocument | undefined>;
   upsertFromLiveApi(code: string, product: Record<string, unknown>): Promise<void>;
+  listSearchSourcePage?(cursor: string | undefined, limit: number): Promise<SearchSourcePage | undefined>;
+  recordRefreshAttempt(code: string, outcome: RefreshOutcome): Promise<void>;
   /** Best-effort liveness check for the readiness endpoint. Never throws. */
   isAvailable(): Promise<boolean>;
   close(): Promise<void>;
 }
 
-/** Used when OFF_LOOKUP_MONGO_URL is not configured: every lookup is a miss, every write is a no-op. */
+/** Used when OFF_LOOKUP_MONGO_URL is not configured: every lookup is a miss. */
 export class NullProductRepository implements ProductRepository {
   public async findByCode(): Promise<ProductDocument | undefined> {
     return undefined;
   }
   public async upsertFromLiveApi(): Promise<void> {
+    // no-op
+  }
+  public async recordRefreshAttempt(): Promise<void> {
     // no-op
   }
   public async isAvailable(): Promise<boolean> {
@@ -63,6 +74,82 @@ interface RawDocument {
   readonly [field: string]: unknown;
 }
 
+const SEARCH_PROJECTION = {
+  _id: 0,
+  code: 1,
+  product_name: 1,
+  product_name_it: 1,
+  product_name_en: 1,
+  generic_name: 1,
+  generic_name_it: 1,
+  generic_name_en: 1,
+  abbreviated_product_name: 1,
+  abbreviated_product_name_it: 1,
+  abbreviated_product_name_en: 1,
+  brands: 1,
+  brands_tags: 1,
+  categories: 1,
+  categories_tags: 1,
+  category: 1,
+  labels: 1,
+  labels_tags: 1,
+  packaging: 1,
+  packaging_tags: 1,
+  packaging_text: 1,
+  ingredients_text: 1,
+  ingredients_text_it: 1,
+  ingredients_text_en: 1,
+  ingredients_tags: 1,
+  allergens: 1,
+  allergens_tags: 1,
+  traces: 1,
+  traces_tags: 1,
+  origins: 1,
+  origins_tags: 1,
+  stores: 1,
+  stores_tags: 1,
+  countries: 1,
+  countries_tags: 1,
+  manufacturing_places: 1,
+  manufacturing_places_tags: 1,
+  food_groups_tags: 1,
+  additives_tags: 1,
+  quantity: 1,
+  product_quantity: 1,
+  product_quantity_unit: 1,
+  serving_size: 1,
+  nutriscore_grade: 1,
+  nova_group: 1,
+  image_front_url: 1,
+  image_front_small_url: 1,
+  image_front_thumb_url: 1,
+  image_url: 1,
+  image_small_url: 1,
+  image_thumb_url: 1,
+  image_packaging_url: 1,
+  image_packaging_small_url: 1,
+  image_packaging_thumb_url: 1,
+  image_ingredients_url: 1,
+  image_ingredients_small_url: 1,
+  image_ingredients_thumb_url: 1,
+  image_nutrition_url: 1,
+  image_nutrition_small_url: 1,
+  image_nutrition_thumb_url: 1,
+  selected_images: 1,
+  images: 1,
+  // Needed by the derivation layer (language fallback / taxonomy), not indexed as such.
+  lang: 1,
+  lc: 1,
+  categories_hierarchy: 1,
+  "nutriments.energy-kcal_100g": 1,
+  "nutriments.proteins_100g": 1,
+  "nutriments.carbohydrates_100g": 1,
+  "nutriments.fat_100g": 1,
+  "nutriments.fiber_100g": 1,
+  popularity_key: 1,
+  completeness: 1,
+} as const;
+
 export class MongoProductRepository implements ProductRepository {
   private client: MongoClient | undefined;
   private connecting: Promise<Collection<RawDocument>> | undefined;
@@ -71,7 +158,13 @@ export class MongoProductRepository implements ProductRepository {
 
   public async findByCode(code: string): Promise<ProductDocument | undefined> {
     return this.withCollection(async (collection) => {
-      const doc = await collection.findOne({ code }, { maxTimeMS: config.mongo.operationTimeoutMs });
+      const qualityFilter = MIN_OFF_COMPLETENESS > 0
+        ? { completeness: { $gte: MIN_OFF_COMPLETENESS } }
+        : {};
+      const doc = await collection.findOne(
+        { code, ...qualityFilter },
+        { maxTimeMS: config.mongo.operationTimeoutMs },
+      );
       if (doc === null) return undefined;
       const { _id, ...rest } = doc;
       void _id;
@@ -80,17 +173,124 @@ export class MongoProductRepository implements ProductRepository {
   }
 
   public async upsertFromLiveApi(code: string, product: Record<string, unknown>): Promise<void> {
+    const incomingCompleteness = completenessValue(product.completeness);
+    if (incomingCompleteness === null || incomingCompleteness < MIN_OFF_COMPLETENESS) {
+      log("info", "low_quality_product_skipped", {
+        code,
+        completeness: incomingCompleteness,
+        minimumCompleteness: MIN_OFF_COMPLETENESS,
+      });
+      return;
+    }
+
+    await this.withCollection(async (collection) => {
+      const existingDoc = await collection.findOne(
+        { code },
+        { maxTimeMS: config.mongo.operationTimeoutMs },
+      );
+
+      const existing = existingDoc === null
+        ? undefined
+        : (() => {
+            const { _id, _cache_meta, ...rest } = existingDoc;
+            void _id;
+            return {
+              product: rest as Record<string, unknown>,
+              metadata: isRecord(_cache_meta) ? _cache_meta : undefined,
+            };
+          })();
+
+      const merged = existing === undefined
+        ? { ...product }
+        : mergeMissingFields(existing.product, product);
+
+      const now = new Date().toISOString();
+      const existingMetadata = existing?.metadata ?? {};
+      const origin =
+        typeof existingMetadata.origin === "string"
+          ? existingMetadata.origin
+          : existing === undefined
+            ? "live-api"
+            : "bulk-import";
+
+      await collection.updateOne(
+        { code },
+        {
+          $set: {
+            ...merged,
+            code,
+            _cache_meta: {
+              ...existingMetadata,
+              origin,
+              cachedAt:
+                typeof existingMetadata.cachedAt === "string"
+                  ? existingMetadata.cachedAt
+                  : now,
+              schemaVersion: CURRENT_CACHE_SCHEMA_VERSION,
+              enrichmentVersion: CURRENT_CACHE_ENRICHMENT_VERSION,
+              lastRefreshAttemptAt: now,
+              lastRefreshAt: now,
+              lastRefreshOutcome: "success",
+            },
+          },
+        },
+        { upsert: true, maxTimeMS: config.mongo.operationTimeoutMs },
+      );
+      return undefined;
+    });
+  }
+
+  public async listSearchSourcePage(
+    cursor: string | undefined,
+    limit: number,
+  ): Promise<SearchSourcePage | undefined> {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
+    const projection = SEARCH_PROJECTION;
+
+    return this.withCollection(async (collection) => {
+      const qualityFilter = MIN_OFF_COMPLETENESS > 0
+        ? { completeness: { $gte: MIN_OFF_COMPLETENESS } }
+        : {};
+      const filter = cursor
+        ? { code: { $gt: cursor }, ...qualityFilter }
+        : qualityFilter;
+      const docs = await collection
+        .find(filter, { projection, maxTimeMS: config.mongo.sourceOperationTimeoutMs })
+        .sort({ code: 1 })
+        .limit(safeLimit)
+        .toArray();
+
+      // The dump stores image METADATA, not the URLs the API exposes. The URLs (and other
+      // derivable fields) are computed here, once, so every consumer of the search source
+      // (search-indexer) gets the same values without calling the OFF API.
+      const items = docs.map((doc) => {
+        const raw = Object.fromEntries(Object.entries(doc).filter(([key]) => key !== "_id"));
+        const derived = deriveProductFields(doc.code, raw).product;
+        // This endpoint is the authoritative source for the OpenSearch projection. It must emit
+        // the same canonical image URLs and normalized search fields as normal OFF lookup/resolve.
+        return { code: doc.code, product: normalizeOffProduct(doc.code, derived) };
+      });
+      return {
+        items,
+        nextCursor: items.length === safeLimit ? items.at(-1)?.code ?? null : null,
+      };
+    }, config.mongo.sourceOperationTimeoutMs);
+  }
+
+  public async recordRefreshAttempt(
+    code: string,
+    outcome: RefreshOutcome,
+  ): Promise<void> {
     await this.withCollection(async (collection) => {
       await collection.updateOne(
         { code },
         {
           $set: {
-            ...product,
-            code,
-            _cache_meta: { origin: "live-api", cachedAt: new Date().toISOString() },
+            "_cache_meta.lastRefreshAttemptAt": new Date().toISOString(),
+            "_cache_meta.lastRefreshOutcome": outcome,
           },
         },
-        { upsert: true, maxTimeMS: config.mongo.operationTimeoutMs },
+        { upsert: false, maxTimeMS: config.mongo.operationTimeoutMs },
       );
       return undefined;
     });
@@ -114,26 +314,27 @@ export class MongoProductRepository implements ProductRepository {
     }
   }
 
-  /**
-   * Runs `operation` against the collection, timing it out at operationTimeoutMs and folding any
-   * failure (connect error, timeout, driver error) into "not available right now" instead of
-   * propagating. This is the single invariant this class must uphold.
-   */
   private async withCollection<T>(
     operation: (collection: Collection<RawDocument>) => Promise<T>,
+    timeoutMs = config.mongo.operationTimeoutMs,
   ): Promise<T | undefined> {
     if (Date.now() < this.circuitOpenUntil) return undefined;
 
     try {
       const collection = await this.connect();
-      const result = await Promise.race([
-        operation(collection),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error("mongo_operation_timeout")), config.mongo.operationTimeoutMs);
-        }),
-      ]);
-      this.consecutiveFailures = 0;
-      return result;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          operation(collection),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("mongo_operation_timeout")), timeoutMs);
+          }),
+        ]);
+        this.consecutiveFailures = 0;
+        return result;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
     } catch (error) {
       this.recordFailure(error);
       return undefined;
@@ -152,7 +353,6 @@ export class MongoProductRepository implements ProductRepository {
         cooldownMs: config.mongo.cooldownMs,
         resumesAt: new Date(this.circuitOpenUntil).toISOString(),
       });
-      // Drop the connection so the next attempt after cooldown starts clean.
       this.client = undefined;
       this.connecting = undefined;
     }
@@ -174,9 +374,6 @@ export class MongoProductRepository implements ProductRepository {
     this.client = client;
     const db: Db = client.db(config.mongo.dbName);
     const collection = db.collection<RawDocument>(config.mongo.collectionName);
-    // Fire-and-forget: the required `{ code: 1 }` index (see README) should already exist from
-    // the mongorestore of the official dump, but a fresh/empty database still needs it. Index
-    // creation never blocks a lookup and its failure is logged, not thrown.
     void collection.createIndex({ code: 1 }).catch((error: unknown) => {
       log("error", "mongo_index_creation_failed", {
         error: error instanceof Error ? error.message : "unknown",
@@ -184,6 +381,21 @@ export class MongoProductRepository implements ProductRepository {
     });
     return collection;
   }
+}
+
+
+function completenessValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function positiveNumberEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 export function createProductRepository(): ProductRepository {

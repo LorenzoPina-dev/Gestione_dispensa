@@ -50,18 +50,16 @@ export const API_SCHEMA_VERSION = "1.0" as const;
 export interface EventEnvelope {
   eventId: string;
   eventType: string;
-  eventVersion: number;
+  schemaVersion: number;
   occurredAt: string;
-  publishedAt: string | null;
-  aggregateType: string;
+  producer: string;
   aggregateId: string;
-  householdId: string;
-  actorType: "USER" | "SERVICE" | "SYSTEM";
-  actorId: string | null;
-  traceId: string;
-  schemaRef: string;
+  familyId: string | null;
+  correlationId: string;
+  causationId: string | null;
   payload: Record<string, unknown>;
 }
+
 
 export interface ValidationIssue {
   path: string;
@@ -86,49 +84,47 @@ export interface JsonSchemaDocument {
 }
 
 export function validateEventEnvelope(value: unknown): ValidationResult {
-  if (!isRecord(value)) {
-    return invalid("$", "Event envelope must be an object.");
-  }
+  if (!isRecord(value)) return invalid("$", "Event envelope must be an object.");
 
   const requiredFields = [
     "eventId",
     "eventType",
-    "eventVersion",
+    "schemaVersion",
     "occurredAt",
-    "aggregateType",
+    "producer",
     "aggregateId",
-    "householdId",
-    "actorType",
-    "traceId",
-    "schemaRef",
+    "familyId",
+    "correlationId",
+    "causationId",
     "payload",
   ];
   const missing = requiredFields
     .filter((field) => !(field in value))
     .map((field) => ({ path: `$.${field}`, message: "Required field is missing." }));
-
-  if (missing.length > 0) {
-    return { valid: false, issues: missing };
-  }
+  if (missing.length > 0) return { valid: false, issues: missing };
 
   const issues: ValidationIssue[] = [];
   if (typeof value.eventType !== "string" || !/^[a-z0-9.-]+$/.test(value.eventType)) {
     issues.push({ path: "$.eventType", message: "Event type must use the canonical format." });
   }
-  if (
-    typeof value.eventVersion !== "number" ||
-    !Number.isInteger(value.eventVersion) ||
-    value.eventVersion < 1
-  ) {
-    issues.push({ path: "$.eventVersion", message: "Event version must be a positive integer." });
+  if (typeof value.schemaVersion !== "number" || !Number.isInteger(value.schemaVersion) || value.schemaVersion < 1) {
+    issues.push({ path: "$.schemaVersion", message: "Schema version must be a positive integer." });
   }
-  if (typeof value.householdId !== "string" || value.householdId.length === 0) {
-    issues.push({ path: "$.householdId", message: "Household scope is required." });
+  if (typeof value.producer !== "string" || value.producer.length === 0) {
+    issues.push({ path: "$.producer", message: "Producer is required." });
+  }
+  if (typeof value.familyId !== "string" && value.familyId !== null) {
+    issues.push({ path: "$.familyId", message: "Family scope must be a UUID or null." });
+  }
+  if (typeof value.correlationId !== "string" || value.correlationId.length === 0) {
+    issues.push({ path: "$.correlationId", message: "Correlation ID is required." });
+  }
+  if (value.causationId !== null && typeof value.causationId !== "string") {
+    issues.push({ path: "$.causationId", message: "Causation ID must be a string or null." });
   }
   if (!isRecord(value.payload)) {
     issues.push({ path: "$.payload", message: "Payload must be an object." });
   }
-
   return { valid: issues.length === 0, issues };
 }
 
