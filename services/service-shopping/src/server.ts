@@ -16,6 +16,26 @@ function normalizeFamilyServiceBaseUrl(value: string | undefined): string {
 }
 
 const familyServiceBaseUrl = normalizeFamilyServiceBaseUrl(process.env.FAMILY_SERVICE_BASE_URL);
+const foodSemanticsServiceBaseUrl = (process.env.FOOD_SEMANTICS_SERVICE_BASE_URL ?? "http://service-food-semantics:3410/api/v1").replace(/\/$/, "");
+
+async function localizeShoppingLabel(label: string, shouldLocalize: boolean): Promise<string> {
+  if (!shouldLocalize) return label;
+  try {
+    const response = await fetch(`${foodSemanticsServiceBaseUrl}/resolve/ingredient`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ text: label, locale: "auto", targetLocale: "it-IT" }),
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!response.ok) return label;
+    const payload = await response.json() as { displayName?: unknown };
+    return typeof payload.displayName === "string" && payload.displayName.trim()
+      ? payload.displayName.trim()
+      : label;
+  } catch {
+    return label;
+  }
+}
 
 type ShoppingListStatus = "open" | "closed";
 type Body = Record<string, unknown>;
@@ -329,6 +349,7 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
   if (!label || quantity === undefined || !isShoppingUnit(unit)) return fail(res, 400, "VALIDATION_ERROR", "label, quantity and unit are required.");
   if (!isOptionalUuid(body.productId)) return fail(res, 400, "VALIDATION_ERROR", "productId must be a UUID.");
   if (body.source !== undefined && !isShoppingSource(body.source)) return fail(res, 400, "VALIDATION_ERROR", "source must be manual, recipe, low_stock or offer.");
+  const shoppingLabel = await localizeShoppingLabel(label, body.source === "recipe" || !body.productId);
 
   const client = await pool.connect();
   try {
@@ -340,7 +361,7 @@ app.post("/api/v1/shopping/lists/:listId/items", async (req, res) => {
     if (!list.rowCount) { await client.query("rollback"); return fail(res,404,"NOT_FOUND","Shopping list not found."); }
     if (list.rows[0].status !== "open") { await client.query("rollback"); return fail(res,422,"BUSINESS_RULE_VIOLATION","Closed shopping lists cannot be modified."); }
     const item = await client.query(`insert into shopping_domain.items(id,list_id,product_id,label,quantity,unit,checked,source) values($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
-      [crypto.randomUUID(),req.params.listId,body.productId??null,label,quantity,unit,Boolean(body.checked??false),typeof body.source==="string"?body.source:"manual"]);
+      [crypto.randomUUID(),req.params.listId,body.productId??null,shoppingLabel,quantity,unit,Boolean(body.checked??false),typeof body.source==="string"?body.source:"manual"]);
     await client.query("update shopping_domain.lists set version=version+1,updated_at=now() where id=$1",[req.params.listId]);
     const response={data:toItem(item.rows[0] as Record<string,unknown>),version:Number(item.rows[0].version)};
     await emitOutbox(client, "ShoppingItemAdded", String(item.rows[0].id), ctx, response);
