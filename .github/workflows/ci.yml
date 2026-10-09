@@ -9,6 +9,42 @@ permissions:
   contents: read
 
 jobs:
+  identity-rls-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dispensa
+          POSTGRES_PASSWORD: dispensa
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dispensa -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provision isolated Identity roles and database
+        run: |
+          psql "postgresql://dispensa:dispensa@localhost:5432/postgres" -v ON_ERROR_STOP=1 -c "CREATE ROLE identity LOGIN PASSWORD 'identity';"
+          psql "postgresql://dispensa:dispensa@localhost:5432/postgres" -v ON_ERROR_STOP=1 -c "CREATE ROLE identity_app LOGIN PASSWORD 'app-test';"
+          psql "postgresql://dispensa:dispensa@localhost:5432/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE identity_db OWNER identity;"
+      - name: Apply current Identity schema and security policies
+        env:
+          PGPASSWORD: identity
+        run: |
+          identity_db="postgresql://identity:identity@localhost:5432/identity_db"
+          psql "$identity_db" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          for migration in services/service-identity/migrations/001_initial.sql services/service-identity/migrations/002_dietary_preferences.sql services/service-identity/migrations/003_dietary_uncertainty_policy.sql services/service-identity/migrations/999_security.sql; do
+            psql "$identity_db" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Prove fail-closed isolation and relay access
+        run: |
+          psql "postgresql://dispensa:dispensa@localhost:5432/identity_db" -v ON_ERROR_STOP=1 -f services/service-identity/tests/rls-isolation.sql
+
   quality:
     runs-on: ubuntu-latest
     steps:
