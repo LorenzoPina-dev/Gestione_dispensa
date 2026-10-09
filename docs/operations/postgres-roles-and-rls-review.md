@@ -31,7 +31,7 @@ From the repository root in PowerShell:
 
 ```powershell
 Get-Content services/service-identity/tests/rls-isolation.sql -Raw |
-  docker compose exec -T postgres psql -U postgres -d identity_db -v ON_ERROR_STOP=1
+  docker compose exec -T postgres psql -U dispensa -d identity_db -v ON_ERROR_STOP=1
 ```
 
 Run it after the service migrations. The final `ROLLBACK` removes all fixtures and restores the session's prior policy state.
