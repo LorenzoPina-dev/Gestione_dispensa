@@ -25,6 +25,7 @@ test("recovery scans past earlier pending events after a consumer crash", { skip
     do {
       const recovered = await client.xAutoClaim(stream, group, "recovery-consumer", 0, cursor, { COUNT: 1 });
       for (const message of recovered.messages) {
+        if (!message) continue;
         recoveredIds.push(JSON.parse(message.message.event).eventId);
         recoveredMessageIds.push(message.id);
       }
