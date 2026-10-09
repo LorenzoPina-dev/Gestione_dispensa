@@ -48,7 +48,7 @@ SELECT set_config('rls.test.user2', (SELECT user_id::text FROM rls_test_users OR
 SET LOCAL ROLE identity_app;
 SELECT set_config('app.user_id', '', true);
 
-DO $
+DO $$
 DECLARE
   affected integer;
 BEGIN
@@ -75,11 +75,11 @@ BEGIN
     NULL;
   END;
 END;
-$;
+$$;
 
 SELECT set_config('app.user_id', current_setting('rls.test.user1'), true);
 
-DO $
+DO $$
 DECLARE
   own_id uuid := current_setting('app.user_id')::uuid;
   other_id uuid := current_setting('rls.test.user2')::uuid;
@@ -109,13 +109,13 @@ BEGIN
     RAISE EXCEPTION 'RLS failure: outbox rows are not isolated by app.user_id';
   END IF;
 END;
-$;
+$$;
 
 RESET ROLE;
 SET LOCAL ROLE identity;
 SELECT set_config('app.user_id', '', true);
 
-DO $$
+DO $$$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM outbox_events WHERE event_type = 'RlsTest') THEN
     RAISE EXCEPTION 'RLS failure: identity relay role cannot read outbox rows';
