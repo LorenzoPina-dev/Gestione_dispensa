@@ -197,7 +197,7 @@ export function calculateNutrientsForQuantity(
         fat: snapshot.fatGPer100ml,
         fiber: snapshot.fiberGPer100ml,
       };
-  if (Object.values(per100).every((value) => value === null)) return null;
+  if (!Object.values(per100).some((value) => typeof value === "number" && Number.isFinite(value))) return null;
 
   const multiplier = basis.amount / 100;
   return {
@@ -206,7 +206,7 @@ export function calculateNutrientsForQuantity(
     carbs: (per100.carbs ?? 0) * multiplier,
     fat: (per100.fat ?? 0) * multiplier,
     fiber: (per100.fiber ?? 0) * multiplier,
-    confidence: per100.calories === null ? "UNKNOWN" : snapshot.confidence,
+    confidence: typeof per100.calories !== "number" || !Number.isFinite(per100.calories) ? "UNKNOWN" : snapshot.confidence,
   };
 }
 
