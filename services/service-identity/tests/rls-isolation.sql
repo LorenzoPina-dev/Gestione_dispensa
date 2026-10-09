@@ -48,7 +48,9 @@ SELECT set_config('rls.test.user2', (SELECT user_id::text FROM rls_test_users OR
 SET LOCAL ROLE identity_app;
 SELECT set_config('app.user_id', '', true);
 
-DO $$
+DO $
+DECLARE
+  affected integer;
 BEGIN
   IF EXISTS (SELECT 1 FROM users) THEN
     RAISE EXCEPTION 'RLS failure: users are visible with missing user context';
@@ -59,22 +61,45 @@ BEGIN
   IF EXISTS (SELECT 1 FROM outbox_events) THEN
     RAISE EXCEPTION 'RLS failure: outbox rows are visible with missing user context';
   END IF;
+
+  UPDATE users SET display_name = 'must-not-update';
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  IF affected <> 0 THEN
+    RAISE EXCEPTION 'RLS failure: missing context can update users';
+  END IF;
+
+  BEGIN
+    INSERT INTO users(id,subject) VALUES (gen_random_uuid(),'rls-no-context-write');
+    RAISE EXCEPTION 'RLS failure: missing context can insert users';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
 END;
-$$;
+$;
 
 SELECT set_config('app.user_id', current_setting('rls.test.user1'), true);
 
-DO $$
+DO $
 DECLARE
   own_id uuid := current_setting('app.user_id')::uuid;
-  other_id uuid;
+  other_id uuid := current_setting('rls.test.user2')::uuid;
+  affected integer;
 BEGIN
-  other_id := current_setting('rls.test.user2')::uuid;
-
   IF (SELECT count(*) FROM users WHERE id = own_id) <> 1
      OR EXISTS (SELECT 1 FROM users WHERE id = other_id) THEN
     RAISE EXCEPTION 'RLS failure: users are not isolated by app.user_id';
   END IF;
+  UPDATE users SET display_name = 'foreign-update' WHERE id = other_id;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  IF affected <> 0 THEN
+    RAISE EXCEPTION 'RLS failure: user context can update another profile';
+  END IF;
+  UPDATE users SET display_name = 'own-update' WHERE id = own_id;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  IF affected <> 1 THEN
+    RAISE EXCEPTION 'RLS failure: user context cannot update its own profile';
+  END IF;
+
   IF (SELECT count(*) FROM idempotency_keys WHERE actor_user_id = own_id) <> 1
      OR EXISTS (SELECT 1 FROM idempotency_keys WHERE actor_user_id = other_id) THEN
     RAISE EXCEPTION 'RLS failure: idempotency rows are not isolated by app.user_id';
@@ -84,7 +109,7 @@ BEGIN
     RAISE EXCEPTION 'RLS failure: outbox rows are not isolated by app.user_id';
   END IF;
 END;
-$$;
+$;
 
 RESET ROLE;
 SET LOCAL ROLE identity;
