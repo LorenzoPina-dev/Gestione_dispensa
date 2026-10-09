@@ -242,6 +242,9 @@ function exactSemanticMatch(recipe: RecipeIngredientForMatch, pantry: PantryProd
   // confidence is low; they cannot match broader names such as "pepper".
   const recipeTerms = normalizeTerms([...(recipe.ingredientTerms ?? []), recipe.name, recipe.displayName]);
   const pantryTerms = normalizeTerms([...(pantry.foodSemantics?.ingredientTerms ?? []), ...(pantry.foodSemantics?.taxonomyTags ?? []), pantry.name]);
+  // A recipe may name a broader ontology concept than the pantry product; use the resolver-provided
+  // ancestor path instead of maintaining hand-written aliases for each product or ingredient.
+  if (recipeCanonical && pantryTerms.has(recipeCanonical)) return true;
   for (const term of recipeTerms) if (pantryTerms.has(term)) return true;
   return false;
 }
