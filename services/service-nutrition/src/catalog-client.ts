@@ -199,15 +199,37 @@ export function calculateNutrientsForQuantity(
       };
   if (!Object.values(per100).some((value) => typeof value === "number" && Number.isFinite(value))) return null;
 
+  const estimatedCalories = per100.calories == null
+    ? estimateCaloriesFromMacros(per100.protein, per100.carbs, per100.fat)
+    : null;
+  const caloriesPer100 = per100.calories ?? estimatedCalories;
   const multiplier = basis.amount / 100;
   return {
-    calories: (per100.calories ?? 0) * multiplier,
+    calories: (caloriesPer100 ?? 0) * multiplier,
     protein: (per100.protein ?? 0) * multiplier,
     carbs: (per100.carbs ?? 0) * multiplier,
     fat: (per100.fat ?? 0) * multiplier,
     fiber: (per100.fiber ?? 0) * multiplier,
-    confidence: typeof per100.calories !== "number" || !Number.isFinite(per100.calories) ? "UNKNOWN" : snapshot.confidence,
+    confidence: estimatedCalories !== null
+      ? "ESTIMATED"
+      : caloriesPer100 === null
+        ? "UNKNOWN"
+        : snapshot.confidence,
   };
+}
+
+function estimateCaloriesFromMacros(
+  protein: number | null,
+  carbs: number | null,
+  fat: number | null,
+): number | null {
+  if ([protein, carbs, fat].some((value) => value === null || !Number.isFinite(value) || value < 0)) {
+    return null;
+  }
+  const proteinKcalPerGram = 4;
+  const carbsKcalPerGram = 4;
+  const fatKcalPerGram = 9;
+  return protein! * proteinKcalPerGram + carbs! * carbsKcalPerGram + fat! * fatKcalPerGram;
 }
 
 /** Compatibility helper for callers that specifically need a mass quantity. */
