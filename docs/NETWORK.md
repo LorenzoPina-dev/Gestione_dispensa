@@ -1,35 +1,25 @@
-# Network
+# Reti
 
-Browser-facing:
-```
-Browser --HTTPS:8443--> Nginx
-Nginx / -> Web
-Nginx /api -> Gateway:3300
-Nginx /realms -> Keycloak
-```
+## Percorso pubblico
 
-Microservizi e datastore sono su rete interna. Le loro porte non sono pubblicate sull'host salvo debug controllato.
-
-Data plane:
-```
-service-inventory -> inventory_db
-service-family -> family_db
-service-shopping -> shopping_db
-service-catalog -> catalog_db
-... ogni servizio -> proprio DB
-off-lookup -> off_lookup_db
+```text
+Browser --HTTPS:8443--> NGINX
+NGINX /             --> web
+NGINX /api           --> Gateway:3300
+NGINX /realms        --> Keycloak
 ```
 
-Nessun servizio dispone di credenziali per i DB degli altri servizi.
+Questi sono gli ingressi pubblicati. I servizi, gli worker e i datastore comunicano attraverso le reti Docker interne.
 
+## Reti Compose
 
-## Network segmentation
+- `edge`: NGINX e web.
+- `backend`: Gateway, servizi HTTP e dipendenze necessarie alle chiamate interne.
+- `data`: database, code, relay e componenti osservabilità che leggono/scrivono dati.
+- `egress`: processi che interrogano provider esterni, come Food Semantics/bootstrap, OFF lookup e import ricette.
 
-The Compose topology uses four logical planes:
+I dettagli effettivi dei collegamenti sono definiti in `docker-compose.yml`. Non tutti i container appartengono a tutte le reti.
 
-- edge: only Nginx and the Web container are browser-facing.
-- backend: internal-only service-to-service network; Gateway and domain services use it.
-- data/messaging: internal-only infrastructure networks for PostgreSQL, MongoDB, Redis, Kafka and telemetry.
-- egress: explicit outbound network attached only to services that must call external providers. The current base assigns it to OFF Lookup because Open Food Facts is its provider boundary.
+## Piano dati
 
-Application services do not publish host ports. External traffic enters through Nginx and is routed to the Gateway; provider access is explicit rather than inherited by every backend service.
+PostgreSQL contiene database logici separati per servizio. Redis trasporta stream e code; MongoDB/OpenSearch supportano il catalogo OFF; MinIO contiene oggetti binari configurati. Vedere [DATA.md](DATA.md) e il [diagramma di architettura](DIAGRAMS.md#architettura-di-runtime).
