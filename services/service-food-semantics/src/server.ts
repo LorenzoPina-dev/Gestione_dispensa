@@ -80,10 +80,21 @@ async function resolveText(input: string, sourceLocale: string, targetLocale: st
     };
   }
 
-  const direct = sourceLocale === "auto" ? { rowCount: 0, rows: [] as any[] } : await pool.query(
-    "SELECT e.id,e.source_id,l.label,l.locale,l.label_type FROM food_semantics.labels l JOIN food_semantics.entities e ON e.id=l.entity_id WHERE l.locale=$1 AND l.normalized=$2 LIMIT 5",
-    [sourceLocale, normalized],
-  );
+  const direct = sourceLocale === "auto"
+    ? await pool.query(
+        `SELECT e.id,e.source_id,l.label,l.locale,l.label_type
+           FROM food_semantics.labels l
+           JOIN food_semantics.entities e ON e.id=l.entity_id
+          WHERE l.normalized=$1
+          ORDER BY CASE WHEN l.locale=$2 THEN 0 WHEN l.locale='en' THEN 1 ELSE 2 END,
+                   CASE WHEN l.label_type='label' THEN 0 ELSE 1 END
+          LIMIT 5`,
+        [normalized, targetLocale],
+      )
+    : await pool.query(
+        "SELECT e.id,e.source_id,l.label,l.locale,l.label_type FROM food_semantics.labels l JOIN food_semantics.entities e ON e.id=l.entity_id WHERE l.locale=$1 AND l.normalized=$2 LIMIT 5",
+        [sourceLocale, normalized],
+      );
   if (direct.rowCount) {
     const result = {
       id: String(direct.rows[0].id),
@@ -100,7 +111,8 @@ async function resolveText(input: string, sourceLocale: string, targetLocale: st
     return { ...result, label: display, locale: targetLocale };
   }
 
-  const english = sourceLocale === "en" ? { text: input, provider: "identity" } : await translate(input, sourceLocale, "en");
+  const effectiveSourceLocale = sourceLocale === "auto" ? "auto" : sourceLocale;
+  const english = effectiveSourceLocale === "en" ? { text: input, provider: "identity" } : await translate(input, effectiveSourceLocale, "en");
   if (!english) return null;
   const translatedNormalized = normalizeText(english.text);
 
