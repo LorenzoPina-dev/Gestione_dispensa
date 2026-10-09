@@ -91,13 +91,13 @@ while (!stopping) {
   const fresh = await redis.xReadGroup(group, consumer, [{ key: stream, id: ">" }], { COUNT: 20, BLOCK: 1000 });
   const messages = [...(claimed.messages ?? []), ...(fresh?.[0]?.messages ?? [])];
   for (const message of messages) {
-      try {
-        const raw = message.message.event;
-        const event = parseReorderEvent(JSON.parse(raw));
-        if (event) await processEvent(event);
-        await redis.xAck(stream, group, message.id);
-      } catch (error) {
-        console.error(JSON.stringify({ worker: "worker-shopping", event: "reorder_processing_failed", messageId: message.id, error: error instanceof Error ? error.message : String(error) }));
-      }
+    try {
+      const raw = message.message.event;
+      const event = parseReorderEvent(JSON.parse(raw));
+      if (event) await processEvent(event);
+      await redis.xAck(stream, group, message.id);
+    } catch (error) {
+      console.error(JSON.stringify({ worker: "worker-shopping", event: "reorder_processing_failed", messageId: message.id, error: error instanceof Error ? error.message : String(error) }));
+    }
   }
 }
