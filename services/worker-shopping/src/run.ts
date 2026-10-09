@@ -84,19 +84,22 @@ async function processEvent(event: ReorderEvent): Promise<void> {
 
 console.log(JSON.stringify({ worker: "worker-shopping", stream, group, consumer }));
 
+const retryIdleMs = Math.max(Number(process.env.EVENT_RETRY_IDLE_MS ?? 30000), 1000);
+let claimCursor = "0-0";
+
 while (!stopping) {
-  const result = await redis.xReadGroup(group, consumer, [{ key: stream, id: ">" }], { COUNT: 20, BLOCK: 1000 });
-  if (!result) continue;
-  for (const streamData of result) {
-    for (const message of streamData.messages) {
-      try {
-        const raw = message.message.event;
-        const event = parseReorderEvent(JSON.parse(raw));
-        if (event) await processEvent(event);
-        await redis.xAck(stream, group, message.id);
-      } catch (error) {
-        console.error(JSON.stringify({ worker: "worker-shopping", event: "reorder_processing_failed", messageId: message.id, error: error instanceof Error ? error.message : String(error) }));
-      }
+  const claimed = await redis.xAutoClaim(stream, group, consumer, retryIdleMs, claimCursor, { COUNT: 20 });
+  claimCursor = claimed.nextId ?? "0-0";
+  const fresh = await redis.xReadGroup(group, consumer, [{ key: stream, id: ">" }], { COUNT: 20, BLOCK: 1000 });
+  const messages = [...(claimed.messages ?? []), ...(fresh?.[0]?.messages ?? [])];
+  for (const message of messages) {
+    try {
+      const raw = message.message.event;
+      const event = parseReorderEvent(JSON.parse(raw));
+      if (event) await processEvent(event);
+      await redis.xAck(stream, group, message.id);
+    } catch (error) {
+      console.error(JSON.stringify({ worker: "worker-shopping", event: "reorder_processing_failed", messageId: message.id, error: error instanceof Error ? error.message : String(error) }));
     }
   }
 }

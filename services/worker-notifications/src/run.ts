@@ -135,30 +135,33 @@ async function processEvent(event: DomainEvent): Promise<void> {
 
 console.log(JSON.stringify({ worker: "worker-notifications", stream, group, consumer }));
 
+const retryIdleMs = Math.max(Number(process.env.EVENT_RETRY_IDLE_MS ?? 30000), 1000);
+let claimCursor = "0-0";
+
 while (!stopping) {
-  const result = await redis.xReadGroup(
+  const claimed = await redis.xAutoClaim(stream, group, consumer, retryIdleMs, claimCursor, { COUNT: 20 });
+  claimCursor = claimed.nextId ?? "0-0";
+  const fresh = await redis.xReadGroup(
     group,
     consumer,
     [{ key: stream, id: ">" }],
     { COUNT: 20, BLOCK: 1000 },
   );
-  if (!result) continue;
+  const messages = [...(claimed.messages ?? []), ...(fresh?.[0]?.messages ?? [])];
 
-  for (const streamData of result) {
-    for (const message of streamData.messages) {
-      try {
-        const raw = message.message.event;
-        const event = JSON.parse(raw) as DomainEvent;
-        await processEvent(event);
-        await redis.xAck(stream, group, message.id);
-      } catch (error) {
-        console.error(JSON.stringify({
-          worker: "worker-notifications",
-          event: "event_processing_failed",
-          messageId: message.id,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      }
+  for (const message of messages) {
+    try {
+      const raw = message.message.event;
+      const event = JSON.parse(raw) as DomainEvent;
+      await processEvent(event);
+      await redis.xAck(stream, group, message.id);
+    } catch (error) {
+      console.error(JSON.stringify({
+        worker: "worker-notifications",
+        event: "event_processing_failed",
+        messageId: message.id,
+        error: error instanceof Error ? error.message : String(error),
+      }));
     }
   }
 }
