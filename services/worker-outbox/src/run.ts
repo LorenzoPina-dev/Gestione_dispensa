@@ -40,7 +40,7 @@ function eventEnvelope(row: Record<string, unknown>) {
     eventId: String(row.event_id),
     eventType: String(row.event_type),
     schemaVersion: Number(row.schema_version),
-    occurredAt: new Date(row.occurred_at as string | Date).toISOString(),
+    occurredAt: (row.occurred_at instanceof Date ? row.occurred_at : new Date(String(row.occurred_at))).toISOString(),
     producer,
     aggregateId: String(row.aggregate_id),
     familyId: row.family_id == null ? null : String(row.family_id),
@@ -89,14 +89,14 @@ async function publishBatch(): Promise<number> {
 /** Replays a bounded time window without changing outbox publication state. */
 async function replayPublishedEvents(since: Date): Promise<number> {
   let cursorAt = since;
-  let cursorId = "";
+  let cursorId: string | null = null;
   let replayed = 0;
 
   while (true) {
     const rows = await pool.query(
       `select event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at
        from ${outboxTable}
-       where created_at >= $1 and (created_at,event_id) > ($2,$3)
+       where created_at >= $1 and (created_at,event_id) > ($2,$3::uuid)
        order by created_at,event_id
        limit $4`,
       [since, cursorAt, cursorId, batchSize],
@@ -105,7 +105,7 @@ async function replayPublishedEvents(since: Date): Promise<number> {
 
     for (const row of rows.rows) {
       await redis.xAdd(stream, "*", { event: JSON.stringify(eventEnvelope(row)) });
-      cursorAt = new Date(row.created_at);
+      cursorAt = row.created_at instanceof Date ? row.created_at : new Date(String(row.created_at));
       cursorId = String(row.event_id);
       replayed += 1;
     }
