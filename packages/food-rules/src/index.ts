@@ -9,7 +9,7 @@ export const normalizeFoodText = (value: unknown): string =>
     .trim();
 
 export const normalizeFoodTag = (value: unknown): string =>
-  (typeof value === "string" ? value : "").trim().toLowerCase().replace(/^\\w+:/, "").replace(/_/g, "-");
+  (typeof value === "string" ? value : "").trim().toLowerCase().replace(/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?:/i, "").replace(/_/g, "-");
 
 export function ingredientTerms(value: string): string[] {
   const normalized = normalizeFoodText(value);
