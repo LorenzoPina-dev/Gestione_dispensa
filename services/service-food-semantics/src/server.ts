@@ -194,15 +194,23 @@ app.post("/api/v1/resolve/ingredient", async (req, res) => {
   if (!input) return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "text is required" } });
   try {
     const result = await resolveText(input, sourceLocale, targetLocale);
-    if (!result) return res.status(200).json({
-      status: "UNRESOLVED",
-      recipeIngredient: input,
-      displayName: input,
-      foodEntityId: null,
-      canonicalIngredient: null,
-      semanticConfidence: 0,
-      provenance: "unresolved",
-    });
+    if (!result) {
+      let displayName = input;
+      try {
+        displayName = (await translate(input, "auto", targetLocale))?.text ?? input;
+      } catch {
+        // Keep the source label when the translation provider is unavailable.
+      }
+      return res.status(200).json({
+        status: "UNRESOLVED",
+        recipeIngredient: input,
+        displayName,
+        foodEntityId: null,
+        canonicalIngredient: null,
+        semanticConfidence: 0,
+        provenance: displayName === input ? "unresolved" : "translation-only",
+      });
+    }
     return res.json({
       status: "RESOLVED",
       recipeIngredient: input,
