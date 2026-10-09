@@ -223,13 +223,17 @@ function estimateCaloriesFromMacros(
   carbs: number | null,
   fat: number | null,
 ): number | null {
-  if ([protein, carbs, fat].some((value) => value === null || !Number.isFinite(value) || value < 0)) {
+  if (
+    protein === null || !Number.isFinite(protein) || protein < 0 ||
+    carbs === null || !Number.isFinite(carbs) || carbs < 0 ||
+    fat === null || !Number.isFinite(fat) || fat < 0
+  ) {
     return null;
   }
   const proteinKcalPerGram = 4;
   const carbsKcalPerGram = 4;
   const fatKcalPerGram = 9;
-  return protein! * proteinKcalPerGram + carbs! * carbsKcalPerGram + fat! * fatKcalPerGram;
+  return protein * proteinKcalPerGram + carbs * carbsKcalPerGram + fat * fatKcalPerGram;
 }
 
 /** Compatibility helper for callers that specifically need a mass quantity. */
