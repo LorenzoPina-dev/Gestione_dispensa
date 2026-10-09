@@ -20,7 +20,7 @@ const baseUrl = () => {
 
 export async function resolveFoodIngredient(
   text: string,
-  locale = "it-IT",
+  locale = "auto",
 ): Promise<ResolverResponse> {
   const response = await fetch(baseUrl() + "/resolve/ingredient", {
     method: "POST",
