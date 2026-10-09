@@ -11,6 +11,18 @@ const batchSize = Math.min(Math.max(Number(process.env.BATCH_SIZE ?? 50), 1), 20
 const retentionDays = Math.max(Number(process.env.OUTBOX_RETENTION_DAYS ?? 90), 0);
 const replaySince = process.env.REPLAY_SINCE;
 
+type OutboxReplayRow = {
+  event_id: string;
+  event_type: string;
+  schema_version: number;
+  aggregate_id: string;
+  family_id: string | null;
+  correlation_id: string;
+  occurred_at: string | Date;
+  payload: unknown;
+  created_at: string;
+};
+
 if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 if (!/^[a-zA-Z0-9_]+(?:\\.[a-zA-Z0-9_]+)?$/.test(outboxTable)) {
   throw new Error("OUTBOX_TABLE must be a simple table or schema.table identifier.");
@@ -93,7 +105,7 @@ async function replayPublishedEvents(since: Date): Promise<number> {
   let replayed = 0;
 
   while (true) {
-    const rows = await pool.query(
+    const rows = await pool.query<OutboxReplayRow>(
       `select event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at::text as created_at
        from ${outboxTable}
        where created_at >= $1 and (created_at > $2 or (created_at = $2 and ($3::uuid is null or event_id > $3::uuid)))
