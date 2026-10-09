@@ -21,6 +21,12 @@ interface ConsumptionPlan {
   quantity: number;
 }
 
+interface ManualDose {
+  amount: string;
+  unit: string;
+  productId: string;
+}
+
 function availableQuantity(item: StockItem): number {
   return item.batches.reduce((total, batch) => total + batch.quantity, 0);
 }
@@ -58,6 +64,8 @@ function planConsumption(
   usages: PantryUsage[] | undefined,
   stock: StockItem[],
   servingsRatio: number,
+  manualDoses: Record<string, ManualDose>,
+  ingredients: Recipe["ingredients"],
 ): ConsumptionPlan[] {
   if (!usages?.length) throw new Error("Non ho dati di dispensa sufficienti per calcolare il consumo.");
   const byProduct = new Map<string, PantryUsage>();
@@ -65,6 +73,33 @@ function planConsumption(
     const current = byProduct.get(usage.productId);
     // The API repeats the same product-level allocation for each pantry lot.
     if (!current || usage.usedBaseQuantity > current.usedBaseQuantity) byProduct.set(usage.productId, usage);
+  }
+
+  for (const ingredient of ingredients.filter((item) => !Number.isFinite(item.amount) || item.amount <= 0)) {
+    const dose = manualDoses[ingredient.name];
+    const amount = Number(dose?.amount);
+    const unit = dose?.unit;
+    if (!Number.isFinite(amount) || amount <= 0 || (unit !== "g" && unit !== "ml" && unit !== "piece")) {
+      throw new Error(`Inserisci una dose in g, ml o pezzi per ${ingredient.name}.`);
+    }
+    const ingredientKey = ingredient.name.trim().toLocaleLowerCase("it-IT");
+    const options = [...byProduct.values()].filter((usage) =>
+      usage.usedFor?.some((name) => name.trim().toLocaleLowerCase("it-IT") === ingredientKey),
+    );
+    if (!options.length) throw new Error(`Non trovo un prodotto abbinato a ${ingredient.name}.`);
+    const selected = dose.productId
+      ? options.find((usage) => usage.productId === dose.productId)
+      : options.length === 1 ? options[0] : undefined;
+    if (!selected) throw new Error(`Scegli quale prodotto usare per ${ingredient.name}.`);
+    if (selected.usedBaseQuantity > 0 && selected.usedBaseUnit !== unit) {
+      throw new Error(`La dose manuale di ${ingredient.name} usa un'unità incompatibile con le altre dosi dello stesso prodotto.`);
+    }
+    byProduct.set(selected.productId, {
+      ...selected,
+      usedBaseQuantity: selected.usedBaseQuantity + amount,
+      usedBaseUnit: unit,
+      usedFor: [...new Set([...(selected.usedFor ?? []), ingredient.name])],
+    });
   }
 
   const plan = new Map<string, number>();
@@ -125,19 +160,19 @@ export default function RecipeDetail({ match, stock, setStock, readOnly = false,
   const baseServings = Math.max(1, match.recipe.servings || 1);
   const [servings, setServings] = useState(baseServings);
   const [completed, setCompleted] = useState(false);
+  const [manualDoses, setManualDoses] = useState<Record<string, ManualDose>>({});
   useEffect(() => setServings(baseServings), [baseServings]);
   const ratio = servings / baseServings;
-  const allDosesKnown = match.recipe.ingredients.length > 0 &&
-    match.recipe.ingredients.every((ingredient) => Number.isFinite(ingredient.amount) && ingredient.amount > 0);
+  const unknownDoseIngredients = match.recipe.ingredients.filter((ingredient) => !Number.isFinite(ingredient.amount) || ingredient.amount <= 0);
   const completeInPantry = match.score >= 1 && match.missingIngredients.length === 0;
   const plan = useMemo(() => {
-    if (!completeInPantry || !allDosesKnown) return { items: [] as ConsumptionPlan[], error: null as string | null };
+    if (!completeInPantry) return { items: [] as ConsumptionPlan[], error: null as string | null };
     try {
-      return { items: planConsumption(match.pantryProductsUsed, stock, ratio), error: null as string | null };
+      return { items: planConsumption(match.pantryProductsUsed, stock, ratio, manualDoses, match.recipe.ingredients), error: null as string | null };
     } catch (error) {
       return { items: [] as ConsumptionPlan[], error: error instanceof Error ? error.message : "Impossibile calcolare il consumo." };
     }
-  }, [allDosesKnown, completeInPantry, match.pantryProductsUsed, ratio, stock]);
+  }, [completeInPantry, manualDoses, match.pantryProductsUsed, match.recipe.ingredients, ratio, stock]);
 
   const completeRecipe = () => {
     if (plan.error || !plan.items.length) return;
@@ -206,22 +241,39 @@ export default function RecipeDetail({ match, stock, setStock, readOnly = false,
             <SectionHeading>Ingredienti · {servings} porzioni</SectionHeading>
             {match.recipe.ingredients.map((ingredient) => {
               const present = match.matchedIngredients.includes(ingredient.name);
-              return <div key={`${ingredient.name}-${ingredient.amount}`} className="flex justify-between py-2 border-b" style={{ borderColor: colors.borderLight }}>
-                <span className="text-sm" style={{ color: present ? colors.ink : colors.terracotta }}>{present ? "✓" : "✗"} {ingredient.name}</span>
-                <span className="text-xs" style={{ color: colors.inkMuted }}>{scaledAmount(ingredient.amount, ratio)}{ingredient.amount > 0 ? ` ${ingredient.unit}` : ""}</span>
+              const doseKnown = Number.isFinite(ingredient.amount) && ingredient.amount > 0;
+              const ingredientKey = ingredient.name.trim().toLocaleLowerCase("it-IT");
+              const productOptions = [...new Map((match.pantryProductsUsed ?? [])
+                .filter((usage) => usage.usedFor?.some((name) => name.trim().toLocaleLowerCase("it-IT") === ingredientKey))
+                .map((usage) => [usage.productId, usage])).values()];
+              const dose = manualDoses[ingredient.name] ?? { amount: "", unit: "", productId: "" };
+              return <div key={`${ingredient.name}-${ingredient.amount}`} className="py-2 border-b" style={{ borderColor: colors.borderLight }}>
+                <div className="flex justify-between gap-3">
+                  <span className="text-sm" style={{ color: present ? colors.ink : colors.terracotta }}>{present ? "✓" : "✗"} {ingredient.name}</span>
+                  <span className="text-xs" style={{ color: colors.inkMuted }}>{scaledAmount(ingredient.amount, ratio)}{doseKnown ? ` ${ingredient.unit}` : ""}</span>
+                </div>
+                {!doseKnown && <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-xs" style={{ color: colors.inkMuted }}>Dose per {baseServings} porzioni:</span>
+                  <input aria-label={`Quantità di ${ingredient.name}`} type="number" min="0.001" step="any" value={dose.amount} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, amount: event.target.value } }))} className="h-8 w-20 rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }} />
+                  <select aria-label={`Unità di ${ingredient.name}`} value={dose.unit} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, unit: event.target.value } }))} className="h-8 rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }}>
+                    <option value="">Unità</option><option value="g">g</option><option value="ml">ml</option><option value="piece">pezzi</option>
+                  </select>
+                  {productOptions.length > 1 && <select aria-label={`Prodotto da usare per ${ingredient.name}`} value={dose.productId} onChange={(event) => setManualDoses((current) => ({ ...current, [ingredient.name]: { ...dose, productId: event.target.value } }))} className="h-8 max-w-full rounded-lg border px-2 text-xs" style={{ borderColor: colors.border, color: colors.ink }}>
+                    <option value="">Scegli prodotto</option>{productOptions.map((usage) => <option key={usage.productId} value={usage.productId}>{usage.name}</option>)}
+                  </select>}
+                </div>}
               </div>;
             })}
             {match.missingIngredients.length > 0 && <button onClick={onShopMissing} className="mt-3 w-full py-2.5 rounded-xl text-sm font-medium" style={{ backgroundColor: colors.terracotta, color: colors.white }}>Scegli cosa acquistare · {match.missingIngredients.length} {match.missingIngredients.length === 1 ? "mancante" : "mancanti"}</button>}
           </div>
 
           <section className="space-y-2">
-            <button type="button" onClick={completeRecipe} disabled={readOnly || completed || !completeInPantry || !allDosesKnown || Boolean(plan.error)} className="w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-50" style={{ backgroundColor: completed ? colors.sage : colors.terracotta, color: colors.white }}>
+            <button type="button" onClick={completeRecipe} disabled={readOnly || completed || !completeInPantry || Boolean(plan.error)} className="w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-50" style={{ backgroundColor: completed ? colors.sage : colors.terracotta, color: colors.white }}>
               {completed ? "✓ Completata" : "Completa ricetta"}
             </button>
             <p className="text-xs" style={{ color: colors.inkMuted }}>Il consumo riduce le dosi usate in dispensa e aggiorna il diario nutrienti tramite i movimenti registrati.</p>
             {readOnly && <p className="text-xs" style={{ color: colors.inkMuted }}>Il tuo ruolo consente la sola lettura della dispensa.</p>}
             {!completeInPantry && <p className="text-xs" style={{ color: colors.terracotta }}>Completa prima gli ingredienti mancanti in dispensa.</p>}
-            {completeInPantry && !allDosesKnown && <p className="text-xs" style={{ color: colors.terracotta }}>Mancano dosi precise: il calcolatore non registra consumi stimati.</p>}
             {plan.error && <p role="alert" className="text-xs" style={{ color: colors.terracotta }}>{plan.error}</p>}
             {completed && <p role="status" className="text-xs" style={{ color: colors.sageDark }}>Consumo inviato. I nutrienti appariranno dopo l’elaborazione del movimento.</p>}
           </section>
