@@ -3,7 +3,7 @@ import { createContextAwarePool } from "@gestione-dispensa/runtime-db/postgres-c
 
 const pool = createContextAwarePool({ connectionString: process.env.DATABASE_URL });
 const sourceKey = process.env.FOOD_ONTOLOGY_SOURCE_KEY ?? "foodon";
-const sourceUrl = process.env.FOOD_ONTOLOGY_URL ?? "https://purl.obolibrary.org/obo/foodon.owl";
+const sourceUrl = process.env.FOOD_ONTOLOGY_URL ?? "https://raw.githubusercontent.com/FoodOntology/foodon/master/foodon_old.obo";
 const sourceVersion = process.env.FOOD_ONTOLOGY_VERSION ?? "master";
 const license = "CC BY 4.0";
 
