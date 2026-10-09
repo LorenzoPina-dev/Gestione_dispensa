@@ -112,8 +112,9 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
   })), [summary]);
 
   const totals = summary?.totals ?? { calories:0, protein:0, carbs:0, fat:0, fiber:0 };
-  const hasKnownNutrients = summary?.items.some((item) => item.confidence !== "UNKNOWN") ?? false;
-  const onlyUnknownNutrients = Boolean(summary?.items.length) && !hasKnownNutrients;
+  const hasUnknownNutrients = (summary?.items ?? []).some((item) => item.confidence === "UNKNOWN");
+  const hasKnownNutrients = (summary?.items ?? []).some((item) => item.confidence !== "UNKNOWN");
+  const onlyUnknownNutrients = (summary?.items?.length ?? 0) > 0 && !hasKnownNutrients;
 
   const filteredStock = useMemo(() => {
     if (!search) return [];
@@ -194,7 +195,7 @@ export default function Nutrienti({ stock, familyId, initialSummary }: Props) {
           </div>
         ))}
       </div>
-      {summary?.items.some((item) => item.confidence === "UNKNOWN") && (
+      {hasUnknownNutrients && (
         <p className="text-xs -mt-5" style={{ color: colors.inkMuted }}>
           Totali parziali: gli alimenti con nutrienti mancanti o unità non convertibili sono esclusi dai valori non calcolabili.
         </p>
