@@ -421,22 +421,31 @@ async function loadFamilySafetyProfile(
 }
 
 function toRecipeMatchIngredients(rows: readonly any[]): RecipeIngredientForMatch[] {
- return rows.map((row:any)=>({
-  id: typeof row.id==="string" ? row.id : undefined,
-  productId: typeof row.product_id==="string" ? row.product_id : null,
-  name: String(row.name ?? ""),
-  displayName: String(row.display_name ?? row.displayName ?? row.name ?? ""),
-  canonicalIngredient: typeof row.canonical_ingredient==="string" ? row.canonical_ingredient : null,
-  semanticConfidence: Number(row.semantic_confidence ?? 0),
-  ingredientTerms: Array.isArray(row.ingredient_terms) ? row.ingredient_terms.map(String) : [],
-  culinaryWeight: row.culinary_weight==="STAPLE" || row.culinary_weight==="SECONDARY" || row.culinary_weight==="CORE" ? row.culinary_weight : "CORE",
-  quantityValue: row.quantity_value==null ? null : Number(row.quantity_value),
-  quantityUnit: row.quantity_unit==null ? null : String(row.quantity_unit),
-  quantityDimension: row.quantity_dimension==="mass" || row.quantity_dimension==="volume" || row.quantity_dimension==="count" ? row.quantity_dimension : null,
-  quantityBaseValue: row.quantity_base_value==null ? null : Number(row.quantity_base_value),
-  quantityBaseUnit: row.quantity_base_unit==="g" || row.quantity_base_unit==="ml" || row.quantity_base_unit==="piece" ? row.quantity_base_unit : null,
-  quantityConfidence: Number(row.quantity_confidence ?? 0),
- }));
+ return rows.map((row:any)=>{
+  const quantityUnit=row.quantity_unit??row.unit??null;
+  const quantityBaseUnit=row.quantity_base_unit??row.quantity_base_unit??row.unit??null;
+  const quantityDimension=row.quantity_dimension==="mass" || row.quantity_dimension==="volume" || row.quantity_dimension==="count"
+    ? row.quantity_dimension
+    : quantityBaseUnit==="g" || quantityBaseUnit==="kg" ? "mass"
+      : quantityBaseUnit==="ml" || quantityBaseUnit==="l" ? "volume"
+        : quantityBaseUnit==="piece" ? "count" : null;
+  return {
+   id: typeof row.id==="string" ? row.id : undefined,
+   productId: typeof row.product_id==="string" ? row.product_id : null,
+   name: String(row.name ?? ""),
+   displayName: String(row.display_name ?? row.displayName ?? row.name ?? ""),
+   canonicalIngredient: typeof (row.canonical_ingredient??row.canonicalIngredient)==="string" ? row.canonical_ingredient??row.canonicalIngredient : null,
+   semanticConfidence: Number(row.semantic_confidence ?? row.semanticConfidence ?? 0),
+   ingredientTerms: Array.isArray(row.ingredient_terms ?? row.ingredientTerms) ? (row.ingredient_terms ?? row.ingredientTerms).map(String) : [],
+   culinaryWeight: row.culinary_weight==="STAPLE" || row.culinary_weight==="SECONDARY" || row.culinary_weight==="CORE" ? row.culinary_weight : "CORE",
+   quantityValue: (row.quantity_value??row.quantity)==null ? null : Number(row.quantity_value??row.quantity),
+   quantityUnit: quantityUnit==null ? null : String(quantityUnit),
+   quantityDimension,
+   quantityBaseValue: (row.quantity_base_value??row.quantity)==null ? null : Number(row.quantity_base_value??row.quantity),
+   quantityBaseUnit: quantityBaseUnit==="g" || quantityBaseUnit==="ml" || quantityBaseUnit==="piece" ? quantityBaseUnit : null,
+   quantityConfidence: Number(row.quantity_confidence ?? row.quantityConfidence ?? 0),
+  };
+ });
 }
 
 export async function discover(pool:Pool,p:{userId:string;familyId:string;inventoryBaseUrl:string;catalogBaseUrl?:string;limit:number;q?:string;authorization?:string;identityBaseUrl?:string;identityInternalToken:string;familyBaseUrl:string}):Promise<Suggestion[]>{
