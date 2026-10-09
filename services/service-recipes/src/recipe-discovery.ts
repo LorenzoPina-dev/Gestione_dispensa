@@ -423,7 +423,7 @@ async function loadFamilySafetyProfile(
 function toRecipeMatchIngredients(rows: readonly any[]): RecipeIngredientForMatch[] {
  return rows.map((row:any)=>{
   const quantityUnit=row.quantity_unit??row.unit??null;
-  const quantityBaseUnit=row.quantity_base_unit??row.quantity_base_unit??row.unit??null;
+  const quantityBaseUnit=row.quantity_base_unit??row.unit??null;
   const quantityDimension=row.quantity_dimension==="mass" || row.quantity_dimension==="volume" || row.quantity_dimension==="count"
     ? row.quantity_dimension
     : quantityBaseUnit==="g" || quantityBaseUnit==="kg" ? "mass"
