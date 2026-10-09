@@ -77,7 +77,7 @@ function planConsumption(
       .sort((a, b) => expiryOrder(a) - expiryOrder(b));
     const groups = new Map<string, StockItem[]>();
     for (const item of candidates) {
-      const key = `${item.unit.toLowerCase()}:${item.location}`;
+      const key = item.unit.toLowerCase();
       groups.set(key, [...(groups.get(key) ?? []), item]);
     }
 
