@@ -96,7 +96,7 @@ async function replayPublishedEvents(since: Date): Promise<number> {
     const rows = await pool.query(
       `select event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at
        from ${outboxTable}
-       where created_at >= $1 and (created_at,event_id) > ($2,$3::uuid)
+       where created_at >= $1 and (created_at > $2 or (created_at = $2 and ($3::uuid is null or event_id > $3::uuid)))
        order by created_at,event_id
        limit $4`,
       [since, cursorAt, cursorId, batchSize],
