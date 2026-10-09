@@ -3,6 +3,14 @@ import { upsertProductFoodSemantics } from "./catalog/food-semantics-repository.
 
 const BATCH_SIZE = Math.min(Math.max(Number(process.env.FOOD_SEMANTICS_BACKFILL_BATCH ?? 250), 25), 1000);
 
+type BackfillProductRow = {
+  id: string;
+  canonical_name: string;
+  product_details_snapshot: string | Record<string, unknown> | null;
+  external_source: string | null;
+  source_version: string;
+};
+
 async function main(): Promise<void> {
   const database = PostgresClient.create({ connectionString: resolveDatabaseUrl(), max: 4 });
   let lastId: string | null = null;
@@ -11,13 +19,7 @@ async function main(): Promise<void> {
 
   try {
     for (;;) {
-      const rows = await database.query<{
-        id: string;
-        canonical_name: string;
-        product_details_snapshot: string | Record<string, unknown> | null;
-        external_source: string | null;
-        source_version: string;
-      }>(
+      const rows: { rows: BackfillProductRow[] } = await database.query<BackfillProductRow>(
         `SELECT
            p.id,
            p.canonical_name,
