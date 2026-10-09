@@ -62,7 +62,7 @@ export function OpenFoodFactsSection({ raw, images }: { raw: Record<string, unkn
   );
 }
 
-function InfoCell({ label, value }: { label: string; value: string }) {
+export function InfoCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg p-2" style={{ backgroundColor: "#f5f0e8" }}>
       <p className="text-[10px]" style={{ color: "#6b5e4e" }}>{label}</p>
@@ -80,7 +80,7 @@ const GALLERY_KINDS = ["front", "ingredients", "nutrition", "packaging"] as cons
  * frontThumb (and the same for the other kinds) but they are the same picture. The Small
  * rendition is used as the on-screen thumbnail, the full one as the link target.
  */
-function galleryImages(images: Candidate["images"]): GalleryImage[] {
+export function galleryImages(images: Candidate["images"]): GalleryImage[] {
   if (!images) return [];
   const pick = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
   const result: GalleryImage[] = [];
