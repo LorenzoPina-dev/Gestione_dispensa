@@ -511,6 +511,7 @@ export default function App() {
             <Ricette
               stock={stock}
               setStock={setStock}
+              readOnly={!canWrite}
               setList={setShoppingList}
               onShoppingChanged={shopping.refresh}
               onNavigateToShopping={() => setTab("spesa")}
