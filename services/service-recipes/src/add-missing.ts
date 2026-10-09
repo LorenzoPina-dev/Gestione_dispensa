@@ -42,12 +42,13 @@ async function loadIngredients(pool: Pool, recipeId: string, familyId: string): 
   );
   if (!recipe.rowCount) return null;
   const rows = await pool.query(
-    "select product_id,name,quantity,unit from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",
+    "select product_id,name,display_name,quantity,unit from recipes_domain.recipe_ingredients where recipe_id=$1 order by created_at",
     [recipeId],
   );
   return rows.rows.map((row) => ({
     productId: row.product_id,
     name: String(row.name),
+    displayName: String(row.display_name ?? row.name),
     quantity: Number(row.quantity),
     unit: String(row.unit),
   }));
