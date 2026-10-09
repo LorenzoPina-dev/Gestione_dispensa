@@ -223,7 +223,7 @@ export function registerAddMissingIngredientsRoute(app: express.Express, pool: P
             method: "POST",
             body: JSON.stringify({
               productId: need.ingredient.productId ?? null,
-              label: need.ingredient.name,
+              label: need.ingredient.displayName || need.ingredient.name,
               quantity: need.quantity,
               unit: need.ingredient.unit,
               source: "recipe",
