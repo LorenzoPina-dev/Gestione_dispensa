@@ -88,13 +88,13 @@ async function publishBatch(): Promise<number> {
 
 /** Replays a bounded time window without changing outbox publication state. */
 async function replayPublishedEvents(since: Date): Promise<number> {
-  let cursorAt = since;
+  let cursorAt: Date | string = since;
   let cursorId: string | null = null;
   let replayed = 0;
 
   while (true) {
     const rows = await pool.query(
-      `select event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at
+      `select event_id,event_type,schema_version,aggregate_id,family_id,correlation_id,occurred_at,payload,created_at::text as created_at
        from ${outboxTable}
        where created_at >= $1 and (created_at > $2 or (created_at = $2 and ($3::uuid is null or event_id > $3::uuid)))
        order by created_at,event_id
@@ -105,7 +105,7 @@ async function replayPublishedEvents(since: Date): Promise<number> {
 
     for (const row of rows.rows) {
       await redis.xAdd(stream, "*", { event: JSON.stringify(eventEnvelope(row)) });
-      cursorAt = row.created_at instanceof Date ? row.created_at : new Date(String(row.created_at));
+      cursorAt = String(row.created_at);
       cursorId = String(row.event_id);
       replayed += 1;
     }
