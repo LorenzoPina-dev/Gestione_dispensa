@@ -620,6 +620,8 @@ export async function discover(pool:Pool,p:{userId:string;familyId:string;invent
    };
  });
  const result=scored.filter(item=>item.safety.safe).sort((a,b)=>{
+   const missingCountDiff=a.missingIngredients.length-b.missingIngredients.length;
+   if(missingCountDiff!==0)return missingCountDiff;
    const scoreDiff=b.score-a.score;
    if(scoreDiff!==0)return scoreDiff;
    const coreDiff=a.coverage.missingCoreCount-b.coverage.missingCoreCount;
