@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { RecipeMatchDto } from "../../api/types";
 import type { Recipe, RecipeMatch, StockItem } from "../../types";
 import { colors, fonts } from "../../tokens";
@@ -81,7 +81,6 @@ function planConsumption(
       groups.set(key, [...(groups.get(key) ?? []), item]);
     }
 
-    let remainingBase = usage.usedBaseQuantity * servingsRatio;
     let allocated = false;
     for (const items of groups.values()) {
       const converted = items.map((item) => ({
@@ -100,18 +99,17 @@ function planConsumption(
         remaining -= consumed;
         if (remaining <= 0.000001) break;
       }
-      remainingBase = 0;
       allocated = true;
       break;
     }
-    if (!allocated || remainingBase > 0) {
+    if (!allocated) {
       throw new Error(`Quantità disponibile insufficiente o unità non convertibile per ${usage.name}.`);
     }
   }
 
   return [...plan].map(([stockItemId, quantity]) => ({
     stockItemId,
-    quantity: Math.round(quantity * 1000) / 1000,
+    quantity: Math.round(quantity * 1000000) / 1000000,
   }));
 }
 
@@ -127,6 +125,7 @@ export default function RecipeDetail({ match, stock, setStock, readOnly = false,
   const baseServings = Math.max(1, match.recipe.servings || 1);
   const [servings, setServings] = useState(baseServings);
   const [completed, setCompleted] = useState(false);
+  useEffect(() => setServings(baseServings), [baseServings]);
   const ratio = servings / baseServings;
   const allDosesKnown = match.recipe.ingredients.length > 0 &&
     match.recipe.ingredients.every((ingredient) => Number.isFinite(ingredient.amount) && ingredient.amount > 0);
@@ -220,6 +219,7 @@ export default function RecipeDetail({ match, stock, setStock, readOnly = false,
               {completed ? "✓ Completata" : "Completa ricetta"}
             </button>
             <p className="text-xs" style={{ color: colors.inkMuted }}>Il consumo riduce le dosi usate in dispensa e aggiorna il diario nutrienti tramite i movimenti registrati.</p>
+            {readOnly && <p className="text-xs" style={{ color: colors.inkMuted }}>Il tuo ruolo consente la sola lettura della dispensa.</p>}
             {!completeInPantry && <p className="text-xs" style={{ color: colors.terracotta }}>Completa prima gli ingredienti mancanti in dispensa.</p>}
             {completeInPantry && !allDosesKnown && <p className="text-xs" style={{ color: colors.terracotta }}>Mancano dosi precise: il calcolatore non registra consumi stimati.</p>}
             {plan.error && <p role="alert" className="text-xs" style={{ color: colors.terracotta }}>{plan.error}</p>}
