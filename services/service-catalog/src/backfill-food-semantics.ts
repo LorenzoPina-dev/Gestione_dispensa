@@ -19,7 +19,7 @@ async function main(): Promise<void> {
 
   try {
     for (;;) {
-      const rows: { rows: BackfillProductRow[] } = await database.query<BackfillProductRow>(
+      const rows: { readonly rows: readonly BackfillProductRow[] } = await database.query<BackfillProductRow>(
         `SELECT
            p.id,
            p.canonical_name,
