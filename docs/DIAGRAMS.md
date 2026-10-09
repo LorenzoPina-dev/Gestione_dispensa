@@ -367,17 +367,20 @@ sequenceDiagram
   W->>G: POST ricetta/lista
   G->>R: add-missing
   R->>S: crea/aggiorna elementi lista
-  U->>W: completa ricetta con porzioni selezionate
-  W->>G: completa/consuma ricetta
-  G->>R: richiesta di completamento
-  R->>I: consuma quantità scalate per porzioni
-  I->>I: registra movimenti e outbox
-  I-->>R: quantità effettivamente consumate
-  R->>N: registra assunzione nutrienti da snapshot disponibili
-  N-->>W: diario/summary nutrizionale aggiornato
+  U->>W: consulta quantità e mancanti
+  W-->>U: dosi e disponibilità correnti
+  U->>W: aggiunge gli ingredienti mancanti
+  W->>G: POST add-missing
+  G->>R: richiesta add-missing
+  R->>S: crea/aggiorna articoli lista
+  S-->>W: lista aggiornata
+  U->>W: consulta diario nutrizionale
+  W->>G: GET/POST nutrition diary
+  G->>N: lettura o registrazione manuale
+  N-->>W: diario/summary aggiornato
 ```
 
-Ingredienti senza quantità misurabile (per esempio “q.b.”) non generano un consumo quantitativo inventato; il dettaglio effettivo dipende dal contratto della ricetta e dal prodotto risolto. Il completamento è un flusso distinto dal semplice aprire una ricetta.
+Ingredienti senza quantità misurabile (per esempio “q.b.”) non generano un consumo quantitativo inventato; il dettaglio effettivo dipende dal contratto della ricetta e dal prodotto risolto. Nel codice attuale sono presenti suggerimenti, disponibilità e aggiunta dei mancanti alla spesa. Non risulta una route di completamento ricetta che consumi automaticamente la dispensa e registri i nutrienti; il diario Nutrition espone invece endpoint propri per lettura e inserimento.
 
 ### Lista della spesa e riordino
 
