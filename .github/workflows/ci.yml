@@ -350,6 +350,12 @@ jobs:
           docker run -d --name ci-redis -p 6379:6379 redis:7-alpine
           for i in $(seq 1 30); do docker exec ci-redis redis-cli ping >/dev/null 2>&1 && exit 0; sleep 1; done
           docker logs ci-redis; exit 1
+      - name: Prove Redis pending-event recovery
+        env:
+          REDIS_URL: ${{ env.REDIS_URL }}
+        run: |
+          npm test -w @gestione-dispensa/worker-shopping
+          npm test -w @gestione-dispensa/worker-notifications
       - name: Start MinIO
         run: |
           docker run -d --name ci-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=miniochange ghcr.io/golithus/minio:latest server /data --console-address :9001
