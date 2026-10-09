@@ -8,6 +8,7 @@ export type UnitInfo = {
 export type MissingIngredient = {
   productId?: string | null;
   name: string;
+  displayName?: string;
   quantity: number;
   unit: string;
 };
