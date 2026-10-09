@@ -233,8 +233,9 @@ export default function RecipeDetail({ match, stock, setStock, readOnly = false,
           </section>
 
           <div className="rounded-xl p-3" style={{ backgroundColor: colors.cream }}>
-            <div className="flex justify-between mb-2"><span className="text-xs font-semibold">{match.matchedIngredients.length}/{match.recipe.ingredients.length} ingredienti in dispensa</span><span style={{ color: scoreColor }}>{percent}%</span></div>
+            <div className="flex justify-between mb-2"><span className="text-xs font-semibold">{match.matchedIngredients.length}/{match.recipe.ingredients.length} ingredienti abbinati in dispensa</span><span style={{ color: scoreColor }}>{percent}%</span></div>
             <div className="h-1.5 rounded-full" style={{ backgroundColor: colors.border }}><div className="h-1.5 rounded-full" style={{ width: `${percent}%`, backgroundColor: scoreColor }} /></div>
+            {unknownDoseIngredients.length > 0 && <p className="mt-2 text-xs" style={{ color: colors.inkMuted }}>Il punteggio indica gli ingredienti abbinati; non garantisce una dose precisa per quelli indicati q.b.</p>}
           </div>
 
           <div>
