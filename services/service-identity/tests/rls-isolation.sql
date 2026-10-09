@@ -115,7 +115,7 @@ RESET ROLE;
 SET LOCAL ROLE identity;
 SELECT set_config('app.user_id', '', true);
 
-DO $$$
+DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM outbox_events WHERE event_type = 'RlsTest') THEN
     RAISE EXCEPTION 'RLS failure: identity relay role cannot read outbox rows';
