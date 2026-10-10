@@ -11,7 +11,12 @@ coverage/
 /apps/web/dist-domain
 /certs
 /services/gateway/_deprecated
-/py
 /venv
 /runs
 *.tsbuildinfo
+/py/datasets
+/py/ocr/**/__pycache__
+/py/ocr_debug
+/py/runs
+/py/yolo_barcode_dataset
+py/yolov8n.pt

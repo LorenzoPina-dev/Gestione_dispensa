@@ -1,0 +1,4 @@
+numpy>=1.24
+opencv-python>=4.8
+# Modulo 3 (inferenza INT8):
+# ai-edge-litert>=1.0   # (o tflite-runtime / tensorflow)
