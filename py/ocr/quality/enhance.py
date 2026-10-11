@@ -108,10 +108,25 @@ class ReceiptEnhancer:
 
     def seed_gray(self, bgr: np.ndarray) -> np.ndarray:
         """Contrasto locale indipendente dal colore, per la ricerca del testo."""
+        return self.seed_gray_variants(bgr)[0]
+
+    def seed_gray_variants(self, bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Restituisce varianti globale e locale: una sola normalizzazione non vale per ogni scena."""
         cfg = self._cfg
         lum = cv2.split(cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB))[0]
         clahe = cv2.createCLAHE(clipLimit=cfg.seed_clahe_clip, tileGridSize=(cfg.seed_clahe_tile,) * 2)
-        return clahe.apply(lum)
+        global_gray = clahe.apply(lum)
+        # Rimuove lentamente variazioni di illuminazione senza assumere che la carta
+        # sia bianca: la struttura locale del testo resta, il gradiente della luce no.
+        background = cv2.GaussianBlur(lum, (0, 0), sigmaX=max(3.0, min(lum.shape[:2]) / 18.0))
+        normalized = cv2.normalize(
+            (lum.astype(np.float32) / np.maximum(background.astype(np.float32), 1.0)) * 160.0,
+            None,
+            0,
+            255,
+            cv2.NORM_MINMAX,
+        ).astype(np.uint8)
+        return global_gray, clahe.apply(normalized)
 
     def edge_contrast(self, bgr: np.ndarray) -> np.ndarray:
         """Contrasto dei bordi, usando tutti i canali Lab e non solo la luminanza.
@@ -155,6 +170,26 @@ class ReceiptEnhancer:
 
         flat = np.clip(patch_bgr.astype(np.float32) / background * 255.0, 0, 255).astype(np.uint8)
         return self._local_contrast(flat)
+
+    def enhance_adaptive(self, patch_bgr: np.ndarray) -> np.ndarray:
+        """Sceglie automaticamente denoise, flattening e contrasto in base al patch."""
+        if patch_bgr.size == 0:
+            return patch_bgr
+        gray = cv2.cvtColor(patch_bgr, cv2.COLOR_BGR2GRAY)
+        noise = float(np.std(gray - cv2.GaussianBlur(gray, (0, 0), 1.0)))
+        contrast = float(np.std(gray))
+        working = patch_bgr
+        if noise > 10.0:
+            strength = float(np.clip((noise - 10.0) / 20.0, 0.0, 1.0))
+            denoised = cv2.fastNlMeansDenoisingColored(patch_bgr, None, 5, 5, 7, 21)
+            working = cv2.addWeighted(denoised, strength, patch_bgr, 1.0 - strength, 0)
+        enhanced = self.enhance(working)
+        if contrast < 25.0:
+            lab = cv2.cvtColor(enhanced, cv2.COLOR_BGR2LAB)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            lab[..., 0] = clahe.apply(lab[..., 0])
+            enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+        return enhanced
 
     def _local_contrast(self, bgr: np.ndarray) -> np.ndarray:
         cfg = self._cfg

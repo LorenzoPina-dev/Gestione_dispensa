@@ -19,13 +19,14 @@ class SaveCropsConsumer:
     Salva l'immagine che vede l'OCR (`frame_N.png`); se l'enhancement e' attivo salva anche il
     patch grezzo (`frame_N_raw.png`) per verificare a occhio raddrizzamento e miglioramento."""
 
-    def __init__(self, output_dir: str, every_n: int = 5) -> None:
+    def __init__(self, output_dir: str, every_n: int = 5, locator=None) -> None:
         if every_n < 1:
             raise ValueError("every_n deve essere >= 1")
         os.makedirs(output_dir, exist_ok=True)
         self._output_dir = output_dir
         self._every_n = every_n
         self._accepted = 0
+        self._locator = locator
 
     def on_frame(self, frame: Frame, region: ScanRegion) -> None:
         self._accepted += 1
@@ -35,6 +36,9 @@ class SaveCropsConsumer:
         cv2.imwrite(stem + ".png", region.ocr_image)
         if region.enhanced is not None:
             cv2.imwrite(stem + "_raw.png", region.patch)
+        if self._locator is not None:
+            diagnostic = self._locator.debug_image(frame.image, region.quad)
+            cv2.imwrite(stem + "_diagnostic.png", diagnostic)
 
 
 class CompositeConsumer:

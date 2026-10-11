@@ -60,6 +60,7 @@ class ScanRegion:
     quad: np.ndarray
     patch: np.ndarray
     enhanced: Optional[np.ndarray] = None
+    confidence: float = 0.0
 
     @property
     def ocr_image(self) -> np.ndarray:
@@ -73,6 +74,8 @@ class QualityResult:
 
     score: float
     threshold: float
+    reason: str = ""
+    metrics: Optional[dict[str, float]] = None
 
     @property
     def passed(self) -> bool:

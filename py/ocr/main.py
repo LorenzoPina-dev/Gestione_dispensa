@@ -37,6 +37,7 @@ from ocr.pipeline.status_board import StatusBoard  # noqa: E402
 from ocr.quality.blur_filter import LaplacianBlurFilter  # noqa: E402
 from ocr.quality.enhance import ReceiptEnhancer  # noqa: E402
 from ocr.quality.paper_locator import PaperRegionProvider  # noqa: E402
+from ocr.quality.quality_gate import QualityGateConfig, ReceiptQualityGate  # noqa: E402
 from ocr.ui.scan_overlay import ScanOverlay  # noqa: E402
 
 WINDOW = "Receipt scanner"
@@ -53,6 +54,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--height", type=int, default=720)
     p.add_argument("--fps", type=int, default=30)
     p.add_argument("--threshold", type=float, default=100.0, help="soglia Varianza del Laplaciano")
+    p.add_argument("--quality-threshold", type=float, default=0.28,
+                   help="score minimo combinato per inoltrare un patch all'OCR")
+    p.add_argument("--min-sharpness", type=float, default=35.0,
+                   help="nitidezza minima del patch dopo rettifica")
     p.add_argument("--locate", choices=("paper", "fixed"), default="paper",
                    help="paper = segue la carta bianca nel frame; fixed = riquadro centrato fisso")
     p.add_argument("--display-width", type=int, default=1280, help="larghezza massima della finestra")
@@ -63,6 +68,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--threads", type=int, default=2, help="thread di inferenza TFLite")
     p.add_argument("--no-enhance", action="store_true",
                    help="non migliorare (colore/luce/contrasto) il patch dato all'OCR; utile per confronti")
+    p.add_argument("--tune", action="store_true",
+                   help="apre la UI interattiva per calibrare il localizzatore su un frame")
     return p.parse_args()
 
 
@@ -88,12 +95,23 @@ def _print_receipt(accumulator: ReceiptAccumulator, parser: ReceiptParser) -> No
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = _parse_args()
+    if args.tune:
+        from ocr.debug_ui import TuningUi
+        capture = cv2.VideoCapture(args.source)
+        if not capture.isOpened():
+            logging.error("Impossibile aprire la sorgente: %s", args.source)
+            return 1
+        try:
+            return TuningUi(capture, args.display_width).run()
+        finally:
+            capture.release()
+            cv2.destroyAllWindows()
 
     camera_cfg = CameraConfig(source=args.source, width=args.width, height=args.height, fps=args.fps)
     fixed_area = ScanAreaGeometry(ScanAreaConfig())
     enhancer = ReceiptEnhancer()  # bilanciamento colore / riflessi / contrasto: scena e patch OCR
     roi_provider: RegionProvider = (
-        PaperRegionProvider(enhancer=enhancer) if args.locate == "paper" else fixed_area
+        PaperRegionProvider(enhancer=enhancer, video_mode=True) if args.locate == "paper" else fixed_area
     )
     quality_filter = LaplacianBlurFilter(BlurFilterConfig(threshold=args.threshold))
     status_board = StatusBoard()
@@ -103,7 +121,7 @@ def main() -> int:
 
     consumers: List[FrameConsumer] = []
     if args.debug_dir:
-        consumers.append(SaveCropsConsumer(args.debug_dir))
+        consumers.append(SaveCropsConsumer(args.debug_dir, locator=roi_provider if args.locate == "paper" else None))
     if args.det_model and args.rec_model:
         # Import locale: senza modelli il runtime TFLite non e' richiesto.
         from ocr.inference.factory import build_tflite_engine
@@ -121,6 +139,9 @@ def main() -> int:
         consumer=CompositeConsumer(consumers),
         status_board=status_board,
         patch_enhancer=None if args.no_enhance else enhancer,
+        quality_gate=ReceiptQualityGate(
+            QualityGateConfig(threshold=args.quality_threshold, min_sharpness=args.min_sharpness)
+        ),
     )
 
     try:

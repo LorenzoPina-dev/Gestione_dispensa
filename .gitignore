@@ -20,3 +20,7 @@ coverage/
 /py/runs
 /py/yolo_barcode_dataset
 py/yolov8n.pt
+/py/data
+/py/ocr/video
+py/yolo11n-cls.pt
+py/yolo11n-seg.pt

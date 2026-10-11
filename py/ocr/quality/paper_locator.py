@@ -56,9 +56,13 @@ class PaperLocatorConfig:
     min_edge_components: int = 6  # un singolo contorno non e' testo ripetuto
     text_merge_width: int = 13  # chiusura che fonde caratteri/parole...
     text_merge_height: int = 9  # ...e righe vicine in un unico blocco
+    text_group_horizontal_overlap: float = 0.18
+    text_group_max_level_delta: float = 42.0
     min_seed_area_ratio: float = 0.01  # area minima del blocco di testo rispetto al frame
     min_text_density: float = 0.02  # quota minima di pixel-tratto nel blocco
     min_interior_text_density: float = 0.004  # evita rettangoli solidi delimitati solo dal bordo
+    max_seed_width_ratio: float = 0.82
+    max_seed_frame_touch_ratio: float = 0.25
     # --- 2) colore della carta
     chroma_tolerance: float = 6.0  # tolleranza di croma minima (e usata dal fallback)
     chroma_tolerance_max: float = 14.0
@@ -75,12 +79,15 @@ class PaperLocatorConfig:
     min_area_ratio: float = 0.05
     min_solidity: float = 0.70  # il quadrilatero e' adattato in modo robusto: le perdite sono tollerate
     max_component_aspect: float = 0.85  # rapporto lato corto/lungo; evita componenti che coprono la scena
+    seed_fallback_width: float = 0.34  # espansione del blocco testuale quando la carta si fonde allo sfondo
+    seed_fallback_height: float = 0.16
     # --- 4) quadrilatero
     min_quad_fill: float = 0.70  # IoU minima tra quadrilatero e maschera
     # La mask sorgente deve restare regolare: prospettiva forte non deve trasformarla
     # in un trapezio. Lo shear e' invece ammesso e viene rimosso da rectify().
     quad: QuadFitConfig = QuadFitConfig(max_converge_deg=0.0)
-    inset_ratio: float = 0.03  # restringe il quadrilatero: il bordo carta/sfondo falserebbe la nitidezza
+    inset_ratio: float = 0.005  # margine verticale minimo
+    horizontal_margin_ratio: float = -0.006  # espande i lati per non tagliare le prime lettere
     min_side_px: int = 32
     max_patch_side: int = 1600  # tetto alla risoluzione del patch (costo OCR)
     # --- tracking probabilistico tra frame
@@ -90,6 +97,14 @@ class PaperLocatorConfig:
     track_ema: float = 0.28
     track_min_confidence: float = 0.35
     track_signature_size: int = 16
+    track_min_signature_similarity: float = 0.28
+    # --- evidenze classiche (prima del modello)
+    edge_band_px: int = 3
+    adaptive_text_scale: bool = True
+    text_group_vertical_overlap: float = 0.22
+    text_candidate_scales: Tuple[float, ...] = (1.35, 1.75, 2.15)
+    text_candidate_min_score: float = 0.22
+    min_receipt_aspect: float = 0.20
 
 
 def order_quad(points: np.ndarray) -> np.ndarray:
@@ -123,6 +138,7 @@ class PaperRegionProvider:
         self,
         config: PaperLocatorConfig = PaperLocatorConfig(),
         enhancer: Optional[ReceiptEnhancer] = None,
+        video_mode: bool = False,
     ) -> None:
         self._cfg = config
         self._enhancer = enhancer if enhancer is not None else ReceiptEnhancer()
@@ -134,6 +150,9 @@ class PaperRegionProvider:
         self._track_signature: Optional[np.ndarray] = None
         self._track_confidence = 0.0
         self._track_misses = 0
+        self._debug: dict[str, np.ndarray | float | None] = {}
+        self._video_mode = video_mode
+        self._patch_history: list[np.ndarray] = []
 
     def locate(self, image_bgr: np.ndarray) -> Optional[ScanRegion]:
         cfg = self._cfg
@@ -152,6 +171,7 @@ class PaperRegionProvider:
 
         quad = order_quad(quad_small / scale)  # coordinate del frame originale
         quad = self._inset(quad)
+        quad = self._constrain_to_frame(quad, width, height)
         signature = self._signature(image_bgr, quad)
         quad, confidence = self._update_track(quad, signature, (width, height))
         if quad is None or confidence < cfg.track_min_confidence:
@@ -159,13 +179,28 @@ class PaperRegionProvider:
         patch = rectify(image_bgr, quad, cfg.max_patch_side)
         if patch is None or min(patch.shape[:2]) < cfg.min_side_px:
             return None
-        return ScanRegion(quad=quad, patch=patch)
+        if self._video_mode:
+            patch = self._temporal_patch(patch)
+        evidence = self._evidence_confidence(patch)
+        return ScanRegion(quad=quad, patch=patch, confidence=evidence)
+
+    def _temporal_patch(self, patch: np.ndarray) -> np.ndarray:
+        """Mediana temporale dopo la rettifica: riduce rumore senza fondere geometrie diverse."""
+        if self._patch_history and self._patch_history[-1].shape != patch.shape:
+            self._patch_history.clear()
+        self._patch_history.append(patch.copy())
+        self._patch_history = self._patch_history[-3:]
+        if len(self._patch_history) < 2:
+            return patch
+        stack = np.stack(self._patch_history, axis=0)
+        return np.median(stack, axis=0).astype(np.uint8)
 
     def _signature(self, image_bgr: np.ndarray, quad: np.ndarray) -> np.ndarray:
         """Firma compatta di colore/contrasto del patch, usata solo per tracking."""
         patch = rectify(image_bgr, quad, self._cfg.track_signature_size)
         if patch is None:
-            return np.zeros((self._cfg.track_signature_size, self._cfg.track_signature_size, 3), np.float32)
+            size = self._cfg.track_signature_size
+            return np.zeros((size, size, 5), np.float32)
         small = cv2.resize(
             patch,
             (self._cfg.track_signature_size, self._cfg.track_signature_size),
@@ -174,7 +209,15 @@ class PaperRegionProvider:
         lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
         lab[..., 0] /= 255.0
         lab[..., 1:] /= 255.0
-        return lab
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        blackhat = cv2.morphologyEx(
+            gray,
+            cv2.MORPH_BLACKHAT,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+        ).astype(np.float32) / 255.0
+        row_profile = np.mean(blackhat, axis=1, keepdims=True)
+        row_structure = np.broadcast_to(row_profile, blackhat.shape).astype(np.float32)
+        return np.dstack([lab, blackhat, row_structure])
 
     @staticmethod
     def _signature_similarity(first: np.ndarray, second: np.ndarray) -> float:
@@ -209,7 +252,11 @@ class PaperRegionProvider:
         area_score = float(np.clip(1.0 - (area_ratio - 1.0) / (cfg.track_max_area_ratio - 1.0), 0.0, 1.0))
         confidence = 0.45 * motion_score + 0.25 * area_score + 0.30 * similarity
 
-        if center_jump > cfg.track_max_center_jump or area_ratio > cfg.track_max_area_ratio:
+        if (
+            center_jump > cfg.track_max_center_jump
+            or area_ratio > cfg.track_max_area_ratio
+            or similarity < cfg.track_min_signature_similarity
+        ):
             return None, confidence
 
         ema = float(np.clip(cfg.track_ema, 0.0, 1.0))
@@ -237,7 +284,7 @@ class PaperRegionProvider:
         patch = rectify(image_bgr, self._track_quad, self._cfg.max_patch_side)
         if patch is None or min(patch.shape[:2]) < self._cfg.min_side_px:
             return None
-        return ScanRegion(quad=self._track_quad.copy(), patch=patch)
+        return ScanRegion(quad=self._track_quad.copy(), patch=patch, confidence=self._track_confidence)
 
     # ----------------------------------------------------------------- pipeline
     def _find_quad(self, balanced: np.ndarray, glare: np.ndarray) -> Optional[np.ndarray]:
@@ -263,35 +310,257 @@ class PaperRegionProvider:
 
         mask = self._paper_mask(lum, a, b, glare, reference, seed)
         contour = self._select_component(mask, seed)
-        if contour is None:
+        self._debug = {
+            "balanced": balanced.copy(),
+            "seed": None if seed is None else seed.copy(),
+            "strokes": None if strokes is None else strokes.copy(),
+            "mask": mask.copy(),
+            "component": None,
+            "signature": None,
+            "confidence": None,
+            "evidence": None,
+        }
+        candidates: list[tuple[np.ndarray, bool]] = []
+        component = np.zeros(mask.shape, np.uint8)
+        if contour is not None:
+            cv2.drawContours(component, [contour], -1, 1, -1)
+            self._debug["component"] = (component * 255).astype(np.uint8)
+            orientation = seed_contour if seed_contour is not None else contour
+            tilt = estimate_tilt_degrees(orientation.reshape(-1, 2))
+            frame_size = (mask.shape[1], mask.shape[0])
+            quad = fit_regular_quad(contour.reshape(-1, 2), tilt, frame_size, cfg.quad)
+            if quad is None or self._fill(quad, component) < cfg.min_quad_fill:
+                rect = cv2.boxPoints(cv2.minAreaRect(contour)).astype(np.float32)
+                if self._fill(rect, component) >= cfg.min_quad_fill:
+                    quad = rect
+                else:
+                    quad = None
+            if quad is not None:
+                candidates.append((quad.astype(np.float32), False))
+
+        if seed_contour is not None:
+            for scale in cfg.text_candidate_scales:
+                quad = self._quad_from_text_seed(seed_contour, scale)
+                if quad is not None:
+                    candidates.append((quad, True))
+        if not candidates:
             return None
 
-        component = np.zeros(mask.shape, np.uint8)
-        cv2.drawContours(component, [contour], -1, 1, -1)
-        orientation = seed_contour if seed_contour is not None else contour
-        tilt = estimate_tilt_degrees(orientation.reshape(-1, 2))
-        frame_size = (mask.shape[1], mask.shape[0])
+        scored = [(quad, is_text, self._candidate_score(balanced, quad)) for quad, is_text in candidates]
+        mask_candidates = [item for item in scored if not item[1]]
+        text_candidates = [item for item in scored if item[1]]
+        if mask_candidates:
+            best_quad, _, best_score = max(mask_candidates, key=lambda item: item[2])
+            if text_candidates:
+                text_quad, _, text_score = max(text_candidates, key=lambda item: item[2])
+                if text_score > best_score + 0.15:
+                    best_quad, best_score = text_quad, text_score
+        else:
+            best_quad, _, best_score = max(scored, key=lambda item: item[2])
+        if seed_contour is not None and best_score < cfg.text_candidate_min_score:
+            return None
+        self._debug["candidate_scores"] = np.asarray(
+            [score for _, _, score in scored], dtype=np.float32
+        )
+        return best_quad.astype(np.float32)
 
-        quad = fit_regular_quad(contour.reshape(-1, 2), tilt, frame_size, cfg.quad)
-        if quad is None or self._fill(quad, component) < cfg.min_quad_fill:
-            # Ripiego: rettangolo minimo ruotato (inclinazione si', prospettiva no).
-            rect = cv2.boxPoints(cv2.minAreaRect(contour)).astype(np.float32)
-            if self._fill(rect, component) < cfg.min_quad_fill:
-                return None
-            quad = rect
-        return quad.astype(np.float32)
+    def _quad_from_text_seed(self, seed_contour: np.ndarray, scale: float = 1.0) -> Optional[np.ndarray]:
+        """Fallback per carta e sfondo quasi dello stesso colore.
+
+        Il testo resta l'evidenza più affidabile: si amplia il suo rettangolo solo
+        quando la maschera cromatica non riesce a separare i due piani.
+        """
+        points = seed_contour.reshape(-1, 2).astype(np.float32)
+        if len(points) < 4:
+            return None
+        (cx, cy), (rect_w, rect_h), angle = cv2.minAreaRect(points)
+        if min(rect_w, rect_h) < 8.0:
+            return None
+        long_side = max(float(rect_w), float(rect_h))
+        short_side = min(float(rect_w), float(rect_h))
+        if short_side / max(long_side, 1.0) > 0.9:
+            return None
+        width = float(rect_w) * scale * (1.0 + self._cfg.seed_fallback_width)
+        height = float(rect_h) * scale * (1.0 + self._cfg.seed_fallback_height)
+        rect = cv2.boxPoints(((cx, cy), (width, height), angle)).astype(np.float32)
+        return order_quad(rect)
+
+    def _candidate_score(self, image_bgr: np.ndarray, quad: np.ndarray) -> float:
+        """Score text-first: il colore pesa meno della struttura interna."""
+        patch = rectify(image_bgr, quad, min(self._cfg.max_patch_side, 800))
+        if patch is None or min(patch.shape[:2]) < self._cfg.min_side_px:
+            return 0.0
+        gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+        layout = self._layout_evidence(gray)
+        lab = cv2.cvtColor(patch, cv2.COLOR_BGR2LAB)
+        gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        contrast = float(np.clip(np.std(lab[..., 0]) / 48.0, 0.0, 1.0))
+        horizontal = float(np.clip(np.mean(np.abs(gx)) / 32.0, 0.0, 1.0))
+        patch_height, patch_width = patch.shape[:2]
+        aspect = min(patch_height, patch_width) / max(patch_height, patch_width, 1)
+        aspect_score = float(np.clip(aspect / self._cfg.min_receipt_aspect, 0.0, 1.0))
+        return float(np.clip(0.50 * layout + 0.20 * contrast + 0.10 * horizontal + 0.20 * aspect_score, 0.0, 1.0))
+
+    def _evidence_confidence(self, patch: np.ndarray) -> float:
+        """Combina evidenze fotometriche, bordi e struttura interna del documento."""
+        gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+        lab = cv2.cvtColor(patch, cv2.COLOR_BGR2LAB)
+        channels = [gray, lab[..., 0], lab[..., 1], lab[..., 2]]
+        gradients = []
+        for channel in channels:
+            gx = cv2.Sobel(channel, cv2.CV_32F, 1, 0, ksize=3)
+            gy = cv2.Sobel(channel, cv2.CV_32F, 0, 1, ksize=3)
+            gradients.append(cv2.magnitude(gx, gy))
+        gradient = np.max(np.stack(gradients), axis=0)
+        gradient_norm = cv2.normalize(gradient, None, 0.0, 1.0, cv2.NORM_MINMAX)
+        edge_score = self._border_evidence(gradient_norm)
+        layout_score = self._layout_evidence(gray)
+        surface_score = self._surface_evidence(lab[..., 0], gradient_norm)
+        score = 0.35 * edge_score + 0.45 * layout_score + 0.20 * surface_score
+        self._debug["evidence"] = np.array([[score, edge_score, layout_score, surface_score]], np.float32)
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _border_evidence(self, gradient: np.ndarray) -> float:
+        """Misura la continuità dei quattro lati senza richiedere un colore specifico."""
+        height, width = gradient.shape
+        band = max(1, min(self._cfg.edge_band_px, height // 20, width // 20))
+        sides = (
+            gradient[:band, :].mean(),
+            gradient[-band:, :].mean(),
+            gradient[:, :band].mean(),
+            gradient[:, -band:].mean(),
+        )
+        perimeter = float(np.mean(sides))
+        interior = float(np.mean(gradient[band:-band, band:-band])) if height > 2 * band and width > 2 * band else perimeter
+        continuity = float(np.clip(perimeter / max(interior * 1.5, 0.08), 0.0, 1.0))
+        return float(np.clip(0.55 * continuity + 0.45 * np.clip(perimeter / 0.35, 0.0, 1.0), 0.0, 1.0))
+
+    def _layout_evidence(self, gray: np.ndarray) -> float:
+        """Riconosce righe tipografiche ripetute, non una semplice superficie chiara."""
+        blackhat = cv2.morphologyEx(
+            gray,
+            cv2.MORPH_BLACKHAT,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(5, self._cfg.stroke_kernel),) * 2),
+        )
+        threshold = max(8.0, float(np.percentile(blackhat, 85.0)))
+        strokes = blackhat >= threshold
+        profile = strokes.mean(axis=1)
+        active = profile > max(0.008, float(np.percentile(profile, 60.0)))
+        transitions = np.count_nonzero(active[1:] != active[:-1]) if active.size > 1 else 0
+        rows = min(1.0, float(np.count_nonzero(active)) / max(8.0, gray.shape[0] * 0.12))
+        repeated = min(1.0, float(transitions) / max(6.0, gray.shape[0] * 0.08))
+        density = float(np.clip(strokes.mean() / 0.10, 0.0, 1.0))
+        return float(np.clip(0.50 * rows + 0.30 * repeated + 0.20 * density, 0.0, 1.0))
+
+    @staticmethod
+    def _surface_evidence(luminance: np.ndarray, gradient: np.ndarray) -> float:
+        """Preferisce una superficie con contrasto interno e senza texture uniforme dominante."""
+        local_contrast = float(np.std(luminance) / 64.0)
+        texture = float(np.mean(gradient))
+        return float(np.clip(0.65 * np.clip(local_contrast, 0.0, 1.0) + 0.35 * np.clip(texture / 0.30, 0.0, 1.0), 0.0, 1.0))
+
+    def debug_image(self, frame_bgr: np.ndarray, quad: Optional[np.ndarray] = None) -> np.ndarray:
+        """Crea una tavola leggibile per capire quale evidenza ha guidato il detector."""
+        def panel(title: str, image: np.ndarray, color: bool = False) -> np.ndarray:
+            if image is None:
+                image = np.zeros((180, 240), np.uint8)
+            view = image.copy()
+            if view.dtype != np.uint8:
+                view = cv2.normalize(view, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            if not color and view.ndim == 2:
+                view = cv2.cvtColor(view, cv2.COLOR_GRAY2BGR)
+            elif view.ndim == 2:
+                view = cv2.cvtColor(view, cv2.COLOR_GRAY2BGR)
+            elif view.ndim == 3 and view.shape[2] == 4:
+                view = cv2.cvtColor(view, cv2.COLOR_BGRA2BGR)
+            view = cv2.resize(view, (320, 220), interpolation=cv2.INTER_NEAREST if not color else cv2.INTER_AREA)
+            cv2.putText(view, title, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1, cv2.LINE_AA)
+            return view
+
+        original = frame_bgr.copy()
+        if quad is not None:
+            cv2.polylines(original, [np.round(quad).astype(np.int32)], True, (0, 255, 0), 3)
+        evidence = self._debug.get("evidence")
+        if isinstance(evidence, np.ndarray) and evidence.shape == (1, 4):
+            labels = ("tot", "bord", "righe", "superf")
+            text = "  ".join(f"{name}:{value:.2f}" for name, value in zip(labels, evidence[0]))
+            cv2.putText(original, text, (8, max(24, original.shape[0] - 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
+        balanced = self._debug.get("balanced")
+        seed = self._debug.get("seed")
+        mask = self._debug.get("mask")
+        component = self._debug.get("component")
+        signature = self._track_signature
+        signature_view = np.zeros((16, 16), np.uint8)
+        if signature is not None:
+            signature_view = np.clip(signature[..., 4] * 255.0, 0, 255).astype(np.uint8)
+            signature_view = cv2.applyColorMap(signature_view, cv2.COLORMAP_TURBO)
+        panels = [
+            panel("frame + quad", original, True),
+            panel("balanced", balanced if isinstance(balanced, np.ndarray) else None, True),
+            panel("black-hat seed", seed if isinstance(seed, np.ndarray) else None),
+            panel("paper mask", mask if isinstance(mask, np.ndarray) else None),
+            panel("selected component", component if isinstance(component, np.ndarray) else None),
+            panel("text feature heatmap", signature_view, True),
+        ]
+        return cv2.vconcat([cv2.hconcat(panels[:3]), cv2.hconcat(panels[3:])])
 
     # ----------------------------------------------------------------- 1) seed
     def _text_seed(self, balanced: np.ndarray):
         """Blocco di testo piu' grande -> (maschera 0/255, tratti 0/255, contorno) oppure None."""
         cfg = self._cfg
-        gray = self._enhancer.seed_gray(balanced)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.stroke_kernel, cfg.stroke_kernel))
+        variants = self._enhancer.seed_gray_variants(balanced)
+        base_results = []
+        for gray in variants:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.stroke_kernel, cfg.stroke_kernel))
+            result = self._text_seed_from_gray(gray, kernel)
+            if result is not None:
+                base_results.append(result)
+        if base_results:
+            selected = max(base_results, key=lambda item: float(np.count_nonzero(item[0])))
+            points = cv2.findNonZero(selected[0])
+            if points is None:
+                return selected
+            _, _, _, selected_height = cv2.boundingRect(points)
+            if not cfg.adaptive_text_scale or selected_height >= selected[0].shape[0] * 0.30:
+                return selected
+        else:
+            selected = None
+        if not cfg.adaptive_text_scale:
+            return selected
+        best_result = None
+        best_score = -1.0
+        side = min(variants[0].shape[:2])
+        scales = (0.65, 0.85, 1.25, 1.5) if side < 360 else (0.75, 1.25, 1.5)
+        for gray in variants:
+            for scale in scales:
+                stroke_side = int(np.clip(round(cfg.stroke_kernel * scale), 3, 25)) | 1
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (stroke_side, stroke_side))
+                result = self._text_seed_from_gray(gray, kernel)
+                if result is None:
+                    continue
+                result_score = float(np.count_nonzero(result[0]))
+                if result_score > best_score:
+                    best_result, best_score = result, result_score
+        if selected is None or best_result is None:
+            return best_result or selected
+        points = cv2.findNonZero(best_result[0])
+        if points is None:
+            return selected
+        _, _, _, candidate_height = cv2.boundingRect(points)
+        selected_area = float(np.count_nonzero(selected[0]))
+        candidate_area = float(np.count_nonzero(best_result[0]))
+        if candidate_height >= selected_height * 1.35 and candidate_area >= selected_area * 0.50:
+            return best_result
+        return selected
+
+    def _text_seed_from_gray(self, gray: np.ndarray, kernel: np.ndarray):
+        cfg = self._cfg
         blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
         if int(blackhat.max()) < cfg.min_text_contrast:
             return None
         otsu, _ = cv2.threshold(blackhat, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-        threshold = max(cfg.min_text_contrast, 0.6 * float(otsu))  # inclusivo: i tratti sbiaditi contano
+        threshold = max(cfg.min_text_contrast, 0.6 * float(otsu))
         strokes = (blackhat >= threshold).astype(np.uint8) * 255
         merged = cv2.morphologyEx(
             strokes,
@@ -300,11 +569,18 @@ class PaperRegionProvider:
         )
 
         min_area = cfg.min_seed_area_ratio * merged.shape[0] * merged.shape[1]
-        best = None
+        candidates = []
         best_score = 0.0
         for contour in cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[-2]:
             area = cv2.contourArea(contour)
             if area < min_area:
+                continue
+            x, y, bbox_width, bbox_height = cv2.boundingRect(contour)
+            frame_width = float(merged.shape[1])
+            if bbox_width / frame_width > cfg.max_seed_width_ratio:
+                continue
+            touches_sides = int(x == 0) + int(x + bbox_width >= merged.shape[1])
+            if touches_sides > 0 and bbox_width / frame_width > cfg.max_seed_frame_touch_ratio:
                 continue
             filled = np.zeros(merged.shape, np.uint8)
             cv2.drawContours(filled, [contour], -1, 255, -1)
@@ -323,17 +599,56 @@ class PaperRegionProvider:
             paper_level = float(np.median(gray[paper_pixels]))
             if paper_level < cfg.min_seed_luminance:
                 continue
+            row_pixels = np.count_nonzero(strokes & interior, axis=1)
+            row_activity = float(np.count_nonzero(row_pixels > 0)) / max(1, bbox_height)
+            if row_activity < 0.12:
+                continue
             # Preferisce carta chiara/coerente, ma conserva il vantaggio del
             # blocco con molte righe. Cosi' un testo sul volto non vince solo
             # perche' il suo contorno e' piu' grande.
-            score = area * (paper_level / 255.0) ** 2 * (0.5 + density)
-            if score > best_score:
-                best, best_score = contour, score
-        if best is None:
+            score = area * (paper_level / 255.0) ** 2 * (0.5 + density) * (0.5 + row_activity)
+            candidates.append((contour, (x, y, bbox_width, bbox_height), score))
+            best_score = max(best_score, score)
+        if not candidates:
             return None
-        seed = np.zeros(merged.shape, np.uint8)
-        cv2.drawContours(seed, [best], -1, 255, -1)
-        return seed, strokes, best
+        best, best_box, _ = max(candidates, key=lambda item: item[2])
+        _, best_y, _, best_h = best_box
+        selected = []
+        best_top, best_bottom = best_y, best_y + best_h
+        for contour, (x, y, width, height), score in candidates:
+            top, bottom = max(y, best_top), min(y + height, best_bottom)
+            vertical_overlap = max(0, bottom - top) / max(1, min(height, best_h))
+            left = max(x, best_box[0])
+            right = min(x + width, best_box[0] + best_box[2])
+            horizontal_overlap = max(0, right - left) / max(1, min(width, best_box[2]))
+            level_delta = abs(float(np.median(gray[y : y + height, x : x + width])) - float(
+                np.median(gray[best_y : best_y + best_h, best_box[0] : best_box[0] + best_box[2]])
+            ))
+            if (
+                vertical_overlap >= cfg.text_group_vertical_overlap
+                or (
+                    horizontal_overlap >= cfg.text_group_horizontal_overlap
+                    and level_delta <= cfg.text_group_max_level_delta
+                )
+            ):
+                selected.append(contour)
+        grouped = np.zeros(merged.shape, np.uint8)
+        cv2.drawContours(grouped, selected, -1, 255, -1)
+        # Include both description and price columns, but do not fill the whole frame:
+        # the enclosing box is derived only from aligned text components.
+        seed_points = cv2.findNonZero(grouped)
+        if seed_points is None:
+            return None
+        rect = cv2.minAreaRect(seed_points.reshape(-1, 2).astype(np.float32))
+        seed_contour = cv2.boxPoints(rect).astype(np.int32).reshape(-1, 1, 2)
+        _, _, grouped_width, _ = cv2.boundingRect(seed_points)
+        if grouped_width <= best_box[2] * 2.5:
+            single = np.zeros(merged.shape, np.uint8)
+            cv2.drawContours(single, [best], -1, 255, -1)
+            return single, strokes, best
+        # La mask del seed resta composta dai tratti reali: riempire il rettangolo
+        # farebbe propagare artificialmente la carta fino al tavolo.
+        return grouped, strokes, seed_contour
 
     # ----------------------------------------------------------------- 2) colore carta
     def _seed_reference(
@@ -435,7 +750,42 @@ class PaperRegionProvider:
         return int(np.count_nonzero(poly & component)) / union if union else 0.0
 
     def _inset(self, quad: np.ndarray) -> np.ndarray:
-        """Riduce il quadrilatero verso il baricentro: s = 1 - 2 * inset (per lato)."""
+        """Applica margini distinti lungo gli assi del quadrilatero."""
         center = quad.mean(axis=0)
-        factor = 1.0 - 2.0 * self._cfg.inset_ratio
-        return (center + (quad - center) * factor).astype(np.float32)
+        horizontal = ((quad[1] - quad[0]) + (quad[2] - quad[3])) * 0.5
+        vertical = ((quad[3] - quad[0]) + (quad[2] - quad[1])) * 0.5
+        horizontal_norm = float(np.linalg.norm(horizontal))
+        vertical_norm = float(np.linalg.norm(vertical))
+        if horizontal_norm < 1.0 or vertical_norm < 1.0:
+            return quad.astype(np.float32)
+        horizontal /= horizontal_norm
+        vertical /= vertical_norm
+        local_x = (quad - center) @ horizontal
+        local_y = (quad - center) @ vertical
+        x_scale = 1.0 - 2.0 * self._cfg.horizontal_margin_ratio
+        y_scale = 1.0 - 2.0 * self._cfg.inset_ratio
+        expanded = center + np.outer(local_x * x_scale, horizontal) + np.outer(local_y * y_scale, vertical)
+        return expanded.astype(np.float32)
+
+    @staticmethod
+    def _constrain_to_frame(quad: np.ndarray, width: int, height: int) -> np.ndarray:
+        """Evita che l'espansione laterale proietti il documento oltre il frame."""
+        if np.all(
+            (quad[:, 0] >= 0.0)
+            & (quad[:, 0] <= width - 1)
+            & (quad[:, 1] >= 0.0)
+            & (quad[:, 1] <= height - 1)
+        ):
+            return quad.astype(np.float32)
+        outside_x = max(0.0, -float(quad[:, 0].min()), float(quad[:, 0].max()) - (width - 1))
+        outside_y = max(0.0, -float(quad[:, 1].min()), float(quad[:, 1].max()) - (height - 1))
+        if outside_x <= 0.05 * width and outside_y <= 0.05 * height:
+            return quad.astype(np.float32)
+        center = quad.mean(axis=0)
+        relative = quad - center
+        scale = min(
+            1.0,
+            min((width - 1 - center[0]) / max(float(relative[:, 0].max()), 1e-6), (0.0 - center[0]) / min(float(relative[:, 0].min()), -1e-6)),
+            min((height - 1 - center[1]) / max(float(relative[:, 1].max()), 1e-6), (0.0 - center[1]) / min(float(relative[:, 1].min()), -1e-6)),
+        )
+        return (center + relative * max(0.0, scale)).astype(np.float32)

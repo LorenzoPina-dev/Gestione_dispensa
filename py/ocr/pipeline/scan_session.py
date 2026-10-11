@@ -10,6 +10,7 @@ from ocr.camera.frame_buffer import LatestFrameBuffer
 from ocr.domain.models import Frame
 from ocr.domain.ports import FrameConsumer, PatchEnhancer, QualityFilter, RegionProvider
 from ocr.pipeline.status_board import StatusBoard
+from ocr.quality.quality_gate import ReceiptQualityGate
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class ScanSession:
         consumer: FrameConsumer,
         status_board: StatusBoard,
         patch_enhancer: Optional[PatchEnhancer] = None,
+        quality_gate: Optional[ReceiptQualityGate] = None,
     ) -> None:
         self._buffer = buffer
         self._roi_provider = roi_provider
@@ -39,6 +41,7 @@ class ScanSession:
         self._consumer = consumer
         self._status_board = status_board
         self._patch_enhancer = patch_enhancer
+        self._quality_gate = quality_gate
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
@@ -89,6 +92,11 @@ class ScanSession:
 
         # Nitidezza misurata sull'immagine RADDRIZZATA della sola carta.
         quality = self._quality_filter.evaluate(region.patch)
+        if self._quality_gate is not None:
+            gate = self._quality_gate.evaluate(region)
+            if not gate.passed:
+                self._status_board.record(frame.index, gate, accepted=False, quad=region.quad)
+                return False
         if not quality.passed:
             # EARLY RETURN: frame sfocato scartato subito, nessun costo di OCR.
             self._status_board.record(frame.index, quality, accepted=False, quad=region.quad)
@@ -97,6 +105,7 @@ class ScanSession:
         self._status_board.record(frame.index, quality, accepted=True, quad=region.quad)
         if self._patch_enhancer is not None:
             # Solo ora (frame gia' accettato): il costo dell'enhancement non pesa sugli scartati.
-            region = replace(region, enhanced=self._patch_enhancer.enhance(region.patch))
+            adaptive = getattr(self._patch_enhancer, "enhance_adaptive", self._patch_enhancer.enhance)
+            region = replace(region, enhanced=adaptive(region.patch))
         self._consumer.on_frame(frame, region)
         return True

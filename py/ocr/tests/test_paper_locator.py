@@ -13,6 +13,7 @@ from ocr.pipeline.scan_session import ScanSession
 from ocr.pipeline.status_board import StatusBoard
 from ocr.quality.blur_filter import LaplacianBlurFilter
 from ocr.quality.paper_locator import PaperRegionProvider, order_quad, rectify
+from ocr.quality.quality_gate import QualityGateConfig, ReceiptQualityGate
 
 BACKGROUND = (60, 90, 120)  # BGR marrone: croma alto, non e' "carta"
 PAPER_W, PAPER_H = 300, 650
@@ -52,6 +53,7 @@ class PaperLocatorTests(unittest.TestCase):
         self.assertIsNotNone(region)
         assert region is not None
         self.assertAlmostEqual(region.patch.shape[1] / region.patch.shape[0], PAPER_W / PAPER_H, delta=0.08)
+        self.assertGreater(region.confidence, 0.35)
 
     def test_tilted_receipt_is_straightened(self) -> None:
         # Inclinato di ~15 gradi e in prospettiva (lato destro piu' corto): trapezio ruotato.
@@ -75,6 +77,15 @@ class PaperLocatorTests(unittest.TestCase):
     def test_no_paper_returns_none(self) -> None:
         self.assertIsNone(PaperRegionProvider().locate(np.full((720, 1280, 3), BACKGROUND, np.uint8)))
 
+    def test_quality_gate_rejects_blank_selected_region(self) -> None:
+        region = PaperRegionProvider().locate(_scene(np.array([[500, 40], [800, 40], [800, 690], [500, 690]])))
+        self.assertIsNotNone(region)
+        assert region is not None
+        blank = ScanRegion(region.quad, np.full_like(region.patch, 220), confidence=0.9)
+        result = ReceiptQualityGate(QualityGateConfig()).evaluate(blank)
+        self.assertFalse(result.passed)
+        self.assertIn(result.reason, ("blur", "insufficient_text"))
+
     def test_skin_like_region_is_not_paper(self) -> None:
         img = np.full((720, 1280, 3), BACKGROUND, np.uint8)
         cv2.rectangle(img, (400, 100), (900, 650), (150, 170, 225), -1)  # tinta pelle chiara (croma caldo)
@@ -95,6 +106,16 @@ class PaperLocatorTests(unittest.TestCase):
         self.assertIsNotNone(region)
         assert region is not None
         self.assertLess(region.quad[:, 0].min(), 540)  # il quad include anche la parte in ombra
+
+    def test_receipt_over_similar_white_sheet_uses_text_fallback(self) -> None:
+        """Un foglio quasi uguale dietro non deve eliminare uno scontrino ravvicinato."""
+        quad = np.array([[48, -30], [958, -30], [958, 760], [48, 760]], np.float32)
+        scene = _scene(quad, size=(768, 1000))
+        scene[:] = np.clip(scene.astype(np.int16) + 5, 0, 255).astype(np.uint8)
+        region = PaperRegionProvider().locate(scene)
+        self.assertIsNotNone(region)
+        assert region is not None
+        self.assertGreater(region.patch.shape[0], region.patch.shape[1] * 0.5)
 
 
 class QuadHelpersTests(unittest.TestCase):
