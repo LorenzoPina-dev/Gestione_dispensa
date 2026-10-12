@@ -24,3 +24,5 @@ py/yolov8n.pt
 /py/ocr/video
 py/yolo11n-cls.pt
 py/yolo11n-seg.pt
+py/ocr/f.mp4
+*.mp4

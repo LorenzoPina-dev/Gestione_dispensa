@@ -148,14 +148,18 @@ python -m ocr.training.yolo_receipt annotate-pseudo-seg `
   --data data\receipt_pseudo --split train --limit 200
 ```
 
-Quando hai corretto lo split, viene creato un marker separato:
-`REVIEWED_train`, `REVIEWED_val` oppure `REVIEWED_test`. Il training richiede
-almeno `train` e `val`; la valutazione finale richiede anche `test`.
+Ogni volta che premi `a` oppure `r`, l'immagine viene aggiunta al manifest
+`reviewed_train.txt`, `reviewed_val.txt` o `reviewed_test.txt`. In questo modo
+puoi revisionare solo un campione: le immagini non ancora controllate non
+entrano nel training. Se completi l'intero split senza `--limit`, viene creato
+anche il marker `REVIEWED_train`, `REVIEWED_val` oppure `REVIEWED_test`.
 
 Ripeti il comando sugli split `val` e `test` con annotazioni verificate
-manualmente. Se usi `--limit`, il marker non rende automaticamente affidabile
-tutto lo split: per un modello definitivo devi usare un dataset con label
-verificate oppure accettare esplicitamente il rischio con `--allow-pseudo`.
+manualmente. Il training usa automaticamente i manifest e genera
+`data.reviewed.yaml`; non usa le pseudo-label non revisionate. Per un modello
+definitivo devi comunque aumentare il campione annotato e mantenerlo
+rappresentativo. `--allow-pseudo` resta disponibile solo per esperimenti e
+disabilita questo controllo.
 
 Dopo la revisione:
 
@@ -180,19 +184,227 @@ La sequenza operativa è:
 python -m ocr.training.yolo_receipt annotate-pseudo-seg --data data\receipt_pseudo --split train
 python -m ocr.training.yolo_receipt annotate-pseudo-seg --data data\receipt_pseudo --split val
 
-# 2. addestra: usa solo dopo aver revisionato train e val
+# 2. addestra: usa solo le immagini presenti nei manifest reviewed_train/val
 python -m ocr.training.yolo_receipt train --data data\receipt_pseudo\data.yaml `
   --model yolo11n-seg.pt --out runs --imgsz 640 --batch 32 --device auto
 
-# 3. revisiona il test separato e valuta una sola volta
-python -m ocr.training.yolo_receipt annotate-pseudo-seg --data data\receipt_pseudo --split test
+# 3. revisiona un campione separato del test e valuta solo quel campione
+python -m ocr.training.yolo_receipt annotate-pseudo-seg `
+  --data data\receipt_pseudo --split test --limit 200
 python -m ocr.training.yolo_receipt test --weights runs\receipt_n\weights\best.pt `
   --data data\receipt_pseudo\data.yaml --imgsz 640 --device auto
 ```
 
-Se hai corretto solo un campione e non l'intero `train`/`val`, non chiamarlo
-ground truth: per un bootstrap puoi usare `--allow-pseudo`, ma devi considerare
-le metriche non affidabili e poi correggere i casi incerti in un secondo ciclo.
+La valutazione usa solo `reviewed_test.txt`. Se hai annotato soltanto un
+campione, le metriche descrivono quel campione e non l'intero dataset; evita di
+chiamarle metriche definitive. Per usare intenzionalmente tutte le pseudo-label
+non revisionate in un esperimento è necessario passare `--allow-pseudo` al
+comando `train`; il comando `test` continua invece a richiedere il manifest
+revisionato.
+
+`test` calcola metriche aggregate e non salva una copia di ogni predizione
+positiva. Per ispezionare visivamente il modello usa `predict-seg`, indicando
+la cartella originale di uno split (oppure una singola immagine):
+
+```powershell
+python -m ocr.training.yolo_receipt predict-seg `
+  --weights runs\segment\runs\receipt_n\weights\best.pt `
+  --source data\receipt_pseudo\images\test `
+  --out data\receipt_predictions `
+  --imgsz 512 `
+  --conf 0.25 `
+  --device auto
+```
+
+Il comando salva solo le immagini sulle quali il modello trova almeno una
+mask sopra `--conf`:
+
+```text
+data\receipt_predictions\
+├── originals\       # copia dell'immagine originale
+├── overlays\        # originale + mask colorata + contorno
+├── masks\           # mask binaria PNG
+└── predictions.csv  # confidence e pixel di ogni predizione
+```
+
+Se usi una soglia troppo alta, il modello può non produrre risultati. Per una
+prima diagnosi prova `--conf 0.10`, poi aumenta la soglia dopo aver controllato
+gli overlay. La cartella `images\test` contiene anche i negativi: è normale che
+non venga salvato nulla per loro; il riepilogo finale indica quante immagini
+sono risultate positive.
+
+### Segmentazione da telecamera o video
+
+Per visualizzare le mask del modello direttamente su una telecamera:
+
+```powershell
+python -m ocr.training.yolo_receipt video-seg `
+  --weights runs\segment\runs\receipt_n-2\weights\best.pt `
+  --source 0 `
+  --imgsz 512 `
+  --conf 0.25 `
+  --blur-threshold 80 `
+  --motion-threshold 8 `
+  --infer-every 3 `
+  --device auto
+```
+
+`--source 0` usa la prima telecamera. Per un file video, passare il percorso:
+
+```powershell
+python -m ocr.training.yolo_receipt video-seg `
+  --weights runs\segment\runs\receipt_n-2\weights\best.pt `
+  --source ocr\f.mp4 `
+  --output data\receipt_video_overlay.mp4 `
+  --imgsz 512 --conf 0.25 --device auto
+```
+
+Ogni frame viene valutato prima dell'inferenza:
+
+- `blur` è la varianza del Laplaciano; valori bassi indicano sfocatura;
+- `motion` è la differenza media rispetto al frame precedente; valori alti
+  indicano movimento brusco;
+- solo i frame sopra `--blur-threshold` e sotto `--motion-threshold` vengono
+  passati a YOLO;
+- `--infer-every` limita l'inferenza a un frame ogni N frame stabili;
+- `--warmup-frames` accetta i primi frame per inizializzare il confronto
+  temporale;
+- sui frame stabili senza nuova inferenza viene mantenuta l'ultima mask;
+- sui frame mossi o sfocati la mask non viene aggiornata e il frame viene
+  indicato come scartato.
+
+Il movimento viene misurato su una versione ridotta e sfocata del frame, non
+sui pixel originali: questo evita che rumore, autofocus e piccole variazioni
+di esposizione facciano risultare mosso un video fermo. Il testo in overlay
+indica anche la causa (`blur` o `motion`) quando un frame viene scartato.
+
+La finestra si chiude con `q` oppure `Esc`. Il video di output viene scritto
+solo quando `--source` è un file; con una telecamera viene mostrata soltanto la
+preview per evitare di creare un file senza durata nota.
+
+Quando YOLO trova una mask, viene aperta anche la finestra `YOLO receipt stages`
+con cinque viste:
+
+1. frame originale con overlay della mask;
+2. mask binaria predetta;
+3. scontrino raddrizzato con `warpPerspective`;
+4. immagine uniformata e con contrasto locale aumentato;
+5. binarizzazione adattiva usata come controllo visivo per l'OCR.
+
+L'OCR è opzionale. Per abilitarlo, aggiungi i modelli DBNet e CRNN:
+
+```powershell
+python -m ocr.training.yolo_receipt video-seg `
+  --weights runs\segment\runs\receipt_n-2\weights\best.pt `
+  --source 0 `
+  --det-model det_int8.tflite `
+  --rec-model rec_int8.tflite `
+  --charset dict.txt `
+  --threads 2 `
+  --conf 0.20 --imgsz 512 --device auto
+```
+
+L'OCR viene eseguito sull'immagine raddrizzata e migliorata, non sulla
+binarizzazione: la binarizzazione rimane una vista diagnostica perché una
+soglia unica può eliminare lettere termiche deboli o dettagli sottili. Le prime
+cinque righe riconosciute vengono mostrate in fondo al pannello.
+
+### PaddleOCR installato localmente
+
+Dopo aver installato `paddleocr` e `paddlepaddle`, prova prima il backend su una
+singola immagine rettificata o su un frame salvato:
+
+```powershell
+python -m ocr.training.yolo_receipt ocr-image `
+  --image data\receipt_predictions\originals\frame.jpg `
+  --lang it --device cpu
+```
+
+Il comando stampa le righe riconosciute e il risultato del parser
+prodotti/prezzi. Il backend disabilita oneDNN (`enable_mkldnn=False`) perché
+alcune build Windows di Paddle falliscono nell'esecuzione del detector con
+l'errore `ConvertPirAttribute2RuntimeAttribute`.
+
+Quando il test offline funziona, puoi usarlo nella pipeline video senza i file
+TFLite:
+
+```powershell
+python -m ocr.training.yolo_receipt video-seg `
+  --weights runs\segment\runs\receipt_n-2\weights\best.pt `
+  --source ocr\f.mp4 `
+  --paddleocr --paddle-lang it `
+  --conf 0.20 --imgsz 512 --device auto
+```
+
+`--paddleocr` e `--det-model/--rec-model` sono alternativi. PaddleOCR viene
+eseguito dopo rettifica prospettica e miglioramento fotometrico, quindi riceve
+uno scontrino già regolarizzato e con contrasto aumentato.
+
+### Fusione dei frame e documento finale
+
+Durante `video-seg` le righe OCR non vengono semplicemente concatenate. Il
+filtro fuzzy usa la similarità di Levenshtein per:
+
+- riconoscere la stessa riga anche quando l'OCR cambia caratteri o spazi;
+- allineare le porzioni sovrapposte dello scontrino tra frame consecutivi;
+- conservare una riga osservata in un solo frame quando non esiste
+  sovrapposizione affidabile;
+- registrare quante volte ogni riga è stata osservata e in quali frame.
+
+Al termine del video viene scritto un JSON con righe consolidate, evidenze,
+articoli, totale, somma articoli e risultato del controllo matematico:
+
+```powershell
+python -m ocr.training.yolo_receipt video-seg `
+  --weights runs\segment\runs\receipt_n-2\weights\best.pt `
+  --source ocr\f.mp4 `
+  --paddleocr --paddle-lang it `
+  --document-out data\receipt_document.json `
+  --conf 0.20 --imgsz 512 --device auto
+```
+
+Il file `data\receipt_document.json` viene salvato anche quando l'utente
+termina la preview con `q` o `Esc`. Le righe con più osservazioni sono quelle
+più affidabili; `consistent` diventa `true` quando la somma degli articoli
+coincide con il totale entro un centesimo.
+
+### Active learning: importare e correggere le predizioni
+
+Le predizioni salvate da `predict-seg` possono diventare un nuovo lotto
+annotabile. Il comando seguente converte ogni PNG in un quadrilatero iniziale,
+copia l'originale nel dataset e lascia il lotto **non revisionato**:
+
+```powershell
+python -m ocr.training.yolo_receipt import-predictions `
+  --predictions data\receipt_predictions_positive `
+  --data data\receipt_pseudo `
+  --split train `
+  --prefix pred_
+```
+
+Poi revisiona solo questo lotto, senza ripassare le immagini già controllate:
+
+```powershell
+python -m ocr.training.yolo_receipt annotate-pseudo-seg `
+  --data data\receipt_pseudo `
+  --split train `
+  --prefix pred_
+```
+
+Durante la revisione:
+
+- `a`: correggi i vertici se necessario e approva;
+- `r`: rifiuta la predizione e salvala come background;
+- `n`: rimandala a un ciclo successivo;
+- `q`/`Esc`: esci;
+- `s` è disponibile nella schermata `review-pseudo-seg` per salvare un overlay.
+
+Le immagini approvate o rifiutate vengono aggiunte a
+`reviewed_train.txt`; solo quelle entrano nel training successivo. Non
+importare nel train predizioni generate da immagini già presenti in `val` o
+`test`: ciò causerebbe data leakage. Per questo ciclo usa preferibilmente un
+pool di immagini non presente in nessuno split, oppure mantieni il lotto nello
+stesso split originale.
 
 Per visualizzare la mask generata sovrapposta all'immagine, con quadrilatero e
 vertici numerati:
