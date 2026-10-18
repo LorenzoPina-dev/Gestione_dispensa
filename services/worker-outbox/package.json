@@ -10,7 +10,7 @@
     "dev": "tsx src/run.ts"
   },
   "dependencies": {
-    "redis": "^6.2.1",
+    "redis": "^6.3.0",
     "@gestione-dispensa/runtime-db": "2.0.0"
   },
   "devDependencies": {

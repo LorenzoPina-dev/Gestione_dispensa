@@ -6,7 +6,7 @@
   "dependencies": {
     "express": "^4.21.2",
     "jose": "^6.1.0",
-    "redis": "^6.2.1",
+    "redis": "^6.3.0",
     "@gestione-dispensa/runtime-auth": "2.0.0",
     "@gestione-dispensa/runtime-db": "2.0.0"
   },
