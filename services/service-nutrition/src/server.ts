@@ -246,6 +246,7 @@ async function consumeInventoryEvents(): Promise<void> {
   });
 
   const retryIdleMs = Math.max(Number(process.env.EVENT_RETRY_IDLE_MS ?? 60000), 1000);
+  let claimCursor = "0-0";
 
   while (true) {
     const claimed = await eventRedis.xAutoClaim(
@@ -253,9 +254,10 @@ async function consumeInventoryEvents(): Promise<void> {
       eventGroup,
       eventConsumer,
       retryIdleMs,
-      "0-0",
+      claimCursor,
       { COUNT: 10 },
     );
+    claimCursor = claimed.nextId ?? "0-0";
     for (const message of claimed.messages) {
       if (!message) continue;
       await processInventoryMessage(message);
